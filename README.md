@@ -21,33 +21,42 @@ A configurable hybrid search system that optionally combines vector similarity s
 ### Angular Frontend - Tabbed Interface
 
 <details>
-<summary>Click to view Angular UI screenshots</summary>
+<summary>Click to view Angular UI screenshots (Light Theme)</summary>
 
 | Sources Tab | Processing Tab | Search Tab | Chat Tab |
 |-------------|----------------|------------|----------|
-| [![Angular Sources](./screen-shots/angular-sources.png)](./screen-shots/angular-sources.png) | [![Angular Processing](./screen-shots/angular-processing.png)](./screen-shots/angular-processing.png) | [![Angular Search](./screen-shots/angular-search.png)](./screen-shots/angular-search.png) | [![Angular Chat](./screen-shots/angular-chat.png)](./screen-shots/angular-chat.png) |
+| [![Angular Sources](./screen-shots/angular/angular-sources.png)](./screen-shots/angular/angular-sources.png) | [![Angular Processing](./screen-shots/angular/angular-processing.png)](./screen-shots/angular/angular-processing.png) | [![Angular Search](./screen-shots/angular/angular-search.png)](./screen-shots/angular/angular-search.png) | [![Angular Chat](./screen-shots/angular/angular-chat.png)](./screen-shots/angular/angular-chat.png) |
 
 </details>
 
 ### React Frontend - Tabbed Interface
 
 <details open>
-<summary>Click to view React UI screenshots</summary>
+<summary>Click to view React UI screenshots (Dark Theme)</summary>
 
 | Sources Tab | Processing Tab | Search Tab | Chat Tab |
 |-------------|----------------|------------|----------|
-| [![React Sources](./screen-shots/react-sources.png)](./screen-shots/react-sources.png) | [![React Processing](./screen-shots/react-processing.png)](./screen-shots/react-processing.png) | [![React Search](./screen-shots/react-search.png)](./screen-shots/react-search.png) | [![React Chat](./screen-shots/react-chat.png)](./screen-shots/react-chat.png) |
+| [![React Sources](./screen-shots/react/react-sources.png)](./screen-shots/react/react-sources.png) | [![React Processing](./screen-shots/react/react-processing.png)](./screen-shots/react/react-processing.png) | [![React Search](./screen-shots/react/react-search-hybrid-search.png)](./screen-shots/react/react-search-hybrid-search.png) | [![React Chat](./screen-shots/react/react-chat-using.png)](./screen-shots/react/react-chat-using.png) |
+
+</details>
+
+<details>
+<summary>Click to view React UI screenshots (Light Theme)</summary>
+
+| Sources Tab | Processing Tab | Search Tab | Chat Tab |
+|-------------|----------------|------------|----------|
+| [![React Sources Light](./screen-shots/react/react-sources-light.png)](./screen-shots/react/react-sources-light.png) | [![React Processing Light](./screen-shots/react/react-processing-light.png)](./screen-shots/react/react-processing-light.png) | [![React Search Light](./screen-shots/react/react-search-hybrid-search-light.png)](./screen-shots/react/react-search-hybrid-search-light.png) | [![React Chat Light](./screen-shots/react/react-chat-using-light.png)](./screen-shots/react/react-chat-using-light.png) |
 
 </details>
 
 ### Vue Frontend - Tabbed Interface
 
 <details>
-<summary>Click to view Vue UI screenshots</summary>
+<summary>Click to view Vue UI screenshots (Light Theme)</summary>
 
 | Sources Tab | Processing Tab | Search Tab | Chat Tab |
 |-------------|----------------|------------|----------|
-| [![Vue Sources](./screen-shots/vue-sources.png)](./screen-shots/vue-sources.png) | [![Vue Processing](./screen-shots/vue-processing.png)](./screen-shots/vue-processing.png) | [![Vue Search](./screen-shots/vue-search.png)](./screen-shots/vue-search.png) | [![Vue Chat](./screen-shots/vue-chat.png)](./screen-shots/vue-chat.png) |
+| [![Vue Sources](./screen-shots/vue/vue-sources.png)](./screen-shots/vue/vue-sources.png) | [![Vue Processing](./screen-shots/vue/vue-processing.png)](./screen-shots/vue/vue-processing.png) | [![Vue Search](./screen-shots/vue/vue-search.png)](./screen-shots/vue/vue-search.png) | [![Vue Chat](./screen-shots/vue/vue-chat.png)](./screen-shots/vue/vue-chat.png) |
 
 </details>
 
