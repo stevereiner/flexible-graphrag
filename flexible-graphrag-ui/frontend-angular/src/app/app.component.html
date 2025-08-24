@@ -31,7 +31,11 @@
               [hasConfiguredSources]="hasConfiguredSources"
               [configuredDataSource]="configuredDataSource"
               [configuredFiles]="configuredFiles"
-              (goToSources)="selectedTabIndex = 0">
+              [configuredFolderPath]="configuredFolderPath"
+              [repositoryItemsHidden]="repositoryItemsHidden"
+              (goToSources)="selectedTabIndex = 0"
+              (removeRepositoryFile)="removeRepositoryFile($event)"
+              (removeUploadFile)="removeUploadFile($event)">
             </app-processing-tab>
           </mat-tab>
           

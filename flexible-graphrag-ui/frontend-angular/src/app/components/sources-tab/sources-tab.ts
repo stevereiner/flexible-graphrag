@@ -9,7 +9,7 @@ import { environment } from '../../../environments/environment';
 })
 export class SourcesTabComponent {
   @Output() configureProcessing = new EventEmitter<void>();
-  @Output() sourcesConfigured = new EventEmitter<{ dataSource: string; files: File[] }>();
+  @Output() sourcesConfigured = new EventEmitter<{ dataSource: string; files: File[]; folderPath?: string }>();
 
   // State
   dataSource = 'upload';
@@ -42,8 +42,8 @@ export class SourcesTabComponent {
 
   get dropZoneStyle(): any {
     return {
-      border: this.isDragOver ? '2px solid #1976d2' : '2px dashed #ccc',
-      backgroundColor: this.isDragOver ? '#e3f2fd' : '#1976d2',
+      border: this.isDragOver ? '2px solid #ffffff' : '2px dashed #ffffff',
+      backgroundColor: this.isDragOver ? '#000000' : '#1976d2', // Black on hover, blue default like React
       transition: 'all 0.2s ease-in-out',
       cursor: 'pointer',
       padding: '24px',
@@ -145,6 +145,7 @@ export class SourcesTabComponent {
     this.sourcesConfigured.emit({
       dataSource: this.dataSource,
       files: this.selectedFiles,
+      folderPath: this.folderPath
     });
     this.configureProcessing.emit();
   }

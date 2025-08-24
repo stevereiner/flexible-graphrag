@@ -73,13 +73,11 @@
         <th mat-header-cell *matHeaderCellDef class="text-center"></th>
         <td mat-cell *matCellDef="let file; let i = index">
           <button 
-            *ngIf="file.type === 'file'"
             mat-icon-button 
             color="warn"
             (click)="removeFile(i)">
             <mat-icon>close</mat-icon>
           </button>
-          <span *ngIf="file.type !== 'file'" class="no-action">-</span>
         </td>
       </ng-container>
 
@@ -89,7 +87,7 @@
         <td mat-cell *matCellDef="let file">
           <mat-chip 
             [color]="getStatusColor(getFileStatus(file.name))"
-            class="status-chip">
+            [class]="'status-chip' + (getFileStatus(file.name) === 'completed' ? ' mat-mdc-chip-success' : '')">
             {{ getFileStatus(file.name) }}
           </mat-chip>
         </td>
@@ -109,7 +107,7 @@
           <span>{{ processingStatus || 'Processing documents...' }}</span>
         </div>
         <button 
-          mat-raised-button 
+          mat-stroked-button 
           color="warn" 
           [disabled]="!currentProcessingId"
           (click)="cancelProcessing()">

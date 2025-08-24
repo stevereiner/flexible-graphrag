@@ -15,10 +15,6 @@ export interface IngestRequest {
   };
 }
 
-export interface ProcessFolderRequest {
-  folder_path: string;
-}
-
 export interface QueryRequest {
   query: string;
   query_type?: string;
@@ -26,7 +22,8 @@ export interface QueryRequest {
 }
 
 export interface ApiResponse {
-  status: string;
+  success?: boolean;  // Used by search endpoint
+  status?: string;    // Used by ingest endpoint
   message?: string;
   error?: string;
   answer?: string;
@@ -36,7 +33,7 @@ export interface ApiResponse {
 // New async processing response
 export interface AsyncProcessingResponse {
   processing_id: string;
-  status: 'started' | 'processing' | 'completed' | 'failed' | 'cancelled';
+  status: 'started' | 'processing' | 'completed' | 'failed';
   message: string;
   progress?: number;
   estimated_time?: string;
@@ -69,4 +66,20 @@ export interface ProcessingStatusResponse {
   files_completed?: number;
   total_files?: number;
   estimated_time_remaining?: string;
+}
+
+export interface ChatMessage {
+  id: string;
+  type: 'user' | 'assistant';
+  content: string;
+  timestamp: Date;
+  queryType?: 'search' | 'qa';
+  results?: any[];
+  isLoading?: boolean;
+}
+
+export interface FileDisplayInfo {
+  name: string;
+  size: number;
+  type: 'file' | 'path' | 'repository' | 'repository-file';
 }

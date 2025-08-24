@@ -1,17 +1,5 @@
 <div class="chat-tab-container">
-  <!-- Header -->
-  <div class="chat-header">
-    <h2>Chat Interface</h2>
-    <div class="header-actions">
-      <button 
-        mat-stroked-button 
-        [disabled]="chatMessages.length === 0"
-        (click)="clearChatHistory()"
-        class="clear-history-button">
-        CLEAR HISTORY
-      </button>
-    </div>
-  </div>
+  <!-- Removed header to save space - Clear History button moved to input area -->
 
   <!-- Chat Messages -->
   <mat-card class="chat-messages">
@@ -56,9 +44,6 @@
             </mat-card-content>
           </mat-card>
         </div>
-
-        <!-- Divider -->
-        <mat-divider *ngIf="i < chatMessages.length - 1" class="message-divider"></mat-divider>
       </div>
     </div>
     </div>
@@ -71,7 +56,7 @@
       <textarea 
         matInput
         [(ngModel)]="chatInput"
-        placeholder="Ask a question... (e.g., 'What are the key findings about AI?')"
+        placeholder="Ask a question and press Enter or click arrow, Shift+Enter for a new line"
         [disabled]="isQuerying"
         (keydown.enter)="onEnterKey($event)"
         cdkTextareaAutosize
@@ -89,12 +74,17 @@
       <mat-spinner *ngIf="isQuerying" diameter="20"></mat-spinner>
       <mat-icon *ngIf="!isQuerying">send</mat-icon>
     </button>
+
+    <button 
+      mat-stroked-button 
+      [disabled]="chatMessages.length === 0"
+      (click)="clearChatHistory()"
+      class="clear-history-button ml-2">
+      CLEAR HISTORY
+    </button>
   </div>
 
-  <!-- Help Text -->
-  <p class="help-text">
-    Press Enter or click arrow to send a Q&A Query, which provides a conversational answer, Shift+Enter for new line
-  </p>
+
 
   <!-- Error Message -->
   <div *ngIf="error" class="error-message">

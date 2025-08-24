@@ -3,6 +3,147 @@
 All notable changes to this project will be documented in this file.
 
 
+## [2025-08-23] - Screenshot Organization and Documentation Updates
+
+### Changed
+- **README Screenshot Organization**
+  - **Vue and Angular**: Moved existing screenshots to framework-specific subdirectories (`screen-shots/vue/`, `screen-shots/angular/`)
+  - **React**: Completely redone with both dark and light theme versions in `screen-shots/react/`
+    - Removed chat greeting and Q&A query screenshots from display
+    - Now shows hybrid search instead of Q&A query in search tab
+    - Added separate collapsible section for React Light Theme screenshots
+  - Added theme indicators to all frontend sections: Angular (Light Theme), Vue (Light Theme), React (Dark Theme + Light Theme)
+
+### Enhanced
+- **Documentation Clarity**
+  - Clear theme identification for each frontend in README
+  - Improved screenshot organization for better navigation
+  - Consistent screenshot presentation across all three frontends
+
+
+## [2025-08-23] - File State Management and Theme Fixes
+
+### Fixed
+- **Filename Reuse Between Upload Methods**
+  - Fixed issue preventing same filename reuse between regular file upload and repository upload
+  - Resolved frontend file state conflicts when switching between data sources
+  - All frontends now properly clear previous file state when switching upload methods
+
+- **Repository Display Issues**
+  - Fixed React ProcessingTab showing old filenames when switching to repository source
+  - Fixed Angular ProcessingTab displaying stale file data until processing starts
+  - Fixed Vue ProcessingTab showing previous upload files instead of repository path
+  - All frontends now immediately display correct repository path upon configuration
+
+- **Dark/Light Theme Styling Issues**
+  - Angular: Fixed dark mode configure processing button text visibility
+  - Vue: Fixed light mode text color above "Go to Sources" button for proper contrast
+  - React: Fixed dark mode "No Data Source Configured" panel background (now dark gray instead of light blue)
+
+### Enhanced
+- **Cross-Data Source Compatibility**
+  - Improved handling of file upload → repository source transitions
+  - Enhanced repository → file upload source transitions  
+  - Better support for CMIS ↔ Alfresco source switching
+  - Consistent filename conflict prevention across all upload methods
+
+
+## [2025-08-22] - Comprehensive UI/UX Fixes and Repository File Handling
+
+### Added
+- **Enhanced Display Area Usage**
+  - Chat interface now takes advantage of extra display area on 4K and QHD monitors
+  - Responsive viewport calculations with framework-specific height offsets
+  - Integrated help text into chat input placeholders
+  - Removed redundant "Chat Interface" headers to save vertical space
+
+- **Full Path Display**
+  - Complete repository path display across all frontends (e.g., "/Shared/GraphRAG/cmispress.txt")
+  - Enhanced filename extraction from repository paths
+  - Flexible column layouts with 30% width allocation for filenames
+
+### Fixed
+- **Repository File Handling Issues**
+  - Vue: Fixed inability to re-add repository files after removal
+  - Vue: Fixed progress bars showing "0% - Ready" instead of actual progress
+  - React: Added missing "X" remove buttons for repository files
+  - Angular: Enhanced repository file display and removal functionality
+  - All clients: Fixed repository path configuration for single file vs directory processing
+
+- **Progress Bar and Status Issues**
+  - Fixed progress text wrapping ("100% - Completed" on multiple lines)
+  - Applied consistent flexbox layout for progress columns across all frontends
+  - Enhanced completion status retention for repository files
+  - Fixed progress lookup using correct file identifiers
+
+- **Cross-Frontend UI Consistency**
+  - Standardized button styling: red outline for Cancel/Remove Selected, green for Completed status
+  - Implemented blue checkboxes with white checks across all clients
+  - Fixed Angular dark theme visibility for tabs, dropdowns, chat elements, form fields
+  - Removed confusing guide lines and borders from chat interfaces
+  - Enhanced chat auto-scroll functionality across all frontends
+
+- **Chat Interface Improvements**
+  - Fixed Vue chat auto-scroll using proper DOM element access
+  - Improved chat input field visibility in light mode
+  - Optimized button alignment and spacing
+  - Enhanced message display and interaction patterns
+
+### Enhanced
+- **State Management**
+  - Implemented `repositoryItemsHidden` pattern for proper file removal/re-add capability
+  - Enhanced configuration timestamp tracking for state updates
+  - Improved fallback mechanisms for preserving file information after cancellation
+
+---
+
+## [2025-08-21] - React Frontend Modularization and Cross-Frontend Styling
+
+### Added
+- **React Frontend Modularization**
+  - Extracted components from monolithic App.tsx to dedicated files (SourcesTab, ProcessingTab, SearchTab, ChatTab)
+  - Implemented "lift state up" pattern for centralized state management
+  - Created comprehensive TypeScript interfaces in types/api.ts and types/theme.ts
+  - Added component export aggregation with index.ts
+
+- **Repository File Enhancement**
+  - Individual file display from statusData.individual_files for CMIS/Alfresco sources
+  - Enhanced filename extraction from full paths with multiple fallback levels
+  - Proper completion status retention (100% progress, green "completed" status)
+
+### Fixed
+- **React Functionality Issues**
+  - Fixed checkboxes not pre-selecting after source configuration
+  - Fixed "Remove Selected" and individual "X" buttons not removing items
+  - Restored commented-out "Graph" tab for future features
+  - Converted all tab labels to ALL CAPS for consistency
+
+- **Vue Frontend Issues**
+  - Fixed dark gray processing status panel with white text in dark theme
+  - Resolved TypeScript compilation errors (function calls, $el access, event emission names)
+  - Enhanced repository functionality with proper filename handling
+  - Fixed drop area styling with consistent hover effects
+
+- **Angular Dark Mode Issues**
+  - Fixed tab labels with white text and blue active backgrounds
+  - Improved form field and typography contrast
+  - Enhanced Sources tab with white text on gray backgrounds
+  - Standardized drop zone styling to match other frontends
+
+### Enhanced
+- **Cross-Frontend Consistency**
+  - Standardized drop area styling: blue background with white text, black hover
+  - Implemented consistent state management patterns across frameworks
+  - Enhanced repository handling with unified approach to file display and removal
+  - Improved theme support consistency across all frontends
+
+- **State Persistence**
+  - Prevented data loss during tab navigation through proper state lifting
+  - Enhanced component communication patterns
+  - Improved error handling and user feedback
+
+---
+
 ## [2025-08-21] - Dark/Light Theme Support Implementation
 
 ### Added

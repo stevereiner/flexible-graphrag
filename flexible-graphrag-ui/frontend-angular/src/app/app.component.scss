@@ -134,37 +134,43 @@
   flex-grow: 1;
 }
 
-// Custom tab styling to match Vue
-.full-width-tabs ::ng-deep .mat-mdc-tab-group {
+// Custom tab styling to match Vue - using more specific selectors
+::ng-deep .full-width-tabs .mat-mdc-tab-group {
   border-bottom: 1px solid #e0e0e0;
 }
 
-.full-width-tabs ::ng-deep .mat-mdc-tab {
+::ng-deep .full-width-tabs .mat-mdc-tab {
   font-weight: 500;
   text-transform: none;
   letter-spacing: 0.5px;
+  min-height: 48px;
 }
 
-.full-width-tabs ::ng-deep .mat-mdc-tab:not(.mdc-tab--active) {
-  color: #666666; // Default for light mode
+// Inactive tabs - light theme
+::ng-deep .full-width-tabs .mat-mdc-tab:not(.mdc-tab--active) {
+  color: #666666 !important;
+  background-color: #f5f5f5 !important;
 }
 
-.full-width-tabs ::ng-deep .mat-mdc-tab:not(.mdc-tab--active) .mdc-tab__text-label {
-  color: #666666; // Default for light mode
+::ng-deep .full-width-tabs .mat-mdc-tab:not(.mdc-tab--active) .mdc-tab__text-label {
+  color: #666666 !important;
 }
 
-.full-width-tabs ::ng-deep .mat-mdc-tab.mdc-tab--active {
-  background-color: #1976d2;
+// Active tab - BLUE background with WHITE text (like Vue/React)
+::ng-deep .full-width-tabs .mat-mdc-tab.mdc-tab--active {
+  background-color: #1976d2 !important;
   color: white !important;
 }
 
-.full-width-tabs ::ng-deep .mat-mdc-tab.mdc-tab--active .mdc-tab__text-label {
+::ng-deep .full-width-tabs .mat-mdc-tab.mdc-tab--active .mdc-tab__text-label {
   color: white !important;
 }
 
-.full-width-tabs ::ng-deep .mat-ink-bar {
-  height: 3px;
-  background-color: #1976d2;
+// Blue underline indicator
+::ng-deep .full-width-tabs .mat-ink-bar,
+::ng-deep .full-width-tabs .mdc-tab-indicator__content--underline {
+  height: 3px !important;
+  background-color: #1976d2 !important;
 }
 
 @media (max-width: 768px) {
@@ -178,9 +184,198 @@
   background-color: #fafafa;
   color: #333333;
   
-  // Light theme tab colors
+  // Light theme tab colors - ensure active tabs have blue background
   .mat-mdc-tab:not(.mdc-tab--active) {
     color: #666666 !important;
+    background-color: #f5f5f5 !important;
+  }
+  
+  .mat-mdc-tab.mdc-tab--active {
+    background-color: #1976d2 !important;
+    color: #ffffff !important;
+  }
+  
+  .mat-mdc-tab.mdc-tab--active .mdc-tab__text-label {
+    color: #ffffff !important;
+  }
+}
+
+// Global light theme overrides (body-level for maximum specificity)
+body.light-theme {
+  // Light theme active tabs - highest specificity (MAIN TABS ONLY)
+  .full-width-tabs .mat-mdc-tab.mdc-tab--active {
+    background-color: #1976d2 !important;
+    color: #ffffff !important;
+  }
+  
+  .full-width-tabs .mat-mdc-tab.mdc-tab--active .mdc-tab__text-label {
+    color: #ffffff !important;
+  }
+  
+  // Light theme inactive tabs (MAIN TABS ONLY)
+  .full-width-tabs .mat-mdc-tab:not(.mdc-tab--active) {
+    background-color: #f5f5f5 !important;
+    color: #666666 !important;
+  }
+  
+  .full-width-tabs .mat-mdc-tab:not(.mdc-tab--active) .mdc-tab__text-label {
+    color: #666666 !important;
+  }
+  
+  // SEARCH SUB-TABS: Override main tab styling - underline only in light mode
+  .search-tab-container .mat-mdc-tab.mdc-tab--active {
+    background-color: transparent !important; // Override main tab blue background
+    color: #1976d2 !important; // Blue text only
+  }
+  
+  .search-tab-container .mat-mdc-tab.mdc-tab--active .mdc-tab__text-label {
+    color: #1976d2 !important; // Blue text only
+  }
+  
+  .search-tab-container .mat-mdc-tab:not(.mdc-tab--active) {
+    background-color: transparent !important; // Override main tab gray background
+    color: #333333 !important; // Bright text
+  }
+  
+  .search-tab-container .mat-mdc-tab:not(.mdc-tab--active) .mdc-tab__text-label {
+    color: #333333 !important; // Bright text
+  }
+}
+
+// Global dark theme overrides (body-level for maximum specificity)
+body.dark-theme {
+  background-color: #121212 !important;
+  color: #ffffff !important;
+  
+  // Dropdown panel styling for Sources tab - high specificity
+  .mat-mdc-select-panel {
+    background-color: #424242 !important; // Medium gray background
+    
+    .mat-mdc-option {
+      color: #ffffff !important; // White text
+      background-color: transparent !important; // Ensure no default background
+      
+      &:hover {
+        background-color: #555555 !important; // Darker gray on hover
+        color: #ffffff !important;
+      }
+      
+      &.mdc-list-item--selected {
+        background-color: #616161 !important; // Lighter gray for selected (not blue)
+        color: #ffffff !important; // White text (not dark blue)
+        
+        // Override any nested text elements
+        .mdc-list-item__primary-text {
+          color: #ffffff !important;
+        }
+        
+        .mat-mdc-option-text {
+          color: #ffffff !important;
+        }
+      }
+      
+      // Override any Material theme colors with maximum specificity
+      &.mat-mdc-option.mdc-list-item--selected {
+        background-color: #616161 !important; // Lighter gray for selected
+        color: #ffffff !important; // White text
+        
+        .mdc-list-item__primary-text {
+          color: #ffffff !important;
+        }
+        
+        .mat-mdc-option-text {
+          color: #ffffff !important;
+        }
+        
+        // Override any span or text elements
+        span {
+          color: #ffffff !important;
+        }
+      }
+    }
+  }
+  
+  // Additional override for Sources tab specifically with maximum specificity
+  app-sources-tab .mat-mdc-select-panel {
+    .mat-mdc-option.mdc-list-item--selected {
+      background-color: #616161 !important; // Lighter gray for selected
+      color: #ffffff !important; // White text
+      
+      // Force white text on all child elements
+      .mdc-list-item__primary-text,
+      .mat-mdc-option-text,
+      span,
+      * {
+        color: #ffffff !important;
+      }
+    }
+    
+    // Even more specific override
+    .mat-mdc-option[aria-selected="true"] {
+      background-color: #616161 !important;
+      color: #ffffff !important;
+      
+      .mdc-list-item__primary-text,
+      .mat-mdc-option-text,
+      span,
+      * {
+        color: #ffffff !important;
+      }
+    }
+  }
+  
+  // Global form field styling for dark theme
+  .mat-mdc-form-field {
+    .mat-mdc-select-value,
+    .mat-mdc-select-value-text,
+    .mat-mdc-select-trigger,
+    .mat-mdc-input-element {
+      color: #ffffff !important;
+      caret-color: #ffffff !important; // White cursor
+    }
+    
+    .mat-mdc-select-arrow {
+      color: #ffffff !important;
+    }
+    
+    // Form field labels - always white in dark mode
+    .mat-mdc-floating-label,
+    .mat-mdc-form-field-label {
+      color: #ffffff !important; // Always white, not blue on focus
+    }
+    
+    // Input and textarea cursor
+    input, textarea {
+      caret-color: #ffffff !important;
+      color: #ffffff !important;
+    }
+    
+    // Outline borders - white in dark mode
+    .mat-mdc-outline {
+      color: #ffffff !important;
+    }
+    
+    &.mat-focused .mat-mdc-outline {
+      color: #ffffff !important; // Keep white on focus
+    }
+  }
+  
+  // Tab styling overrides with maximum specificity
+  .mat-mdc-tab:not(.mdc-tab--active) {
+    color: #ffffff !important;
+  }
+  
+  .mat-mdc-tab:not(.mdc-tab--active) .mdc-tab__text-label {
+    color: #ffffff !important;
+  }
+  
+  .mat-mdc-tab.mdc-tab--active {
+    background-color: #1976d2 !important;
+    color: #ffffff !important;
+  }
+  
+  .mat-mdc-tab.mdc-tab--active .mdc-tab__text-label {
+    color: #ffffff !important;
   }
 }
 
@@ -189,13 +384,38 @@
   color: #ffffff;
   
   .mat-mdc-card {
-    background-color: #1e1e1e;
-    color: #ffffff;
+    background-color: #1e1e1e !important;
+    color: #ffffff !important;
   }
   
   .mat-mdc-form-field {
     .mat-mdc-text-field-wrapper {
       background-color: #2d2d2d;
+    }
+    
+    // Input field styling
+    .mat-mdc-input-element {
+      color: #ffffff !important;
+    }
+    
+    // Label styling
+    .mdc-floating-label {
+      color: #ffffff !important;
+    }
+    
+    // Outline styling
+    .mdc-notched-outline__leading,
+    .mdc-notched-outline__notch,
+    .mdc-notched-outline__trailing {
+      border-color: #555555 !important;
+    }
+    
+    &.mat-focused {
+      .mdc-notched-outline__leading,
+      .mdc-notched-outline__notch,
+      .mdc-notched-outline__trailing {
+        border-color: #1976d2 !important;
+      }
     }
   }
   
@@ -212,22 +432,49 @@
     color: #ffffff;
   }
   
-  // Dark theme tab colors - make non-selected tabs visible
-  .mat-mdc-tab:not(.mdc-tab--active) {
-    color: #9e9e9e !important;
+  // Fix button styling in dark mode
+  .mat-mdc-button {
+    color: #ffffff;
   }
   
-  .mat-mdc-tab:not(.mdc-tab--active) .mdc-tab__text-label {
-    color: #9e9e9e !important;
+  .mat-mdc-outlined-button {
+    color: #ffffff;
+    border-color: #555555;
   }
   
-  // Dark theme main tabs
-  .full-width-tabs .mat-mdc-tab:not(.mdc-tab--active) {
-    color: #9e9e9e !important;
+  // Typography improvements
+  h1, h2, h3, h4, h5, h6, p {
+    color: #ffffff !important;
   }
   
-  .full-width-tabs .mat-mdc-tab:not(.mdc-tab--active) .mdc-tab__text-label {
-    color: #9e9e9e !important;
+  // Dark theme tab colors - WHITE labels like React (higher specificity)
+  &.dark-theme .mat-mdc-tab:not(.mdc-tab--active) {
+    color: #ffffff !important;
+    background-color: #424242 !important;
+  }
+  
+  &.dark-theme .mat-mdc-tab:not(.mdc-tab--active) .mdc-tab__text-label {
+    color: #ffffff !important;
+  }
+  
+  // Dark theme main tabs (even higher specificity)
+  &.dark-theme .full-width-tabs .mat-mdc-tab:not(.mdc-tab--active) {
+    color: #ffffff !important;
+    background-color: #424242 !important;
+  }
+  
+  &.dark-theme .full-width-tabs .mat-mdc-tab:not(.mdc-tab--active) .mdc-tab__text-label {
+    color: #ffffff !important;
+  }
+  
+  // Active tab stays blue with white text (highest specificity)
+  &.dark-theme .full-width-tabs .mat-mdc-tab.mdc-tab--active {
+    background-color: #1976d2 !important;
+    color: #ffffff !important;
+  }
+  
+  &.dark-theme .full-width-tabs .mat-mdc-tab.mdc-tab--active .mdc-tab__text-label {
+    color: #ffffff !important;
   }
 }
 

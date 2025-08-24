@@ -1,25 +1,11 @@
 <template>
-  <div class="pa-4 d-flex flex-column" style="height: calc(100vh - 200px);">
-    <!-- Header -->
-    <div class="d-flex justify-space-between align-center mb-4">
-      <h2>Chat Interface</h2>
-      <div class="d-flex align-center ga-2">
-        <v-btn
-          variant="outlined"
-          size="small"
-          :disabled="chatMessages.length === 0"
-          @click="clearChatHistory"
-        >
-          CLEAR HISTORY
-        </v-btn>
-      </div>
-    </div>
+  <div class="pa-4 d-flex flex-column chat-view-container">
+    <!-- Removed header to save space - Clear History button moved to input area -->
 
     <!-- Chat Messages -->
     <v-card
       ref="chatContainer"
       class="flex-grow-1 pa-4 mb-4 overflow-y-auto chat-messages-card"
-      variant="outlined"
     >
       <!-- Welcome Message -->
       <div
@@ -70,7 +56,6 @@
                 maxWidth: message.type === 'user' ? '70%' : '80%',
                 color: '#000000'
               }"
-              variant="outlined"
             >
               <!-- Loading State -->
               <div v-if="message.isLoading" class="d-flex align-center ga-2">
@@ -92,19 +77,16 @@
               </div>
             </v-card>
           </div>
-
-          <!-- Divider -->
-          <v-divider v-if="index < chatMessages.length - 1" class="my-2"></v-divider>
         </div>
       </div>
     </v-card>
 
     <!-- Input Area -->
-    <div class="d-flex align-end ga-2">
+    <div class="d-flex align-center ga-2">
       <v-textarea
         v-model="chatInput"
-        placeholder="Ask a question... (e.g., 'What are the key findings about AI?')"
-        variant="outlined"
+        placeholder="Ask a question and press Enter or click arrow, Shift+Enter for a new line"
+        variant="filled"
         rows="1"
         auto-grow
         max-rows="3"
@@ -125,12 +107,17 @@
       >
         <v-icon>mdi-send</v-icon>
       </v-btn>
-    </div>
 
-    <!-- Help Text -->
-    <p class="text-caption text-medium-emphasis text-center mt-2">
-      Press Enter or click arrow to send a Q&A Query, which provides a conversational answer, Shift+Enter for new line
-    </p>
+      <v-btn
+        variant="outlined"
+        size="small"
+        :disabled="chatMessages.length === 0"
+        @click="clearChatHistory"
+        class="ml-2"
+      >
+        CLEAR HISTORY
+      </v-btn>
+    </div>
 
     <!-- Error Message -->
     <v-alert
@@ -193,10 +180,11 @@ export default defineComponent({
     const scrollToBottom = async () => {
       await nextTick();
       if (chatContainer.value) {
-        const element = chatContainer.value.$el || chatContainer.value;
-        setTimeout(() => {
-          element.scrollTop = element.scrollHeight;
-        }, 0);
+        // Get the actual DOM element from the v-card component
+        const domElement = chatContainer.value.$el || chatContainer.value;
+        if (domElement) {
+          domElement.scrollTop = domElement.scrollHeight;
+        }
       }
     };
 
@@ -227,8 +215,6 @@ export default defineComponent({
       
       const currentInput = chatInput.value;
       chatInput.value = '';
-      
-      await scrollToBottom();
       
       try {
         isQuerying.value = true;
@@ -289,7 +275,6 @@ export default defineComponent({
         chatMessages.value.push(errorMsg);
       } finally {
         isQuerying.value = false;
-        await scrollToBottom();
       }
     };
 
@@ -297,8 +282,18 @@ export default defineComponent({
       chatMessages.value = [];
     };
 
-    // Auto-scroll when messages change
-    watch(chatMessages, scrollToBottom, { deep: true });
+    // Auto-scroll when messages change (like React's useEffect)
+    watch(chatMessages, () => {
+      nextTick(() => {
+        if (chatContainer.value) {
+          // Get the actual DOM element from the v-card component
+          const domElement = chatContainer.value.$el || chatContainer.value;
+          if (domElement) {
+            domElement.scrollTop = domElement.scrollHeight;
+          }
+        }
+      });
+    }, { deep: true });
 
     return {
       chatMessages,
@@ -328,14 +323,20 @@ export default defineComponent({
   flex-grow: 1;
 }
 
+.chat-view-container {
+  height: calc(100vh - 220px); /* Increased offset to prevent outer scrollbars */
+}
+
 .chat-messages-card {
   background-color: #f8f9fa !important; /* Light gray background for light mode */
-  border: 1px solid #dee2e6 !important; /* Visible border in light mode */
+  flex: 1; /* Take remaining space after header and input */
+  min-height: 200px !important; /* Reduced minimum height to prevent empty scrollbars */
 }
 
 /* Dark theme styling */
 .v-theme--dark .chat-messages-card {
   background-color: #2d2d2d !important; /* Dark background for dark mode */
-  border: 1px solid #424242 !important; /* Visible border in dark mode */
+  flex: 1; /* Take remaining space after header and input */
+  min-height: 200px !important; /* Reduced minimum height to prevent empty scrollbars */
 }
 </style>

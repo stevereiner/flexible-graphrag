@@ -9,18 +9,14 @@
 .no-sources-card {
   margin-bottom: 24px;
   text-align: center;
-  background-color: #e8f4fd;
-  border: 1px solid #b3d9ff;
 }
 
 .no-sources-card h3 {
-  color: #333;
   font-weight: 600;
   margin-bottom: 8px;
 }
 
 .no-sources-card p {
-  color: #555;
   margin-bottom: 16px;
 }
 
@@ -33,19 +29,17 @@
 }
 
 .filename-cell {
-  width: 200px;
+  width: 30%; // Flexible width like Vue/React
 }
 
 .filename-text {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  max-width: 200px;
+  word-break: break-all;
+  line-height: 1.2;
+  white-space: normal;
 }
 
 .file-size {
   font-size: 12px;
-  color: #666;
 }
 
 .progress-cell {
@@ -64,23 +58,32 @@
 }
 
 .progress-text {
-  min-width: 100px;
+  flex: none;
+  white-space: nowrap;
   font-size: 12px;
-  color: #333;
 }
 
 .no-action {
   font-size: 12px;
-  color: #999;
 }
 
 .status-chip {
   font-size: 11px;
 }
 
+// Custom success color for completed status chips (Angular Material doesn't have 'success' by default)
+.status-chip.mat-mdc-chip-success {
+  background-color: #4caf50 !important; // Green background
+  color: #ffffff !important; // White text
+}
+
+:host-context(.dark-theme) .status-chip.mat-mdc-chip-success {
+  background-color: #66bb6a !important; // Lighter green for dark mode
+  color: #000000 !important; // Black text for contrast
+}
+
 .status-card {
   margin-bottom: 24px;
-  background-color: #e8f4fd;
 }
 
 .status-header {
@@ -102,7 +105,6 @@
 
 .progress-details {
   font-size: 12px;
-  color: #666;
   margin: 8px 0 0 0;
 }
 
@@ -124,25 +126,111 @@
 }
 
 .success-message {
-  background-color: #d4edda;
-  color: #155724;
-  border: 1px solid #c3e6cb;
+  background-color: var(--success-bg, #d4edda);
+  color: var(--success-text, #155724);
+  border: 1px solid var(--success-border, #c3e6cb);
 }
 
 .error-message {
-  background-color: #f8d7da;
-  color: #721c24;
-  border: 1px solid #f5c6cb;
+  background-color: var(--error-bg, #f8d7da);
+  color: var(--error-text, #721c24);
+  border: 1px solid var(--error-border, #f5c6cb);
 }
 
-// Remove Selected button styling - ensure red border is visible
-.action-buttons button[color="warn"] {
-  border-color: #f44336 !important; // Material red
-  color: #f44336 !important;
+// Dark theme support
+:host-context(.dark-theme) {
+  --success-bg: #1b4332;
+  --success-text: #d1e7dd;
+  --success-border: #2d5a3d;
+  
+  --error-bg: #842029;
+  --error-text: #f8d7da;
+  --error-border: #a02834;
 }
 
-// Dark theme support for Remove Selected button
-:host-context(.dark-theme) .action-buttons button[color="warn"] {
-  border-color: #ff5252 !important; // Lighter red for dark mode
-  color: #ff5252 !important;
+// Remove Selected and Cancel button styling - red outline only (like Vue/React)
+.action-buttons button[color="warn"],
+.action-buttons mat-stroked-button[color="warn"],
+.status-header button[color="warn"],
+.status-header mat-stroked-button[color="warn"] {
+  background-color: transparent !important; // Transparent background
+  border: 1px solid #f44336 !important; // Red outline
+  color: #f44336 !important; // Red text
+}
+
+.action-buttons button[color="warn"]:hover,
+.action-buttons mat-stroked-button[color="warn"]:hover,
+.status-header button[color="warn"]:hover,
+.status-header mat-stroked-button[color="warn"]:hover {
+  background-color: rgba(244, 67, 54, 0.1) !important; // Light red hover
+}
+
+// Dark theme support for Remove Selected and Cancel buttons
+:host-context(.dark-theme) .action-buttons button[color="warn"],
+:host-context(.dark-theme) .action-buttons mat-stroked-button[color="warn"],
+:host-context(.dark-theme) .status-header button[color="warn"],
+:host-context(.dark-theme) .status-header mat-stroked-button[color="warn"] {
+  background-color: transparent !important; // Transparent background
+  border: 1px solid #ff5252 !important; // Lighter red outline for dark mode
+  color: #ff5252 !important; // Lighter red text
+}
+
+:host-context(.dark-theme) .action-buttons button[color="warn"]:hover,
+:host-context(.dark-theme) .action-buttons mat-stroked-button[color="warn"]:hover,
+:host-context(.dark-theme) .status-header button[color="warn"]:hover,
+:host-context(.dark-theme) .status-header mat-stroked-button[color="warn"]:hover {
+  background-color: rgba(255, 82, 82, 0.1) !important; // Light red hover for dark mode
+}
+
+// Processing button styling - ensure text visibility in dark mode
+.action-buttons button[color="primary"] {
+  color: #ffffff !important; // White text on blue background
+}
+
+:host-context(.dark-theme) .action-buttons button[color="primary"] {
+  background-color: #1976d2 !important; // Ensure blue background in dark mode
+  color: #ffffff !important; // White text for visibility
+}
+
+:host-context(.dark-theme) .action-buttons button[color="primary"]:disabled {
+  background-color: #424242 !important; // Gray background when disabled
+  color: #9e9e9e !important; // Gray text when disabled
+}
+
+// Checkbox styling to match React - blue checkboxes with white checkmarks
+::ng-deep .mat-mdc-checkbox {
+  .mdc-checkbox {
+    .mdc-checkbox__native-control:enabled:checked ~ .mdc-checkbox__background,
+    .mdc-checkbox__native-control:enabled:indeterminate ~ .mdc-checkbox__background {
+      background-color: #1976d2 !important; // Blue background like React
+      border-color: #1976d2 !important;
+    }
+    
+    .mdc-checkbox__checkmark {
+      color: #ffffff !important; // White checkmark
+    }
+    
+    .mdc-checkbox__mixedmark {
+      color: #ffffff !important; // White mixed mark for indeterminate
+    }
+  }
+}
+
+// Dark theme checkbox styling
+:host-context(.dark-theme) ::ng-deep .mat-mdc-checkbox {
+  .mdc-checkbox {
+    .mdc-checkbox__native-control:enabled:checked ~ .mdc-checkbox__background,
+    .mdc-checkbox__native-control:enabled:indeterminate ~ .mdc-checkbox__background {
+      background-color: #64b5f6 !important; // Light blue for dark mode
+      border-color: #64b5f6 !important;
+    }
+    
+    .mdc-checkbox__checkmark {
+      color: #000000 !important; // Black checkmark for contrast on light blue
+    }
+    
+    .mdc-checkbox__mixedmark {
+      color: #000000 !important; // Black mixed mark for indeterminate
+    }
+  }
 }

@@ -20,7 +20,11 @@ export class ProcessingTabComponent implements OnInit, OnChanges {
   @Input() hasConfiguredSources = false;
   @Input() configuredDataSource = '';
   @Input() configuredFiles: File[] = [];
+  @Input() configuredFolderPath = '';
+  @Input() repositoryItemsHidden = false;
   @Output() goToSources = new EventEmitter<void>();
+  @Output() removeRepositoryFile = new EventEmitter<number>();
+  @Output() removeUploadFile = new EventEmitter<number>();
 
   // Table configuration
   displayedColumns: string[] = ['select', 'name', 'size', 'progress', 'remove', 'status'];
@@ -33,6 +37,7 @@ export class ProcessingTabComponent implements OnInit, OnChanges {
   processingStatus = '';
   currentProcessingId: string | null = null;
   statusData: ProcessingStatusResponse | null = null;
+  lastStatusData: ProcessingStatusResponse | null = null;
   successMessage = '';
   error = '';
 
@@ -47,7 +52,6 @@ export class ProcessingTabComponent implements OnInit, OnChanges {
 
   ngOnChanges(): void {
     this.updateDisplayFiles();
-    this.autoSelectFiles();
   }
 
   private updateDisplayFiles(): void {
@@ -64,20 +68,49 @@ export class ProcessingTabComponent implements OnInit, OnChanges {
         type: 'file',
       }));
     } else if (this.configuredDataSource === 'cmis' || this.configuredDataSource === 'alfresco') {
-      this.displayFiles = [{
-        index: 0,
-        name: 'Repository Path',
-        size: 0,
-        type: 'repository',
-      }];
+      // If repository items are explicitly hidden, show nothing
+      if (this.repositoryItemsHidden) {
+        this.displayFiles = [];
+        return;
+      }
+      
+      // Only use individual files from status data if we're currently processing
+      // or if the processing was for the current repository configuration
+      const individualFiles = (this.isProcessing || this.currentProcessingId) ? 
+        (this.statusData?.individual_files || this.lastStatusData?.individual_files || []) : [];
+      if (individualFiles.length > 0) {
+        this.displayFiles = individualFiles.map((file: any, index: number) => {
+          // Show full path instead of extracting just filename
+          const displayName = file.filename || `File ${index + 1}`;
+          
+          return {
+            index,
+            name: displayName, // Use full path as display name
+            size: 0, // Repository files don't have size info
+            type: 'repository-file'
+          };
+        });
+      } else {
+        // Default to repository path when no individual files yet - show full path
+        this.displayFiles = [{
+          index: 0,
+          name: this.configuredFolderPath || 'Repository Path',
+          size: 0,
+          type: 'repository',
+        }];
+      }
     }
+    
+    // Auto-select files after updating display
+    this.autoSelectFiles();
   }
 
   private autoSelectFiles(): void {
     if (this.configuredDataSource === 'upload') {
       this.selectedItems = new Set(this.configuredFiles.map((_, index) => index));
     } else if (this.configuredDataSource === 'cmis' || this.configuredDataSource === 'alfresco') {
-      this.selectedItems = new Set([0]);
+      // Auto-select all repository files (whether individual files or repository path)
+      this.selectedItems = new Set(this.displayFiles.map((_, index) => index));
     }
   }
 
@@ -92,7 +125,7 @@ export class ProcessingTabComponent implements OnInit, OnChanges {
   }
 
   getFileProgressData(filename: string): any {
-    const files = this.statusData?.individual_files || [];
+    const files = this.statusData?.individual_files || this.lastStatusData?.individual_files || [];
     
     // Try exact match first
     let match = files.find((file: any) => file.filename === filename);
@@ -114,36 +147,87 @@ export class ProcessingTabComponent implements OnInit, OnChanges {
   }
 
   getFileProgress(filename: string): number {
+    // For repository path placeholder, use overall progress
+    if (filename === 'Repository Path' || filename?.includes('Repository')) {
+      return this.isProcessing ? this.processingProgress : 0;
+    }
+    
+    // Try to get individual file data first, fall back to overall progress for repository files
     const progressData = this.getFileProgressData(filename);
-    return progressData?.progress || 0;
+    if (progressData) {
+      return progressData.progress || 0;
+    }
+    
+    // Fallback to overall progress for repository files when no individual data
+    if (this.configuredDataSource === 'cmis' || this.configuredDataSource === 'alfresco') {
+      return this.processingProgress; // Always show progress, even when completed
+    }
+    
+    return 0;
   }
 
   getFilePhase(filename: string): string {
+    // For repository path placeholder, use overall status
+    if (filename === 'Repository Path' || filename?.includes('Repository')) {
+      if (this.isProcessing) return 'Processing';
+      if (this.processingProgress === 100) return 'Completed';
+      return 'Ready';
+    }
+    
+    // Try to get individual file data first
     const progressData = this.getFileProgressData(filename);
-    const phase = progressData?.phase || 'ready';
+    if (progressData) {
+      const phase = progressData.phase || 'ready';
+      const phaseNames: { [key: string]: string } = {
+        'ready': 'Ready',
+        'waiting': 'Waiting',
+        'docling': 'Converting',
+        'chunking': 'Chunking',
+        'kg_extraction': 'Extracting Graph',
+        'indexing': 'Indexing',
+        'completed': 'Completed',
+        'error': 'Error'
+      };
+      return phaseNames[phase] || phase;
+    }
     
-    const phaseNames: { [key: string]: string } = {
-      'ready': 'Ready',
-      'waiting': 'Waiting',
-      'docling': 'Converting',
-      'chunking': 'Chunking',
-      'kg_extraction': 'Extracting Graph',
-      'indexing': 'Indexing',
-      'completed': 'Completed',
-      'error': 'Error'
-    };
+    // Fallback for repository files
+    if (this.configuredDataSource === 'cmis' || this.configuredDataSource === 'alfresco') {
+      if (this.isProcessing) return 'Processing';
+      if (this.processingProgress === 100) return 'Completed';
+      return 'Ready';
+    }
     
-    return phaseNames[phase] || phase;
+    return 'Ready';
   }
 
   getFileStatus(filename: string): string {
+    // For repository path placeholder, use overall status
+    if (filename === 'Repository Path' || filename?.includes('Repository')) {
+      if (this.isProcessing) return 'processing';
+      if (this.processingProgress === 100) return 'completed';
+      return 'ready';
+    }
+    
+    // Try to get individual file data first
     const progressData = this.getFileProgressData(filename);
-    return progressData?.status || 'ready';
+    if (progressData) {
+      return progressData.status || 'ready';
+    }
+    
+    // Fallback for repository files
+    if (this.configuredDataSource === 'cmis' || this.configuredDataSource === 'alfresco') {
+      if (this.isProcessing) return 'processing';
+      if (this.processingProgress === 100) return 'completed';
+      return 'ready';
+    }
+    
+    return 'ready';
   }
 
   getStatusColor(status: string): string {
     switch (status) {
-      case 'completed': return 'primary';
+      case 'completed': return 'success'; // Green for completed
       case 'failed': return 'warn';
       case 'processing': return 'accent';
       default: return '';
@@ -181,24 +265,19 @@ export class ProcessingTabComponent implements OnInit, OnChanges {
 
   removeFile(index: number): void {
     if (this.configuredDataSource === 'upload') {
-      // Remove from configured files
-      const newFiles = [...this.configuredFiles];
-      newFiles.splice(index, 1);
+      // For upload files, emit event to parent to handle removal
+      console.log('🗑️ Upload file removal requested for index:', index);
+      this.removeUploadFile.emit(index);
       
-      // Update selected indices - remove the index and shift down higher indices
-      const newSelected = new Set<number>();
-      this.selectedItems.forEach(i => {
-        if (i < index) {
-          newSelected.add(i);
-        } else if (i > index) {
-          newSelected.add(i - 1);
-        }
-        // Skip i === index (the removed file)
-      });
-      this.selectedItems = newSelected;
+      // Clear selection for the removed item
+      this.selectedItems.delete(index);
+    } else if (this.configuredDataSource === 'cmis' || this.configuredDataSource === 'alfresco') {
+      // For repository files, emit event to parent to handle removal
+      console.log('🗑️ Repository file removal requested for index:', index);
+      this.removeRepositoryFile.emit(index);
       
-      // Note: In a real implementation, you'd emit an event to update the parent component
-      console.log('File removed at index:', index, 'New files:', newFiles);
+      // Clear selection
+      this.selectedItems.clear();
     }
   }
 
@@ -206,16 +285,16 @@ export class ProcessingTabComponent implements OnInit, OnChanges {
     console.log('Remove selected files:', Array.from(this.selectedItems));
     
     if (this.configuredDataSource === 'upload') {
-      // For upload files, remove from the configured files array
+      // For upload files, emit removal events for each selected file (in reverse order)
       const indicesToRemove = Array.from(this.selectedItems).sort((a, b) => b - a);
-      const newFiles = [...this.configuredFiles];
       indicesToRemove.forEach(index => {
-        newFiles.splice(index, 1);
+        console.log('🗑️ Upload bulk removal for index:', index);
+        this.removeUploadFile.emit(index);
       });
-      // Update the configured files
-      this.configuredFiles = newFiles;
-      // Update display files
-      this.updateDisplayFiles();
+    } else if (this.configuredDataSource === 'cmis' || this.configuredDataSource === 'alfresco') {
+      // For repository files, emit event to parent to handle removal
+      console.log('🗑️ Repository bulk removal requested');
+      this.removeRepositoryFile.emit(0); // Emit with index 0 to hide all repository items
     }
     
     // Clear selection
@@ -241,6 +320,8 @@ export class ProcessingTabComponent implements OnInit, OnChanges {
     this.isProcessing = true;
     this.processingProgress = 0;
     this.statusData = null;
+    this.successMessage = ''; // Clear any previous success message
+    this.error = ''; // Clear any previous error message
     
     try {
       // Prepare processing data
@@ -260,20 +341,20 @@ export class ProcessingTabComponent implements OnInit, OnChanges {
         // For direct filesystem access (not upload)
         processingData.paths = this.configuredFiles.map(f => f.name);
       } else if (this.configuredDataSource === 'cmis') {
-        processingData.paths = ['/Sites/swsdp/documentLibrary']; // Default path
+        processingData.paths = [this.configuredFolderPath || '/Sites/swsdp/documentLibrary']; // Use configured path
         processingData.cmis_config = {
           url: 'http://localhost:8080/alfresco/api/-default-/public/cmis/versions/1.1/atom',
           username: 'admin',
           password: 'admin',
-          folder_path: '/Sites/swsdp/documentLibrary'
+          folder_path: this.configuredFolderPath || '/Sites/swsdp/documentLibrary'
         };
       } else if (this.configuredDataSource === 'alfresco') {
-        processingData.paths = ['/Sites/swsdp/documentLibrary']; // Default path
+        processingData.paths = [this.configuredFolderPath || '/Sites/swsdp/documentLibrary']; // Use configured path
         processingData.alfresco_config = {
           url: 'http://localhost:8080/alfresco/api/-default-/public/alfresco/versions/1/nodes/-shared-/children',
           username: 'admin',
           password: 'admin',
-          path: '/Sites/swsdp/documentLibrary'
+          path: this.configuredFolderPath || '/Sites/swsdp/documentLibrary'
         };
       }
       
@@ -285,6 +366,9 @@ export class ProcessingTabComponent implements OnInit, OnChanges {
           
           if (response.processing_id) {
             this.currentProcessingId = response.processing_id;
+            // Set success message with estimated time like Vue/React
+            const estimatedTime = response.estimated_time || '30-60 seconds';
+            this.successMessage = `Processing started: ${estimatedTime}`;
             this.startStatusPolling();
           }
         },
@@ -360,10 +444,14 @@ export class ProcessingTabComponent implements OnInit, OnChanges {
         next: (status: ProcessingStatusResponse) => {
           console.log('Status update:', status);
           this.statusData = status;
+          this.lastStatusData = status; // Preserve for after cancellation
           
           if (status.progress !== undefined) {
             this.processingProgress = status.progress;
           }
+          
+          // Update display files when status data changes (for repository individual files)
+          this.updateDisplayFiles();
           
           // Check if processing is complete
           if (status.status === 'completed') {
@@ -408,6 +496,8 @@ export class ProcessingTabComponent implements OnInit, OnChanges {
         this.currentProcessingId = null;
         this.processingProgress = 0;
         this.statusData = null;
+        // Keep lastStatusData to preserve individual files after cancellation
+        this.updateDisplayFiles(); // Update display to show preserved files
       },
       error: (error: any) => {
         console.error('Error cancelling processing:', error);

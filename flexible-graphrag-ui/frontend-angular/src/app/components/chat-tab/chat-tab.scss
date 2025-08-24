@@ -1,8 +1,8 @@
 .chat-tab-container {
   padding: 24px;
-  height: calc(100vh - 200px);
   display: flex;
   flex-direction: column;
+  height: calc(100vh - 270px); /* Increased offset to prevent QHD scrollbars */
 }
 
 .chat-header {
@@ -23,12 +23,11 @@
 }
 
 .chat-messages {
-  flex: 1;
+  flex: 1; /* Take remaining space after header and input */
   margin-bottom: 16px;
   background-color: #f8f9fa;
   border: 1px solid #e0e0e0;
-  min-height: 400px;
-  max-height: calc(100vh - 300px);
+  min-height: 150px; /* Reduced minimum height to prevent empty scrollbars */
   position: relative;
   padding: 0; // Remove padding from mat-card
 }
@@ -124,6 +123,7 @@
 .message-card {
   max-width: 70%;
   color: #000000;
+  border: none !important; // Remove confusing borders in light theme
 }
 
 .user-card {
@@ -162,7 +162,7 @@
 
 .chat-input-area {
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   gap: 8px;
 }
 
@@ -176,6 +176,10 @@
   display: flex;
   align-items: center;
   justify-content: center;
+}
+
+.clear-history-button {
+  margin-left: 8px;
 }
 
 .help-text {
@@ -201,8 +205,143 @@
   color: #333333 !important;
 }
 
-// Dark mode: white border and text
-:host-context(.dark-theme) .clear-history-button {
-  border-color: #ffffff !important;
-  color: #ffffff !important;
+// Dark mode styling
+:host-context(.dark-theme) {
+  // Clear History button: white border and text
+  .clear-history-button {
+    border-color: #ffffff !important;
+    color: #ffffff !important;
+  }
+  
+  // Chat messages container
+  .chat-messages {
+    background-color: #1e1e1e !important;
+    border-color: #555555 !important;
+  }
+  
+  // Welcome message
+  .welcome-message {
+    color: #ffffff !important;
+    
+    h3 {
+      color: #ffffff !important;
+    }
+    
+    p {
+      color: #cccccc !important;
+    }
+  }
+  
+  // Message cards with borders
+  .message-card {
+    border: 1px solid #555555 !important;
+    
+    &.user-card {
+      background-color: #2d3748 !important; // Dark blue-gray for user
+      color: #ffffff !important;
+    }
+    
+    &.assistant-card {
+      background-color: #2d2d2d !important; // Dark gray for assistant
+      color: #ffffff !important;
+    }
+  }
+  
+  // Message text
+  .message-text {
+    color: #ffffff !important;
+  }
+  
+  // Timestamps - make visible
+  .message-time {
+    color: #cccccc !important; // Light gray for visibility
+  }
+  
+  // Loading state
+  .loading-state span {
+    color: #cccccc !important;
+  }
+  
+  // Help text
+  .help-text {
+    color: #cccccc !important;
+  }
+  
+  // Error message
+  .error-message {
+    background-color: #842029 !important;
+    color: #f8d7da !important;
+    border-color: #a02834 !important;
+  }
+  
+  // Form field styling
+  .mat-mdc-form-field {
+    .mat-mdc-text-field-wrapper {
+      background-color: #2d2d2d !important;
+    }
+    
+    .mat-mdc-input-element {
+      color: #ffffff !important;
+    }
+    
+    .mdc-floating-label {
+      color: #ffffff !important;
+    }
+    
+    .mdc-notched-outline__leading,
+    .mdc-notched-outline__notch,
+    .mdc-notched-outline__trailing {
+      border-color: #555555 !important;
+    }
+    
+    &.mat-focused {
+      .mdc-notched-outline__leading,
+      .mdc-notched-outline__notch,
+      .mdc-notched-outline__trailing {
+        border-color: #1976d2 !important;
+      }
+    }
+  }
+  
+  // Send button styling
+  .send-button {
+    &:disabled {
+      background-color: #424242 !important; // Visible gray background
+      color: #9e9e9e !important; // Light gray icon
+      
+      .mat-icon {
+        color: #9e9e9e !important; // Light gray arrow
+      }
+    }
+    
+    &:not(:disabled) {
+      background-color: #1976d2 !important; // Blue when enabled
+      color: #ffffff !important; // White icon
+      
+      .mat-icon {
+        color: #ffffff !important; // White arrow
+      }
+    }
+  }
+  
+  // Loading spinner
+  .mat-mdc-progress-spinner {
+    circle {
+      stroke: #9e9e9e !important; // Light gray for visibility
+    }
+  }
+  
+  // General button styling for dark mode
+  .mat-mdc-button,
+  .mat-mdc-raised-button,
+  .mat-mdc-fab {
+    &:disabled {
+      background-color: #424242 !important;
+      color: #9e9e9e !important;
+      
+      .mat-icon {
+        color: #9e9e9e !important;
+      }
+    }
+  }
 }

@@ -9,8 +9,8 @@
       color="blue-lighten-5"
       variant="outlined"
     >
-      <h3 class="mb-2">No Data Source Configured</h3>
-      <p class="mb-4">Please go to the Sources tab to configure your data source first.</p>
+      <h3 class="mb-2" :style="{ color: $vuetify.theme.current.dark ? '#ffffff' : '#000000' }">No Data Source Configured</h3>
+      <p class="mb-4" :style="{ color: $vuetify.theme.current.dark ? '#ffffff' : '#000000' }">Please go to the Sources tab to configure your data source first.</p>
       <v-btn
         color="primary"
         variant="outlined"
@@ -39,7 +39,7 @@
       >
         <!-- Filename column -->
         <template #item.name="{ item }">
-          <div class="text-truncate" style="max-width: 200px;" :title="item.name">
+          <div :title="item.name" style="word-break: break-all; line-height: 1.2;">
             {{ item.name }}
           </div>
         </template>
@@ -55,17 +55,22 @@
         <!-- Progress column -->
         <template #item.progress="{ item }">
           <div class="d-flex align-center" style="width: 100%;">
-            <div style="width: 100%; margin-right: 8px;">
+            <div style="flex: 1; margin-right: 8px;">
               <v-progress-linear
-                :model-value="Math.max(getFileProgress(item.name), 2)"
+                :model-value="Math.max(getFileProgress(item.name) || 0, 2)"
                 color="primary"
-                height="8"
+                height="10"
                 rounded
               ></v-progress-linear>
             </div>
-            <span class="text-caption" style="min-width: 100px; margin-left: 8px;">
+            <span class="text-caption" style="flex: none; white-space: nowrap;">
               {{ getFileProgress(item.name) }}% - {{ getFilePhase(item.name) }}
             </span>
+          </div>
+          <!-- Debug info - toggle with debug panel -->
+          <div v-if="showDebugPanel" class="text-xs" style="color: #666; font-size: 10px;">
+            Display: {{ item.name }} | Original: {{ item.originalFilename }} | Type: {{ item.type }}
+            <br>Progress: {{ getFileProgress(item.name) }} | Phase: {{ getFilePhase(item.name) }} | Status: {{ getFileStatus(item.name) }}
           </div>
         </template>
 
@@ -73,7 +78,6 @@
         <template #item.remove="{ item }">
           <div class="text-center">
             <v-btn
-              v-if="item.type === 'file'"
               icon="mdi-close"
               size="small"
               variant="text"
@@ -81,7 +85,6 @@
               @click="removeFile(item.index)"
             >
             </v-btn>
-            <span v-else class="text-caption text-medium-emphasis">-</span>
           </div>
         </template>
 
@@ -108,19 +111,29 @@
     </v-card>
 
     <!-- Processing Status -->
-    <v-card v-if="isProcessing" class="pa-4 mb-4" color="blue-lighten-5">
+    <v-card v-if="isProcessing" class="pa-4 mb-4" :color="$vuetify.theme.current.dark ? 'grey-darken-3' : 'blue-lighten-5'">
       <div class="d-flex align-center justify-space-between mb-2">
         <div class="d-flex align-center">
           <v-progress-circular
+            v-if="isProcessing"
             indeterminate
             size="20"
             width="2"
             color="primary"
             class="mr-2"
           ></v-progress-circular>
-          <span>{{ processingStatus || 'Processing documents...' }}</span>
+          <v-icon
+            v-else-if="processingProgress === 100"
+            color="success"
+            size="20"
+            class="mr-2"
+          >
+            mdi-check-circle
+          </v-icon>
+          <span :style="{ color: $vuetify.theme.current.dark ? '#ffffff' : 'inherit' }">{{ processingStatus || 'Processing documents...' }}</span>
         </div>
         <v-btn
+          v-if="isProcessing"
           color="error"
           variant="outlined"
           size="small"
@@ -128,6 +141,14 @@
           @click="cancelProcessing"
         >
           Cancel
+        </v-btn>
+        <v-btn
+          v-else
+          icon="mdi-close"
+          size="small"
+          variant="text"
+          @click="processingStatus = ''; processingProgress = 0"
+        >
         </v-btn>
       </div>
       
@@ -267,6 +288,22 @@ export default defineComponent({
       type: Array as () => File[],
       required: true,
     },
+    configuredFolderPath: {
+      type: String,
+      default: '',
+    },
+    configuredCmisConfig: {
+      type: Object,
+      default: null,
+    },
+    configuredAlfrescoConfig: {
+      type: Object,
+      default: null,
+    },
+    configurationTimestamp: {
+      type: Number,
+      default: 0,
+    },
   },
   emits: ['go-to-sources', 'files-removed'],
   setup(props, { emit }) {
@@ -283,15 +320,17 @@ export default defineComponent({
     const showDebugPanel = ref(false);
     const successMessage = ref('');
     const error = ref('');
+    const repositoryItemsHidden = ref(false); // Track when repository items are explicitly hidden
+    const sourcesReconfiguredFlag = ref(0); // Counter to force repository items to show when reconfigured
 
     // Table headers
     const tableHeaders = [
-      { title: 'Filename', key: 'name', width: '200px' },
-      { title: 'File Size', key: 'size', width: '100px' },
-      { title: 'Progress', key: 'progress', width: '400px', sortable: false },
+      { title: 'Filename', key: 'name', width: '30%' }, // Use percentage for flexible but controlled width
+      { title: 'File Size', key: 'size', width: '80px' },
+      { title: 'Progress', key: 'progress', width: '45%', sortable: false }, // Maintain good progress bar width
       { title: '', key: 'remove', width: '50px', sortable: false, align: 'center' },
       { title: 'Status', key: 'status', width: '100px' },
-    ];
+    ] as const;
 
     // Computed
     const displayFiles = computed(() => {
@@ -301,16 +340,56 @@ export default defineComponent({
         return props.configuredFiles.map((file, index) => ({
           index,
           name: file.name,
+          originalFilename: file.name, // For upload files, name and originalFilename are the same
           size: file.size,
           type: 'file',
         }));
       } else if (props.configuredDataSource === 'cmis' || props.configuredDataSource === 'alfresco') {
-        return [{
+        // If repository items are explicitly hidden AND sources haven't been freshly reconfigured, show nothing
+        if (repositoryItemsHidden.value && sourcesReconfiguredFlag.value === 0) {
+          console.log('Repository items hidden - returning empty array:', {
+            repositoryItemsHidden: repositoryItemsHidden.value,
+            sourcesReconfiguredFlag: sourcesReconfiguredFlag.value
+          });
+          return [];
+        }
+        
+        console.log('Repository items should be visible:', {
+          repositoryItemsHidden: repositoryItemsHidden.value,
+          sourcesReconfiguredFlag: sourcesReconfiguredFlag.value
+        });
+        
+        // Only use individual files from status data if we're currently processing
+        // or if the processing was for the current repository configuration
+        const individualFiles = (isProcessing.value || currentProcessingId.value) ? 
+          (statusData.value?.individual_files || lastStatusData.value?.individual_files || []) : [];
+        if (individualFiles.length > 0) {
+          return individualFiles.map((file: any, index: number) => {
+            const originalFilename = file.filename || `File ${index + 1}`;
+            // Show full path instead of extracting just filename
+            const displayName = originalFilename;
+            
+            return {
+              index,
+              name: displayName, // Use full path as display name
+              originalFilename, // Keep original filename for progress matching
+              size: 0, // Repository files don't have size info
+              type: 'repository-file',
+            };
+          });
+        }
+        // Default to repository path when no individual files yet - show full path
+        const displayName = props.configuredFolderPath || 'Repository Path';
+        
+        const repositoryFile = {
           index: 0,
-          name: 'Repository Path',
+          name: displayName,
+          originalFilename: props.configuredFolderPath || 'Repository Path', // Use configured path as original filename
           size: 0,
           type: 'repository',
-        }];
+        };
+        console.log('Creating repository file object:', repositoryFile);
+        return [repositoryFile];
       }
       return [];
     });
@@ -340,51 +419,123 @@ export default defineComponent({
     const getFileProgressData = (filename: string) => {
       const files = statusData.value?.individual_files || lastStatusData.value?.individual_files || [];
       
-      // Try exact match first
-      let match = files.find((file: any) => file.filename === filename);
-      if (!match) {
-        // Try matching just the basename if full path doesn't match
-        match = files.find((file: any) => {
-          const fileBasename = file.filename?.split(/[/\\]/).pop();
-          return fileBasename === filename;
-        });
-      }
-      if (!match) {
-        // Try matching if our filename is contained in the stored filename
-        match = files.find((file: any) => 
-          file.filename?.includes(filename) || filename.includes(file.filename)
-        );
+      // Debug: Log during processing to see what files we have
+      if (isProcessing.value) {
+        console.log('🔍 Looking for progress data for:', filename);
+        console.log('📁 Available files count:', files.length);
+        if (files.length > 0) {
+          console.log('📁 Available files:', files.map(f => ({ name: f.filename, progress: f.progress, status: f.status })));
+        } else {
+          console.log('📁 No individual files in statusData yet');
+        }
       }
       
+      // Try exact match first
+      let match = files.find((file: any) => file.filename === filename);
+      if (match) {
+        if (isProcessing.value) console.log('✅ Exact match found:', match);
+        return match;
+      }
+      
+      // Try matching just the basename if full path doesn't match
+      match = files.find((file: any) => {
+        const fileBasename = file.filename?.split(/[/\\]/).pop();
+        return fileBasename === filename;
+      });
+      if (match) {
+        if (isProcessing.value) console.log('✅ Basename match found:', match);
+        return match;
+      }
+      
+      // Try matching if our filename is contained in the stored filename
+      match = files.find((file: any) => 
+        file.filename?.includes(filename) || filename.includes(file.filename)
+      );
+      if (match) {
+        if (isProcessing.value) console.log('✅ Partial match found:', match);
+        return match;
+      }
+      
+      if (isProcessing.value) {
+        console.log('❌ No match found for:', filename);
+      }
       return match;
     };
 
     const getFileProgress = (filename: string): number => {
+      // For repository path placeholder, use overall progress
+      if (filename === 'Repository Path' || filename?.includes('Repository')) {
+        return isProcessing.value ? processingProgress.value : 0;
+      }
+      // Try to get individual file data first, fall back to overall progress for repository files
       const progressData = getFileProgressData(filename);
-      return progressData?.progress || 0;
+      if (progressData) {
+        return progressData.progress || 0;
+      }
+      // Fallback to overall progress for repository files when no individual data
+      if (props.configuredDataSource === 'cmis' || props.configuredDataSource === 'alfresco') {
+        return processingProgress.value; // Always show progress, even when completed
+      }
+      return 0;
     };
 
     const getFilePhase = (filename: string): string => {
+      // For repository path placeholder, use overall status
+      if (filename === 'Repository Path' || filename?.includes('Repository')) {
+        if (isProcessing.value) return 'Processing';
+        if (processingProgress.value === 100) return 'Completed';
+        return 'Ready';
+      }
+      
+      // Try to get individual file data first
       const progressData = getFileProgressData(filename);
-      const phase = progressData?.phase || 'ready';
+      if (progressData) {
+        const phase = progressData.phase || 'ready';
+        const phaseNames: { [key: string]: string } = {
+          'ready': 'Ready',
+          'waiting': 'Waiting',
+          'docling': 'Converting',
+          'chunking': 'Chunking',
+          'kg_extraction': 'Extracting Graph',
+          'indexing': 'Indexing',
+          'completed': 'Completed',
+          'error': 'Error'
+        };
+        return phaseNames[phase] || phase;
+      }
       
-      const phaseNames: { [key: string]: string } = {
-        'ready': 'Ready',
-        'waiting': 'Waiting',
-        'docling': 'Converting',
-        'chunking': 'Chunking',
-        'kg_extraction': 'Extracting Graph',
-        'indexing': 'Indexing',
-        'completed': 'Completed',
-        'error': 'Error'
-      };
+      // Fallback to overall status for repository files when no individual data
+      if (props.configuredDataSource === 'cmis' || props.configuredDataSource === 'alfresco') {
+        if (processingProgress.value === 100) return 'Completed';
+        if (isProcessing.value) return 'Processing';
+        return 'Ready';
+      }
       
-      return phaseNames[phase] || phase;
+      return 'Ready';
     };
 
     const getFileStatus = (filename: string): string => {
+      // For repository path placeholder, use overall status
+      if (filename === 'Repository Path' || filename?.includes('Repository')) {
+        if (isProcessing.value) return 'processing';
+        if (processingProgress.value === 100) return 'completed';
+        return 'ready';
+      }
+      
+      // Try to get individual file data first
       const progressData = getFileProgressData(filename);
-      return progressData?.status || 'ready';
+      if (progressData) {
+        return progressData.status || 'ready';
+      }
+      
+      // Fallback to overall status for repository files when no individual data
+      if (props.configuredDataSource === 'cmis' || props.configuredDataSource === 'alfresco') {
+        if (processingProgress.value === 100) return 'completed';
+        if (isProcessing.value) return 'processing';
+        return 'ready';
+      }
+      
+      return 'ready';
     };
 
     const getStatusColor = (status: string): string => {
@@ -409,6 +560,41 @@ export default defineComponent({
           .filter(i => i !== index)
           .map(i => i > index ? i - 1 : i);
         selectedItems.value = newSelected;
+      } else if (props.configuredDataSource === 'cmis' || props.configuredDataSource === 'alfresco') {
+        // For repository items, remove from display
+        if (statusData.value?.individual_files && statusData.value.individual_files.length > 0) {
+          // If we have individual files, remove from that array
+          const updatedFiles = [...statusData.value.individual_files];
+          updatedFiles.splice(index, 1);
+          statusData.value = {
+            ...statusData.value,
+            individual_files: updatedFiles
+          };
+        } else {
+          // If it's the initial repository path, hide it
+          repositoryItemsHidden.value = true;
+          sourcesReconfiguredFlag.value = 0; // Reset counter to allow hiding
+        }
+        
+        if (lastStatusData.value?.individual_files && lastStatusData.value.individual_files.length > 0) {
+          const updatedFiles = [...lastStatusData.value.individual_files];
+          updatedFiles.splice(index, 1);
+          lastStatusData.value = {
+            ...lastStatusData.value,
+            individual_files: updatedFiles
+          };
+        } else if (lastStatusData.value) {
+          lastStatusData.value = {
+            ...lastStatusData.value,
+            individual_files: []
+          };
+        }
+        
+        // Update selected indices - remove the index and shift down higher indices
+        const newSelected = selectedItems.value
+          .filter(i => i !== index)
+          .map(i => i > index ? i - 1 : i);
+        selectedItems.value = newSelected;
       }
     };
 
@@ -423,7 +609,42 @@ export default defineComponent({
           newFiles.splice(index, 1);
         });
         // Emit event to parent to update configured files
-        emit('filesRemoved', newFiles);
+        emit('files-removed', newFiles);
+      } else if (props.configuredDataSource === 'cmis' || props.configuredDataSource === 'alfresco') {
+        // For repository items, remove from display
+        if (statusData.value?.individual_files && statusData.value.individual_files.length > 0) {
+          // If we have individual files, remove selected ones
+          const indicesToRemove = [...selectedItems.value].sort((a, b) => b - a);
+          const updatedFiles = [...statusData.value.individual_files];
+          indicesToRemove.forEach(index => {
+            updatedFiles.splice(index, 1);
+          });
+          statusData.value = {
+            ...statusData.value,
+            individual_files: updatedFiles
+          };
+        } else {
+          // If it's the initial repository path and all are selected, hide all
+          repositoryItemsHidden.value = true;
+          sourcesReconfiguredFlag.value = 0; // Reset counter to allow hiding
+        }
+        
+        if (lastStatusData.value?.individual_files && lastStatusData.value.individual_files.length > 0) {
+          const indicesToRemove = [...selectedItems.value].sort((a, b) => b - a);
+          const updatedFiles = [...lastStatusData.value.individual_files];
+          indicesToRemove.forEach(index => {
+            updatedFiles.splice(index, 1);
+          });
+          lastStatusData.value = {
+            ...lastStatusData.value,
+            individual_files: updatedFiles
+          };
+        } else if (lastStatusData.value) {
+          lastStatusData.value = {
+            ...lastStatusData.value,
+            individual_files: []
+          };
+        }
       }
       
       // Clear selection
@@ -440,13 +661,21 @@ export default defineComponent({
         statusData.value = status;
         lastStatusData.value = status;
         
-        console.log('Processing status data:', status);
+        console.log('📊 Processing status update:', {
+          progress: status.progress,
+          individualFilesCount: status.individual_files?.length || 0,
+          individualFiles: status.individual_files?.map(f => ({ 
+            filename: f.filename, 
+            progress: f.progress, 
+            status: f.status 
+          })) || []
+        });
         localStorage.setItem('lastProcessingStatus', JSON.stringify(status));
         
         if (status.status === 'completed') {
           isProcessing.value = false;
-          processingStatus.value = '';
-          processingProgress.value = 0;
+          processingStatus.value = status.message || 'Processing completed';
+          processingProgress.value = 100; // Keep at 100% to show completion
           currentProcessingId.value = null;
           successMessage.value = status.message || 'Documents ingested successfully!';
         } else if (status.status === 'failed') {
@@ -457,8 +686,8 @@ export default defineComponent({
           error.value = status.error || 'Processing failed';
         } else if (status.status === 'cancelled') {
           isProcessing.value = false;
-          processingStatus.value = '';
-          processingProgress.value = 0;
+          processingStatus.value = 'Processing cancelled';
+          processingProgress.value = 0; // 0% for cancelled
           currentProcessingId.value = null;
           successMessage.value = 'Processing cancelled successfully';
         } else if (status.status === 'started' || status.status === 'processing') {
@@ -507,20 +736,20 @@ export default defineComponent({
           request.paths = uploadedPaths;
           request.data_source = 'filesystem'; // Use filesystem processing for uploaded files
         } else if (props.configuredDataSource === 'cmis') {
-          request.paths = ['/Shared/GraphRAG']; // Default path - should be configurable
+          request.paths = [props.configuredFolderPath || '/Shared/GraphRAG']; // Use configured path
           request.cmis_config = {
             url: 'http://localhost:8080/alfresco/api/-default-/public/cmis/versions/1.1/atom',
             username: 'admin',
             password: 'admin',
-            folder_path: '/Shared/GraphRAG'
+            folder_path: props.configuredFolderPath || '/Shared/GraphRAG'
           };
         } else if (props.configuredDataSource === 'alfresco') {
-          request.paths = ['/Shared/GraphRAG']; // Default path - should be configurable
+          request.paths = [props.configuredFolderPath || '/Shared/GraphRAG']; // Use configured path
           request.alfresco_config = {
             url: 'http://localhost:8080/alfresco',
             username: 'admin',
             password: 'admin',
-            path: '/Shared/GraphRAG'
+            path: props.configuredFolderPath || '/Shared/GraphRAG'
           };
         }
 
@@ -536,6 +765,8 @@ export default defineComponent({
           setTimeout(() => pollProcessingStatus(response.data.processing_id), 2000);
         } else if (response.data.status === 'completed') {
           isProcessing.value = false;
+          processingStatus.value = 'Processing completed';
+          processingProgress.value = 100; // Keep at 100% to show completion
           successMessage.value = 'Documents ingested successfully!';
         } else if (response.data.status === 'failed') {
           isProcessing.value = false;
@@ -605,14 +836,61 @@ export default defineComponent({
       }
     };
 
-    // Auto-select all files when configured files change
+    // Auto-select all files when configured files change or when repository files are discovered
     watch(() => props.configuredFiles, () => {
       if (props.configuredDataSource === 'upload') {
         selectedItems.value = props.configuredFiles.map((_, index) => index);
-      } else if (props.configuredDataSource === 'cmis' || props.configuredDataSource === 'alfresco') {
-        selectedItems.value = [0];
       }
     }, { immediate: true });
+
+    // Watch for repository configuration changes (CMIS/Alfresco) based on timestamp
+    watch(() => props.configurationTimestamp, (newTimestamp, oldTimestamp) => {
+      if (newTimestamp > 0 && newTimestamp !== oldTimestamp && 
+          (props.configuredDataSource === 'cmis' || props.configuredDataSource === 'alfresco')) {
+        // Reset hidden flag and increment reconfigured counter when repository sources are reconfigured
+        repositoryItemsHidden.value = false;
+        sourcesReconfiguredFlag.value++;
+        
+        // Auto-select repository files after configuration
+        setTimeout(() => {
+          const currentFiles = displayFiles.value;
+          selectedItems.value = currentFiles.map((_, index) => index);
+          console.log('Auto-selected repository files after configuration:', selectedItems.value, 'for', currentFiles.length, 'files');
+        }, 100); // Small delay to ensure displayFiles is updated
+        
+        console.log('Repository configuration timestamp changed, resetting flags:', {
+          repositoryItemsHidden: repositoryItemsHidden.value,
+          sourcesReconfiguredFlag: sourcesReconfiguredFlag.value,
+          newTimestamp,
+          oldTimestamp
+        });
+      }
+    });
+
+    // Auto-select repository files when they are discovered from processing status
+    watch(() => displayFiles.value, (newFiles, oldFiles) => {
+      if (props.configuredDataSource === 'cmis' || props.configuredDataSource === 'alfresco') {
+        console.log('Repository displayFiles changed:', newFiles.length, 'files');
+        selectedItems.value = newFiles.map((_, index) => index);
+        console.log('Auto-selected repository items:', selectedItems.value);
+      }
+    }, { immediate: true });
+
+    // Clear processing state when data source changes
+    watch(() => props.configuredDataSource, () => {
+      isProcessing.value = false;
+      processingStatus.value = '';
+      processingProgress.value = 0;
+      currentProcessingId.value = null;
+      statusData.value = null;
+      lastStatusData.value = null;
+      selectedItems.value = [];
+      repositoryItemsHidden.value = false; // Reset hidden flag
+      sourcesReconfiguredFlag.value = 0; // Reset reconfigured counter
+      // Note: This ensures clean state when switching between upload/CMIS/Alfresco
+    });
+
+    // Note: Removed the hasConfiguredSources watcher since we now use timestamp-based detection
 
     return {
       selectedItems,
@@ -627,6 +905,8 @@ export default defineComponent({
       showDebugPanel,
       successMessage,
       error,
+      repositoryItemsHidden,
+      sourcesReconfiguredFlag,
       tableHeaders,
       displayFiles,
       canStartProcessing,
@@ -669,5 +949,39 @@ export default defineComponent({
 
 :deep(.v-data-footer) {
   display: none !important;
+}
+
+/* Checkbox styling to match React - blue checkboxes with white checkmarks */
+:deep(.v-data-table .v-selection-control .v-selection-control__input) {
+  color: #1976d2 !important; /* Blue checkbox */
+}
+
+:deep(.v-data-table .v-checkbox .v-selection-control__input .v-icon) {
+  color: #1976d2 !important; /* Blue checkmark */
+  background-color: transparent !important;
+}
+
+:deep(.v-data-table .v-checkbox input:checked + .v-selection-control__input .v-icon) {
+  color: #1976d2 !important; /* Blue when checked */
+  background-color: #1976d2 !important; /* Blue background when checked */
+}
+
+/* Vuetify 3 specific checkbox styling */
+:deep(.v-selection-control--dirty .v-selection-control__input .v-icon) {
+  color: #1976d2 !important;
+  opacity: 1 !important;
+}
+
+/* Dark theme checkbox styling */
+.v-theme--dark :deep(.v-data-table .v-selection-control .v-selection-control__input) {
+  color: #64b5f6 !important; /* Light blue for dark mode */
+}
+
+.v-theme--dark :deep(.v-data-table .v-checkbox .v-selection-control__input .v-icon) {
+  color: #64b5f6 !important; /* Light blue checkmark */
+}
+
+.v-theme--dark :deep(.v-selection-control--dirty .v-selection-control__input .v-icon) {
+  color: #64b5f6 !important;
 }
 </style>

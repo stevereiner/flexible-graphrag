@@ -24,6 +24,12 @@
 .drop-zone {
   margin-bottom: 16px;
   cursor: pointer;
+  background-color: #1976d2 !important; // Blue background like Vue/React
+  border-radius: 8px;
+  
+  h3, p {
+    color: #ffffff !important; // White text on blue background
+  }
 }
 
 .drop-zone-content {
@@ -32,8 +38,12 @@
 }
 
 .drop-zone.drag-over {
-  border-color: #1976d2 !important;
-  background-color: #e3f2fd !important;
+  background-color: #000000 !important; // Black on hover like Vue/React
+  border-color: #ffffff !important;
+  
+  h3, p {
+    color: #ffffff !important;
+  }
 }
 
 .selected-files {
@@ -68,6 +78,107 @@
 .file-size {
   font-size: 12px;
   color: #666;
+}
+
+// Dark theme styling to match React
+:host-context(.dark-theme) {
+  // Data source dropdown - white text and white dropdown arrow
+  .mat-mdc-form-field {
+    .mat-mdc-select-value {
+      color: #ffffff !important;
+    }
+    .mat-mdc-select-arrow {
+      color: #ffffff !important;
+    }
+    
+    // Additional selectors for current value text
+    .mat-mdc-select-value-text {
+      color: #ffffff !important;
+    }
+    
+    .mat-mdc-select-trigger {
+      color: #ffffff !important;
+    }
+    
+    // Input element itself
+    .mat-mdc-input-element {
+      color: #ffffff !important;
+    }
+    
+    // Input field background
+    .mat-mdc-text-field-wrapper {
+      background-color: #2d2d2d !important;
+    }
+    
+    // Label styling
+    .mdc-floating-label {
+      color: #ffffff !important;
+    }
+    
+    // Outline styling
+    .mdc-notched-outline__leading,
+    .mdc-notched-outline__notch,
+    .mdc-notched-outline__trailing {
+      border-color: #555555 !important;
+    }
+    
+    &.mat-focused {
+      .mdc-notched-outline__leading,
+      .mdc-notched-outline__notch,
+      .mdc-notched-outline__trailing {
+        border-color: #1976d2 !important;
+      }
+    }
+  }
+  
+  // Selected files heading - white text
+  .selected-files h4 {
+    color: #ffffff !important;
+  }
+  
+  // File cards - gray background with white text
+  .file-card {
+    .mat-mdc-card {
+      background-color: #2d2d2d !important;
+    }
+  }
+  
+  .file-name {
+    color: #ffffff !important;
+  }
+  
+  .file-size {
+    color: #ffffff !important;
+  }
+  
+  // Drop zone styling to match React - blue background with white text
+  .drop-zone {
+    background-color: #1976d2 !important;
+    
+    h3, p {
+      color: #ffffff !important;
+    }
+    
+    &.drag-over {
+      background-color: #000000 !important; // Black on hover like React
+      border-color: #ffffff !important;
+      
+      h3, p {
+        color: #ffffff !important;
+      }
+    }
+  }
+  
+  // Configure Processing button - ensure white text in dark mode
+  .action-buttons {
+    .mat-mdc-raised-button.mat-primary {
+      color: #ffffff !important;
+      
+      .mdc-button__label {
+        color: #ffffff !important;
+      }
+    }
+  }
 }
 
 .upload-progress {

@@ -15,6 +15,8 @@ export class AppComponent implements OnInit {
   hasConfiguredSources = false;
   configuredDataSource = '';
   configuredFiles: File[] = [];
+  configuredFolderPath = '';
+  repositoryItemsHidden = false;
   
   // Theme management
   isDarkMode = false;
@@ -59,9 +61,48 @@ export class AppComponent implements OnInit {
     this.selectedTabIndex = 1; // Switch to Processing tab
   }
 
-  onSourcesConfigured(data: { dataSource: string; files: File[] }): void {
+  onSourcesConfigured(data: { dataSource: string; files: File[]; folderPath?: string }): void {
+    // Clear previous configuration to prevent filename conflicts
+    this.hasConfiguredSources = false;
+    this.configuredFiles = [];
+    this.configuredFolderPath = '';
+    this.repositoryItemsHidden = false;
+    
+    // Set new configuration
     this.hasConfiguredSources = true;
     this.configuredDataSource = data.dataSource;
     this.configuredFiles = data.files;
+    this.configuredFolderPath = data.folderPath || '';
+    
+    console.log('📁 Angular onSourcesConfigured (cleared previous state):', {
+      dataSource: data.dataSource,
+      folderPath: data.folderPath,
+      configuredFolderPath: this.configuredFolderPath,
+      filesCount: this.configuredFiles.length
+    });
+  }
+
+  removeRepositoryFile(index: number): void {
+    console.log('🗑️ removeRepositoryFile called for index:', index);
+    
+    if (this.configuredDataSource === 'cmis' || this.configuredDataSource === 'alfresco') {
+      // For repository files, hide the items
+      this.repositoryItemsHidden = true;
+    }
+  }
+
+  removeUploadFile(index: number): void {
+    console.log('🗑️ removeUploadFile called for index:', index);
+    
+    if (this.configuredDataSource === 'upload') {
+      // Remove from configured files array
+      this.configuredFiles = this.configuredFiles.filter((_, i) => i !== index);
+      
+      // If no files left, reset configuration
+      if (this.configuredFiles.length === 0) {
+        this.hasConfiguredSources = false;
+        this.configuredDataSource = '';
+      }
+    }
   }
 }

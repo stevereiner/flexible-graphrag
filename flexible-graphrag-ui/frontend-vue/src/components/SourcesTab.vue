@@ -23,16 +23,16 @@
         @dragover="handleDragOver"
         @dragenter="handleDragEnter"
         @dragleave="handleDragLeave"
-        @click="() => $refs.fileInput?.click()"
+        @click="() => fileInputRef?.click()"
       >
-        <h3 class="mb-2" :style="{ color: isDragOver ? '#1976d2' : '#ffffff' }">
+        <h3 class="mb-2" :style="{ color: '#ffffff' }">
           Drop files here or click to select
         </h3>
-        <p :style="{ color: isDragOver ? '#1976d2' : '#ffffff' }">
+        <p :style="{ color: '#ffffff' }">
           Supports: PDF, DOCX, XLSX, PPTX, TXT, MD, HTML, CSV, PNG, JPG
         </p>
         <input
-          ref="fileInput"
+          ref="fileInputRef"
           type="file"
           multiple
           accept=".pdf,.docx,.xlsx,.pptx,.txt,.md,.html,.csv,.png,.jpg,.jpeg"
@@ -162,7 +162,7 @@
 </template>
 
 <script lang="ts">
-import { defineComponent, ref, computed } from 'vue';
+import { defineComponent, ref, computed, watch } from 'vue';
 import axios from 'axios';
 
 export default defineComponent({
@@ -181,6 +181,7 @@ export default defineComponent({
     const folderPath = ref('/Shared/GraphRAG');
     const selectedFiles = ref<File[]>([]);
     const isDragOver = ref(false);
+    const fileInputRef = ref<HTMLInputElement>();
     const isUploading = ref(false);
     const uploadProgress = ref(0);
 
@@ -206,8 +207,8 @@ export default defineComponent({
     });
 
     const dropZoneStyle = computed(() => ({
-      border: isDragOver.value ? '2px solid #1976d2' : '2px dashed #ccc',
-      backgroundColor: isDragOver.value ? '#e3f2fd' : '#1976d2',
+      border: isDragOver.value ? '2px solid #ffffff' : '2px dashed #ffffff',
+      backgroundColor: isDragOver.value ? '#000000' : '#1976d2', // Black on hover, blue default like React
       transition: 'all 0.2s ease-in-out',
     }));
 
@@ -298,9 +299,28 @@ export default defineComponent({
       emit('sources-configured', {
         dataSource: dataSource.value,
         files: selectedFiles.value,
+        folderPath: folderPath.value,
+        cmisConfig: dataSource.value === 'cmis' ? {
+          url: cmisUrl.value,
+          username: cmisUsername.value,
+          password: cmisPassword.value,
+          folder_path: folderPath.value
+        } : undefined,
+        alfrescoConfig: dataSource.value === 'alfresco' ? {
+          url: alfrescoUrl.value,
+          username: alfrescoUsername.value,
+          password: alfrescoPassword.value,
+          path: folderPath.value
+        } : undefined,
       });
       emit('configure-processing');
     };
+
+    // Clear selected files when data source changes
+    watch(dataSource, () => {
+      selectedFiles.value = [];
+      // Note: Preserve form field values (URLs, credentials, etc.) so users don't have to retype
+    });
 
     return {
       dataSourceOptions,
@@ -308,6 +328,7 @@ export default defineComponent({
       folderPath,
       selectedFiles,
       isDragOver,
+      fileInputRef,
       isUploading,
       uploadProgress,
       cmisUrl,
@@ -338,10 +359,7 @@ export default defineComponent({
   cursor: pointer;
 }
 
-.drag-over {
-  border-color: #1976d2 !important;
-  background-color: #e3f2fd !important;
-}
+/* CSS hover styles removed - now handled by computed dropZoneStyle */
 
 .drag-normal {
   background-color: #1976d2 !important;

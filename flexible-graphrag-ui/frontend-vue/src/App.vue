@@ -48,6 +48,10 @@
                   :has-configured-sources="hasConfiguredSources"
                   :configured-data-source="configuredDataSource"
                   :configured-files="configuredFiles"
+                  :configured-folder-path="configuredFolderPath"
+                  :configured-cmis-config="configuredCmisConfig"
+                  :configured-alfresco-config="configuredAlfrescoConfig"
+                  :configuration-timestamp="configurationTimestamp"
                   @go-to-sources="mainTab = 'sources'"
                   @files-removed="configuredFiles = $event"
                 />
@@ -97,10 +101,11 @@ export default defineComponent({
     const configuredFiles = ref<File[]>([]);
 
     // Theme management
-    const isDarkMode = ref(() => {
+    const getInitialTheme = () => {
       const saved = localStorage.getItem('vue-theme-mode');
       return saved ? saved === 'dark' : false; // Default to light mode for Vue
-    });
+    };
+    const isDarkMode = ref(getInitialTheme());
 
     const isLightMode = computed({
       get: () => !isDarkMode.value,
@@ -120,10 +125,39 @@ export default defineComponent({
       mainTab.value = 'processing';
     };
 
-    const onSourcesConfigured = (data: { dataSource: string; files: File[] }) => {
+    const configuredFolderPath = ref('');
+    const configuredCmisConfig = ref<any>(null);
+    const configuredAlfrescoConfig = ref<any>(null);
+    const configurationTimestamp = ref(0);
+
+    const onSourcesConfigured = (data: { 
+      dataSource: string; 
+      files: File[]; 
+      folderPath?: string;
+      cmisConfig?: any;
+      alfrescoConfig?: any;
+    }) => {
+      // Clear previous configuration to prevent filename conflicts
+      hasConfiguredSources.value = false;
+      configuredFiles.value = [];
+      configuredFolderPath.value = '';
+      configuredCmisConfig.value = null;
+      configuredAlfrescoConfig.value = null;
+      
+      // Set new configuration
       hasConfiguredSources.value = true;
       configuredDataSource.value = data.dataSource;
       configuredFiles.value = data.files;
+      configuredFolderPath.value = data.folderPath || '';
+      configuredCmisConfig.value = data.cmisConfig || null;
+      configuredAlfrescoConfig.value = data.alfrescoConfig || null;
+      configurationTimestamp.value = Date.now(); // Update timestamp every time sources are configured
+      
+      console.log('📁 Vue onSourcesConfigured (cleared previous state):', {
+        dataSource: data.dataSource,
+        folderPath: data.folderPath,
+        filesCount: data.files.length
+      });
     };
 
     return {
@@ -131,6 +165,10 @@ export default defineComponent({
       hasConfiguredSources,
       configuredDataSource,
       configuredFiles,
+      configuredFolderPath,
+      configuredCmisConfig,
+      configuredAlfrescoConfig,
+      configurationTimestamp,
       onConfigureProcessing,
       onSourcesConfigured,
       isDarkMode,
