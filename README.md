@@ -233,14 +233,14 @@ OLLAMA_NUM_PARALLEL=4
 | **Neo4j + OpenAI** | 2 docs (cmispress.txt, space-station.txt) | 14.39s total<br/>Pipeline: 1.31s<br/>Vector: 0.81s<br/>Graph: 10.90s | 1.453s<br/>("cmis" query) | 2.785s<br/>("who was first with cmis") | Initial ingestion - Similar performance to Kuzu + OpenAI |
 | **Neo4j + OpenAI** | +4 docs (incremental to 6 total)<br/>(excel, pptx, docx, pdf) | 11.31s total<br/>Pipeline: 0.76s<br/>Vector: 0.26s<br/>Graph: 9.20s | 0.912s<br/>("cmis" query) | 2.796s<br/>("who was first with cmis") | Incremental ingestion - 28% faster than initial, excellent query performance<br/>**Graph**: 49 nodes (43 Entity, 6 Chunk), 88 relationships (45 MENTIONS, 43 semantic types) |
 | **Neo4j + Ollama (llama3.2:3b)** | 2 docs (cmispress.txt, space-station.txt) | 53.66s total<br/>Pipeline: 2.08s<br/>Vector: 0.28s<br/>Graph: 50.71s | 4.252s<br/>("cmis" query) | 13.716s<br/>("who was first with cmis") | Initial ingestion - Similar performance to Kuzu + Ollama |
-| **Neo4j + Ollama (llama3.2:3b)** | +4 docs (incremental to 6 total)<br/>(excel, pptx, docx, pdf) | 72.06s total<br/>Pipeline: 2.14s<br/>Vector: 0.30s<br/>Graph: 69.40s | should be close to 2 doc<br/>("cmis" query) | shuld be close to 2 doc<br/>("who was first with cmis") | Incremental ingestion - Consistent with initial performance |
+| **Neo4j + Ollama (llama3.2:3b)** | +4 docs (incremental to 6 total)<br/>(excel, pptx, docx, pdf) | 72.06s total<br/>Pipeline: 2.14s<br/>Vector: 0.30s<br/>Graph: 69.40s | should be close to 2 doc<br/>("cmis" query) | should be close to 2 doc<br/>("who was first with cmis") | Incremental ingestion - Consistent with initial performance |
 
 **Key Performance Insights:**
 - **Kuzu + OpenAI**: Excellent performance with 3.52s per document at scale
 - **Kuzu + Ollama**: Significantly slower (27.38s per document), but functional for local processing
 - **Neo4j**: In general, performance is similar to Kuzu with OpenAI and with Ollama
 - **Graph Extraction**: Dominates processing time (90%+ of total ingestion time)
-- **Pipeline Optimization**: Removing KeywordExtractorand SummaryExtractor and adding parallel docling processing greatly improved initial "pipeline" phase speed 
+- **Pipeline Optimization**: Removing KeywordExtractor and SummaryExtractor and adding parallel docling processing greatly improved initial "pipeline" phase speed 
 
 ### RAG without GraphRAG
 
