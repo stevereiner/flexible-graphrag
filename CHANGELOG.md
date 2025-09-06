@@ -3,6 +3,112 @@
 All notable changes to this project will be documented in this file.
 
 
+## [2025-09-04] - Comprehensive Performance Testing and Optimization
+
+### Added
+- **Complete Performance Benchmarking Matrix**
+  - Tested all combinations: Neo4j/Kuzu × OpenAI/Ollama
+  - Performance table in README.md with detailed metrics
+  - Infrastructure configuration documentation (AMD 5950x, 64GB RAM, 4090 GPU)
+
+### Enhanced
+- **Ollama Parallel Processing Optimization**
+  - Removed artificial worker limitations (1→4 workers)
+  - Enabled async PropertyGraphIndex processing
+  - Parallel Docling document conversion
+  - 94% pipeline performance improvement (37s→2s)
+
+### Fixed
+- **DynamicLLMPathExtractor vs SchemaLLMPathExtractor Issues**
+  - DynamicLLMPathExtractor fails with Ollama (creates only Chunk nodes)
+  - SchemaLLMPathExtractor works excellently with both Neo4j and Kuzu
+  - Kuzu schema configuration fixed (has_structured_schema=False)
+
+### Performance Results
+- **OpenAI**: 3.7x faster than Ollama across both databases
+- **Neo4j + OpenAI**: 14.39s for 2 docs (best overall)
+- **Kuzu + OpenAI**: 14.79s for 2 docs (nearly identical)
+- **Both Ollama options**: ~54s for 2 docs (viable for local processing)
+
+
+## [2025-08-29] - Kuzu Schema Integration and Performance Analysis
+
+### Added
+- **Complete Kuzu Graph Database Integration**
+  - Comprehensive validation schema with 35+ relationship combinations
+  - Entity types: PERSON, ORGANIZATION, TECHNOLOGY, PROJECT, LOCATION
+  - Outstanding performance: 3.52s per document average
+
+### Fixed
+- **Kuzu Schema Validation Errors**
+  - "Query node c violates schema" and "Table Entity does not exist" resolved
+  - Evolution from LlamaIndex exact schema to comprehensive validation
+  - strict=False, max_triplets_per_chunk=100 for maximum flexibility
+
+### Enhanced
+- **Performance Optimization Discovery**
+  - KeywordExtractor/SummaryExtractor removal for Ollama (94% improvement)
+  - Neo4j scaling: 90% efficiency, 18.93s per doc consistency
+  - Kuzu scaling: 253% slower at 2 docs → only 11% slower at 6 docs
+
+
+## [2025-08-27] - Ollama Optimization and Docker Configuration
+
+### Added
+- **Comprehensive Ollama Parallel Processing**
+  - OLLAMA_NUM_PARALLEL=4 and OLLAMA_MAX_LOADED_MODELS=4 support
+  - Async PropertyGraphIndex with use_async=True
+  - Parallel Docling document processing with asyncio.gather()
+  - Increased kg_batch_size from 10 to 20 chunks
+
+### Enhanced
+- **Docker Compose Modularization**
+  - Separate Kuzu API (port 7001) and Explorer (port 7000) services
+  - Bind mounts to flexible-graphrag/kuzu_db/ for data sharing
+  - Health checks and proper container monitoring
+
+### Fixed
+- **Async Event Loop Stability**
+  - Reduced workers for Ollama to prevent conflicts
+  - Enhanced error logging with better exception handling
+  - Schema logging errors resolved
+
+
+## [2025-08-26] - Performance Analysis and Query Timing
+
+### Added
+- **Comprehensive Query Timing Implementation**
+  - Search, Q&A, and hybrid retrieval timing logs
+  - Detailed deduplication flow tracking (12 → 8 → 5 results)
+  - Enhanced document storage logging with breakdown
+
+### Fixed
+- **File Count Logging Mismatch**
+  - Corrected "(7/6 files)" display to show accurate completion status
+  - ASCII-only text previews to prevent emoji encoding issues
+  - Unicode arrow character encoding errors on Windows console
+
+### Performance Results
+- **OpenAI + Kuzu**: 32.17s for 6 docs (first time), 23.81s (with indexes)
+- **Query Performance**: Search 1.079s, Q&A 2.231s (sub-2.5s production ready)
+- **Index Creation Impact**: 23% performance gain with existing indexes
+
+
+## [2025-08-25] - Docker Compose Documentation Updates
+
+### Enhanced
+- **Docker Compose Command Standardization**
+  - Added `-p flexible-graphrag` project name flag to all commands
+  - Reordered flags: `-f` before `-p` throughout documentation
+  - Updated single docker-compose.yaml file structure references
+
+### Added
+- **Stopping Services Documentation**
+  - Dedicated section for proper service shutdown
+  - Volume removal warnings and best practices
+  - Modular include system explanation
+
+
 ## [2025-08-23] - Screenshot Organization and Documentation Updates
 
 ### Changed
