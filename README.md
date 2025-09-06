@@ -178,6 +178,70 @@ Based on testing with OpenAI GPT-4o-mini and Ollama models (llama3.1:8b, llama3.
 
 **Recommendation**: Use OpenAI for Kuzu deployments, reserve Ollama for Neo4j-based setups where performance is more acceptable.
 
+#### Ollama Environment Configuration
+
+When using Ollama (not OpenAI), configure these system environment variables **before starting the Ollama service** to optimize performance and enable parallel processing:
+
+```bash
+# Context length for model processing
+OLLAMA_CONTEXT_LENGTH=8192
+
+# Debug logging (1 for debug, 0 to disable)
+# Log location on Windows: C:\Users\<username>\AppData\Local\Ollama\server.log
+# Useful for checking GPU memory availability and CPU fallback behavior
+OLLAMA_DEBUG=1
+
+# Keep models loaded in memory for faster subsequent requests
+OLLAMA_KEEP_ALIVE=30m
+
+# Maximum number of models to keep loaded simultaneously (0 for no limit)
+OLLAMA_MAX_LOADED_MODELS=4
+
+# Model storage directory (usually set automatically)
+# Windows example: C:\Users\<username>\.ollama\models
+OLLAMA_MODELS=C:\Users\<username>\.ollama\models
+
+# CRITICAL: Number of parallel requests Ollama can handle
+# Required for Flexible GraphRAG parallel file processing to avoid errors
+OLLAMA_NUM_PARALLEL=4
+```
+
+**Important Notes:**
+- Set these environment variables **system-wide** before starting Ollama, not in the Flexible GraphRAG `.env` file
+- `OLLAMA_NUM_PARALLEL=4` is **critical** - prevents processing errors during parallel document ingestion
+- `OLLAMA_DEBUG=1` helps identify GPU memory issues that force CPU processing
+- Restart Ollama service after changing environment variables
+
+#### Performance Benchmarks
+
+**Test Environment**: AMD 5950x 16-core CPU, 64GB RAM, 4090 Nvidia GPU, Windows 11 Pro
+
+**Infrastructure Configuration**: 
+- **Vector Database**: Qdrant (consistent across all tests)
+- **Search Database**: Elasticsearch (consistent across all tests) 
+- **Graph Extractor**: SchemaLLMPathExtractor (extract type: schema) with schema name: default (consistent across all tests)
+- **LLM Models**: OpenAI gpt-4o-mini, Ollama llama3.2:3b
+- **Embedding Models**: OpenAI text-embedding-3-small, Ollama all-minilm
+- **Index Management**: Qdrant + Elasticsearch indexes cleared between LLM/Graph DB configuration changes, but preserved between 2-doc → 6-doc incremental tests within same configuration
+
+| Configuration | Documents | Ingestion Time | Search Time | Q&A Time | Notes |
+|---------------|-----------|----------------|-------------|----------|-------|
+| **Kuzu + Ollama (llama3.2:3b)** | 2 docs (cmispress.txt, space-station.txt) | 54.76s total<br/>Pipeline: 2.11s<br/>Vector: 1.00s<br/>Graph: 51.12s | 4.634s<br/>("cmis" query) | 8.595s<br/>("who was first with cmis") | Initial ingestion |
+| **Kuzu + Ollama (llama3.2:3b)** | +4 docs (incremental to 6 total)<br/>(excel, pptx, docx, pdf) | 43.10s total<br/>Pipeline: 2.16s<br/>Vector: 0.26s<br/>Graph: 40.68s | 4.945s<br/>("cmis" query) | 10.572s<br/>("who was first with cmis") | Incremental ingestion - 21% faster than initial, improved vector performance<br/>**Graph**: 39 nodes (33 Entity, 6 Chunk), 63 relationships (27 LINKS, 36 MENTIONS) |
+| **Kuzu + OpenAI** | 2 docs (cmispress.txt, space-station.txt) | 14.79s total<br/>Pipeline: 1.35s<br/>Vector: 0.93s<br/>Graph: 11.16s | 1.998s<br/>("cmis" query) | 5.005s<br/>("who was first with cmis") | Initial ingestion - 73% faster than Ollama equivalent |
+| **Kuzu + OpenAI** | +4 docs (incremental to 6 total)<br/>(excel, pptx, docx, pdf) | 15.72s total<br/>Pipeline: 0.41s<br/>Vector: 0.28s<br/>Graph: 14.40s | 1.240s<br/>("cmis" query) | 2.187s<br/>("who was first with cmis") | Incremental ingestion - Excellent pipeline efficiency, 38% faster search<br/>**Graph**: 50 nodes (44 Entity, 6 Chunk), 96 relationships (42 LINKS, 54 MENTIONS) |
+| **Neo4j + OpenAI** | 2 docs (cmispress.txt, space-station.txt) | 14.39s total<br/>Pipeline: 1.31s<br/>Vector: 0.81s<br/>Graph: 10.90s | 1.453s<br/>("cmis" query) | 2.785s<br/>("who was first with cmis") | Initial ingestion - Similar performance to Kuzu + OpenAI |
+| **Neo4j + OpenAI** | +4 docs (incremental to 6 total)<br/>(excel, pptx, docx, pdf) | 11.31s total<br/>Pipeline: 0.76s<br/>Vector: 0.26s<br/>Graph: 9.20s | 0.912s<br/>("cmis" query) | 2.796s<br/>("who was first with cmis") | Incremental ingestion - 28% faster than initial, excellent query performance<br/>**Graph**: 49 nodes (43 Entity, 6 Chunk), 88 relationships (45 MENTIONS, 43 semantic types) |
+| **Neo4j + Ollama (llama3.2:3b)** | 2 docs (cmispress.txt, space-station.txt) | 53.66s total<br/>Pipeline: 2.08s<br/>Vector: 0.28s<br/>Graph: 50.71s | 4.252s<br/>("cmis" query) | 13.716s<br/>("who was first with cmis") | Initial ingestion - Similar performance to Kuzu + Ollama |
+| **Neo4j + Ollama (llama3.2:3b)** | +4 docs (incremental to 6 total)<br/>(excel, pptx, docx, pdf) | 72.06s total<br/>Pipeline: 2.14s<br/>Vector: 0.30s<br/>Graph: 69.40s | TBD<br/>("cmis" query) | TBD<br/>("who was first with cmis") | Incremental ingestion - Consistent with initial performance |
+
+**Key Performance Insights:**
+- **Kuzu + OpenAI**: Excellent performance with 3.52s per document at scale
+- **Kuzu + Ollama**: Significantly slower (27.38s per document), but functional for local processing
+- **Neo4j**: More consistent performance across document counts, better for 1-4 documents
+- **Graph Extraction**: Dominates processing time (90%+ of total ingestion time)
+- **Pipeline Optimization**: Removing KeywordExtractor/SummaryExtractor provides 94% speed improvement
+
 ### RAG without GraphRAG
 
 The system can be configured for **RAG (Retrieval-Augmented Generation) without also GraphRAG** This simpler deployment also only do setting up vectors for RAG. It will skip setup for GraphRAG: no auto-building Graphs / Knowledge Graphs in a Graph Database. The processing time will be faster. You can still do Hybrid Search (full text search + vectors for RAG). You can also still do AI Q&A Queries or Chats.  
@@ -275,7 +339,7 @@ Docker deployment offers two main approaches:
 
 ```bash
 # Deploy only databases you need
-docker-compose -f docker/docker-compose.yaml up -d
+docker-compose -f docker/docker-compose.yaml -p flexible-graphrag up -d
 
 # Comment out services you don't need in docker-compose.yaml:
 # - includes/neo4j.yaml          # Comment out if using your own Neo4j
@@ -306,7 +370,7 @@ uv run start.py
 
 ```bash
 # Deploy everything including backend and UIs
-docker-compose -f docker/docker-compose.yaml up -d
+docker-compose -f docker/docker-compose.yaml -p flexible-graphrag up -d
 ```
 
 **Features:**
@@ -327,6 +391,23 @@ docker-compose -f docker/docker-compose.yaml up -d
 **Data Source Workflow:**
 - ✅ **File Upload**: Upload files directly through the web interface (drag & drop or file selection dialog on click)
 - ✅ **Alfresco/CMIS**: Connect to existing Alfresco systems or CMIS repositories
+
+#### Stopping Services
+
+To stop and remove all Docker services:
+
+```bash
+# Stop all services
+docker-compose -f docker/docker-compose.yaml -p flexible-graphrag down
+```
+
+**Common workflow for configuration changes:**
+```bash
+# Stop services, make changes, then restart
+docker-compose -f docker/docker-compose.yaml -p flexible-graphrag down
+# Edit docker-compose.yaml or .env files as needed
+docker-compose -f docker/docker-compose.yaml -p flexible-graphrag up -d
+```
 
 #### Configuration
 
