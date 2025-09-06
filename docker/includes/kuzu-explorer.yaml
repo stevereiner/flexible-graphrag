@@ -1,0 +1,17 @@
+# Kuzu Explorer Web Interface
+services:
+  kuzu-explorer:
+    image: kuzudb/explorer:latest
+    container_name: flexible-graphrag-kuzu-explorer
+    ports:
+      - "7000:8000"    # Map external 7000 to internal 8000 (Kuzu Explorer default port)
+    volumes:
+      - ../../flexible-graphrag/kuzu_db:/database    # Bind mount to backend kuzu_db directory
+    environment:
+      - MODE=READ_ONLY
+      - KUZU_BUFFER_POOL_SIZE=1073741824  # 1GB buffer pool
+      - KUZU_FILE=database.kz  # Specify database file name within mounted directory
+    restart: "no"  # Don't auto-restart so it can be stopped easily
+    # healthcheck removed - not needed for development/debugging
+
+

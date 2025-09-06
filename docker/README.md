@@ -1,15 +1,12 @@
-# Docker Compose Files
+# Docker Compose Configuration
 
-This directory contains all Docker Compose configurations for Flexible GraphRAG.
+This directory contains the Docker Compose configuration for Flexible GraphRAG.
 
-## Main Compose Files
+## Main Compose File
 
 | File | Purpose | Usage |
 |------|---------|-------|
-| `docker-compose.yaml` | **Production deployment** with all services | `docker-compose -f docker/docker-compose.yaml up -d` |
-| `docker-compose.minimal.yaml` | **Minimal setup** (Neo4j only) for testing | `docker-compose -f docker/docker-compose.minimal.yaml up -d` |
-| `docker-compose.dev.yaml` | **Development setup** with hot reloading | `docker-compose -f docker/docker-compose.dev.yaml up -d` |
-| `docker-compose.kibana.yaml` | **Elasticsearch + Kibana Dashboard** | `docker-compose -f docker/docker-compose.kibana.yaml up -d` |
+| `docker-compose.yaml` | **Modular deployment** with configurable services | `docker-compose -f docker/docker-compose.yaml -p flexible-graphrag up -d` |
 
 ## Modular Service Definitions
 
@@ -32,6 +29,8 @@ The `includes/` directory contains individual service definitions:
 
 ## Quick Start
 
+**Note**: All docker-compose commands use `-p flexible-graphrag` to set a consistent project name, which helps organize containers and prevents conflicts with other Docker projects.
+
 1. **Configure environment**:
    ```bash
    # From project root
@@ -41,11 +40,8 @@ The `includes/` directory contains individual service definitions:
 
 2. **Deploy**:
    ```bash
-   # Full stack deployment
-   docker-compose -f docker/docker-compose.yaml up -d
-   
-   # Or minimal setup (Neo4j only)
-   docker-compose -f docker/docker-compose.minimal.yaml up -d
+   # Deploy with all configured services
+   docker-compose -f docker/docker-compose.yaml -p flexible-graphrag up -d
    ```
 
 3. **Environment variables and volumes**:
@@ -59,10 +55,12 @@ The `includes/` directory contains individual service definitions:
 
 4. **Stop deployment**:
    ```bash
-   docker-compose -f docker/docker-compose.yaml down
+   docker-compose -f docker/docker-compose.yaml -p flexible-graphrag down
    ```
 
 ## Customization
+
+The single `docker-compose.yaml` file uses modular includes, making it easy to enable or disable services as needed.
 
 ### Disable Services
 Edit `docker-compose.yaml` and comment out services you don't need:

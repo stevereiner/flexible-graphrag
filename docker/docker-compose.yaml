@@ -9,12 +9,13 @@
 # Include or comment out (if have externally or don't need) services
 include:
    - includes/neo4j.yaml          # Neo4j graph database
-   - includes/kuzu.yaml            # Kuzu graph database with API server
+   - includes/kuzu-explorer.yaml   # Kuzu Explorer web interface (port 7000)
+   #- includes/kuzu-api.yaml       # Kuzu API server (port 7001) - commented out, not used
    - includes/qdrant.yaml          # Commented - using existing external container  
    - includes/elasticsearch-dev.yaml  # Elasticsearch with security disabled
    - includes/kibana-simple.yaml       # Kibana working configuration
-   - includes/opensearch.yaml      # Commented - using elasticsearch instead
-   - includes/alfresco.yaml        # Alfresco content management system
+   #- includes/opensearch.yaml      # Commented - using elasticsearch instead
+   #- includes/alfresco.yaml        # Alfresco content management system
    # commented out app-stack.yaml and proxy.yaml currently using external/standalone flexible-graphrag 
    # backend and ui clients, but using databases in docker
    #- includes/app-stack.yaml       # backend and ui clients
