@@ -28,12 +28,25 @@ GRAPH_DB=neo4j
 #ENABLE_KNOWLEDGE_GRAPH=false
 ENABLE_KNOWLEDGE_GRAPH=true
 
+# Knowledge graph extractor type: "simple", "schema", or "dynamic"
+# simple: Basic extraction without schema constraints (uses SimpleLLMPathExtractor)
+# schema: Uses predefined schema for structured extraction (uses SchemaLLMPathExtractor) - default
+# Use SchemaLLMPathExtractor with strict=True when you have a well-defined domain and want to ensure consistency
+# Use SchemaLLMPathExtractor with strict=False when you want some flexibility while still being guided by a base schema
+# dynamic: Flexible extraction that can expand beyond initial schema (uses DynamicLLMPathExtractor)
+# (DynamicLLMPathExtractor currently openai only, doesn't work on ollama)
+# Use DynamicLLMPathExtractor when you want a balance between structure and flexibility, 
+# especially for discovering new entity and relation types
+KG_EXTRACTOR_TYPE=schema
+
 # Graph Database Connection Configurations:
 # Neo4j
 GRAPH_DB_CONFIG={"url": "bolt://localhost:7687", "username": "neo4j", "password": "password"}
 
-# Kuzu  
-#GRAPH_DB_CONFIG={"db_path": "./kuzu_db"}
+# Kuzu (database file will be created as ./kuzu_db/database.kz)
+#GRAPH_DB_CONFIG={"db_path": "./kuzu_db/database.kz"}
+
+
 
 # ====================================================================
 # SCHEMA CONFIGURATION - Controls entity and relationship extraction
@@ -44,23 +57,25 @@ GRAPH_DB_CONFIG={"url": "bolt://localhost:7687", "username": "neo4j", "password"
 # "relations": Literal["WORKS_FOR", "LOCATED_IN", "USES", "COLLABORATES_WITH", "DEVELOPS", "MENTIONS"],
 SCHEMA_NAME=default
 #SCHEMA_NAME=none
+#SCHEMA_NAME=cmis_press
 
-# Custom schema example (more examples in docs/SCHEMA-EXAMPLES.md):
-# SCHEMAS=[{"name": "business", "schema": {"entities": ["COMPANY", "PERSON"], "relations": ["WORKS_FOR"]}}]
+# Custom schema example for SchemaLLMPathExtractor (and DynamicLLMPathExtractor)
+#SCHEMAS=[{"name": "cmis_press", "schema": {"entities": ["PERSON", "ORGANIZATION", "TECHNOLOGY", "SPECIFICATION", "CONCEPT"], "relations": ["WORKS_FOR", "DEVELOPS", "SUPPORTS", "IMPLEMENTS", "COLLABORATES_WITH", "ANNOUNCES"], "validation_schema": [["PERSON", "WORKS_FOR", "ORGANIZATION"], ["PERSON", "DEVELOPS", "TECHNOLOGY"], ["ORGANIZATION", "SUPPORTS", "SPECIFICATION"], ["ORGANIZATION", "IMPLEMENTS", "TECHNOLOGY"], ["ORGANIZATION", "COLLABORATES_WITH", "ORGANIZATION"], ["ORGANIZATION", "ANNOUNCES", "SPECIFICATION"]], "strict": false}}]
 
 # ====================================================================
 # 2. VECTOR DATABASE CONFIGURATION  
 # ====================================================================
 
-VECTOR_DB=neo4j
-#VECTOR_DB=qdrant
+#VECTOR_DB=neo4j
+VECTOR_DB=qdrant
 #VECTOR_DB=elasticsearch
 #VECTOR_DB=opensearch
 #VECTOR_DB=none
 
 # Vector Database Connection Configurations:
+
 # Qdrant
-#VECTOR_DB_CONFIG={"host": "localhost", "port": 6333, "collection_name": "hybrid_search_vector", "https": false}
+VECTOR_DB_CONFIG={"host": "localhost", "port": 6333, "collection_name": "hybrid_search_vector", "https": false}
 
 # Elasticsearch
 #VECTOR_DB_CONFIG={"url": "http://localhost:9200", "index_name": "hybrid_search_vector"}
@@ -69,7 +84,7 @@ VECTOR_DB=neo4j
 #VECTOR_DB_CONFIG={"url": "http://localhost:9201", "index_name": "hybrid_search_vector"}
 
 # Neo4j VECTOR database configuration (separate from graph)
-VECTOR_DB_CONFIG={"url": "bolt://localhost:7687", "username": "neo4j", "password": "password", "index_name": "hybrid_search_vector", "database": "neo4j"}
+#VECTOR_DB_CONFIG={"url": "bolt://localhost:7687", "username": "neo4j", "password": "password", "index_name": "hybrid_search_vector", "database": "neo4j"}
 
 
 # ====================================================================
@@ -104,10 +119,20 @@ EMBEDDING_MODEL=text-embedding-3-small  # 1536 dimensions, recommended
 # OPENAI_TIMEOUT=120.0  # LLM request timeout in seconds (default: 2 minutes)
 
 # Ollama Configuration (if using Ollama)
-#OLLAMA_MODEL=llama3.1:8b
-#OLLAMA_MODEL=llama3.2:latest
-#OLLAMA_MODEL=gpt-oss:20b
-#EMBEDDING_MODEL=mxbai-embed-large
+#OLLAMA_MODEL=llama3.1:8b              # 8B params - did better previously, but gives errors,
+                                       # may be my ollama env setting (4.9 GB on disk)
+
+#OLLAMA_MODEL=llama3.2:3b              # 3B params - good balance, recommended default 
+                                       # gets orgs, misses person cmispress.txt (2.0 GB on disk)
+
+#OLLAMA_MODEL=gpt-oss:20b              # 20B params, needs 16 GB min GPU memory, and 16 GB - 32 GB system memory, 
+                                       # 13 GB on disk, didn't seem to work (chunk only)
+
+# Embedding Models for Ollama (smaller models perform better):
+#EMBEDDING_MODEL=all-minilm             # 22M params, 384 dims - fastest, default for Ollama
+#EMBEDDING_MODEL=nomic-embed-text       # 137M params, 768 dims - good balance of speed/quality
+#EMBEDDING_MODEL=mxbai-embed-large      # 334M params, 1024 dims - high quality but much slower
+
 #OLLAMA_BASE_URL=http://localhost:11434
 # OLLAMA_TIMEOUT=300.0  # LLM request timeout in seconds (default: 5 minutes - higher for local processing)
 
