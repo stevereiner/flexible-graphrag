@@ -70,11 +70,33 @@ an aristocratic family that rules the planet Caladan, the rainy planet, since 10
     llm_config: Dict[str, Any] = {}
     
     # Schema system
-    schema_name: str = Field("none", description="Name of schema to use: 'none', 'default', or custom name")
-    schemas: List[Dict[str, Any]] = Field(default_factory=list, description="Array of named schemas")
+    schema_name: str = Field("default", description="Name of schema to use: 'none', 'default', or custom name")
+    schemas: Optional[List[Dict[str, Any]]] = Field(default_factory=list, description="Array of named schemas")
+    
+    @field_validator('schemas', mode='before')
+    @classmethod
+    def parse_schemas(cls, v):
+        if isinstance(v, str):
+            try:
+                # Try to parse as JSON
+                parsed = json.loads(v)
+                return parsed
+            except json.JSONDecodeError as e:
+                # If JSON parsing fails, log the error and return empty list
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.warning(f"Failed to parse SCHEMAS JSON: {e}. Value was: {v[:100]}...")
+                return []
+        elif v is None:
+            return []
+        return v
     
     # Knowledge graph extraction control
     enable_knowledge_graph: bool = Field(True, description="Enable knowledge graph extraction for graph functionality")
+    kg_extractor_type: str = Field("schema", description="Type of KG extractor: 'simple', 'schema', or 'dynamic'")
+    
+    # Kuzu-specific configuration
+    kuzu_use_vector_index: bool = Field(False, description="Enable Kuzu's built-in vector index (disabled by default)")
     
     # Database connection parameters
     vector_db_config: Dict[str, Any] = {}
@@ -101,7 +123,7 @@ an aristocratic family that rules the planet Caladan, the rainy planet, since 10
     # Knowledge graph extraction timeouts and progress
     kg_extraction_timeout: int = Field(3600, description="Timeout for knowledge graph extraction per document in seconds (default: 1 hour for large documents)")
     kg_progress_reporting: bool = Field(True, description="Enable detailed progress reporting during knowledge graph extraction")
-    kg_batch_size: int = Field(10, description="Number of chunks to process in each batch during KG extraction")
+    kg_batch_size: int = Field(20, description="Number of chunks to process in each batch during KG extraction - increased for better Ollama parallel processing")
     kg_cancel_check_interval: float = Field(2.0, description="How often to check for cancellation during KG extraction in seconds")
     
     # Environment-based defaults
@@ -114,8 +136,8 @@ an aristocratic family that rules the planet Caladan, the rainy planet, since 10
                 self.llm_config = {
                     "model": os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
                     "api_key": os.getenv("OPENAI_API_KEY"),
-                    "embedding_model": "text-embedding-3-small",
-                    "temperature": 0.1,
+                    "embedding_model": os.getenv("EMBEDDING_MODEL", "text-embedding-3-small"),
+                    "temperature": float(os.getenv("OPENAI_TEMPERATURE", "0.1")),
                     "max_tokens": 4000,
                     "timeout": float(os.getenv("OPENAI_TIMEOUT", "120.0"))
                 }
@@ -123,8 +145,8 @@ an aristocratic family that rules the planet Caladan, the rainy planet, since 10
                 self.llm_config = {
                     "model": os.getenv("OLLAMA_MODEL", "llama3.1:8b"),
                     "base_url": os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"),
-                    "embedding_model": "mxbai-embed-large",
-                    "temperature": 0.1,
+                    "embedding_model": os.getenv("EMBEDDING_MODEL", "all-minilm"),
+                    "temperature": float(os.getenv("OLLAMA_TEMPERATURE", "0.1")),
                     "timeout": float(os.getenv("OLLAMA_TIMEOUT", "300.0"))  # Higher default for local processing
                 }
             elif self.llm_provider == LLMProvider.AZURE_OPENAI:
@@ -134,21 +156,21 @@ an aristocratic family that rules the planet Caladan, the rainy planet, since 10
                     "azure_endpoint": os.getenv("AZURE_OPENAI_ENDPOINT"),
                     "api_key": os.getenv("AZURE_OPENAI_API_KEY"),
                     "api_version": os.getenv("AZURE_OPENAI_API_VERSION", "2024-02-01"),
-                    "temperature": 0.1,
+                    "temperature": float(os.getenv("AZURE_OPENAI_TEMPERATURE", "0.1")),
                     "timeout": float(os.getenv("AZURE_OPENAI_TIMEOUT", "120.0"))
                 }
             elif self.llm_provider == LLMProvider.ANTHROPIC:
                 self.llm_config = {
                     "model": os.getenv("ANTHROPIC_MODEL", "claude-3-5-sonnet-20241022"),
                     "api_key": os.getenv("ANTHROPIC_API_KEY"),
-                    "temperature": 0.1,
+                    "temperature": float(os.getenv("ANTHROPIC_TEMPERATURE", "0.1")),
                     "timeout": float(os.getenv("ANTHROPIC_TIMEOUT", "120.0"))
                 }
             elif self.llm_provider == LLMProvider.GEMINI:
                 self.llm_config = {
                     "model": os.getenv("GEMINI_MODEL", "models/gemini-1.5-flash"),
                     "api_key": os.getenv("GEMINI_API_KEY"),
-                    "temperature": 0.1,
+                    "temperature": float(os.getenv("GEMINI_TEMPERATURE", "0.1")),
                     "timeout": float(os.getenv("GEMINI_TIMEOUT", "120.0"))
                 }
         
@@ -215,20 +237,31 @@ an aristocratic family that rules the planet Caladan, the rainy planet, since 10
     
     def get_active_schema(self) -> Optional[Dict[str, Any]]:
         """Get the currently active schema based on schema_name"""
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        logger.info(f"Getting active schema for schema_name: '{self.schema_name}'")
+        schemas_list = self.schemas or []
+        logger.info(f"Available schemas: {len(schemas_list)} schemas loaded")
+        for i, schema_def in enumerate(schemas_list):
+            logger.info(f"  Schema {i}: name='{schema_def.get('name')}', has_schema={bool(schema_def.get('schema'))}")
+        
         if self.schema_name == "none":
+            logger.info("Schema name is 'none' - returning None")
             return None
         elif self.schema_name == "default":
+            logger.info("Schema name is 'default' - returning SAMPLE_SCHEMA")
             return SAMPLE_SCHEMA
         else:
             # Look for named schema in schemas array
-            for schema_def in self.schemas:
+            for schema_def in schemas_list:
                 if schema_def.get("name") == self.schema_name:
-                    return schema_def.get("schema", {})
+                    schema_data = schema_def.get("schema", {})
+                    logger.info(f"Found schema '{self.schema_name}' with {len(schema_data)} keys")
+                    return schema_data
             
             # If named schema not found, log warning and return None
-            import logging
-            logger = logging.getLogger(__name__)
-            logger.warning(f"Schema '{self.schema_name}' not found in schemas array. Available schemas: {[s.get('name') for s in self.schemas]}")
+            logger.warning(f"Schema '{self.schema_name}' not found in schemas array. Available schemas: {[s.get('name') for s in schemas_list]}")
             return None
 
     model_config = {
@@ -238,41 +271,89 @@ an aristocratic family that rules the planet Caladan, the rainy planet, since 10
         "extra": "allow"
     }
 
-# Sample schema configuration
+# Sample schema configuration - comprehensive schema with permissive validation for maximum flexibility
 SAMPLE_SCHEMA = {
-    "entities": Literal["PERSON", "ORGANIZATION", "LOCATION", "TECHNOLOGY", "PROJECT", "DOCUMENT"],
-    "relations": Literal["WORKS_FOR", "LOCATED_IN", "USES", "COLLABORATES_WITH", "DEVELOPS", "MENTIONS"],
-    "validation_schema": {
-        "relationships": [
-            ("PERSON", "WORKS_FOR", "ORGANIZATION"),
-            ("PERSON", "LOCATED_IN", "LOCATION"),
-            ("ORGANIZATION", "USES", "TECHNOLOGY"),
-            ("PERSON", "COLLABORATES_WITH", "PERSON"),
-            ("ORGANIZATION", "DEVELOPS", "PROJECT"),
-            ("DOCUMENT", "MENTIONS", "PERSON"),
-            ("DOCUMENT", "MENTIONS", "ORGANIZATION"),
-            ("DOCUMENT", "MENTIONS", "TECHNOLOGY")
-        ]
-    },
+    "entities": Literal["PERSON", "ORGANIZATION", "LOCATION", "PLACE", "TECHNOLOGY", "PROJECT"],
+    "relations": Literal["WORKS_FOR", "LOCATED_IN", "USES", "COLLABORATES_WITH", "DEVELOPS", "HAS", "PART_OF", "WORKED_ON", "WORKED_WITH", "WORKED_AT"],
+    "validation_schema": [
+        # Person relationships
+        ("PERSON", "WORKS_FOR", "ORGANIZATION"),
+        ("PERSON", "WORKED_AT", "ORGANIZATION"),
+        ("PERSON", "WORKED_WITH", "PERSON"),
+        ("PERSON", "WORKED_ON", "PROJECT"),
+        ("PERSON", "WORKED_ON", "TECHNOLOGY"),
+        ("PERSON", "COLLABORATES_WITH", "PERSON"),
+        ("PERSON", "PART_OF", "ORGANIZATION"),
+        ("PERSON", "LOCATED_IN", "LOCATION"),
+        ("PERSON", "LOCATED_IN", "PLACE"),
+        ("PERSON", "HAS", "TECHNOLOGY"),
+        ("PERSON", "USES", "TECHNOLOGY"),
+        ("PERSON", "DEVELOPS", "PROJECT"),
+        ("PERSON", "DEVELOPS", "TECHNOLOGY"),
+        # Organization relationships
+        ("ORGANIZATION", "COLLABORATES_WITH", "ORGANIZATION"),
+        ("ORGANIZATION", "WORKED_WITH", "ORGANIZATION"),
+        ("ORGANIZATION", "WORKED_ON", "PROJECT"),
+        ("ORGANIZATION", "WORKED_ON", "TECHNOLOGY"),
+        ("ORGANIZATION", "DEVELOPS", "PROJECT"),
+        ("ORGANIZATION", "DEVELOPS", "TECHNOLOGY"),
+        ("ORGANIZATION", "USES", "TECHNOLOGY"),
+        ("ORGANIZATION", "HAS", "PERSON"),
+        ("ORGANIZATION", "HAS", "TECHNOLOGY"),
+        ("ORGANIZATION", "HAS", "PROJECT"),
+        ("ORGANIZATION", "PART_OF", "ORGANIZATION"),
+        ("ORGANIZATION", "LOCATED_IN", "LOCATION"),
+        ("ORGANIZATION", "LOCATED_IN", "PLACE"),
+        # Technology relationships
+        ("TECHNOLOGY", "USES", "TECHNOLOGY"),
+        ("TECHNOLOGY", "PART_OF", "TECHNOLOGY"),
+        ("TECHNOLOGY", "PART_OF", "PROJECT"),
+        # Project relationships
+        ("PROJECT", "USES", "TECHNOLOGY"),
+        ("PROJECT", "HAS", "TECHNOLOGY"),
+        ("PROJECT", "PART_OF", "ORGANIZATION"),
+        # Location relationships
+        ("LOCATION", "HAS", "ORGANIZATION"),
+        ("LOCATION", "HAS", "PERSON"),
+        ("PLACE", "HAS", "ORGANIZATION"),
+        ("PLACE", "HAS", "PERSON")
+    ],
     "strict": False,
-    "max_triplets_per_chunk": 15
+    "max_triplets_per_chunk": 100
 }
 
-# Kuzu-specific schema that uses only Entity and Chunk labels
-KUZU_SCHEMA = {
-    "entities": Literal["Entity"],  # Use Literal type for Pydantic compatibility
-    "relations": Literal["WORKS_FOR", "LOCATED_IN", "USES", "COLLABORATES_WITH", "DEVELOPS", "MENTIONS"],
-    "validation_schema": {
-        "relationships": [
-            ("Entity", "WORKS_FOR", "Entity"),
-            ("Entity", "LOCATED_IN", "Entity"),
-            ("Entity", "USES", "Entity"),
-            ("Entity", "COLLABORATES_WITH", "Entity"),
-            ("Entity", "DEVELOPS", "Entity"),
-            ("Chunk", "MENTIONS", "Entity"),
-            ("Entity", "MENTIONS", "Entity")
-        ]
-    },
-    "strict": True,  # Kuzu enforces stricter schema validation
-    "max_triplets_per_chunk": 15
-}
+# LlamaIndex Kuzu documentation schema (too restrictive - commented out)
+# SAMPLE_SCHEMA = {
+#     "entities": Literal["PERSON", "PLACE", "ORGANIZATION"],
+#     "relations": Literal["HAS", "PART_OF", "WORKED_ON", "WORKED_WITH", "WORKED_AT"],
+#     "validation_schema": [
+#         ("ORGANIZATION", "HAS", "PERSON"),
+#         ("PERSON", "WORKED_AT", "ORGANIZATION"),
+#         ("PERSON", "WORKED_WITH", "PERSON"),
+#         ("PERSON", "PART_OF", "ORGANIZATION"),
+#         ("ORGANIZATION", "WORKED_ON", "ORGANIZATION"),
+#         ("PERSON", "WORKED_ON", "ORGANIZATION")
+#     ],
+#     "strict": True
+# }
+
+# Previous schema with noisy DOCUMENT MENTIONS (commented out for reference)
+# SAMPLE_SCHEMA = {
+#     "entities": Literal["PERSON", "ORGANIZATION", "LOCATION", "TECHNOLOGY", "PROJECT", "DOCUMENT"],
+#     "relations": Literal["WORKS_FOR", "LOCATED_IN", "USES", "COLLABORATES_WITH", "DEVELOPS", "MENTIONS"],
+#     "validation_schema": [
+#         ("PERSON", "WORKS_FOR", "ORGANIZATION"),
+#         ("PERSON", "LOCATED_IN", "LOCATION"),
+#         ("ORGANIZATION", "USES", "TECHNOLOGY"),
+#         ("PERSON", "COLLABORATES_WITH", "PERSON"),
+#         ("ORGANIZATION", "DEVELOPS", "PROJECT"),
+#         ("DOCUMENT", "MENTIONS", "PERSON"),
+#         ("DOCUMENT", "MENTIONS", "ORGANIZATION"),
+#         ("DOCUMENT", "MENTIONS", "TECHNOLOGY")
+#     ],
+#     "strict": False,
+#     "max_triplets_per_chunk": 15
+# }
+
+# Note: KUZU_SCHEMA removed - system now always uses user's configured schema
+# Both Neo4j and Kuzu will use the same schema configuration (SAMPLE_SCHEMA by default)

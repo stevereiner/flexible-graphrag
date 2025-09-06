@@ -173,7 +173,11 @@ class FlexibleGraphRAGBackend:
         if total_files > 0:
             status_update["files_completed"] = files_completed
             status_update["total_files"] = total_files
-            status_update["file_progress"] = f"File {files_completed + 1} of {total_files}"
+            # Handle both in-progress (0-based) and completion (actual count) scenarios
+            if status == "completed" or files_completed >= total_files:
+                status_update["file_progress"] = f"File {files_completed} of {total_files}"
+            else:
+                status_update["file_progress"] = f"File {files_completed + 1} of {total_files}"
             
         # Add dynamic time estimation
         if estimated_time_remaining:
@@ -197,7 +201,11 @@ class FlexibleGraphRAGBackend:
         
         PROCESSING_STATUS[processing_id] = status_update
         if total_files > 0:
-            logger.info(f"Processing {processing_id}: {status} - {message} ({files_completed + 1}/{total_files} files)")
+            # Handle both in-progress (0-based) and completion (actual count) scenarios
+            if status == "completed" or files_completed >= total_files:
+                logger.info(f"Processing {processing_id}: {status} - {message} ({files_completed}/{total_files} files)")
+            else:
+                logger.info(f"Processing {processing_id}: {status} - {message} ({files_completed + 1}/{total_files} files)")
         else:
             logger.info(f"Processing {processing_id}: {status} - {message}")
     
@@ -418,11 +426,15 @@ class FlexibleGraphRAGBackend:
             logger.info(f"Batch processing completed for {len(file_paths)} files")
             
         except Exception as e:
-            logger.error(f"Error in batch file processing: {str(e)}")
+            import traceback
+            error_details = f"{type(e).__name__}: {str(e)}"
+            if not str(e):  # If error message is empty, get more details
+                error_details = f"{type(e).__name__} (no message) - Traceback: {traceback.format_exc()}"
+            logger.error(f"Error in batch file processing: {error_details}")
             self._update_processing_status(
                 processing_id,
                 "failed",
-                f"File processing failed: {str(e)}",
+                f"File processing failed: {error_details}",
                 0
             )
 
@@ -813,15 +825,28 @@ class FlexibleGraphRAGBackend:
     
     async def search_documents(self, query: str, top_k: int = 10) -> Dict[str, Any]:
         """Search documents using hybrid search"""
+        start_time = datetime.now()
+        logger.info(f"Search query started at {start_time.strftime('%H:%M:%S.%f')[:-3]} - Query: '{query}' (top_k={top_k})")
+        
         try:
             results = await self.system.search(query, top_k=top_k)
-            return {"success": True, "results": results}
+            
+            end_time = datetime.now()
+            duration = (end_time - start_time).total_seconds()
+            logger.info(f"Search query completed in {duration:.3f}s - Returning {len(results)} final results (post-deduplication)")
+            
+            return {"success": True, "results": results, "query_time": f"{duration:.3f}s"}
         except Exception as e:
-            logger.error(f"Error during search: {str(e)}")
-            return {"success": False, "error": str(e)}
+            end_time = datetime.now()
+            duration = (end_time - start_time).total_seconds()
+            logger.error(f"Search query failed after {duration:.3f}s: {str(e)}")
+            return {"success": False, "error": str(e), "query_time": f"{duration:.3f}s"}
     
     async def qa_query(self, query: str) -> Dict[str, Any]:
         """Answer a question using the Q&A system"""
+        start_time = datetime.now()
+        logger.info(f"Q&A query started at {start_time.strftime('%H:%M:%S.%f')[:-3]} - Query: '{query}'")
+        
         try:
             query_engine = self.system.get_query_engine()
             
@@ -829,14 +854,23 @@ class FlexibleGraphRAGBackend:
             logger.info("Using async query method (aquery) for all LLM providers")
             response = await query_engine.aquery(query)
             
+            end_time = datetime.now()
+            duration = (end_time - start_time).total_seconds()
             answer = str(response)
-            return {"success": True, "answer": answer}
+            logger.info(f"Q&A query completed in {duration:.3f}s - Answer length: {len(answer)} characters")
+            
+            return {"success": True, "answer": answer, "query_time": f"{duration:.3f}s"}
         except Exception as e:
-            logger.error(f"Error during Q&A query: {str(e)}")
-            return {"success": False, "error": str(e)}
+            end_time = datetime.now()
+            duration = (end_time - start_time).total_seconds()
+            logger.error(f"Q&A query failed after {duration:.3f}s: {str(e)}")
+            return {"success": False, "error": str(e), "query_time": f"{duration:.3f}s"}
     
     async def query_documents(self, query: str, top_k: int = 10) -> Dict[str, Any]:
         """Query documents with AI-generated answers"""
+        start_time = datetime.now()
+        logger.info(f"Document query started at {start_time.strftime('%H:%M:%S.%f')[:-3]} - Query: '{query}'")
+        
         try:
             query_engine = self.system.get_query_engine()
             
@@ -844,10 +878,17 @@ class FlexibleGraphRAGBackend:
             logger.info("Using async query method (aquery) for all LLM providers")
             response = await query_engine.aquery(query)
             
-            return {"success": True, "answer": str(response)}
+            end_time = datetime.now()
+            duration = (end_time - start_time).total_seconds()
+            answer = str(response)
+            logger.info(f"Document query completed in {duration:.3f}s - Answer length: {len(answer)} characters")
+            
+            return {"success": True, "answer": answer, "query_time": f"{duration:.3f}s"}
         except Exception as e:
-            logger.error(f"Error during query: {str(e)}")
-            return {"success": False, "error": str(e)}
+            end_time = datetime.now()
+            duration = (end_time - start_time).total_seconds()
+            logger.error(f"Document query failed after {duration:.3f}s: {str(e)}")
+            return {"success": False, "error": str(e), "query_time": f"{duration:.3f}s"}
     
     async def ingest_text(self, content: str, source_name: str = "text_input") -> Dict[str, Any]:
         """Start async text ingestion and return processing ID"""

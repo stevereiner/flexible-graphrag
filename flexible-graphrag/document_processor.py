@@ -84,7 +84,7 @@ class DocumentProcessor:
         return await future
     
     async def process_documents(self, file_paths: List[Union[str, Path]], processing_id: str = None) -> List[Document]:
-        """Convert documents to markdown using Docling, then create LlamaIndex Documents"""
+        """Convert documents to markdown using Docling with parallel processing, then create LlamaIndex Documents"""
         documents = []
         
         # Helper function to check cancellation
@@ -98,7 +98,12 @@ class DocumentProcessor:
                     return False
             return False
         
-        for file_path in file_paths:
+        # Process files in parallel for better performance with multiple files
+        import asyncio
+        from concurrent.futures import ThreadPoolExecutor
+        
+        async def process_single_file(file_path):
+            """Process a single file and return Document or None"""
             # Check for cancellation before processing each file
             if _check_cancellation():
                 logger.info("Document processing cancelled by user")
@@ -109,7 +114,7 @@ class DocumentProcessor:
                 # Check if file exists
                 if not path_obj.exists():
                     logger.warning(f"File does not exist: {file_path}")
-                    continue
+                    return None
                 
                 # Check if it's a supported file type by Docling
                 docling_extensions = [
@@ -181,8 +186,7 @@ class DocumentProcessor:
                             "file_name": path_obj.name
                         }
                     )
-                    documents.append(doc)
-                    logger.info(f"Successfully converted: {file_path}")
+                    return doc
                     
                 elif path_obj.suffix.lower() in ['.txt', '.md']:
                     # Handle plain text files directly
@@ -203,18 +207,30 @@ class DocumentProcessor:
                             "file_name": path_obj.name
                         }
                     )
-                    documents.append(doc)
-                    logger.info(f"Successfully read text file: {file_path}")
+                    return doc
                 
                 else:
                     logger.warning(f"Unsupported file type: {file_path}")
-                    continue
+                    return None
                 
             except Exception as e:
                 logger.error(f"Error processing {file_path}: {e}")
-                continue
+                return None
         
-        logger.info(f"Successfully processed {len(documents)} documents")
+        # Process files in parallel using asyncio.gather
+        logger.info(f"Processing {len(file_paths)} files in parallel...")
+        tasks = [process_single_file(file_path) for file_path in file_paths]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        
+        # Filter out None results and exceptions
+        documents = []
+        for i, result in enumerate(results):
+            if isinstance(result, Exception):
+                logger.error(f"Error processing file {file_paths[i]}: {result}")
+            elif result is not None:
+                documents.append(result)
+        
+        logger.info(f"Successfully processed {len(documents)} documents in parallel")
         return documents
     
     def process_text_content(self, content: str, source_name: str = "text_input") -> Document:

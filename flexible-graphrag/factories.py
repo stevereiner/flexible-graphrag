@@ -260,7 +260,7 @@ class DatabaseFactory:
             raise ValueError(f"Unsupported vector database: {db_type}")
     
     @staticmethod
-    def create_graph_store(db_type: GraphDBType, config: Dict[str, Any], schema_config: Dict[str, Any] = None, has_separate_vector_store: bool = False, llm_provider: LLMProvider = None, llm_config: Dict[str, Any] = None):
+    def create_graph_store(db_type: GraphDBType, config: Dict[str, Any], schema_config: Dict[str, Any] = None, has_separate_vector_store: bool = False, llm_provider: LLMProvider = None, llm_config: Dict[str, Any] = None, app_config=None):
         """Create graph store based on database type"""
         
         logger.info(f"Creating graph store with type: {db_type}")
@@ -279,7 +279,6 @@ class DatabaseFactory:
             )
         
         elif db_type == GraphDBType.KUZU:
-            from config import SAMPLE_SCHEMA, KUZU_SCHEMA
             
             db_path = config.get("db_path", "./kuzu_db")
             
@@ -296,190 +295,111 @@ class DatabaseFactory:
             
             kuzu_db = kuzu.Database(db_path)
             
-            # Get relationship schema - use provided or Kuzu-specific default
-            relationship_schema = None
-            if schema_config and "validation_schema" in schema_config:
-                # Extract relationships from validation_schema
-                validation_data = schema_config["validation_schema"]
-                if isinstance(validation_data, dict) and "relationships" in validation_data:
-                    relationship_schema = validation_data["relationships"]
-                elif isinstance(validation_data, list):
-                    relationship_schema = validation_data
-                logger.info("Using provided schema for Kuzu")
-            else:
-                # Use Kuzu-specific schema (Entity/Chunk labels only)
-                logger.info("Using default KUZU_SCHEMA for Kuzu (Entity/Chunk labels)")
-                relationship_schema = KUZU_SCHEMA["validation_schema"]["relationships"]
+            # Determine if structured schema should be used based on configuration
+            has_schema = schema_config is not None and schema_config.get("validation_schema") is not None
+            use_structured_schema = has_schema
             
-            # Use Approach 2 (separate vector store) when available
-            if has_separate_vector_store:
-                # Approach 2: Kuzu for graph relationships, separate vector store for embeddings
-                logger.info("Using Kuzu Approach 2: separate vector store for embeddings")
-                graph_store = KuzuPropertyGraphStore(
-                    kuzu_db,
-                    has_structured_schema=False,  # Disable structured schema validation
-                    use_vector_index=False,  # Disable Kuzu's vector index, use separate vector store
-                )
-                
-                # Initialize schema to prevent "Table Entity does not exist" error
-                try:
-                    graph_store.init_schema()
-                    logger.info("Kuzu Approach 2 schema initialized successfully")
-                    
-                    # Verify schema was actually created
-                    # COMMENTED OUT: Causes syntax and lock issues with Kuzu
-                    # conn = kuzu.Connection(kuzu_db)
-                    # result = conn.execute("SHOW TABLES")
-                    # tables = result.get_as_df()
-                    # logger.info(f"Kuzu tables after init_schema: {tables}")
-                    
-                except Exception as e:
-                    logger.warning(f"Auto schema initialization failed: {e}")
-                    # Solution 3: Manual table creation as fallback
-                    try:
-                        conn = kuzu.Connection(kuzu_db)
-                        
-                        # Check what tables exist before manual creation
-                        # COMMENTED OUT: Causes lock issues with Kuzu concurrency
-                        # try:
-                        #     result = conn.execute("CALL show_tables() RETURN *")
-                        #     existing_tables = result.get_as_df()
-                        #     logger.info(f"Existing tables before manual creation: {existing_tables}")
-                        # except Exception as e:
-                        #     logger.info(f"Could not check existing tables: {e}")
-                        
-                        # Create proper schema for Kuzu + Qdrant integration (matching KUZU_SCHEMA)
-                        # Create Chunk table (KUZU_SCHEMA expects "Chunk", not "DOCUMENT")
-                        conn.execute("""
-                            CREATE NODE TABLE IF NOT EXISTS Chunk(
-                                id INT64 PRIMARY KEY,
-                                title STRING,
-                                qdrant_id STRING,
-                                text STRING,
-                                metadata STRING
-                            )
-                        """)
-                        # Create Entity table (matching KUZU_SCHEMA expectations)
-                        conn.execute("""
-                            CREATE NODE TABLE IF NOT EXISTS Entity(
-                                id INT64 PRIMARY KEY,
-                                name STRING,
-                                qdrant_id STRING,
-                                type STRING,
-                                description STRING
-                            )
-                        """)
-                        # Create relationship tables matching KUZU_SCHEMA
-                        conn.execute("""
-                            CREATE REL TABLE IF NOT EXISTS WORKS_FOR(
-                                FROM Entity TO Entity,
-                                type STRING
-                            )
-                        """)
-                        conn.execute("""
-                            CREATE REL TABLE IF NOT EXISTS LOCATED_IN(
-                                FROM Entity TO Entity,
-                                type STRING
-                            )
-                        """)
-                        conn.execute("""
-                            CREATE REL TABLE IF NOT EXISTS USES(
-                                FROM Entity TO Entity,
-                                type STRING
-                            )
-                        """)
-                        conn.execute("""
-                            CREATE REL TABLE IF NOT EXISTS COLLABORATES_WITH(
-                                FROM Entity TO Entity,
-                                type STRING
-                            )
-                        """)
-                        conn.execute("""
-                            CREATE REL TABLE IF NOT EXISTS DEVELOPS(
-                                FROM Entity TO Entity,
-                                type STRING
-                            )
-                        """)
-                        conn.execute("""
-                            CREATE REL TABLE IF NOT EXISTS MENTIONS(
-                                FROM Chunk TO Entity,
-                                context STRING
-                            )
-                        """)
-                        
-                        # Verify manual creation worked
-                        logger.info("Kuzu comprehensive tables created manually as fallback")
-                        logger.info("Created tables: Chunk, Entity, WORKS_FOR, LOCATED_IN, USES, COLLABORATES_WITH, DEVELOPS, MENTIONS")
-                        
-                    except Exception as manual_error:
-                        logger.error(f"Manual table creation also failed: {manual_error}")
-                
-                return graph_store
-            else:
-                # Approach 1: Kuzu with built-in vector index (if no separate vector store)
-                # Use the proper embedding model based on LLM provider
-                if llm_provider and llm_config:
-                    embed_model = LLMFactory.create_embedding_model(llm_provider, llm_config)
-                    # Handle both enum and string values for llm_provider
-                    provider_name = llm_provider.value if hasattr(llm_provider, 'value') else str(llm_provider)
-                    logger.info(f"Using Kuzu Approach 1: built-in vector index with {provider_name} embeddings")
+            # Helper function to process validation schema
+            def process_validation_schema(validation_data):
+                if isinstance(validation_data, dict) and "relationships" in validation_data:
+                    return validation_data["relationships"]
+                elif isinstance(validation_data, list):
+                    # Convert JSON arrays to tuples for Kuzu compatibility
+                    relationship_schema = []
+                    for item in validation_data:
+                        if isinstance(item, list) and len(item) == 3:
+                            relationship_schema.append(tuple(item))
+                        elif isinstance(item, tuple):
+                            relationship_schema.append(item)
+                        else:
+                            logger.warning(f"Invalid relationship schema item: {item}. Expected [source, relation, target] format.")
+                    return relationship_schema
+                return None
+
+            # Configure Kuzu based on extractor type from app_config
+            extractor_type = getattr(app_config, 'kg_extractor_type', 'schema')
+            logger.info(f"Configuring Kuzu for extractor type: {extractor_type}")
+            logger.info(f"Schema config received: {schema_config}")
+            
+            # Determine schema configuration based on extractor type
+            if extractor_type == 'simple':
+                # SimpleLLMPathExtractor - no schema needed
+                use_structured_schema = False
+                relationship_schema = None
+                logger.info("Using SimpleLLMPathExtractor - no structured schema")
+            elif extractor_type == 'dynamic':
+                # DynamicLLMPathExtractor - always use unstructured schema for dynamic table creation
+                use_structured_schema = False
+                relationship_schema = None
+                if schema_config and schema_config.get('validation_schema'):
+                    # Full validation schema provided - but still use unstructured for dynamic creation
+                    entities = schema_config.get('entities', [])
+                    relations = schema_config.get('relations', [])
+                    logger.info(f"Using DynamicLLMPathExtractor with validation schema guidance: {len(entities) if entities else 0} entities, {len(relations) if relations else 0} relations (unstructured schema)")
+                elif schema_config and (schema_config.get('entities') or schema_config.get('relations')):
+                    # Starting entities/relations provided - use unstructured schema for flexibility
+                    entities = schema_config.get('entities', [])
+                    relations = schema_config.get('relations', [])
+                    logger.info(f"Using DynamicLLMPathExtractor with starting guidance: {len(entities) if entities else 0} entities, {len(relations) if relations else 0} relations (unstructured schema)")
                 else:
-                    # Fallback to OpenAI if no provider specified
-                    from llama_index.embeddings.openai import OpenAIEmbedding
-                    embed_model = OpenAIEmbedding(model_name="text-embedding-3-small")
-                    logger.warning("No LLM provider specified for Kuzu, falling back to OpenAI embeddings")
+                    # No schema guidance - full LLM freedom with unstructured schema
+                    logger.info("Using DynamicLLMPathExtractor with no starting schema (full LLM freedom, unstructured schema)")
+            else:  # 'schema' or default
+                # SchemaLLMPathExtractor - Kuzu requires unstructured schema even with SchemaLLMPathExtractor
+                # The schema entities/relations will still be used by the extractor for guidance
+                use_structured_schema = False  # Always False for Kuzu to avoid "Table Entity does not exist" error
+                relationship_schema = None     # Don't pass relationship_schema to avoid validation conflicts
                 
-                graph_store = KuzuPropertyGraphStore(
-                    kuzu_db,
-                    has_structured_schema=False,  # Disable structured schema validation  
-                    use_vector_index=True,  # Enable Kuzu's vector index
-                    embed_model=embed_model
-                )
+                # ORIGINAL CODE (commented out to fix Kuzu "Table Entity does not exist" error):
+                # if schema_config and schema_config.get('validation_schema'):
+                #     use_structured_schema = True
+                #     relationship_schema = process_validation_schema(schema_config['validation_schema'])
+                #     logger.info(f"Using SchemaLLMPathExtractor with user-configured schema: {len(relationship_schema) if relationship_schema else 0} relationships")
+                # else:
+                #     # Fallback to SAMPLE_SCHEMA for SchemaLLMPathExtractor
+                #     logger.info("No user schema - using SAMPLE_SCHEMA for SchemaLLMPathExtractor")
+                #     from config import SAMPLE_SCHEMA
+                #     use_structured_schema = True
+                #     relationship_schema = process_validation_schema(SAMPLE_SCHEMA.get("validation_schema"))
+                #     logger.info(f"Using SAMPLE_SCHEMA with {len(relationship_schema) if relationship_schema else 0} relationship rules")
                 
-                # CRITICAL: Initialize schema to prevent "Table Entity does not exist" error
-                try:
-                    graph_store.init_schema()
-                    logger.info("Kuzu schema initialized successfully")
-                except Exception as e:
-                    logger.warning(f"Auto schema initialization failed: {e}")
-                    # Solution 3: Manual table creation as fallback  
-                    try:
-                        conn = kuzu.Connection(kuzu_db)
-                        # Create comprehensive schema for PropertyGraphIndex (Approach 1 - built-in vectors)
-                        conn.execute("""
-                            CREATE NODE TABLE IF NOT EXISTS DOCUMENT(
-                                id INT64 PRIMARY KEY,
-                                title STRING,
-                                text STRING,
-                                metadata STRING
-                            )
-                        """)
-                        conn.execute("""
-                            CREATE NODE TABLE IF NOT EXISTS ENTITY(
-                                id INT64 PRIMARY KEY,
-                                name STRING,
-                                type STRING,
-                                description STRING
-                            )
-                        """)
-                        conn.execute("""
-                            CREATE REL TABLE IF NOT EXISTS RELATIONSHIP(
-                                FROM ENTITY TO ENTITY,
-                                type STRING,
-                                description STRING
-                            )
-                        """)
-                        conn.execute("""
-                            CREATE REL TABLE IF NOT EXISTS MENTIONS(
-                                FROM DOCUMENT TO ENTITY,
-                                context STRING
-                            )
-                        """)
-                        logger.info("Kuzu schema created manually for Approach 1 (built-in vectors)")
-                    except Exception as manual_error:
-                        logger.error(f"Manual table creation also failed: {manual_error}")
-                
-                return graph_store
+                if schema_config and schema_config.get('validation_schema'):
+                    logger.info(f"Using SchemaLLMPathExtractor with user-configured schema (unstructured mode for Kuzu)")
+                else:
+                    # Fallback to SAMPLE_SCHEMA for SchemaLLMPathExtractor
+                    logger.info("Using SchemaLLMPathExtractor with SAMPLE_SCHEMA (unstructured mode for Kuzu)")
+                    from config import SAMPLE_SCHEMA
+            
+            # Use the proper embedding model based on LLM provider
+            if llm_provider and llm_config:
+                embed_model = LLMFactory.create_embedding_model(llm_provider, llm_config)
+                provider_name = llm_provider.value if hasattr(llm_provider, 'value') else str(llm_provider)
+                logger.info(f"Embedding model: {provider_name}")
+            else:
+                # Fallback to OpenAI if no provider specified
+                from llama_index.embeddings.openai import OpenAIEmbedding
+                embed_model = OpenAIEmbedding(model_name="text-embedding-3-small")
+                logger.warning("No LLM provider specified for Kuzu, falling back to OpenAI embeddings")
+            
+            # Get vector index configuration (default True for better text2cypher and GraphRAG performance)
+            use_kuzu_vector_index = getattr(app_config, 'kuzu_use_vector_index', True)
+            logger.info(f"Kuzu vector index enabled: {use_kuzu_vector_index}")
+            
+            # Log final configuration
+            logger.info(f"Final Kuzu configuration: use_structured_schema={use_structured_schema}, relationship_schema_count={len(relationship_schema) if relationship_schema else 0}")
+            
+            # Create KuzuPropertyGraphStore with unified configuration
+            graph_store = KuzuPropertyGraphStore(
+                kuzu_db,
+                has_structured_schema=use_structured_schema,
+                use_vector_index=use_kuzu_vector_index,
+                embed_model=embed_model,
+                relationship_schema=relationship_schema if use_structured_schema else None
+            )
+            
+            # Schema will be initialized right before PropertyGraphIndex creation for better timing
+            
+            return graph_store
         
         else:
             raise ValueError(f"Unsupported graph database: {db_type}")

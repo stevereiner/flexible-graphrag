@@ -4,7 +4,7 @@ from llama_index.retrievers.bm25 import BM25Retriever
 from llama_index.core.ingestion import IngestionPipeline
 from llama_index.core.node_parser import SentenceSplitter
 from llama_index.core.extractors import KeywordExtractor, SummaryExtractor
-from llama_index.core.indices.property_graph import SchemaLLMPathExtractor, SimpleLLMPathExtractor
+from llama_index.core.indices.property_graph import SchemaLLMPathExtractor, SimpleLLMPathExtractor, DynamicLLMPathExtractor
 from typing import List, Dict, Any, Union
 from pathlib import Path
 import logging
@@ -23,29 +23,72 @@ class SchemaManager:
     def __init__(self, schema_config: Dict[str, Any] = None):
         self.schema_config = schema_config or {}
     
-    def create_extractor(self, llm, use_schema: bool = True, force_schema_for_kuzu: bool = False):
-        """Create knowledge graph extractor with optional schema enforcement"""
+    def create_extractor(self, llm, use_schema: bool = True, llm_provider=None, extractor_type: str = "schema"):
+        """Create knowledge graph extractor with optional schema enforcement
         
-        # Use schema if explicitly requested or if forced for Kuzu
-        if not use_schema and not force_schema_for_kuzu:
+        Args:
+            extractor_type: "simple", "schema", or "dynamic"
+        """
+        
+        # Use 4 workers for all LLM providers - Ollama parallel processing now properly configured
+        workers = 4
+        
+        # Log LLM provider for debugging
+        from config import LLMProvider
+        is_ollama = (llm_provider == LLMProvider.OLLAMA) if llm_provider else False
+        logger.info(f"LLM Provider Detection: {llm_provider} -> is_ollama={is_ollama} -> workers={workers}")
+        if is_ollama:
+            logger.info(f"OLLAMA PARALLEL PROCESSING: Using {workers} workers with OLLAMA_NUM_PARALLEL=4 configuration")
+        
+        # Handle dynamic extractor type
+        if extractor_type == "dynamic":
+            logger.info("Using DynamicLLMPathExtractor for flexible relationship discovery")
+            # DynamicLLMPathExtractor can work with or without initial schema guidance
+            if self.schema_config:
+                logger.info("Providing initial ontology guidance to DynamicLLMPathExtractor")
+                # With initial ontology - provide starting guidance but allow expansion
+                return DynamicLLMPathExtractor(
+                    llm=llm,
+                    max_triplets_per_chunk=20,
+                    num_workers=workers,
+                    allowed_entity_types=self.schema_config.get("entities", []),
+                    allowed_relation_types=self.schema_config.get("relations", [])
+                )
+            else:
+                logger.info("Using DynamicLLMPathExtractor without initial ontology - full LLM freedom")
+                # Without initial ontology - complete freedom to infer schema
+                return DynamicLLMPathExtractor(
+                    llm=llm,
+                    max_triplets_per_chunk=20,
+                    num_workers=workers
+                )
+        
+        # Use schema if explicitly requested
+        if not use_schema:
             return SimpleLLMPathExtractor(
                 llm=llm,
                 max_paths_per_chunk=10,
-                num_workers=4
+                num_workers=workers
             )
         
-        # Get schema config - use provided or Kuzu-specific default for Kuzu
+        # Always use user's configured schema - no special Kuzu schema
         schema_to_use = self.schema_config
-        if force_schema_for_kuzu and not schema_to_use:
-            from config import KUZU_SCHEMA
-            logger.info("Using default KUZU_SCHEMA for Kuzu schema extraction")
-            schema_to_use = KUZU_SCHEMA
+        if schema_to_use:
+            logger.info("Using user-configured schema for knowledge graph extraction")
+            logger.info(f"Schema entities: {schema_to_use.get('entities', 'None')}")
+            logger.info(f"Schema relations: {schema_to_use.get('relations', 'None')}")
+            validation_schema = schema_to_use.get('validation_schema', 'None')
+            logger.info(f"Schema validation_schema: {validation_schema}")
+            logger.info(f"Schema validation_schema type: {type(validation_schema)}")
+            if isinstance(validation_schema, list) and len(validation_schema) > 0:
+                logger.info(f"First validation rule: {validation_schema[0]}")
+
         
         if not schema_to_use:
             return SimpleLLMPathExtractor(
                 llm=llm,
                 max_paths_per_chunk=10,
-                num_workers=4
+                num_workers=workers
             )
         
         # Create schema-guided extractor
@@ -55,8 +98,7 @@ class SchemaManager:
             possible_relations=schema_to_use.get("relations", []),
             kg_validation_schema=schema_to_use.get("validation_schema"),
             strict=schema_to_use.get("strict", True),
-            max_triplets_per_chunk=schema_to_use.get("max_triplets_per_chunk", 10),
-            num_workers=4
+            num_workers=workers
         )
 
 class HybridSearchSystem:
@@ -65,20 +107,72 @@ class HybridSearchSystem:
     def __init__(self, config: AppSettings):
         self.config = config
         self.document_processor = DocumentProcessor(config)
-        self.schema_manager = SchemaManager(config.get_active_schema())
         
-        # Initialize LLM and embedding models
-        logger.info(f"Initializing LLM Provider: {config.llm_provider}")
+        # Log schema configuration
+        active_schema = config.get_active_schema()
+        if active_schema:
+            # Handle both list and Literal type annotations safely
+            entities = active_schema.get('entities', [])
+            relations = active_schema.get('relations', [])
+            
+            # Convert Literal types to lists for counting
+            try:
+                entity_count = len(entities) if hasattr(entities, '__len__') and not hasattr(entities, '__args__') else len(getattr(entities, '__args__', []))
+                relation_count = len(relations) if hasattr(relations, '__len__') and not hasattr(relations, '__args__') else len(getattr(relations, '__args__', []))
+                logger.info(f"Schema Configuration: Using '{config.schema_name}' schema with {entity_count} entity types and {relation_count} relation types")
+            except (TypeError, AttributeError):
+                logger.info(f"Schema Configuration: Using '{config.schema_name}' schema")
+            
+            # Log the actual values safely
+            try:
+                entity_list = list(entities) if hasattr(entities, '__iter__') and not hasattr(entities, '__args__') else list(getattr(entities, '__args__', []))
+                relation_list = list(relations) if hasattr(relations, '__iter__') and not hasattr(relations, '__args__') else list(getattr(relations, '__args__', []))
+                logger.info(f"Schema Entities: {entity_list}")
+                logger.info(f"Schema Relations: {relation_list}")
+            except (TypeError, AttributeError):
+                logger.info(f"Schema Entities: {entities}")
+                logger.info(f"Schema Relations: {relations}")
+        else:
+            logger.info(f"Schema Configuration: Using '{config.schema_name}' (no schema - simple extraction)")
+        
+        self.schema_manager = SchemaManager(active_schema)
+        
+        # Initialize LLM and embedding models with enhanced logging
+        logger.info(f"=== LLM CONFIGURATION ===")
+        # Handle both enum and string values safely
+        provider_name = getattr(config.llm_provider, 'value', config.llm_provider)
+        logger.info(f"LLM Provider: {provider_name}")
+        
         self.llm = LLMFactory.create_llm(config.llm_provider, config.llm_config)
         self.embed_model = LLMFactory.create_embedding_model(config.llm_provider, config.llm_config)
         
-        # Log LLM configuration details
+        # Enhanced LLM configuration logging
         if hasattr(self.llm, 'model'):
             logger.info(f"LLM Model: {self.llm.model}")
         if hasattr(self.llm, 'base_url'):
             logger.info(f"LLM Base URL: {self.llm.base_url}")
+        if hasattr(self.llm, 'request_timeout'):
+            logger.info(f"LLM Timeout: {self.llm.request_timeout}s")
+        if hasattr(self.llm, 'temperature'):
+            logger.info(f"LLM Temperature: {self.llm.temperature}")
+            
         if hasattr(self.embed_model, 'model_name'):
             logger.info(f"Embedding Model: {self.embed_model.model_name}")
+        elif hasattr(self.embed_model, '_model_name'):
+            logger.info(f"Embedding Model: {self.embed_model._model_name}")
+        if hasattr(self.embed_model, 'base_url'):
+            logger.info(f"Embedding Base URL: {self.embed_model.base_url}")
+            
+        logger.info(f"=== DATABASE CONFIGURATION ===")
+        # Handle both enum and string values safely for database configs
+        graph_db_name = getattr(config.graph_db, 'value', config.graph_db) if config.graph_db else 'none'
+        vector_db_name = getattr(config.vector_db, 'value', config.vector_db) if config.vector_db else 'none'
+        search_db_name = getattr(config.search_db, 'value', config.search_db) if config.search_db else 'none'
+        
+        logger.info(f"Graph DB: {graph_db_name}")
+        logger.info(f"Vector DB: {vector_db_name}")
+        logger.info(f"Search DB: {search_db_name}")
+        logger.info(f"Knowledge Graph Enabled: {config.enable_knowledge_graph}")
         
         # Set global settings
         Settings.llm = self.llm
@@ -93,6 +187,7 @@ class HybridSearchSystem:
         self.graph_index = None
         self.hybrid_retriever = None
         
+        logger.info("=== SYSTEM READY ===")
         logger.info("HybridSearchSystem initialized successfully with Ollama!" if config.llm_provider == LLMProvider.OLLAMA else "HybridSearchSystem initialized successfully")
     
     def _setup_databases(self):
@@ -117,7 +212,8 @@ class HybridSearchSystem:
             self.config.get_active_schema(),
             has_separate_vector_store=(self.vector_store is not None),
             llm_provider=self.config.llm_provider,
-            llm_config=self.config.llm_config
+            llm_config=self.config.llm_config,
+            app_config=self.config
         )
         
         # Check if graph search is disabled
@@ -222,22 +318,29 @@ class HybridSearchSystem:
             self._last_ingested_documents = []
         
         # Add new documents to existing collection
+        previous_count = len(self._last_ingested_documents)
         self._last_ingested_documents.extend(documents)
-        logger.info(f"Added {len(documents)} documents. Total stored: {len(self._last_ingested_documents)}")
+        logger.info(f"Added {len(documents)} documents. Total stored: {len(self._last_ingested_documents)} (previous: {previous_count}, new: {len(documents)})")
         for i, doc in enumerate(documents):
             content_preview = doc.text[:100] + "..." if len(doc.text) > 100 else doc.text
             logger.info(f"New doc {i}: {content_preview}")
             logger.info(f"New doc {i} metadata: {doc.metadata}")
         
+        # Conditional transformations based on LLM provider for performance
         transformations = [
             SentenceSplitter(
                 chunk_size=self.config.chunk_size,
                 chunk_overlap=self.config.chunk_overlap
             ),
-            KeywordExtractor(keywords=5),
-            SummaryExtractor(summaries=["prev", "self", "next"]),
             self.embed_model
         ]
+        
+        # Skip expensive LLM-dependent extractors for ALL providers based on performance analysis
+        # KeywordExtractor and SummaryExtractor add cost/latency without improving relationship extraction quality
+        # Commented out for optimization - can be re-enabled for testing:
+        # transformations.insert(-1, KeywordExtractor(keywords=5))
+        # transformations.insert(-1, SummaryExtractor(summaries=["prev", "self", "next"]))
+        logger.info("Skipped KeywordExtractor and SummaryExtractor for all LLM providers - optimized pipeline for speed and cost efficiency")
         
         # Process documents through transformations to get nodes
         import time
@@ -260,7 +363,7 @@ class HybridSearchSystem:
             documents=documents
         )
         
-        logger.info("Executing IngestionPipeline.run() - this includes chunking, keyword extraction, summary extraction, and embedding generation")
+        logger.info("Executing IngestionPipeline.run() - this includes chunking and embedding generation (KeywordExtractor/SummaryExtractor removed for optimization)")
         # Use run_in_executor with proper event loop handling to avoid nested async issues
         nodes = await loop.run_in_executor(None, run_pipeline)
         
@@ -285,11 +388,24 @@ class HybridSearchSystem:
             
             vector_storage_context = StorageContext.from_defaults(vector_store=self.vector_store)
             logger.info("Starting VectorStoreIndex creation - this stores embeddings in the vector database")
-            self.vector_index = VectorStoreIndex(
+            
+            # Use run_in_executor for consistent async handling like other LlamaIndex operations
+            import asyncio
+            import functools
+            
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+            
+            create_vector_index = functools.partial(
+                VectorStoreIndex,
                 nodes=nodes,
                 storage_context=vector_storage_context,
                 show_progress=True
             )
+            self.vector_index = await loop.run_in_executor(None, create_vector_index)
             
             vector_duration = time.time() - vector_start_time
             logger.info(f"Vector index creation completed in {vector_duration:.2f}s using {vector_store_type}")
@@ -320,24 +436,23 @@ class HybridSearchSystem:
             active_schema = self.config.get_active_schema()
             has_schema = active_schema is not None
             
-            # For Kuzu: always use schema (provided or default)
-            # For Neo4j: use schema only if explicitly configured
-            if is_kuzu or has_schema:
+            # Use schema if explicitly configured
+            if has_schema:
                 kg_extractor = self.schema_manager.create_extractor(
                     self.llm, 
                     use_schema=True,
-                    force_schema_for_kuzu=is_kuzu and not has_schema
+                    llm_provider=self.config.llm_provider,
+                    extractor_type=self.config.kg_extractor_type
                 )
                 kg_extractors = [kg_extractor]
-                if has_schema:
-                    logger.info(f"Using knowledge graph extraction with '{self.config.schema_name}' schema and LLM: {llm_model_name}")
-                elif is_kuzu:
-                    logger.info(f"Using knowledge graph extraction with default schema for Kuzu and LLM: {llm_model_name}")
+                logger.info(f"Using knowledge graph extraction with '{self.config.schema_name}' schema and LLM: {llm_model_name}")
             else:
                 # Use simple extractor for Neo4j without schema
                 kg_extractor = self.schema_manager.create_extractor(
                     self.llm, 
-                    use_schema=False
+                    use_schema=False,
+                    llm_provider=self.config.llm_provider,
+                    extractor_type=self.config.kg_extractor_type
                 )
                 kg_extractors = [kg_extractor]
                 logger.info(f"Using simple knowledge graph extraction (no schema) with LLM: {llm_model_name}")
@@ -365,7 +480,7 @@ class HybridSearchSystem:
             except RuntimeError:
                 loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(loop)
-            # For Kuzu with separate vector store (Approach 2), we need to explicitly provide vector_store
+            # For Kuzu with separate vector store, we need to explicitly provide vector_store
             graph_index_kwargs = {
                 "documents": documents,
                 "llm": self.llm,
@@ -375,33 +490,35 @@ class HybridSearchSystem:
                 "transformations": [],  # Skip transformations since already processed
                 "show_progress": True,
                 "include_embeddings": True,
-                "include_metadata": True
+                "include_metadata": True,
+                "use_async": False  # Temporarily disable async to fix multi-file event loop conflicts
             }
             
-            # If using Kuzu with separate vector store (Approach 2), provide explicit vector store
+            # If using Kuzu with separate vector store, provide explicit vector store
             if str(self.config.graph_db) == "kuzu" and hasattr(self, 'vector_store') and self.vector_store:
                 graph_index_kwargs["vector_store"] = self.vector_store
-                logger.info("Using explicit vector store for Kuzu PropertyGraphIndex (Approach 2)")
+                logger.info("Using explicit vector store for Kuzu PropertyGraphIndex")
             
-            # DEBUG: Check if Kuzu tables exist just before PropertyGraphIndex creation
-            # COMMENTED OUT: Causes lock issues with Kuzu concurrency
-            # if str(self.config.graph_db) == "kuzu":
-            #     try:
-            #         import kuzu
-            #         db_path = self.config.graph_db_config.get("db_path", "./kuzu_db")
-            #         debug_db = kuzu.Database(db_path)
-            #         debug_conn = kuzu.Connection(debug_db)
-            #         result = debug_conn.execute("SHOW TABLES")
-            #         tables = result.get_as_df()
-            #         logger.info(f"DEBUG: Kuzu tables just before PropertyGraphIndex creation: {tables}")
-            #     except Exception as debug_error:
-            #         logger.warning(f"DEBUG: Could not check Kuzu tables before PropertyGraphIndex: {debug_error}")
-            
+
             # This is the most time-consuming step - LLM calls for entity/relationship extraction
             graph_creation_start_time = time.time()
             logger.info(f"Starting PropertyGraphIndex.from_documents() - this will make LLM calls to extract entities and relationships from {len(documents)} documents")
             logger.info(f"LLM model being used for knowledge graph extraction: {llm_model_name}")
             logger.info(f"Graph database target: {graph_store_type}")
+            
+            # Initialize schema right before PropertyGraphIndex creation for optimal timing
+            if str(self.config.graph_db) == "kuzu":
+                try:
+                    logger.info("Initializing Kuzu schema right before PropertyGraphIndex creation")
+                    self.graph_store.init_schema()
+                    logger.info("Kuzu schema initialized successfully")
+                    
+                    # Inspect schema after initialization
+                    schema = self.graph_store.get_schema()
+                    # logger.info(f"Schema after initialization: {schema}")  # Commented out - verbose schema dump
+                    
+                except Exception as e:
+                    logger.warning(f"Schema initialization failed: {e} - LlamaIndex will create tables as needed during extraction")
             
             # Use run_in_executor with proper nest_asyncio handling
             create_graph_index = functools.partial(PropertyGraphIndex.from_documents, **graph_index_kwargs)
@@ -741,8 +858,9 @@ class HybridSearchSystem:
                     chunk_size=self.config.chunk_size,
                     chunk_overlap=self.config.chunk_overlap
                 ),
-                KeywordExtractor(keywords=5),
-                SummaryExtractor(summaries=["prev", "self", "next"]),
+                # Commented out for optimization - can be re-enabled for testing:
+                # KeywordExtractor(keywords=5),
+                # SummaryExtractor(summaries=["prev", "self", "next"]),
                 self.embed_model
             ]
         )
@@ -804,7 +922,9 @@ class HybridSearchSystem:
         if self.config.schema_config is not None:
             kg_extractor = self.schema_manager.create_extractor(
                 self.llm, 
-                use_schema=True
+                use_schema=True,
+                llm_provider=self.config.llm_provider,
+                extractor_type=self.config.kg_extractor_type
             )
             kg_extractors = [kg_extractor]
             logger.info("Using knowledge graph extraction with schema for text ingestion")
@@ -812,7 +932,9 @@ class HybridSearchSystem:
             # Use simple extractor if no schema provided
             kg_extractor = self.schema_manager.create_extractor(
                 self.llm, 
-                use_schema=False
+                use_schema=False,
+                llm_provider=self.config.llm_provider,
+                extractor_type=self.config.kg_extractor_type
             )
             kg_extractors = [kg_extractor]
             logger.info("Using simple knowledge graph extraction for text ingestion")
@@ -1123,6 +1245,7 @@ class HybridSearchSystem:
     
     async def search(self, query: str, top_k: int = 10) -> List[Dict[str, Any]]:
         """Execute hybrid search across all modalities"""
+        from datetime import datetime
         
         # Check for complete system initialization
         if not self.hybrid_retriever:
@@ -1132,8 +1255,15 @@ class HybridSearchSystem:
         logger.info(f"Available documents: {len(self._last_ingested_documents) if hasattr(self, '_last_ingested_documents') else 0}")
         
         # Get raw results from retriever using async method
+        retrieval_start = datetime.now()
+        logger.info(f"Starting hybrid retrieval at {retrieval_start.strftime('%H:%M:%S.%f')[:-3]}")
+        
         query_bundle = QueryBundle(query_str=query)
         raw_results = await self.hybrid_retriever.aretrieve(query_bundle)
+        
+        retrieval_end = datetime.now()
+        retrieval_duration = (retrieval_end - retrieval_start).total_seconds()
+        logger.info(f"Hybrid retrieval completed in {retrieval_duration:.3f}s")
         
         # Filter out zero-relevance results with more aggressive threshold
         # BM25 should not return docs with zero relevance, but some systems return very low scores
@@ -1144,7 +1274,9 @@ class HybridSearchSystem:
         
         # Log scores for debugging
         for i, result in enumerate(raw_results):
-            logger.info(f"Result {i}: score={result.score:.3f}, text_preview={result.text[:50]}...")
+            # Clean text preview to avoid emoji/encoding issues
+            clean_preview = result.text[:50].encode('ascii', 'ignore').decode('ascii')
+            logger.info(f"Result {i}: score={result.score:.3f}, text_preview={clean_preview}...")
             
         # Use filtered results for final processing
         results = filtered_results[:top_k]
@@ -1226,9 +1358,11 @@ class HybridSearchSystem:
                     seen_sources[source] = []
                 seen_sources[source].append(content_hash)
                 deduplicated_results.append(result)
-                logger.debug(f"Added result from {source}: {core_content[:100]}...")
+                clean_content = core_content[:100].encode('ascii', 'ignore').decode('ascii')
+                logger.debug(f"Added result from {source}: {clean_content}...")
             else:
-                logger.debug(f"Deduplicated result from {source}: {core_content[:100]}...")
+                clean_content = core_content[:100].encode('ascii', 'ignore').decode('ascii')
+                logger.debug(f"Deduplicated result from {source}: {clean_content}...")
         
         # Format and rank results
         formatted_results = []
@@ -1242,7 +1376,7 @@ class HybridSearchSystem:
                 "file_name": result.metadata.get("file_name", "Unknown")
             })
         
-        logger.info(f"Returning {len(formatted_results)} deduplicated results")
+        logger.info(f"Deduplication summary: {len(results)} -> {len(deduplicated_results)} -> {len(formatted_results)} final results")
         return formatted_results
     
     def _extract_core_content(self, text: str) -> str:
