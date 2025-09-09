@@ -33,6 +33,7 @@ llama-index-vector-stores-elasticsearch
 llama-index-vector-stores-opensearch
 llama-index-graph-stores-neo4j
 llama-index-graph-stores-kuzu
+llama-index-graph-stores-falkordb
 llama-index-retrievers-bm25
 # Additional dependencies  
 qdrant-client

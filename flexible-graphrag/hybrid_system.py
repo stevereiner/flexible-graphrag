@@ -20,8 +20,9 @@ logger = logging.getLogger(__name__)
 class SchemaManager:
     """Manages schema definitions for entity and relationship extraction"""
     
-    def __init__(self, schema_config: Dict[str, Any] = None):
+    def __init__(self, schema_config: Dict[str, Any] = None, app_config=None):
         self.schema_config = schema_config or {}
+        self.app_config = app_config
     
     def create_extractor(self, llm, use_schema: bool = True, llm_provider=None, extractor_type: str = "schema"):
         """Create knowledge graph extractor with optional schema enforcement
@@ -40,16 +41,21 @@ class SchemaManager:
         if is_ollama:
             logger.info(f"OLLAMA PARALLEL PROCESSING: Using {workers} workers with OLLAMA_NUM_PARALLEL=4 configuration")
         
+        # Get configurable values
+        max_triplets = getattr(self.app_config, 'max_triplets_per_chunk', 100) if self.app_config else 100
+        max_paths = getattr(self.app_config, 'max_paths_per_chunk', 100) if self.app_config else 100
+        
         # Handle dynamic extractor type
         if extractor_type == "dynamic":
             logger.info("Using DynamicLLMPathExtractor for flexible relationship discovery")
+            logger.info(f"Using max_triplets_per_chunk={max_triplets}")
             # DynamicLLMPathExtractor can work with or without initial schema guidance
             if self.schema_config:
                 logger.info("Providing initial ontology guidance to DynamicLLMPathExtractor")
                 # With initial ontology - provide starting guidance but allow expansion
                 return DynamicLLMPathExtractor(
                     llm=llm,
-                    max_triplets_per_chunk=20,
+                    max_triplets_per_chunk=max_triplets,
                     num_workers=workers,
                     allowed_entity_types=self.schema_config.get("entities", []),
                     allowed_relation_types=self.schema_config.get("relations", [])
@@ -59,15 +65,16 @@ class SchemaManager:
                 # Without initial ontology - complete freedom to infer schema
                 return DynamicLLMPathExtractor(
                     llm=llm,
-                    max_triplets_per_chunk=20,
+                    max_triplets_per_chunk=max_triplets,
                     num_workers=workers
                 )
         
         # Use schema if explicitly requested
         if not use_schema:
+            logger.info(f"Using SimpleLLMPathExtractor with max_paths_per_chunk={max_paths}")
             return SimpleLLMPathExtractor(
                 llm=llm,
-                max_paths_per_chunk=10,
+                max_paths_per_chunk=max_paths,
                 num_workers=workers
             )
         
@@ -85,19 +92,22 @@ class SchemaManager:
 
         
         if not schema_to_use:
+            logger.info(f"Using SimpleLLMPathExtractor (no schema) with max_paths_per_chunk={max_paths}")
             return SimpleLLMPathExtractor(
                 llm=llm,
-                max_paths_per_chunk=10,
+                max_paths_per_chunk=max_paths,
                 num_workers=workers
             )
         
         # Create schema-guided extractor
+        logger.info(f"Using SchemaLLMPathExtractor with max_triplets_per_chunk={max_triplets}")
         return SchemaLLMPathExtractor(
             llm=llm,
             possible_entities=schema_to_use.get("entities", []),
             possible_relations=schema_to_use.get("relations", []),
             kg_validation_schema=schema_to_use.get("validation_schema"),
             strict=schema_to_use.get("strict", True),
+            max_triplets_per_chunk=max_triplets,
             num_workers=workers
         )
 
@@ -135,7 +145,7 @@ class HybridSearchSystem:
         else:
             logger.info(f"Schema Configuration: Using '{config.schema_name}' (no schema - simple extraction)")
         
-        self.schema_manager = SchemaManager(active_schema)
+        self.schema_manager = SchemaManager(active_schema, config)
         
         # Initialize LLM and embedding models with enhanced logging
         logger.info(f"=== LLM CONFIGURATION ===")

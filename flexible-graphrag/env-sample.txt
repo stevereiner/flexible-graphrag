@@ -22,6 +22,7 @@ SOURCE_PATHS=["./sample-docs/cmispress.txt"]
 
 GRAPH_DB=neo4j
 #GRAPH_DB=kuzu
+#GRAPH_DB=falkordb
 #GRAPH_DB=none
 
 # Enable knowledge graph extraction 
@@ -40,11 +41,17 @@ ENABLE_KNOWLEDGE_GRAPH=true
 KG_EXTRACTOR_TYPE=schema
 
 # Graph Database Connection Configurations:
+
 # Neo4j
 GRAPH_DB_CONFIG={"url": "bolt://localhost:7687", "username": "neo4j", "password": "password"}
 
 # Kuzu (database file will be created as ./kuzu_db/database.kz)
 #GRAPH_DB_CONFIG={"db_path": "./kuzu_db/database.kz"}
+
+# FalkorDB
+#GRAPH_DB_CONFIG={"url": "falkor://localhost:6379"}
+# With authentication:
+#GRAPH_DB_CONFIG={"url": "falkor://localhost:6379", "username": "user", "password": "pass"}
 
 
 
@@ -196,7 +203,16 @@ OPENSEARCH_PASSWORD=
 # Processing Configuration
 CHUNK_SIZE=1024
 CHUNK_OVERLAP=128
-MAX_TRIPLETS_PER_CHUNK=10
+
+# Knowledge Graph Extraction Limits (configurable for different content densities)
+# MAX_TRIPLETS_PER_CHUNK: Used by DynamicLLMPathExtractor and SchemaLLMPathExtractor - controls how many entity-relationship triplets can be extracted per text chunk
+# MAX_PATHS_PER_CHUNK: Used by SimpleLLMPathExtractor - controls how many relationship paths can be extracted per text chunk
+# Higher values allow more comprehensive extraction from dense content but may increase processing time
+# Lower values are faster but may miss entities/relationships in complex documents
+# These values are higher than the usual 20-25 seen in examples, are more to rule out
+# that this is what is limiting extraction.
+MAX_TRIPLETS_PER_CHUNK=100
+MAX_PATHS_PER_CHUNK=100
 
 # Timeout configurations moved to docs/TIMEOUT-CONFIGURATIONS.md
 # Uncomment and adjust these if you need custom timeout values:

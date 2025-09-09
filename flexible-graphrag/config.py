@@ -22,6 +22,7 @@ class GraphDBType(str, Enum):
     NONE = "none"  # Disable graph search
     NEO4J = "neo4j"
     KUZU = "kuzu"
+    FALKORDB = "falkordb"
 
 class SearchDBType(str, Enum):
     NONE = "none"  # Disable fulltext search
@@ -114,7 +115,8 @@ an aristocratic family that rules the planet Caladan, the rainy planet, since 10
     # Processing parameters
     chunk_size: int = 1024
     chunk_overlap: int = 128
-    max_triplets_per_chunk: int = 10
+    max_triplets_per_chunk: int = 100
+    max_paths_per_chunk: int = 100
     
     # Document processing timeouts (in seconds) - DIFFERENT from LLM timeouts
     docling_timeout: int = Field(300, description="Timeout for single document Docling conversion in seconds (default: 5 minutes) - separate from LLM request timeouts")

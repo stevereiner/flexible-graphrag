@@ -15,6 +15,7 @@ from llama_index.vector_stores.elasticsearch import ElasticsearchStore, AsyncBM2
 from llama_index.vector_stores.opensearch import OpensearchVectorStore, OpensearchVectorClient
 from llama_index.graph_stores.neo4j import Neo4jPropertyGraphStore
 from llama_index.graph_stores.kuzu import KuzuPropertyGraphStore
+from llama_index.graph_stores.falkordb import FalkorDBPropertyGraphStore
 from llama_index.retrievers.bm25 import BM25Retriever
 from llama_index.core.storage.docstore import SimpleDocumentStore
 from qdrant_client import QdrantClient, AsyncQdrantClient
@@ -400,6 +401,16 @@ class DatabaseFactory:
             # Schema will be initialized right before PropertyGraphIndex creation for better timing
             
             return graph_store
+        
+        elif db_type == GraphDBType.FALKORDB:
+            url = config.get("url", "falkor://localhost:6379")
+            logger.info(f"Creating FalkorDB graph store - URL: {url}")
+            
+            return FalkorDBPropertyGraphStore(
+                url=url,
+                username=config.get("username"),
+                password=config.get("password")
+            )
         
         else:
             raise ValueError(f"Unsupported graph database: {db_type}")
