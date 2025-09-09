@@ -152,6 +152,17 @@ Defines which entities can connect with which relationships:
 
 ### **max_triplets_per_chunk**
 Maximum number of entity-relationship-entity triplets to extract per text chunk.
+- Used by: `DynamicLLMPathExtractor` and `SchemaLLMPathExtractor`
+- Default: 100
+- Higher values: More comprehensive extraction from dense content, slower processing
+- Lower values: Faster processing, may miss entities in complex documents
+
+### **max_paths_per_chunk**
+Maximum number of relationship paths to extract per text chunk.
+- Used by: `SimpleLLMPathExtractor`
+- Default: 100
+- Higher values: More comprehensive relationship extraction, slower processing
+- Lower values: Faster processing, may miss relationships in complex documents
 
 ## 💡 **Best Practices**
 
@@ -163,9 +174,13 @@ Maximum number of entity-relationship-entity triplets to extract per text chunk.
 
 ### **Configuration Tips**
 1. **Use strict=false** for better coverage
-2. **Adjust max_triplets** based on document complexity
+2. **Adjust extraction limits** based on document complexity:
+   - Dense content (technical docs, research papers): `MAX_TRIPLETS_PER_CHUNK=100`, `MAX_PATHS_PER_CHUNK=100`
+   - Simple content (news articles, basic docs): `MAX_TRIPLETS_PER_CHUNK=20`, `MAX_PATHS_PER_CHUNK=20`
+   - Very complex content (legal docs, scientific papers): `MAX_TRIPLETS_PER_CHUNK=200`, `MAX_PATHS_PER_CHUNK=200`
 3. **Test with small samples** before processing large datasets
 4. **Compare with default schema** to see extraction differences
+5. **Monitor processing time** - higher limits increase extraction quality but slow processing
 
 ### **Performance Considerations**
 - **Complex schemas** may slow extraction

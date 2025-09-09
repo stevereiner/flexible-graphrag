@@ -3,6 +3,37 @@
 All notable changes to this project will be documented in this file.
 
 
+## [2025-09-08] - FalkorDB Integration and Configuration Optimization
+
+### Added
+- **FalkorDB Graph Database Support**
+  - Complete integration with GraphDBType enum, factories.py, requirements.txt
+  - Docker support with falkordb.yaml include and browser (port 3001)
+  - Performance testing: 21.74s for 6 docs (3.62s/doc), fastest search (1.199s)
+  - Superior entity extraction quality (PERSON, ORGANIZATION, TECHNOLOGY)
+
+### Enhanced
+- **Configurable Extraction Limits**
+  - MAX_TRIPLETS_PER_CHUNK and MAX_PATHS_PER_CHUNK environment variables
+  - Default increased from 10-20 to 100 for better entity extraction
+  - Resolves generic __entity__ issues with dense content
+
+### Fixed
+- **File Upload Dialog Performance**
+  - requestAnimationFrame optimization for React, Vue, Angular frontends
+  - Proper input clearing only after successful processing
+  - Dialog now matches drag/drop speed
+
+### Performance Results
+- **FalkorDB + OpenAI**: 21.74s ingestion, 1.199s search, 2.133s Q&A (6 docs)
+- **FalkorDB + Ollama**: Working configuration found (100 max triplets, 16k context)
+- **Resolved Issue**: space-station.txt + FalkorDB + Ollama now works with optimized settings
+
+### Documentation
+- **Performance Documentation**: docs/PERFORMANCE.md with complete test matrix
+- **README.md**: Concise 6-doc performance comparison table
+- **Port Conflicts**: FalkorDB browser moved to port 3001 (Vue client stays 3000)
+
 ## [2025-09-04] - Comprehensive Performance Testing and Optimization
 
 ### Added

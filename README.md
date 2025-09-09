@@ -180,11 +180,15 @@ Based on testing with OpenAI GPT-4o-mini and Ollama models (llama3.1:8b, llama3.
 
 #### Ollama Environment Configuration
 
-When using Ollama (not OpenAI), configure these system environment variables **before starting the Ollama service** to optimize performance and enable parallel processing:
+When using Ollama (not OpenAI), configure these system environment variables **before starting the Ollama service** to optimize performance with limited resources and enable parallel processing:
 
 ```bash
 # Context length for model processing
 OLLAMA_CONTEXT_LENGTH=8192
+
+1. You can go down to 4096 with limited resources, or can go higher for improved speed and extraction quality say to 16384.
+2. The full 128k possible context window for llama3.2:3b of 16.4GB of RAM for the key-value (KV) cache alone, in addition to the ~3GB needed for the model weights. The 128K token context window means the model can process and maintain awareness of approximately 96,240 words of text in a single interaction. 
+By default, most inference engines (like llama.cpp, transformers, Ollama, etc.) will attempt to store both model weights and the KV cache in GPU VRAM if sufficient capacity exists, as this is fastest for inference. If the GPU does not have enough VRAM, or if specifically configured, the KV cache can be kept in system RAM (regular RAM), potentially with a significant speed penalty.
 
 # Debug logging (1 for debug, 0 to disable)
 # Log location on Windows: C:\Users\<username>\AppData\Local\Ollama\server.log
@@ -214,33 +218,15 @@ OLLAMA_NUM_PARALLEL=4
 
 #### Performance Benchmarks
 
-**Test Environment**: AMD 5950x 16-core CPU, 64GB RAM, 4090 Nvidia GPU, Windows 11 Pro
+**6-Document Ingestion Performance (OpenAI gpt-4o-mini)**
 
-**Infrastructure Configuration**: 
-- **Vector Database**: Qdrant (consistent across all tests)
-- **Search Database**: Elasticsearch (consistent across all tests) 
-- **Graph Extractor**: SchemaLLMPathExtractor (extract type: schema) with schema name: default (consistent across all tests)
-- **LLM Models**: OpenAI gpt-4o-mini, Ollama llama3.2:3b
-- **Embedding Models**: OpenAI text-embedding-3-small, Ollama all-minilm
-- **Index Management**: Qdrant + Elasticsearch indexes cleared between LLM/Graph DB configuration changes, but preserved between 2-doc → 6-doc incremental tests within same configuration
+| Graph Database | Ingestion Time | Search Time | Q&A Time |
+|----------------|----------------|-------------|----------|
+| Neo4j | 11.31s | 0.912s | 2.796s |
+| Kuzu | 15.72s | 1.240s | 2.187s |
+| FalkorDB | 21.74s | 1.199s | 2.133s |
 
-| Configuration | Documents | Ingestion Time | Search Time | Q&A Time | Notes |
-|---------------|-----------|----------------|-------------|----------|-------|
-| **Kuzu + Ollama (llama3.2:3b)** | 2 docs (cmispress.txt, space-station.txt) | 54.76s total<br/>Pipeline: 2.11s<br/>Vector: 1.00s<br/>Graph: 51.12s | 4.634s<br/>("cmis" query) | 8.595s<br/>("who was first with cmis") | Initial ingestion |
-| **Kuzu + Ollama (llama3.2:3b)** | +4 docs (incremental to 6 total)<br/>(excel, pptx, docx, pdf) | 43.10s total<br/>Pipeline: 2.16s<br/>Vector: 0.26s<br/>Graph: 40.68s | 4.945s<br/>("cmis" query) | 10.572s<br/>("who was first with cmis") | Incremental ingestion - 21% faster than initial, improved vector performance<br/>**Graph**: 39 nodes (33 Entity, 6 Chunk), 63 relationships (27 LINKS, 36 MENTIONS) |
-| **Kuzu + OpenAI** | 2 docs (cmispress.txt, space-station.txt) | 14.79s total<br/>Pipeline: 1.35s<br/>Vector: 0.93s<br/>Graph: 11.16s | 1.998s<br/>("cmis" query) | 5.005s<br/>("who was first with cmis") | Initial ingestion - 73% faster than Ollama equivalent |
-| **Kuzu + OpenAI** | +4 docs (incremental to 6 total)<br/>(excel, pptx, docx, pdf) | 15.72s total<br/>Pipeline: 0.41s<br/>Vector: 0.28s<br/>Graph: 14.40s | 1.240s<br/>("cmis" query) | 2.187s<br/>("who was first with cmis") | Incremental ingestion - Excellent pipeline efficiency, 38% faster search<br/>**Graph**: 50 nodes (44 Entity, 6 Chunk), 96 relationships (42 LINKS, 54 MENTIONS) |
-| **Neo4j + OpenAI** | 2 docs (cmispress.txt, space-station.txt) | 14.39s total<br/>Pipeline: 1.31s<br/>Vector: 0.81s<br/>Graph: 10.90s | 1.453s<br/>("cmis" query) | 2.785s<br/>("who was first with cmis") | Initial ingestion - Similar performance to Kuzu + OpenAI |
-| **Neo4j + OpenAI** | +4 docs (incremental to 6 total)<br/>(excel, pptx, docx, pdf) | 11.31s total<br/>Pipeline: 0.76s<br/>Vector: 0.26s<br/>Graph: 9.20s | 0.912s<br/>("cmis" query) | 2.796s<br/>("who was first with cmis") | Incremental ingestion - 28% faster than initial, excellent query performance<br/>**Graph**: 49 nodes (43 Entity, 6 Chunk), 88 relationships (45 MENTIONS, 43 semantic types) |
-| **Neo4j + Ollama (llama3.2:3b)** | 2 docs (cmispress.txt, space-station.txt) | 53.66s total<br/>Pipeline: 2.08s<br/>Vector: 0.28s<br/>Graph: 50.71s | 4.252s<br/>("cmis" query) | 13.716s<br/>("who was first with cmis") | Initial ingestion - Similar performance to Kuzu + Ollama |
-| **Neo4j + Ollama (llama3.2:3b)** | +4 docs (incremental to 6 total)<br/>(excel, pptx, docx, pdf) | 72.06s total<br/>Pipeline: 2.14s<br/>Vector: 0.30s<br/>Graph: 69.40s | should be close to 2 doc<br/>("cmis" query) | should be close to 2 doc<br/>("who was first with cmis") | Incremental ingestion - Consistent with initial performance |
-
-**Key Performance Insights:**
-- **Kuzu + OpenAI**: Excellent performance with 3.52s per document at scale
-- **Kuzu + Ollama**: Significantly slower (27.38s per document), but functional for local processing
-- **Neo4j**: In general, performance is similar to Kuzu with OpenAI and with Ollama
-- **Graph Extraction**: Dominates processing time (90%+ of total ingestion time)
-- **Pipeline Optimization**: Removing KeywordExtractor and SummaryExtractor and adding parallel docling processing greatly improved initial "pipeline" phase speed 
+For complete performance results including 2-doc and 4-doc tests, Ollama comparisons, and detailed breakdowns, see [docs/PERFORMANCE.md](docs/PERFORMANCE.md). 
 
 ### RAG without GraphRAG
 
