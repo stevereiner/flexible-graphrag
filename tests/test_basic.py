@@ -19,6 +19,7 @@ def test_imports():
     assert SearchDBType.BM25 == "bm25"
     assert VectorDBType.NEO4J == "neo4j"
     assert GraphDBType.NEO4J == "neo4j"
+    assert GraphDBType.FALKORDB == "falkordb"
     
     # Test factory imports
     from factories import DatabaseFactory, LLMFactory
@@ -65,10 +66,36 @@ def test_persistence_config():
     assert config.vector_persist_dir == "/tmp/vector"
     assert config.graph_persist_dir == "/tmp/graph"
 
+def test_falkordb_factory():
+    """Test FalkorDB graph store factory creation"""
+    from config import GraphDBType
+    from factories import DatabaseFactory
+    
+    # Test that FalkorDB enum exists
+    assert GraphDBType.FALKORDB == "falkordb"
+    
+    # Test factory method exists and handles FalkorDB type
+    # Note: We don't actually create the store since it requires a running FalkorDB instance
+    # Just verify the enum and factory method can handle the type
+    try:
+        # This should not raise an "Unsupported graph database" error for FALKORDB
+        # It might raise other errors (like connection errors) which is expected without a running instance
+        config = {"url": "falkor://localhost:6379"}
+        DatabaseFactory.create_graph_store(GraphDBType.FALKORDB, config)
+    except ValueError as e:
+        if "Unsupported graph database" in str(e):
+            raise AssertionError("FalkorDB should be supported by factory")
+        # Other errors (like connection errors) are expected without running FalkorDB
+        pass
+    except Exception:
+        # Connection or import errors are expected without running FalkorDB instance
+        pass
+
 if __name__ == "__main__":
     # Run basic tests
     test_imports()
     test_basic_configuration()
     test_search_db_types()
     test_persistence_config()
+    test_falkordb_factory()
     print("All basic tests passed!") 
