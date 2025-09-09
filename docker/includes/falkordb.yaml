@@ -1,0 +1,22 @@
+# FalkorDB Graph Database
+services:
+  falkordb:
+    image: falkordb/falkordb:latest
+    container_name: flexible-graphrag-falkordb
+    ports:
+      - "6379:6379"    # Redis protocol (graph database)
+      - "3001:3000"    # FalkorDB Browser web interface
+    volumes:
+      - falkordb_data:/var/lib/falkordb/data
+    # environment:
+      # Optional: Configure FalkorDB settings if needed
+      # - FALKORDB_ARGS=--loadmodule /usr/lib/redis/modules/falkordb.so
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "-p", "6379", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+volumes:
+  falkordb_data:

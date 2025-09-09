@@ -11,6 +11,7 @@ include:
    - includes/neo4j.yaml          # Neo4j graph database
    - includes/kuzu-explorer.yaml   # Kuzu Explorer web interface (port 7000)
    #- includes/kuzu-api.yaml       # Kuzu API server (port 7001) - commented out, not used
+   - includes/falkordb.yaml        # FalkorDB graph database with browser (ports 6379, 3001)
    - includes/qdrant.yaml          # Commented - using existing external container  
    - includes/elasticsearch-dev.yaml  # Elasticsearch with security disabled
    - includes/kibana-simple.yaml       # Kibana working configuration
@@ -23,7 +24,4 @@ include:
 
 # Volumes are defined in individual include files
 
-# Global network for service communication
-networks:
-  flexible-graphrag:
-    driver: bridge
+# Services will use the default network (flexible-graphrag_default)
