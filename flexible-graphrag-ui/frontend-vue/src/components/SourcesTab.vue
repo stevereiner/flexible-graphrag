@@ -246,7 +246,12 @@ export default defineComponent({
       const target = event.target as HTMLInputElement;
       const files = target.files;
       if (files) {
-        selectedFiles.value = Array.from(files);
+        // Use requestAnimationFrame to defer processing and improve perceived performance
+        requestAnimationFrame(() => {
+          selectedFiles.value = Array.from(files);
+          // Clear the input value only after successful processing to allow re-selecting same files
+          target.value = '';
+        });
       }
     };
 
@@ -257,7 +262,10 @@ export default defineComponent({
       
       const files = event.dataTransfer?.files;
       if (files) {
-        selectedFiles.value = Array.from(files);
+        // Use requestAnimationFrame for consistency with file dialog
+        requestAnimationFrame(() => {
+          selectedFiles.value = Array.from(files);
+        });
       }
     };
 

@@ -73,7 +73,12 @@ export class SourcesTabComponent {
     const target = event.target as HTMLInputElement;
     const files = target.files;
     if (files) {
-      this.selectedFiles = Array.from(files);
+      // Use requestAnimationFrame to defer processing and improve perceived performance
+      requestAnimationFrame(() => {
+        this.selectedFiles = Array.from(files);
+        // Clear the input value only after successful processing to allow re-selecting same files
+        target.value = '';
+      });
     }
   }
 
@@ -84,7 +89,10 @@ export class SourcesTabComponent {
     
     const files = event.dataTransfer?.files;
     if (files) {
-      this.selectedFiles = Array.from(files);
+      // Use requestAnimationFrame for consistency with file dialog
+      requestAnimationFrame(() => {
+        this.selectedFiles = Array.from(files);
+      });
     }
   }
 

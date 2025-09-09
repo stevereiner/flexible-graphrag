@@ -113,8 +113,13 @@ export const SourcesTab: React.FC<SourcesTabProps> = ({
   const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
     const files = event.target.files;
     if (files) {
-      const fileArray = Array.from(files);
-      onSelectedFilesChange(fileArray);
+      // Use requestAnimationFrame to defer processing and improve perceived performance
+      requestAnimationFrame(() => {
+        const fileArray = Array.from(files);
+        onSelectedFilesChange(fileArray);
+        // Clear the input value only after successful processing to allow re-selecting same files
+        event.target.value = '';
+      });
     }
   };
 
@@ -125,8 +130,11 @@ export const SourcesTab: React.FC<SourcesTabProps> = ({
     
     const files = event.dataTransfer.files;
     if (files) {
-      const fileArray = Array.from(files);
-      onSelectedFilesChange(fileArray);
+      // Use requestAnimationFrame for consistency with file dialog
+      requestAnimationFrame(() => {
+        const fileArray = Array.from(files);
+        onSelectedFilesChange(fileArray);
+      });
     }
   };
 
