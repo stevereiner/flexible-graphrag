@@ -140,6 +140,8 @@ Current configuration supports (via LlamaIndex abstractions, can be extended to 
   - Dashboard: Neo4j Browser (http://localhost:7474) for graph exploration and query execution
 - **Kuzu**: Embedded graph database built for query speed and scalability, optimized for handling complex analytical workloads on very large graph databases. Supports the property graph data model and the Cypher query language
   - Dashboard: Kuzu Explorer (http://localhost:8002) for graph visualization and Cypher queries
+- **FalkorDB**: "A super fast Graph Database uses GraphBLAS under the hood for its sparse adjacency matrix graph representation. Our goal is to provide the best Knowledge Graph for LLM (GraphRAG)."
+  - Dashboard: FalkorDB Browser (http://localhost:3001) (Was moved from 3000 used by the flexible-graphrag Vue frontend)
 
 ### Search Databases (Engines)
 - **BM25 (Built-in)**: Local file-based BM25 full-text search with TF-IDF ranking. Ideal for development, small datasets, or scenarios when don't need all the features and administration and monitoring support.
@@ -155,28 +157,12 @@ Current configuration supports (via LlamaIndex abstractions, can be extended to 
 - **Anthropic**: Claude models for complex reasoning
 - **Google Gemini**: Google's latest language models
 
-#### ⚠️ LLM Performance Recommendations
+#### LLM Performance Recommendations
 
 **General Performance with LlamaIndex: OpenAI vs Ollama**
 
-Based on testing with OpenAI GPT-4o-mini and Ollama models (llama3.1:8b, llama3.2:latest, gpt-oss:20b), **OpenAI consistently outperforms Ollama models** in LlamaIndex operations:
+Based on testing with OpenAI GPT-4o-mini and Ollama models (llama3.1:8b, llama3.2:latest, gpt-oss:20b), **OpenAI consistently outperforms Ollama models** in LlamaIndex operations.
 
-- **Document Processing**: OpenAI models process documents significantly faster
-- **Entity Extraction**: OpenAI provides much quicker entity and relationship identification  
-- **Query Response**: Search and Q&A queries complete faster with OpenAI
-- **Resource Efficiency**: Better performance even on high-end hardware
-
-**Kuzu + Ollama: Strongly Avoid This Combination**
-
-**When using Kuzu as your graph database, very strongly recommend OpenAI over Ollama models** - the performance difference is dramatic even on powerful hardware (tested on 4090 Nvidia GPU, AMD 5950x 16-core CPU, 64GB RAM):
-
-- **Knowledge Graph Construction**: Ollama models are extremely slow for entity/relationship extraction with Kuzu
-- **Large Model Impact**: Even larger Ollama models (gpt-oss:20b) remain considerably slower than OpenAI GPT-4o-mini
-- **Small Document Problem**: Performance issues persist even with small documents
-- **Search Degradation**: Graph-enhanced search queries are noticeably slower
-- **Development Impact**: Slow feedback loops significantly impact development workflow
-
-**Recommendation**: Use OpenAI for Kuzu deployments, reserve Ollama for Neo4j-based setups where performance is more acceptable.
 
 #### Ollama Environment Configuration
 
