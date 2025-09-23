@@ -13,7 +13,7 @@ import asyncio
 from config import Settings as AppSettings, SAMPLE_SCHEMA, SearchDBType, VectorDBType, LLMProvider
 from document_processor import DocumentProcessor
 from factories import LLMFactory, DatabaseFactory
-from sources import FileSystemSource, CmisSource, AlfrescoSource
+
 
 logger = logging.getLogger(__name__)
 
@@ -554,286 +554,29 @@ class HybridSearchSystem:
         self._persist_indexes()
         
         total_duration = time.time() - start_time
-        vector_time = vector_duration if self.vector_store and 'vector_duration' in locals() else 0
-        graph_time = graph_creation_duration if self.config.enable_knowledge_graph and 'graph_creation_duration' in locals() else 0
+        vector_time = locals().get('vector_duration', 0)
+        graph_time = locals().get('graph_creation_duration', 0)
+        
+        # Log warnings for missing timing data
+        if self.vector_store and vector_time == 0:
+            logger.warning("Vector creation duration not captured - timing may be inaccurate")
+        if self.config.enable_knowledge_graph and graph_time == 0:
+            logger.warning("Graph creation duration not captured - timing may be inaccurate")
         
         logger.info(f"Document ingestion completed successfully in {total_duration:.2f}s total!")
         logger.info(f"Performance summary - Pipeline: {pipeline_duration:.2f}s, Vector: {vector_time:.2f}s, Graph: {graph_time:.2f}s")
         
         # Notify completion via status callback - this will trigger the UI completion status
         if status_callback:
+            # Generate proper completion message based on enabled features
+            completion_message = self._generate_completion_message(len(documents))
             status_callback(
                 processing_id=processing_id,
                 status="completed",
-                message="Document ingestion completed successfully!",
+                message=completion_message,
                 progress=100
             )
     
-    async def ingest_cmis(self, cmis_config: dict = None, processing_id: str = None, status_callback=None):
-        """Ingest documents from CMIS source"""
-        logger.info("Starting CMIS document ingestion...")
-        
-        # Use provided config or fall back to global config
-        if cmis_config:
-            config = cmis_config
-        else:
-            import os
-            config = {
-                "url": os.getenv("CMIS_URL", "http://localhost:8080/alfresco/api/-default-/public/cmis/versions/1.1/atom"),
-                "username": os.getenv("CMIS_USERNAME", "admin"),
-                "password": os.getenv("CMIS_PASSWORD", "admin"),
-                "folder_path": os.getenv("CMIS_FOLDER_PATH", "/")
-            }
-        
-        # Initialize CMIS source
-        cmis_source = CmisSource(
-            url=config["url"],
-            username=config["username"],
-            password=config["password"],
-            folder_path=config["folder_path"]
-        )
-        
-        # Update status: Connected, now scanning
-        if status_callback:
-            status_callback(
-                processing_id=processing_id,
-                status="processing",
-                message="Connected to CMIS! Scanning for documents...",
-                progress=45
-            )
-        
-        # Get documents from CMIS
-        cmis_docs = cmis_source.list_files()
-        
-        if not cmis_docs:
-            logger.warning("No supported documents found in CMIS repository")
-            if status_callback:
-                status_callback(
-                    processing_id=processing_id,
-                    status="completed",
-                    message="No supported documents found in CMIS repository",
-                    progress=100
-                )
-            return
-        
-        # Update status with document count
-        if status_callback:
-            status_callback(
-                processing_id=processing_id,
-                status="processing",
-                message=f"Found {len(cmis_docs)} document(s) in CMIS repository",
-                progress=50,
-                total_files=len(cmis_docs),
-                files_completed=0
-            )
-        
-        # Create temporary directory for downloaded files
-        import tempfile
-        import os
-        
-        temp_dir = tempfile.mkdtemp(prefix="cmis_ingestion_")
-        temp_files = []
-        
-        try:
-            # Download all documents to temporary files
-            for i, doc in enumerate(cmis_docs):
-                try:
-                    # Update progress during download
-                    if status_callback:
-                        download_progress = 50 + int((i / len(cmis_docs)) * 20)  # 50-70% for downloads
-                        status_callback(
-                            processing_id=processing_id,
-                            status="processing",
-                            message=f"Downloading document {i+1}/{len(cmis_docs)}: {doc['name']}",
-                            progress=download_progress,
-                            current_file=doc['name'],
-                            current_phase="downloading",
-                            files_completed=i,
-                            total_files=len(cmis_docs)
-                        )
-                    
-                    temp_file_path = cmis_source.download_document(doc, temp_dir)
-                    temp_files.append(temp_file_path)
-                    logger.info(f"Downloaded CMIS document: {doc['name']} -> {temp_file_path}")
-                except Exception as e:
-                    logger.error(f"Failed to download CMIS document {doc['name']}: {str(e)}")
-                    continue
-            
-            if temp_files:
-                # Update status: Starting document processing
-                if status_callback:
-                    status_callback(
-                        processing_id=processing_id,
-                        status="processing",
-                        message=f"Processing {len(temp_files)} downloaded document(s)...",
-                        progress=70,
-                        total_files=len(temp_files),
-                        files_completed=0
-                    )
-                
-                # Process the downloaded files
-                await self.ingest_documents(temp_files, processing_id=processing_id, status_callback=status_callback)
-                logger.info(f"Successfully ingested {len(temp_files)} documents from CMIS")
-            else:
-                logger.warning("No documents were successfully downloaded from CMIS")
-                if status_callback:
-                    status_callback(
-                        processing_id=processing_id,
-                        status="completed",
-                        message="No documents were successfully downloaded from CMIS",
-                        progress=100
-                    )
-                
-        finally:
-            # Clean up temporary files
-            for temp_file in temp_files:
-                try:
-                    if os.path.exists(temp_file):
-                        os.unlink(temp_file)
-                        logger.debug(f"Cleaned up temporary file: {temp_file}")
-                except Exception as e:
-                    logger.warning(f"Failed to clean up temporary file {temp_file}: {str(e)}")
-            
-            # Remove temporary directory
-            try:
-                if os.path.exists(temp_dir):
-                    os.rmdir(temp_dir)
-                    logger.debug(f"Cleaned up temporary directory: {temp_dir}")
-            except Exception as e:
-                logger.warning(f"Failed to clean up temporary directory {temp_dir}: {str(e)}")
-    
-    async def ingest_alfresco(self, alfresco_config: dict = None, processing_id: str = None, status_callback=None):
-        """Ingest documents from Alfresco source"""
-        logger.info("Starting Alfresco document ingestion...")
-        
-        # Use provided config or fall back to global config
-        if alfresco_config:
-            config = alfresco_config
-        else:
-            import os
-            config = {
-                "url": os.getenv("ALFRESCO_URL", "http://localhost:8080/alfresco"),
-                "username": os.getenv("ALFRESCO_USERNAME", "admin"),
-                "password": os.getenv("ALFRESCO_PASSWORD", "admin"),
-                "path": os.getenv("ALFRESCO_PATH", "/")
-            }
-        
-        # Initialize Alfresco source
-        alfresco_source = AlfrescoSource(
-            base_url=config["url"],
-            username=config["username"],
-            password=config["password"],
-            path=config["path"]
-        )
-        
-        # Update status: Connected, now scanning
-        if status_callback:
-            status_callback(
-                processing_id=processing_id,
-                status="processing",
-                message="Connected to Alfresco! Scanning for documents...",
-                progress=45
-            )
-        
-        # Get documents from Alfresco
-        alfresco_docs = alfresco_source.list_files()
-        
-        if not alfresco_docs:
-            logger.warning("No supported documents found in Alfresco repository")
-            if status_callback:
-                status_callback(
-                    processing_id=processing_id,
-                    status="completed",
-                    message="No supported documents found in Alfresco repository",
-                    progress=100
-                )
-            return
-        
-        # Update status with document count
-        if status_callback:
-            status_callback(
-                processing_id=processing_id,
-                status="processing",
-                message=f"Found {len(alfresco_docs)} document(s) in Alfresco repository",
-                progress=50,
-                total_files=len(alfresco_docs),
-                files_completed=0
-            )
-        
-        # Create temporary directory for downloaded files
-        import tempfile
-        import os
-        
-        temp_dir = tempfile.mkdtemp(prefix="alfresco_ingestion_")
-        temp_files = []
-        
-        try:
-            # Download all documents to temporary files
-            for i, doc in enumerate(alfresco_docs):
-                try:
-                    # Update progress during download
-                    if status_callback:
-                        download_progress = 50 + int((i / len(alfresco_docs)) * 20)  # 50-70% for downloads
-                        status_callback(
-                            processing_id=processing_id,
-                            status="processing",
-                            message=f"Downloading document {i+1}/{len(alfresco_docs)}: {doc['name']}",
-                            progress=download_progress,
-                            current_file=doc['name'],
-                            current_phase="downloading",
-                            files_completed=i,
-                            total_files=len(alfresco_docs)
-                        )
-                    
-                    temp_file_path = alfresco_source.download_document(doc, temp_dir)
-                    temp_files.append(temp_file_path)
-                    logger.info(f"Downloaded Alfresco document: {doc['name']} -> {temp_file_path}")
-                except Exception as e:
-                    logger.error(f"Failed to download Alfresco document {doc['name']}: {str(e)}")
-                    continue
-            
-            if temp_files:
-                # Update status: Starting document processing
-                if status_callback:
-                    status_callback(
-                        processing_id=processing_id,
-                        status="processing",
-                        message=f"Processing {len(temp_files)} downloaded document(s)...",
-                        progress=70,
-                        total_files=len(temp_files),
-                        files_completed=0
-                    )
-                
-                # Process the downloaded files
-                await self.ingest_documents(temp_files, processing_id=processing_id, status_callback=status_callback)
-                logger.info(f"Successfully ingested {len(temp_files)} documents from Alfresco")
-            else:
-                logger.warning("No documents were successfully downloaded from Alfresco")
-                if status_callback:
-                    status_callback(
-                        processing_id=processing_id,
-                        status="completed",
-                        message="No documents were successfully downloaded from Alfresco",
-                        progress=100
-                    )
-                
-        finally:
-            # Clean up temporary files
-            for temp_file in temp_files:
-                try:
-                    if os.path.exists(temp_file):
-                        os.unlink(temp_file)
-                        logger.debug(f"Cleaned up temporary file: {temp_file}")
-                except Exception as e:
-                    logger.warning(f"Failed to clean up temporary file {temp_file}: {str(e)}")
-            
-            # Remove temporary directory
-            try:
-                if os.path.exists(temp_dir):
-                    os.rmdir(temp_dir)
-                    logger.debug(f"Cleaned up temporary directory: {temp_dir}")
-            except Exception as e:
-                logger.warning(f"Failed to clean up temporary directory {temp_dir}: {str(e)}")
     
     async def ingest_text(self, content: str, source_name: str = "text_input", processing_id: str = None):
         """Ingest raw text content"""
@@ -1579,6 +1322,226 @@ class HybridSearchSystem:
                 # Re-raise other errors
                 raise
     
+    
+    
+    
+    async def _process_documents_direct(self, documents: List, processing_id: str = None, status_callback=None):
+        """Process documents directly without file paths (for web, YouTube, Wikipedia sources)"""
+        logger.info(f"Processing {len(documents)} documents directly...")
+        
+        # Start timing for performance analysis
+        import time
+        start_time = time.time()
+        
+        # Store documents for later use in search store indexing
+        if not hasattr(self, '_last_ingested_documents') or self._last_ingested_documents is None:
+            self._last_ingested_documents = []
+        self._last_ingested_documents.extend(documents)
+        logger.info(f"Added {len(documents)} documents to collection. Total documents: {len(self._last_ingested_documents)}")
+        
+        # Helper function to check cancellation
+        def _check_cancellation():
+            if processing_id:
+                from backend import PROCESSING_STATUS
+                return (processing_id in PROCESSING_STATUS and 
+                        PROCESSING_STATUS[processing_id]["status"] == "cancelled")
+            return False
+        
+        # Check for cancellation before processing
+        if _check_cancellation():
+            logger.info("Processing cancelled during document preparation")
+            raise RuntimeError("Processing cancelled by user")
+        
+        # Step 1: Process documents through transformations to get nodes
+        pipeline_start_time = time.time()
+        transformations = [
+            SentenceSplitter(
+                chunk_size=self.config.chunk_size,
+                chunk_overlap=self.config.chunk_overlap
+            ),
+            self.embed_model
+        ]
+        
+        logger.info(f"Starting LlamaIndex IngestionPipeline with transformations: {[type(t).__name__ for t in transformations]}")
+        
+        pipeline = IngestionPipeline(transformations=transformations)
+        
+        # Use run_in_executor to avoid asyncio conflict
+        import asyncio
+        import functools
+        
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+        
+        run_pipeline = functools.partial(pipeline.run, documents=documents)
+        logger.info("Executing IngestionPipeline.run() - this includes chunking and embedding generation")
+        nodes = await loop.run_in_executor(None, run_pipeline)
+        
+        pipeline_duration = time.time() - pipeline_start_time
+        logger.info(f"IngestionPipeline completed in {pipeline_duration:.2f}s - Generated {len(nodes)} nodes from {len(documents)} documents")
+        
+        # Check for cancellation after node processing
+        if _check_cancellation():
+            logger.info("Processing cancelled during node generation")
+            raise RuntimeError("Processing cancelled by user")
+        
+        # Step 2: Create or update vector index (if vector search enabled)
+        vector_duration = 0
+        if self.vector_store is not None:
+            vector_start_time = time.time()
+            vector_store_type = type(self.vector_store).__name__
+            logger.info(f"Creating vector index from {len(nodes)} nodes using {vector_store_type}...")
+            
+            if self.vector_index is None:
+                storage_context = StorageContext.from_defaults(vector_store=self.vector_store)
+                
+                create_vector_index = functools.partial(
+                    VectorStoreIndex.from_documents,
+                    documents=documents,
+                    storage_context=storage_context,
+                    embed_model=self.embed_model
+                )
+                self.vector_index = await loop.run_in_executor(None, create_vector_index)
+            else:
+                # Add to existing index
+                self.vector_index.insert_nodes(nodes)
+            
+            vector_duration = time.time() - vector_start_time
+            logger.info(f"Vector index creation completed in {vector_duration:.2f}s using {vector_store_type}")
+        else:
+            logger.info("Vector search disabled - skipping vector index creation")
+        
+        # Check for cancellation after vector index creation/update
+        if _check_cancellation():
+            logger.info("Processing cancelled during vector index creation")
+            raise RuntimeError("Processing cancelled by user")
+        
+        # Step 3: Create or update graph index (if knowledge graph extraction is enabled)
+        graph_creation_duration = 0
+        if self.config.enable_knowledge_graph:
+            kg_setup_start_time = time.time()
+            graph_store_type = type(self.graph_store).__name__
+            llm_model_name = getattr(self.llm, 'model', str(type(self.llm).__name__))
+            
+            kg_extractors = []
+            if self.config.schema_config is not None:
+                kg_extractor = self.schema_manager.create_extractor(
+                    self.llm, 
+                    use_schema=True,
+                    llm_provider=self.config.llm_provider,
+                    extractor_type=self.config.kg_extractor_type
+                )
+                kg_extractors = [kg_extractor]
+                logger.info(f"Using knowledge graph extraction with schema and LLM: {llm_model_name}")
+            else:
+                kg_extractor = self.schema_manager.create_extractor(
+                    self.llm, 
+                    use_schema=False,
+                    llm_provider=self.config.llm_provider,
+                    extractor_type=self.config.kg_extractor_type
+                )
+                kg_extractors = [kg_extractor]
+                logger.info(f"Using simple knowledge graph extraction (no schema) with LLM: {llm_model_name}")
+            
+            kg_setup_duration = time.time() - kg_setup_start_time
+            logger.info(f"Knowledge graph extractor setup completed in {kg_setup_duration:.2f}s")
+            
+            if self.graph_index is None:
+                graph_storage_context = StorageContext.from_defaults(
+                    property_graph_store=self.graph_store
+                )
+                
+                # This is the most time-consuming step - LLM calls for entity/relationship extraction
+                graph_creation_start_time = time.time()
+                logger.info(f"Starting PropertyGraphIndex.from_documents() - this will make LLM calls to extract entities and relationships from {len(documents)} documents")
+                logger.info(f"LLM model being used for knowledge graph extraction: {llm_model_name}")
+                
+                create_graph_index = functools.partial(
+                    PropertyGraphIndex.from_documents,
+                    documents=documents,
+                    llm=self.llm,
+                    embed_model=self.embed_model,
+                    kg_extractors=kg_extractors,
+                    storage_context=graph_storage_context
+                )
+                self.graph_index = await loop.run_in_executor(None, create_graph_index)
+                
+                graph_creation_duration = time.time() - graph_creation_start_time
+                logger.info(f"PropertyGraphIndex creation completed in {graph_creation_duration:.2f}s")
+                logger.info(f"Knowledge graph extraction finished - entities and relationships stored in {graph_store_type}")
+            else:
+                # Add to existing graph index
+                self.graph_index.insert_nodes(nodes)
+        else:
+            logger.info("Knowledge graph extraction disabled - skipping graph index creation")
+        
+        # Check for cancellation after graph index creation/update
+        if _check_cancellation():
+            logger.info("Processing cancelled during graph index creation")
+            raise RuntimeError("Processing cancelled by user")
+        
+        # Setup hybrid retriever
+        self._setup_hybrid_retriever()
+        
+        # Calculate total duration and log performance summary
+        total_duration = time.time() - start_time
+        
+        # Use the graph_creation_duration variable that was initialized at function level
+        graph_time = graph_creation_duration
+        
+        logger.info(f"Direct document processing completed successfully in {total_duration:.2f}s total!")
+        logger.info(f"Performance summary - Pipeline: {pipeline_duration:.2f}s, Vector: {vector_duration:.2f}s, Graph: {graph_time:.2f}s")
+        
+        # Notify completion via status callback - this will trigger the UI completion status
+        if status_callback:
+            # Generate proper completion message based on enabled features
+            completion_message = self._generate_completion_message(len(documents))
+            status_callback(
+                processing_id=processing_id,
+                status="completed",
+                message=completion_message,
+                progress=100
+            )
+
+
+    def _generate_completion_message(self, doc_count: int) -> str:
+        """Generate dynamic completion message based on enabled features"""
+        # Check what's actually enabled
+        has_vector = str(self.config.vector_db) != "none"
+        has_graph = str(self.config.graph_db) != "none" and self.config.enable_knowledge_graph
+        has_search = str(self.config.search_db) != "none"
+        
+        # Build feature list in logical order: vector, search, knowledge graph
+        features = []
+        if has_vector:
+            vector_type = str(self.config.vector_db).title()
+            features.append(f"{vector_type} vector index")
+        if has_search:
+            if self.config.search_db == "bm25":
+                features.append("BM25 search")
+            else:
+                search_type = str(self.config.search_db).title()
+                features.append(f"{search_type} search")
+        if has_graph:
+            graph_type = str(self.config.graph_db).title()
+            features.append(f"{graph_type} knowledge graph")
+        
+        # Create appropriate message with proper grammar
+        if features:
+            if len(features) == 1:
+                feature_text = features[0]
+            elif len(features) == 2:
+                feature_text = f"{features[0]} and {features[1]}"
+            else:
+                feature_text = f"{', '.join(features[:-1])}, and {features[-1]}"
+            return f"Successfully ingested {doc_count} document(s)! {feature_text} ready."
+        else:
+            # Fallback (shouldn't happen due to validation)
+            return f"Successfully ingested {doc_count} document(s)!"
+
     def state(self) -> Dict[str, Any]:
         """Get current system state"""
         return {
