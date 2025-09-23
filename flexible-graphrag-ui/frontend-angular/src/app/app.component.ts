@@ -18,6 +18,16 @@ export class AppComponent implements OnInit {
   configuredFolderPath = '';
   repositoryItemsHidden = false;
   
+  // New configuration types for modular sources
+  configuredCmisConfig: any = null;
+  configuredAlfrescoConfig: any = null;
+  configuredWebConfig: any = null;
+  configuredWikipediaConfig: any = null;
+  configuredYoutubeConfig: any = null;
+  configuredCloudConfig: any = null;
+  configuredEnterpriseConfig: any = null;
+  configurationTimestamp = 0;
+  
   // Theme management
   isDarkMode = false;
   isLightMode = true;
@@ -61,24 +71,48 @@ export class AppComponent implements OnInit {
     this.selectedTabIndex = 1; // Switch to Processing tab
   }
 
-  onSourcesConfigured(data: { dataSource: string; files: File[]; folderPath?: string }): void {
+  onSourcesConfigured(data: any): void {
     // Clear previous configuration to prevent filename conflicts
     this.hasConfiguredSources = false;
     this.configuredFiles = [];
     this.configuredFolderPath = '';
     this.repositoryItemsHidden = false;
     
+    // Clear all configuration types
+    this.configuredCmisConfig = null;
+    this.configuredAlfrescoConfig = null;
+    this.configuredWebConfig = null;
+    this.configuredWikipediaConfig = null;
+    this.configuredYoutubeConfig = null;
+    this.configuredCloudConfig = null;
+    this.configuredEnterpriseConfig = null;
+    
     // Set new configuration
     this.hasConfiguredSources = true;
     this.configuredDataSource = data.dataSource;
-    this.configuredFiles = data.files;
+    this.configuredFiles = data.files || []; // Handle empty files for web sources
     this.configuredFolderPath = data.folderPath || '';
+    
+    // Set new configuration types
+    this.configuredCmisConfig = data.cmisConfig || null;
+    this.configuredAlfrescoConfig = data.alfrescoConfig || null;
+    this.configuredWebConfig = data.webConfig || null;
+    this.configuredWikipediaConfig = data.wikipediaConfig || null;
+    this.configuredYoutubeConfig = data.youtubeConfig || null;
+    this.configuredCloudConfig = data.cloudConfig || null;
+    this.configuredEnterpriseConfig = data.enterpriseConfig || null;
+    this.configurationTimestamp = Date.now();
     
     console.log('📁 Angular onSourcesConfigured (cleared previous state):', {
       dataSource: data.dataSource,
       folderPath: data.folderPath,
       configuredFolderPath: this.configuredFolderPath,
-      filesCount: this.configuredFiles.length
+      filesCount: this.configuredFiles.length,
+      hasWebConfig: !!this.configuredWebConfig,
+      hasWikipediaConfig: !!this.configuredWikipediaConfig,
+      hasYoutubeConfig: !!this.configuredYoutubeConfig,
+      hasCloudConfig: !!this.configuredCloudConfig,
+      hasEnterpriseConfig: !!this.configuredEnterpriseConfig
     });
   }
 

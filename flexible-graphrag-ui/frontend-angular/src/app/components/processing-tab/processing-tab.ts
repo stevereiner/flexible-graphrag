@@ -1,4 +1,4 @@
-import { Component, Input, Output, EventEmitter, OnInit, OnChanges } from '@angular/core';
+import { Component, Input, Output, EventEmitter, OnInit, OnChanges, SimpleChanges } from '@angular/core';
 import { MatCheckboxChange } from '@angular/material/checkbox';
 import { ApiService } from '../../services/api.service';
 import { AsyncProcessingResponse, ProcessingStatusResponse } from '../../models/api.models';
@@ -22,6 +22,14 @@ export class ProcessingTabComponent implements OnInit, OnChanges {
   @Input() configuredFiles: File[] = [];
   @Input() configuredFolderPath = '';
   @Input() repositoryItemsHidden = false;
+  @Input() configuredCmisConfig: any = null;
+  @Input() configuredAlfrescoConfig: any = null;
+  @Input() configuredWebConfig: any = null;
+  @Input() configuredWikipediaConfig: any = null;
+  @Input() configuredYoutubeConfig: any = null;
+  @Input() configuredCloudConfig: any = null;
+  @Input() configuredEnterpriseConfig: any = null;
+  @Input() configurationTimestamp = 0;
   @Output() goToSources = new EventEmitter<void>();
   @Output() removeRepositoryFile = new EventEmitter<number>();
   @Output() removeUploadFile = new EventEmitter<number>();
@@ -50,7 +58,26 @@ export class ProcessingTabComponent implements OnInit, OnChanges {
     this.updateDisplayFiles();
   }
 
-  ngOnChanges(): void {
+  ngOnChanges(changes: SimpleChanges): void {
+    // Clear old processing messages when configuration changes (not just any input change)
+    const configurationChanged = changes['configuredDataSource'] || 
+                                 changes['configuredFiles'] || 
+                                 changes['configurationTimestamp'] ||
+                                 changes['configuredFolderPath'] ||
+                                 changes['configuredCmisConfig'] ||
+                                 changes['configuredAlfrescoConfig'] ||
+                                 changes['configuredWebConfig'] ||
+                                 changes['configuredWikipediaConfig'] ||
+                                 changes['configuredYoutubeConfig'] ||
+                                 changes['configuredCloudConfig'] ||
+                                 changes['configuredEnterpriseConfig'];
+    
+    if (configurationChanged) {
+      // Clear old processing messages when configuration changes
+      this.successMessage = '';
+      this.error = '';
+    }
+    
     this.updateDisplayFiles();
   }
 
@@ -99,6 +126,41 @@ export class ProcessingTabComponent implements OnInit, OnChanges {
           type: 'repository',
         }];
       }
+    } else if (['web', 'wikipedia', 'youtube', 's3', 'gcs', 'azure_blob', 'onedrive', 'sharepoint', 'box', 'google_drive'].includes(this.configuredDataSource)) {
+      // Handle web, cloud, and enterprise sources - create a single display item
+      const getDisplayName = (): string => {
+        switch (this.configuredDataSource) {
+          case 'web':
+            return this.configuredWebConfig?.url || 'Web Page';
+          case 'wikipedia':
+            return this.configuredWikipediaConfig?.query || 'Wikipedia Article';
+          case 'youtube':
+            return this.configuredYoutubeConfig?.url || 'YouTube Video';
+          case 's3':
+            return `S3: ${this.configuredCloudConfig?.bucket_name || 'Bucket'}`;
+          case 'gcs':
+            return `GCS: ${this.configuredCloudConfig?.bucket_name || 'Bucket'}`;
+          case 'azure_blob':
+            return `Azure: ${this.configuredCloudConfig?.account_name || 'Storage'}`;
+          case 'onedrive':
+            return `OneDrive: ${this.configuredCloudConfig?.user_principal_name || 'Drive'}`;
+          case 'sharepoint':
+            return `SharePoint: ${this.configuredEnterpriseConfig?.site_name || 'Site'}`;
+          case 'box':
+            return `Box: ${this.configuredEnterpriseConfig?.folder_id || 'Folder'}`;
+          case 'google_drive':
+            return `Google Drive: ${this.configuredCloudConfig?.folder_name || 'Drive'}`;
+          default:
+            return 'Source';
+        }
+      };
+
+      this.displayFiles = [{
+        index: 0,
+        name: getDisplayName(),
+        size: 0,
+        type: 'source',
+      }];
     }
     
     // Auto-select files after updating display
@@ -110,6 +172,9 @@ export class ProcessingTabComponent implements OnInit, OnChanges {
       this.selectedItems = new Set(this.configuredFiles.map((_, index) => index));
     } else if (this.configuredDataSource === 'cmis' || this.configuredDataSource === 'alfresco') {
       // Auto-select all repository files (whether individual files or repository path)
+      this.selectedItems = new Set(this.displayFiles.map((_, index) => index));
+    } else if (['web', 'wikipedia', 'youtube', 's3', 'gcs', 'azure_blob', 'onedrive', 'sharepoint', 'box', 'google_drive'].includes(this.configuredDataSource)) {
+      // Auto-select the single source item
       this.selectedItems = new Set(this.displayFiles.map((_, index) => index));
     }
   }
@@ -356,8 +421,36 @@ export class ProcessingTabComponent implements OnInit, OnChanges {
           password: 'admin',
           path: this.configuredFolderPath || '/Sites/swsdp/documentLibrary'
         };
+      } else if (this.configuredDataSource === 'web') {
+        processingData.web_config = this.configuredWebConfig;
+      } else if (this.configuredDataSource === 'wikipedia') {
+        processingData.wikipedia_config = this.configuredWikipediaConfig;
+      } else if (this.configuredDataSource === 'youtube') {
+        processingData.youtube_config = this.configuredYoutubeConfig;
+      } else if (this.configuredDataSource === 's3') {
+        processingData.s3_config = this.configuredCloudConfig;
+      } else if (this.configuredDataSource === 'gcs') {
+        processingData.gcs_config = this.configuredCloudConfig;
+      } else if (this.configuredDataSource === 'azure_blob') {
+        processingData.azure_blob_config = this.configuredCloudConfig;
+      } else if (this.configuredDataSource === 'onedrive') {
+        processingData.onedrive_config = this.configuredEnterpriseConfig;
+      } else if (this.configuredDataSource === 'sharepoint') {
+        processingData.sharepoint_config = this.configuredEnterpriseConfig;
+      } else if (this.configuredDataSource === 'box') {
+        processingData.box_config = this.configuredEnterpriseConfig;
+      } else if (this.configuredDataSource === 'google_drive') {
+        processingData.google_drive_config = this.configuredEnterpriseConfig;
       }
       
+      console.log('🔧 Angular startProcessing - configured data:', {
+        dataSource: this.configuredDataSource,
+        webConfig: this.configuredWebConfig,
+        wikipediaConfig: this.configuredWikipediaConfig,
+        youtubeConfig: this.configuredYoutubeConfig,
+        cloudConfig: this.configuredCloudConfig,
+        enterpriseConfig: this.configuredEnterpriseConfig
+      });
       console.log('Starting processing with data:', processingData);
       
       this.apiService.ingestDocuments(processingData).subscribe({

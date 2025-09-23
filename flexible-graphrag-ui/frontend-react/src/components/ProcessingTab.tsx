@@ -37,6 +37,11 @@ interface ProcessingTabProps {
   folderPath: string;
   cmisConfig?: any;
   alfrescoConfig?: any;
+  webConfig?: any;
+  wikipediaConfig?: any;
+  youtubeConfig?: any;
+  cloudConfig?: any;
+  enterpriseConfig?: any;
   selectedFileIndices: Set<number>;
   repositoryItemsHidden: boolean;
   // Persistent processing state
@@ -72,6 +77,11 @@ export const ProcessingTab: React.FC<ProcessingTabProps> = ({
   folderPath,
   cmisConfig,
   alfrescoConfig,
+  webConfig,
+  wikipediaConfig,
+  youtubeConfig,
+  cloudConfig,
+  enterpriseConfig,
   selectedFileIndices,
   repositoryItemsHidden,
   isProcessing,
@@ -170,6 +180,57 @@ export const ProcessingTab: React.FC<ProcessingTabProps> = ({
         name: folderPath || 'Repository Path',
         size: 0,
         type: 'repository' as const
+      }];
+    } else if (configuredDataSource === 'web') {
+      // Web page source
+      const url = webConfig?.url || 'Web Page';
+      return [{
+        name: url,
+        size: 0,
+        type: 'web-source' as const
+      }];
+    } else if (configuredDataSource === 'wikipedia') {
+      // Wikipedia source
+      const query = wikipediaConfig?.query || wikipediaConfig?.url || 'Wikipedia Article';
+      return [{
+        name: `Wikipedia: ${query}`,
+        size: 0,
+        type: 'wikipedia-source' as const
+      }];
+    } else if (configuredDataSource === 'youtube') {
+      // YouTube source
+      const url = youtubeConfig?.url || 'YouTube Video';
+      return [{
+        name: url,
+        size: 0,
+        type: 'youtube-source' as const
+      }];
+    } else if (['s3', 'gcs', 'azure_blob', 'google_drive', 'onedrive', 'sharepoint', 'box'].includes(configuredDataSource)) {
+      // Cloud storage sources
+      const config = cloudConfig || enterpriseConfig;
+      let displayName = 'Cloud Storage';
+      
+      if (configuredDataSource === 's3') {
+        displayName = `S3: ${config?.bucket || 'Bucket'}/${config?.prefix || ''}`;
+      } else if (configuredDataSource === 'gcs') {
+        displayName = `GCS: ${config?.bucket || 'Bucket'}/${config?.prefix || ''}`;
+      } else if (configuredDataSource === 'azure_blob') {
+        displayName = `Azure: ${config?.container || 'Container'}/${config?.blob_name || ''}`;
+      } else if (configuredDataSource === 'google_drive') {
+        const folderId = config?.folder_id;
+        displayName = folderId ? `Google Drive: ${folderId}` : 'Google Drive';
+      } else if (configuredDataSource === 'onedrive') {
+        displayName = `OneDrive: ${config?.folder_path || 'Folder'}`;
+      } else if (configuredDataSource === 'sharepoint') {
+        displayName = `SharePoint: ${config?.site_url || 'Site'}`;
+      } else if (configuredDataSource === 'box') {
+        displayName = `Box: ${config?.folder_id || 'Folder'}`;
+      }
+      
+      return [{
+        name: displayName,
+        size: 0,
+        type: 'cloud-source' as const
       }];
     }
     return [];
@@ -361,6 +422,33 @@ export const ProcessingTab: React.FC<ProcessingTabProps> = ({
       } else if (configuredDataSource === 'alfresco') {
         request.paths = [folderPath];
         request.alfresco_config = alfrescoConfig;
+      } else if (configuredDataSource === 'web') {
+        request.web_config = webConfig;
+      } else if (configuredDataSource === 'wikipedia') {
+        request.wikipedia_config = wikipediaConfig;
+      } else if (configuredDataSource === 'youtube') {
+        console.log('YouTube config:', youtubeConfig);
+        request.youtube_config = youtubeConfig;
+      } else if (['s3', 'gcs', 'azure_blob'].includes(configuredDataSource)) {
+        // Cloud storage sources
+        if (configuredDataSource === 's3') {
+          request.s3_config = cloudConfig;
+        } else if (configuredDataSource === 'gcs') {
+          request.gcs_config = cloudConfig;
+        } else if (configuredDataSource === 'azure_blob') {
+          request.azure_blob_config = cloudConfig;
+        }
+      } else if (['onedrive', 'sharepoint', 'box', 'google_drive'].includes(configuredDataSource)) {
+        // Enterprise sources
+        if (configuredDataSource === 'onedrive') {
+          request.onedrive_config = enterpriseConfig;
+        } else if (configuredDataSource === 'sharepoint') {
+          request.sharepoint_config = enterpriseConfig;
+        } else if (configuredDataSource === 'box') {
+          request.box_config = enterpriseConfig;
+        } else if (configuredDataSource === 'google_drive') {
+          request.google_drive_config = enterpriseConfig;
+        }
       }
 
       const response = await axios.post<AsyncProcessingResponse>('/api/ingest', request);
@@ -420,9 +508,12 @@ export const ProcessingTab: React.FC<ProcessingTabProps> = ({
     onRemoveProcessingFile(index);
   };
 
-  // Auto-select repository files when they are discovered from processing status
+  // Auto-select files when they are configured for single-source data types
   useEffect(() => {
-    if (configuredDataSource === 'cmis' || configuredDataSource === 'alfresco') {
+    if (configuredDataSource === 'cmis' || configuredDataSource === 'alfresco' || 
+        configuredDataSource === 'web' || configuredDataSource === 'wikipedia' || 
+        configuredDataSource === 'youtube' || 
+        ['s3', 'gcs', 'azure_blob', 'google_drive', 'onedrive', 'sharepoint', 'box'].includes(configuredDataSource)) {
       const displayFiles = getDisplayFiles();
       // Auto-select all files (both repository path and individual files when discovered)
       const newSelection = new Set<number>();

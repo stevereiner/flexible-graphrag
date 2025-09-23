@@ -7,6 +7,31 @@
   margin-bottom: 16px;
 }
 
+/* Data source dropdown styling */
+.data-source-select {
+  max-width: 400px;
+  margin-bottom: 16px;
+}
+
+/* Compact dropdown panel styling */
+::ng-deep .compact-dropdown {
+  max-height: none !important;
+  max-width: 400px !important;
+}
+
+/* Reduce dropdown menu item spacing to eliminate scroll bar */
+::ng-deep .compact-dropdown .mat-mdc-option {
+  min-height: 24px !important;
+  padding: 2px 16px !important;
+  font-size: 14px !important;
+  line-height: 1.2 !important;
+}
+
+::ng-deep .compact-dropdown .mdc-list-item__primary-text {
+  font-size: 14px !important;
+  line-height: 1.2 !important;
+}
+
 .form-row {
   display: flex;
   gap: 16px;

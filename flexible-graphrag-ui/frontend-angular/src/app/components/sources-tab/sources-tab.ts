@@ -9,15 +9,14 @@ import { environment } from '../../../environments/environment';
 })
 export class SourcesTabComponent {
   @Output() configureProcessing = new EventEmitter<void>();
-  @Output() sourcesConfigured = new EventEmitter<{ dataSource: string; files: File[]; folderPath?: string }>();
+  @Output() sourcesConfigured = new EventEmitter<any>();
 
   // State
   dataSource = 'upload';
   folderPath = '/Shared/GraphRAG';
   selectedFiles: File[] = [];
-  isDragOver = false;
-  isUploading = false;
-  uploadProgress = 0;
+  isFormValid = false;
+  currentConfig: any = {};
 
   // CMIS state
   cmisUrl = `${environment.cmisBaseUrl || 'http://localhost:8080'}/alfresco/api/-default-/public/cmis/versions/1.1/atom`;
@@ -28,6 +27,36 @@ export class SourcesTabComponent {
   alfrescoUrl = `${environment.alfrescoBaseUrl || 'http://localhost:8080'}/alfresco`;
   alfrescoUsername = 'admin';
   alfrescoPassword = 'admin';
+
+  // Web sources state
+  webUrl = '';
+  wikipediaUrl = '';
+  wikipediaLanguage = 'en';
+  wikipediaMaxDocs = 5;
+  youtubeUrl = '';
+
+  // Cloud storage state
+  s3AccessKey = '';
+  s3SecretKey = '';
+  gcsBucketName = '';
+  gcsProjectId = '';
+  gcsCredentials = '';
+  azureBlobConnectionString = '';
+  azureBlobContainer = '';
+  azureBlobName = '';
+  azureBlobAccountName = '';
+  azureBlobAccountKey = '';
+
+  // Enterprise state
+  onedriveUserPrincipalName = '';
+  onedriveClientId = '';
+  onedriveClientSecret = '';
+  onedriveTenantId = '';
+  sharepointSiteName = '';
+  boxClientId = '';
+  boxClientSecret = '';
+  boxDeveloperToken = '';
+  googleDriveCredentials = '';
 
   // Computed properties
   get cmisPlaceholder(): string {
@@ -40,121 +69,75 @@ export class SourcesTabComponent {
     return `e.g., ${baseUrl}/alfresco`;
   }
 
-  get dropZoneStyle(): any {
-    return {
-      border: this.isDragOver ? '2px solid #ffffff' : '2px dashed #ffffff',
-      backgroundColor: this.isDragOver ? '#000000' : '#1976d2', // Black on hover, blue default like React
-      transition: 'all 0.2s ease-in-out',
-      cursor: 'pointer',
-      padding: '24px',
-      textAlign: 'center',
-      borderRadius: '4px'
-    };
-  }
 
   // Methods
   onDataSourceChange(): void {
     // Clear state when data source changes
     this.selectedFiles = [];
-    this.isDragOver = false;
+    this.currentConfig = {};
+    this.isFormValid = false;
   }
 
-  formatFileSize(bytes: number): string {
-    if (bytes < 1024) {
-      return bytes === 0 ? "0 B" : "1 KB";
-    } else if (bytes < 1024 * 1024) {
-      return `${Math.ceil(bytes / 1024)} KB`;
-    } else {
-      return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
-    }
+  onConfigurationChange(config: any): void {
+    this.currentConfig = config;
+    console.log('📝 Angular onConfigurationChange:', {
+      dataSource: this.dataSource,
+      config: config,
+      currentConfig: this.currentConfig
+    });
   }
 
-  onFileSelect(event: Event): void {
-    const target = event.target as HTMLInputElement;
-    const files = target.files;
-    if (files) {
-      // Use requestAnimationFrame to defer processing and improve perceived performance
-      requestAnimationFrame(() => {
-        this.selectedFiles = Array.from(files);
-        // Clear the input value only after successful processing to allow re-selecting same files
-        target.value = '';
-      });
-    }
-  }
-
-  onFileDrop(event: DragEvent): void {
-    event.preventDefault();
-    event.stopPropagation();
-    this.isDragOver = false;
-    
-    const files = event.dataTransfer?.files;
-    if (files) {
-      // Use requestAnimationFrame for consistency with file dialog
-      requestAnimationFrame(() => {
-        this.selectedFiles = Array.from(files);
-      });
-    }
-  }
-
-  onDragOver(event: DragEvent): void {
-    event.preventDefault();
-    event.stopPropagation();
-    if (event.dataTransfer) {
-      event.dataTransfer.dropEffect = 'copy';
-    }
-  }
-
-  onDragEnter(event: DragEvent): void {
-    event.preventDefault();
-    event.stopPropagation();
-    this.isDragOver = true;
-    if (event.dataTransfer) {
-      event.dataTransfer.dropEffect = 'copy';
-    }
-  }
-
-  onDragLeave(event: DragEvent): void {
-    event.preventDefault();
-    event.stopPropagation();
-    
-    const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
-    const x = event.clientX;
-    const y = event.clientY;
-    
-    if (x < rect.left || x > rect.right || y < rect.top || y > rect.bottom) {
-      this.isDragOver = false;
-    }
-  }
-
-  removeFile(index: number): void {
-    this.selectedFiles = this.selectedFiles.filter((_, i) => i !== index);
-  }
-
-  isFormValid(): boolean {
-    switch (this.dataSource) {
-      case 'upload':
-        return this.selectedFiles.length > 0;
-      case 'cmis':
-        return this.folderPath.trim() !== '' && 
-               this.cmisUrl.trim() !== '' && 
-               this.cmisUsername.trim() !== '' && 
-               this.cmisPassword.trim() !== '';
-      case 'alfresco':
-        return this.folderPath.trim() !== '' && 
-               this.alfrescoUrl.trim() !== '' && 
-               this.alfrescoUsername.trim() !== '' && 
-               this.alfrescoPassword.trim() !== '';
-      default:
-        return false;
-    }
+  onValidationChange(valid: any): void {
+    // Handle the validation change from child components
+    this.isFormValid = Boolean(valid);
   }
 
   onConfigureProcessing(): void {
-    this.sourcesConfigured.emit({
+    // Build configuration object based on data source
+    const sourceConfig: any = {
       dataSource: this.dataSource,
       files: this.selectedFiles,
-      folderPath: this.folderPath
+      folderPath: this.folderPath,
+    };
+
+    // Add source-specific configurations
+    switch (this.dataSource) {
+      case 'cmis':
+        sourceConfig.cmisConfig = this.currentConfig;
+        break;
+      case 'alfresco':
+        sourceConfig.alfrescoConfig = this.currentConfig;
+        break;
+      case 'web':
+        sourceConfig.webConfig = this.currentConfig;
+        break;
+      case 'wikipedia':
+        sourceConfig.wikipediaConfig = this.currentConfig;
+        break;
+      case 'youtube':
+        sourceConfig.youtubeConfig = this.currentConfig;
+        break;
+      case 's3':
+      case 'gcs':
+      case 'azure_blob':
+        sourceConfig.cloudConfig = this.currentConfig;
+        break;
+      case 'onedrive':
+      case 'sharepoint':
+      case 'box':
+      case 'google_drive':
+        sourceConfig.enterpriseConfig = this.currentConfig;
+        break;
+    }
+
+    console.log('🚀 Angular onConfigureProcessing:', {
+      dataSource: this.dataSource,
+      currentConfig: this.currentConfig,
+      sourceConfig: sourceConfig,
+      isFormValid: this.isFormValid
     });
+
+    this.sourcesConfigured.emit(sourceConfig);
     this.configureProcessing.emit();
   }
 }

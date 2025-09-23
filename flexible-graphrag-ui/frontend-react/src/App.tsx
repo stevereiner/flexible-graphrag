@@ -124,6 +124,41 @@ const App: React.FC = () => {
   const [alfrescoUrl, setAlfrescoUrl] = useState<string>(`${import.meta.env.VITE_ALFRESCO_BASE_URL || 'http://localhost:8080'}/alfresco`);
   const [alfrescoUsername, setAlfrescoUsername] = useState<string>('admin');
   const [alfrescoPassword, setAlfrescoPassword] = useState<string>('admin');
+  
+  // PERSISTENT STATE - Web Sources
+  const [webUrl, setWebUrl] = useState<string>('');
+  const [wikipediaUrl, setWikipediaUrl] = useState<string>('');
+  const [youtubeUrl, setYoutubeUrl] = useState<string>('');
+  
+  // PERSISTENT STATE - Cloud Storage
+  const [s3AccessKey, setS3AccessKey] = useState<string>('');
+  const [s3SecretKey, setS3SecretKey] = useState<string>('');
+  const [gcsBucketName, setGcsBucketName] = useState<string>('');
+  const [gcsProjectId, setGcsProjectId] = useState<string>('');
+  const [gcsCredentials, setGcsCredentials] = useState<string>('');
+  const [azureBlobConnectionString, setAzureBlobConnectionString] = useState<string>('');
+  const [azureBlobContainer, setAzureBlobContainer] = useState<string>('');
+  const [azureBlobName, setAzureBlobName] = useState<string>('');
+  const [azureBlobAccountName, setAzureBlobAccountName] = useState<string>('');
+  const [azureBlobAccountKey, setAzureBlobAccountKey] = useState<string>('');
+  
+  // PERSISTENT STATE - Enterprise Sources
+  const [onedriveUserPrincipalName, setOnedriveUserPrincipalName] = useState<string>('');
+  const [onedriveClientId, setOnedriveClientId] = useState<string>('');
+  const [onedriveClientSecret, setOnedriveClientSecret] = useState<string>('');
+  const [onedriveTenantId, setOnedriveTenantId] = useState<string>('');
+  const [sharepointSiteName, setSharepointSiteName] = useState<string>('');  // Changed from sharepointSiteUrl
+  const [boxClientId, setBoxClientId] = useState<string>('');
+  const [boxClientSecret, setBoxClientSecret] = useState<string>('');
+  const [boxDeveloperToken, setBoxDeveloperToken] = useState<string>('');
+  const [googleDriveCredentials, setGoogleDriveCredentials] = useState<string>('');
+
+  // PERSISTENT STATE - New Data Source Configs
+  const [webConfig, setWebConfig] = useState<any>(null);
+  const [wikipediaConfig, setWikipediaConfig] = useState<any>(null);
+  const [youtubeConfig, setYoutubeConfig] = useState<any>(null);
+  const [cloudConfig, setCloudConfig] = useState<any>(null);
+  const [enterpriseConfig, setEnterpriseConfig] = useState<any>(null);
 
   // PERSISTENT STATE - Processing Tab (prevents loss of processing info)
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
@@ -180,6 +215,11 @@ const App: React.FC = () => {
     folderPath: string;
     cmisConfig?: any;
     alfrescoConfig?: any;
+    webConfig?: any;
+    wikipediaConfig?: any;
+    youtubeConfig?: any;
+    cloudConfig?: any;
+    enterpriseConfig?: any;
   }) => {
     setDataSource(data.dataSource); // Update the data source
     setHasConfiguredSources(true);
@@ -188,6 +228,12 @@ const App: React.FC = () => {
     setFolderPath(data.folderPath);
     setCmisConfig(data.cmisConfig);
     setAlfrescoConfig(data.alfrescoConfig);
+    // Store new configurations
+    setWebConfig(data.webConfig);
+    setWikipediaConfig(data.wikipediaConfig);
+    setYoutubeConfig(data.youtubeConfig);
+    setCloudConfig(data.cloudConfig);
+    setEnterpriseConfig(data.enterpriseConfig);
     setRepositoryItemsHidden(false); // Reset hidden flag when sources are reconfigured
     setError(''); // Clear any previous errors
     
@@ -388,6 +434,31 @@ const App: React.FC = () => {
                 alfrescoUrl={alfrescoUrl}
                 alfrescoUsername={alfrescoUsername}
                 alfrescoPassword={alfrescoPassword}
+                // Web sources
+                webUrl={webUrl}
+                wikipediaUrl={wikipediaUrl}
+                youtubeUrl={youtubeUrl}
+                // Cloud storage
+                s3AccessKey={s3AccessKey}
+                s3SecretKey={s3SecretKey}
+                gcsBucketName={gcsBucketName}
+                gcsProjectId={gcsProjectId}
+                gcsCredentials={gcsCredentials}
+                azureBlobConnectionString={azureBlobConnectionString}
+                azureBlobContainer={azureBlobContainer}
+                azureBlobName={azureBlobName}
+                azureBlobAccountName={azureBlobAccountName}
+                azureBlobAccountKey={azureBlobAccountKey}
+                // Enterprise
+                onedriveUserPrincipalName={onedriveUserPrincipalName}
+                onedriveClientId={onedriveClientId}
+                onedriveClientSecret={onedriveClientSecret}
+                onedriveTenantId={onedriveTenantId}
+                sharepointSiteName={sharepointSiteName}  // Changed from sharepointSiteUrl
+                boxClientId={boxClientId}
+                boxClientSecret={boxClientSecret}
+                boxDeveloperToken={boxDeveloperToken}
+                googleDriveCredentials={googleDriveCredentials}
                 onDataSourceChange={handleDataSourceChange}
                 onSelectedFilesChange={setSelectedFiles}
                 onFolderPathChange={setSourcesFolderPath}
@@ -397,6 +468,31 @@ const App: React.FC = () => {
                 onAlfrescoUrlChange={setAlfrescoUrl}
                 onAlfrescoUsernameChange={setAlfrescoUsername}
                 onAlfrescoPasswordChange={setAlfrescoPassword}
+                // Web sources handlers
+                onWebUrlChange={setWebUrl}
+                onWikipediaUrlChange={setWikipediaUrl}
+                onYoutubeUrlChange={setYoutubeUrl}
+                // Cloud storage handlers
+                onS3AccessKeyChange={setS3AccessKey}
+                onS3SecretKeyChange={setS3SecretKey}
+                onGcsBucketNameChange={setGcsBucketName}
+                onGcsProjectIdChange={setGcsProjectId}
+                onGcsCredentialsChange={setGcsCredentials}
+                onAzureBlobConnectionStringChange={setAzureBlobConnectionString}
+                onAzureBlobContainerChange={setAzureBlobContainer}
+                onAzureBlobNameChange={setAzureBlobName}
+                onAzureBlobAccountNameChange={setAzureBlobAccountName}
+                onAzureBlobAccountKeyChange={setAzureBlobAccountKey}
+                // Enterprise handlers
+                onOnedriveUserPrincipalNameChange={setOnedriveUserPrincipalName}
+                onOnedriveClientIdChange={setOnedriveClientId}
+                onOnedriveClientSecretChange={setOnedriveClientSecret}
+                onOnedriveTenantIdChange={setOnedriveTenantId}
+                onSharepointSiteNameChange={setSharepointSiteName}  // Changed from onSharepointSiteUrlChange
+                onBoxClientIdChange={setBoxClientId}
+                onBoxClientSecretChange={setBoxClientSecret}
+                onBoxDeveloperTokenChange={setBoxDeveloperToken}
+                onGoogleDriveCredentialsChange={setGoogleDriveCredentials}
                 onConfigureProcessing={handleConfigureProcessing}
                 onSourcesConfigured={handleSourcesConfigured}
               />
@@ -412,6 +508,11 @@ const App: React.FC = () => {
                 folderPath={folderPath}
                 cmisConfig={cmisConfig}
                 alfrescoConfig={alfrescoConfig}
+                webConfig={webConfig}
+                wikipediaConfig={wikipediaConfig}
+                youtubeConfig={youtubeConfig}
+                cloudConfig={cloudConfig}
+                enterpriseConfig={enterpriseConfig}
                 selectedFileIndices={selectedFileIndices}
                 repositoryItemsHidden={repositoryItemsHidden}
                 isProcessing={isProcessing}

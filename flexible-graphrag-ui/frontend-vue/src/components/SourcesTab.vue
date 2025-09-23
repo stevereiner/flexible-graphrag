@@ -8,144 +8,22 @@
       :items="dataSourceOptions"
       label="Data Source"
       variant="outlined"
-      class="mb-4"
+      class="mb-4 data-source-select"
+      :menu-props="{
+        maxHeight: 'none',
+        maxWidth: 400
+      }"
+      density="compact"
     ></v-select>
 
-    <!-- File Upload -->
-    <template v-if="dataSource === 'upload'">
-      <v-card
-        :class="[
-          'pa-6 mb-4 text-center cursor-pointer',
-          isDragOver ? 'drag-over' : 'drag-normal'
-        ]"
-        :style="dropZoneStyle"
-        @drop="handleFileDrop"
-        @dragover="handleDragOver"
-        @dragenter="handleDragEnter"
-        @dragleave="handleDragLeave"
-        @click="() => fileInputRef?.click()"
-      >
-        <h3 class="mb-2" :style="{ color: '#ffffff' }">
-          Drop files here or click to select
-        </h3>
-        <p :style="{ color: '#ffffff' }">
-          Supports: PDF, DOCX, XLSX, PPTX, TXT, MD, HTML, CSV, PNG, JPG
-        </p>
-        <input
-          ref="fileInputRef"
-          type="file"
-          multiple
-          accept=".pdf,.docx,.xlsx,.pptx,.txt,.md,.html,.csv,.png,.jpg,.jpeg"
-          @change="handleFileSelect"
-          style="display: none"
-        />
-      </v-card>
-
-      <!-- Selected Files Display -->
-      <div v-if="selectedFiles.length > 0" class="mb-4">
-        <h4 class="mb-2">Selected Files ({{ selectedFiles.length }}):</h4>
-        <v-card
-          v-for="(file, index) in selectedFiles"
-          :key="index"
-          class="pa-3 mb-2"
-          variant="outlined"
-        >
-          <div class="d-flex align-center justify-space-between">
-            <div>
-              <div class="font-weight-medium">{{ file.name }}</div>
-              <div class="text-caption text-medium-emphasis">{{ formatFileSize(file.size) }}</div>
-            </div>
-            <v-btn
-              color="error"
-              variant="text"
-              size="small"
-              @click="removeFile(index)"
-            >
-              Remove
-            </v-btn>
-          </div>
-        </v-card>
-      </div>
-
-      <!-- Upload Progress -->
-      <div v-if="isUploading" class="mb-4">
-        <p class="mb-2">Uploading files... {{ uploadProgress }}%</p>
-        <v-progress-linear
-          :model-value="uploadProgress"
-          color="primary"
-        ></v-progress-linear>
-      </div>
-    </template>
-
-    <!-- CMIS Fields -->
-    <template v-if="dataSource === 'cmis'">
-      <v-text-field
-        v-model="cmisUrl"
-        label="CMIS Repository URL"
-        variant="outlined"
-        class="mb-4"
-        :placeholder="cmisPlaceholder"
-      ></v-text-field>
-      <v-row class="mb-4">
-        <v-col cols="6">
-          <v-text-field
-            v-model="cmisUsername"
-            label="Username"
-            variant="outlined"
-          ></v-text-field>
-        </v-col>
-        <v-col cols="6">
-          <v-text-field
-            v-model="cmisPassword"
-            label="Password"
-            type="password"
-            variant="outlined"
-          ></v-text-field>
-        </v-col>
-      </v-row>
-      <v-text-field
-        v-model="folderPath"
-        label="Folder Path"
-        variant="outlined"
-        class="mb-4"
-        placeholder="e.g., /Sites/example/documentLibrary"
-      ></v-text-field>
-    </template>
-
-    <!-- Alfresco Fields -->
-    <template v-if="dataSource === 'alfresco'">
-      <v-text-field
-        v-model="alfrescoUrl"
-        label="Alfresco Base URL"
-        variant="outlined"
-        class="mb-4"
-        :placeholder="alfrescoPlaceholder"
-      ></v-text-field>
-      <v-row class="mb-4">
-        <v-col cols="6">
-          <v-text-field
-            v-model="alfrescoUsername"
-            label="Username"
-            variant="outlined"
-          ></v-text-field>
-        </v-col>
-        <v-col cols="6">
-          <v-text-field
-            v-model="alfrescoPassword"
-            label="Password"
-            type="password"
-            variant="outlined"
-          ></v-text-field>
-        </v-col>
-      </v-row>
-      <v-text-field
-        v-model="folderPath"
-        label="Path"
-        variant="outlined"
-        class="mb-4"
-        placeholder="e.g., /Sites/example/documentLibrary"
-      ></v-text-field>
-    </template>
+    <!-- Dynamic Source Forms -->
+    <component
+      :is="currentSourceComponent"
+      v-if="currentSourceComponent"
+      v-bind="currentSourceProps"
+      @configuration-change="handleConfigurationChange"
+      @validation-change="handleValidationChange"
+    />
 
     <!-- Configure Processing Button -->
     <div class="d-flex align-center mt-4">
@@ -164,26 +42,52 @@
 <script lang="ts">
 import { defineComponent, ref, computed, watch } from 'vue';
 import axios from 'axios';
+import {
+  FileUploadForm,
+  AlfrescoSourceForm,
+  CMISSourceForm,
+  WebSourceForm,
+  WikipediaSourceForm,
+  YouTubeSourceForm,
+  S3SourceForm,
+  GCSSourceForm,
+  AzureBlobSourceForm,
+  OneDriveSourceForm,
+  SharePointSourceForm,
+  BoxSourceForm,
+  GoogleDriveSourceForm,
+} from './sources';
 
 export default defineComponent({
   name: 'SourcesTab',
   emits: ['configure-processing', 'sources-configured'],
   setup(_, { emit }) {
-    // Data source options
+    // Data source options - matching React order exactly
     const dataSourceOptions = [
       { title: 'File Upload', value: 'upload' },
       { title: 'Alfresco Repository', value: 'alfresco' },
       { title: 'CMIS Repository', value: 'cmis' },
+      { title: '─── Web ───', value: '', disabled: true },
+      { title: 'Web Page', value: 'web' },
+      { title: 'Wikipedia', value: 'wikipedia' },
+      { title: 'YouTube', value: 'youtube' },
+      { title: '─── Cloud ───', value: '', disabled: true },
+      { title: 'Google Drive', value: 'google_drive' },
+      { title: 'Microsoft OneDrive', value: 'onedrive' },
+      { title: 'Amazon S3', value: 's3' },
+      { title: 'Azure Blob Storage', value: 'azure_blob' },
+      { title: 'Google Cloud Storage', value: 'gcs' },
+      { title: '─── Enterprise ───', value: '', disabled: true },
+      { title: 'Box', value: 'box' },
+      { title: 'SharePoint', value: 'sharepoint' },
     ];
 
     // State
     const dataSource = ref('upload');
     const folderPath = ref('/Shared/GraphRAG');
     const selectedFiles = ref<File[]>([]);
-    const isDragOver = ref(false);
-    const fileInputRef = ref<HTMLInputElement>();
-    const isUploading = ref(false);
-    const uploadProgress = ref(0);
+    const isFormValid = ref(false);
+    const currentConfig = ref<any>({});
 
     // CMIS state
     const cmisUrl = ref(`${import.meta.env.VITE_CMIS_BASE_URL || 'http://localhost:8080'}/alfresco/api/-default-/public/cmis/versions/1.1/atom`);
@@ -195,167 +99,252 @@ export default defineComponent({
     const alfrescoUsername = ref('admin');
     const alfrescoPassword = ref('admin');
 
+    // Web sources state
+    const webUrl = ref('');
+    const wikipediaUrl = ref('');
+    const youtubeUrl = ref('');
+
+    // Cloud storage state
+    const s3AccessKey = ref('');
+    const s3SecretKey = ref('');
+    const gcsBucketName = ref('');
+    const gcsProjectId = ref('');
+    const gcsCredentials = ref('');
+    const azureBlobConnectionString = ref('');
+    const azureBlobContainer = ref('');
+    const azureBlobName = ref('');
+    const azureBlobAccountName = ref('');
+    const azureBlobAccountKey = ref('');
+
+    // Enterprise state
+    const onedriveUserPrincipalName = ref('');
+    const onedriveClientId = ref('');
+    const onedriveClientSecret = ref('');
+    const onedriveTenantId = ref('');
+    const sharepointSiteName = ref('');
+    const sharepointClientId = ref('');
+    const sharepointClientSecret = ref('');
+    const sharepointTenantId = ref('');
+    const boxClientId = ref('');
+    const boxClientSecret = ref('');
+    const boxDeveloperToken = ref('');
+    const googleDriveCredentials = ref('');
+
     // Computed
-    const cmisPlaceholder = computed(() => {
-      const baseUrl = import.meta.env.VITE_CMIS_BASE_URL || 'http://localhost:8080';
-      return `e.g., ${baseUrl}/alfresco/api/-default-/public/cmis/versions/1.1/atom`;
+    const currentSourceComponent = computed(() => {
+      const componentMap: Record<string, any> = {
+        upload: FileUploadForm,
+        cmis: CMISSourceForm,
+        alfresco: AlfrescoSourceForm,
+        web: WebSourceForm,
+        wikipedia: WikipediaSourceForm,
+        youtube: YouTubeSourceForm,
+        s3: S3SourceForm,
+        gcs: GCSSourceForm,
+        azure_blob: AzureBlobSourceForm,
+        onedrive: OneDriveSourceForm,
+        sharepoint: SharePointSourceForm,
+        box: BoxSourceForm,
+        google_drive: GoogleDriveSourceForm,
+      };
+      return componentMap[dataSource.value] || null;
     });
 
-    const alfrescoPlaceholder = computed(() => {
-      const baseUrl = import.meta.env.VITE_ALFRESCO_BASE_URL || 'http://localhost:8080';
-      return `e.g., ${baseUrl}/alfresco`;
-    });
-
-    const dropZoneStyle = computed(() => ({
-      border: isDragOver.value ? '2px solid #ffffff' : '2px dashed #ffffff',
-      backgroundColor: isDragOver.value ? '#000000' : '#1976d2', // Black on hover, blue default like React
-      transition: 'all 0.2s ease-in-out',
-    }));
-
-    const isFormValid = computed(() => {
+    const currentSourceProps = computed(() => {
+      const baseProps = {};
+      
       switch (dataSource.value) {
         case 'upload':
-          return selectedFiles.value.length > 0;
+          return {
+            ...baseProps,
+            selectedFiles: selectedFiles.value,
+            'onUpdate:selectedFiles': (files: File[]) => { selectedFiles.value = files; }
+          };
         case 'cmis':
-          return folderPath.value.trim() !== '' && 
-                 cmisUrl.value.trim() !== '' && 
-                 cmisUsername.value.trim() !== '' && 
-                 cmisPassword.value.trim() !== '';
+          return {
+            ...baseProps,
+            url: cmisUrl.value,
+            username: cmisUsername.value,
+            password: cmisPassword.value,
+            folderPath: folderPath.value,
+            'onUpdate:url': (value: string) => { cmisUrl.value = value; },
+            'onUpdate:username': (value: string) => { cmisUsername.value = value; },
+            'onUpdate:password': (value: string) => { cmisPassword.value = value; },
+            'onUpdate:folderPath': (value: string) => { folderPath.value = value; }
+          };
         case 'alfresco':
-          return folderPath.value.trim() !== '' && 
-                 alfrescoUrl.value.trim() !== '' && 
-                 alfrescoUsername.value.trim() !== '' && 
-                 alfrescoPassword.value.trim() !== '';
+          return {
+            ...baseProps,
+            url: alfrescoUrl.value,
+            username: alfrescoUsername.value,
+            password: alfrescoPassword.value,
+            path: folderPath.value,
+            'onUpdate:url': (value: string) => { alfrescoUrl.value = value; },
+            'onUpdate:username': (value: string) => { alfrescoUsername.value = value; },
+            'onUpdate:password': (value: string) => { alfrescoPassword.value = value; },
+            'onUpdate:path': (value: string) => { folderPath.value = value; }
+          };
+        case 'web':
+          return {
+            ...baseProps,
+            url: webUrl.value,
+            'onUpdate:url': (value: string) => { webUrl.value = value; }
+          };
+        case 'wikipedia':
+          return {
+            ...baseProps,
+            url: wikipediaUrl.value,
+            'onUpdate:url': (value: string) => { wikipediaUrl.value = value; }
+          };
+        case 'youtube':
+          return {
+            ...baseProps,
+            url: youtubeUrl.value,
+            'onUpdate:url': (value: string) => { youtubeUrl.value = value; }
+          };
+        case 's3':
+          return {
+            ...baseProps,
+            accessKey: s3AccessKey.value,
+            secretKey: s3SecretKey.value,
+            'onUpdate:accessKey': (value: string) => { s3AccessKey.value = value; },
+            'onUpdate:secretKey': (value: string) => { s3SecretKey.value = value; }
+          };
+        case 'gcs':
+          return {
+            ...baseProps,
+            bucketName: gcsBucketName.value,
+            projectId: gcsProjectId.value,
+            credentials: gcsCredentials.value,
+            'onUpdate:bucketName': (value: string) => { gcsBucketName.value = value; },
+            'onUpdate:projectId': (value: string) => { gcsProjectId.value = value; },
+            'onUpdate:credentials': (value: string) => { gcsCredentials.value = value; }
+          };
+        case 'azure_blob':
+          return {
+            ...baseProps,
+            connectionString: azureBlobConnectionString.value,
+            containerName: azureBlobContainer.value,
+            blobName: azureBlobName.value,
+            accountName: azureBlobAccountName.value,
+            accountKey: azureBlobAccountKey.value,
+            'onUpdate:connectionString': (value: string) => { azureBlobConnectionString.value = value; },
+            'onUpdate:containerName': (value: string) => { azureBlobContainer.value = value; },
+            'onUpdate:blobName': (value: string) => { azureBlobName.value = value; },
+            'onUpdate:accountName': (value: string) => { azureBlobAccountName.value = value; },
+            'onUpdate:accountKey': (value: string) => { azureBlobAccountKey.value = value; }
+          };
+        case 'onedrive':
+          return {
+            ...baseProps,
+            userPrincipalName: onedriveUserPrincipalName.value,
+            clientId: onedriveClientId.value,
+            clientSecret: onedriveClientSecret.value,
+            tenantId: onedriveTenantId.value,
+            'onUpdate:userPrincipalName': (value: string) => { onedriveUserPrincipalName.value = value; },
+            'onUpdate:clientId': (value: string) => { onedriveClientId.value = value; },
+            'onUpdate:clientSecret': (value: string) => { onedriveClientSecret.value = value; },
+            'onUpdate:tenantId': (value: string) => { onedriveTenantId.value = value; }
+          };
+        case 'sharepoint':
+          return {
+            ...baseProps,
+            siteName: sharepointSiteName.value,
+            clientId: sharepointClientId.value,
+            clientSecret: sharepointClientSecret.value,
+            tenantId: sharepointTenantId.value,
+            'onUpdate:siteName': (value: string) => { sharepointSiteName.value = value; },
+            'onUpdate:clientId': (value: string) => { sharepointClientId.value = value; },
+            'onUpdate:clientSecret': (value: string) => { sharepointClientSecret.value = value; },
+            'onUpdate:tenantId': (value: string) => { sharepointTenantId.value = value; }
+          };
+        case 'box':
+          return {
+            ...baseProps,
+            clientId: boxClientId.value,
+            clientSecret: boxClientSecret.value,
+            developerToken: boxDeveloperToken.value,
+            'onUpdate:clientId': (value: string) => { boxClientId.value = value; },
+            'onUpdate:clientSecret': (value: string) => { boxClientSecret.value = value; },
+            'onUpdate:developerToken': (value: string) => { boxDeveloperToken.value = value; }
+          };
+        case 'google_drive':
+          return {
+            ...baseProps,
+            credentials: googleDriveCredentials.value,
+            'onUpdate:credentials': (value: string) => { googleDriveCredentials.value = value; }
+          };
         default:
-          return false;
+          return baseProps;
       }
     });
 
     // Methods
-    const formatFileSize = (bytes: number): string => {
-      if (bytes < 1024) {
-        return bytes === 0 ? "0 B" : "1 KB";
-      } else if (bytes < 1024 * 1024) {
-        return `${Math.ceil(bytes / 1024)} KB`;
-      } else {
-        return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
-      }
+    const handleConfigurationChange = (config: any) => {
+      currentConfig.value = config;
     };
 
-    const handleFileSelect = (event: Event) => {
-      const target = event.target as HTMLInputElement;
-      const files = target.files;
-      if (files) {
-        // Use requestAnimationFrame to defer processing and improve perceived performance
-        requestAnimationFrame(() => {
-          selectedFiles.value = Array.from(files);
-          // Clear the input value only after successful processing to allow re-selecting same files
-          target.value = '';
-        });
-      }
-    };
-
-    const handleFileDrop = (event: DragEvent) => {
-      event.preventDefault();
-      event.stopPropagation();
-      isDragOver.value = false;
-      
-      const files = event.dataTransfer?.files;
-      if (files) {
-        // Use requestAnimationFrame for consistency with file dialog
-        requestAnimationFrame(() => {
-          selectedFiles.value = Array.from(files);
-        });
-      }
-    };
-
-    const handleDragOver = (event: DragEvent) => {
-      event.preventDefault();
-      event.stopPropagation();
-      if (event.dataTransfer) {
-        event.dataTransfer.dropEffect = 'copy';
-      }
-    };
-
-    const handleDragEnter = (event: DragEvent) => {
-      event.preventDefault();
-      event.stopPropagation();
-      isDragOver.value = true;
-      if (event.dataTransfer) {
-        event.dataTransfer.dropEffect = 'copy';
-      }
-    };
-
-    const handleDragLeave = (event: DragEvent) => {
-      event.preventDefault();
-      event.stopPropagation();
-      
-      const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
-      const x = event.clientX;
-      const y = event.clientY;
-      
-      if (x < rect.left || x > rect.right || y < rect.top || y > rect.bottom) {
-        isDragOver.value = false;
-      }
-    };
-
-    const removeFile = (index: number) => {
-      selectedFiles.value = selectedFiles.value.filter((_, i) => i !== index);
+    const handleValidationChange = (valid: boolean) => {
+      isFormValid.value = valid;
     };
 
     const configureProcessing = () => {
-      emit('sources-configured', {
+      // Build configuration object based on data source
+      const sourceConfig: any = {
         dataSource: dataSource.value,
         files: selectedFiles.value,
         folderPath: folderPath.value,
-        cmisConfig: dataSource.value === 'cmis' ? {
-          url: cmisUrl.value,
-          username: cmisUsername.value,
-          password: cmisPassword.value,
-          folder_path: folderPath.value
-        } : undefined,
-        alfrescoConfig: dataSource.value === 'alfresco' ? {
-          url: alfrescoUrl.value,
-          username: alfrescoUsername.value,
-          password: alfrescoPassword.value,
-          path: folderPath.value
-        } : undefined,
-      });
+      };
+
+      // Add source-specific configurations
+      switch (dataSource.value) {
+        case 'cmis':
+          sourceConfig.cmisConfig = currentConfig.value;
+          break;
+        case 'alfresco':
+          sourceConfig.alfrescoConfig = currentConfig.value;
+          break;
+        case 'web':
+          sourceConfig.webConfig = currentConfig.value;
+          break;
+        case 'wikipedia':
+          sourceConfig.wikipediaConfig = currentConfig.value;
+          break;
+        case 'youtube':
+          sourceConfig.youtubeConfig = currentConfig.value;
+          break;
+        case 's3':
+        case 'gcs':
+        case 'azure_blob':
+          sourceConfig.cloudConfig = currentConfig.value;
+          break;
+        case 'onedrive':
+        case 'sharepoint':
+        case 'box':
+        case 'google_drive':
+          sourceConfig.enterpriseConfig = currentConfig.value;
+          break;
+      }
+
+      emit('sources-configured', sourceConfig);
       emit('configure-processing');
     };
 
-    // Clear selected files when data source changes
+    // Clear state when data source changes
     watch(dataSource, () => {
       selectedFiles.value = [];
-      // Note: Preserve form field values (URLs, credentials, etc.) so users don't have to retype
+      currentConfig.value = {};
+      isFormValid.value = false;
     });
 
     return {
       dataSourceOptions,
       dataSource,
-      folderPath,
-      selectedFiles,
-      isDragOver,
-      fileInputRef,
-      isUploading,
-      uploadProgress,
-      cmisUrl,
-      cmisUsername,
-      cmisPassword,
-      alfrescoUrl,
-      alfrescoUsername,
-      alfrescoPassword,
-      cmisPlaceholder,
-      alfrescoPlaceholder,
-      dropZoneStyle,
+      currentSourceComponent,
+      currentSourceProps,
       isFormValid,
-      formatFileSize,
-      handleFileSelect,
-      handleFileDrop,
-      handleDragOver,
-      handleDragEnter,
-      handleDragLeave,
-      removeFile,
+      handleConfigurationChange,
+      handleValidationChange,
       configureProcessing,
     };
   },
@@ -371,5 +360,71 @@ export default defineComponent({
 
 .drag-normal {
   background-color: #1976d2 !important;
+}
+
+/* Data source dropdown styling */
+.data-source-select {
+  max-width: 400px;
+}
+
+/* Ultra-specific Vuetify 3 selectors to force compact spacing */
+.data-source-select :deep(.v-overlay__content .v-list) {
+  padding: 2px 0 !important;
+}
+
+.data-source-select :deep(.v-overlay__content .v-list .v-list-item) {
+  min-height: 28px !important;
+  max-height: 28px !important;
+  height: 28px !important;
+  padding: 2px 16px !important;
+  margin: 0 !important;
+  font-size: 13px !important;
+  line-height: 24px !important;
+}
+
+.data-source-select :deep(.v-overlay__content .v-list .v-list-item .v-list-item__content) {
+  padding: 0 !important;
+  margin: 0 !important;
+  min-height: 28px !important;
+  height: 28px !important;
+}
+
+.data-source-select :deep(.v-overlay__content .v-list .v-list-item .v-list-item-title) {
+  font-size: 13px !important;
+  line-height: 24px !important;
+  padding: 0 !important;
+  margin: 0 !important;
+}
+
+/* Target the actual rendered elements with highest specificity */
+.data-source-select :deep(.v-overlay__content .v-list .v-list-item--disabled) {
+  min-height: 28px !important;
+  max-height: 28px !important;
+  height: 28px !important;
+  padding: 2px 16px !important;
+  margin: 0 !important;
+  opacity: 0.6 !important;
+  font-size: 13px !important;
+  line-height: 24px !important;
+}
+
+/* Force override any default Vuetify spacing */
+.data-source-select :deep(.v-overlay__content .v-list .v-list-item__overlay) {
+  display: none !important;
+}
+
+.data-source-select :deep(.v-overlay__content .v-list .v-list-item__underlay) {
+  display: none !important;
+}
+
+/* Global override for this specific dropdown menu */
+:global(.v-overlay .v-menu .v-list .v-list-item) {
+  min-height: 28px !important;
+  max-height: 28px !important;
+  height: 28px !important;
+  padding: 2px 16px !important;
+  margin: 0 !important;
+  font-size: 13px !important;
+  line-height: 24px !important;
 }
 </style>

@@ -1,15 +1,29 @@
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useCallback } from 'react';
 import {
   Box,
   Typography,
   Button,
-  TextField,
   FormControl,
   InputLabel,
   Select,
   MenuItem,
 } from '@mui/material';
 import { Theme } from '@mui/material/styles';
+import {
+  FileUploadForm,
+  AlfrescoSourceForm,
+  CMISSourceForm,
+  WebSourceForm,
+  WikipediaSourceForm,
+  YouTubeSourceForm,
+  S3SourceForm,
+  GCSSourceForm,
+  AzureBlobSourceForm,
+  OneDriveSourceForm,
+  SharePointSourceForm,
+  BoxSourceForm,
+  GoogleDriveSourceForm,
+} from './sources';
 
 interface SourcesTabProps {
   currentTheme: Theme;
@@ -22,6 +36,31 @@ interface SourcesTabProps {
   alfrescoUrl: string;
   alfrescoUsername: string;
   alfrescoPassword: string;
+  // Web sources
+  webUrl: string;
+  wikipediaUrl: string;
+  youtubeUrl: string;
+  // Cloud storage
+  s3AccessKey: string;
+  s3SecretKey: string;
+  gcsBucketName: string;
+  gcsProjectId: string;
+  gcsCredentials: string;
+  azureBlobConnectionString: string;
+  azureBlobContainer: string;
+  azureBlobName: string;
+  azureBlobAccountName: string;
+  azureBlobAccountKey: string;
+  // Enterprise
+  onedriveUserPrincipalName: string;
+  onedriveClientId: string;
+  onedriveClientSecret: string;
+  onedriveTenantId: string;
+  sharepointSiteName: string;  // Changed from sharepointSiteUrl to sharepointSiteName
+  boxClientId: string;
+  boxClientSecret: string;
+  boxDeveloperToken: string;
+  googleDriveCredentials: string;
   onDataSourceChange: (dataSource: string) => void;
   onSelectedFilesChange: (files: File[]) => void;
   onFolderPathChange: (folderPath: string) => void;
@@ -31,6 +70,31 @@ interface SourcesTabProps {
   onAlfrescoUrlChange: (url: string) => void;
   onAlfrescoUsernameChange: (username: string) => void;
   onAlfrescoPasswordChange: (password: string) => void;
+  // Web sources handlers
+  onWebUrlChange: (url: string) => void;
+  onWikipediaUrlChange: (url: string) => void;
+  onYoutubeUrlChange: (url: string) => void;
+  // Cloud storage handlers
+  onS3AccessKeyChange: (key: string) => void;
+  onS3SecretKeyChange: (key: string) => void;
+  onGcsBucketNameChange: (name: string) => void;
+  onGcsProjectIdChange: (id: string) => void;
+  onGcsCredentialsChange: (creds: string) => void;
+  onAzureBlobConnectionStringChange: (conn: string) => void;
+  onAzureBlobContainerChange: (container: string) => void;
+  onAzureBlobNameChange: (name: string) => void;
+  onAzureBlobAccountNameChange: (accountName: string) => void;
+  onAzureBlobAccountKeyChange: (accountKey: string) => void;
+  // Enterprise handlers
+  onOnedriveUserPrincipalNameChange: (name: string) => void;
+  onOnedriveClientIdChange: (id: string) => void;
+  onOnedriveClientSecretChange: (secret: string) => void;
+  onOnedriveTenantIdChange: (id: string) => void;
+  onSharepointSiteNameChange: (name: string) => void;  // Changed from onSharepointSiteUrlChange
+  onBoxClientIdChange: (id: string) => void;
+  onBoxClientSecretChange: (secret: string) => void;
+  onBoxDeveloperTokenChange: (token: string) => void;
+  onGoogleDriveCredentialsChange: (creds: string) => void;
   onConfigureProcessing: () => void;
   onSourcesConfigured: (data: {
     dataSource: string;
@@ -38,6 +102,9 @@ interface SourcesTabProps {
     folderPath: string;
     cmisConfig?: any;
     alfrescoConfig?: any;
+    webConfig?: any;
+    cloudConfig?: any;
+    enterpriseConfig?: any;
   }) => void;
 }
 
@@ -52,6 +119,31 @@ export const SourcesTab: React.FC<SourcesTabProps> = ({
   alfrescoUrl,
   alfrescoUsername,
   alfrescoPassword,
+  // Web sources
+  webUrl,
+  wikipediaUrl,
+  youtubeUrl,
+  // Cloud storage
+  s3AccessKey,
+  s3SecretKey,
+  gcsBucketName,
+  gcsProjectId,
+  gcsCredentials,
+  azureBlobConnectionString,
+  azureBlobContainer,
+  azureBlobName,
+  azureBlobAccountName,
+  azureBlobAccountKey,
+  // Enterprise
+  onedriveUserPrincipalName,
+  onedriveClientId,
+  onedriveClientSecret,
+  onedriveTenantId,
+  sharepointSiteName,  // Changed from sharepointSiteUrl
+  boxClientId,
+  boxClientSecret,
+  boxDeveloperToken,
+  googleDriveCredentials,
   onDataSourceChange,
   onSelectedFilesChange,
   onFolderPathChange,
@@ -61,135 +153,70 @@ export const SourcesTab: React.FC<SourcesTabProps> = ({
   onAlfrescoUrlChange,
   onAlfrescoUsernameChange,
   onAlfrescoPasswordChange,
+  // Web sources handlers
+  onWebUrlChange,
+  onWikipediaUrlChange,
+  onYoutubeUrlChange,
+  // Cloud storage handlers
+  onS3AccessKeyChange,
+  onS3SecretKeyChange,
+  onGcsBucketNameChange,
+  onGcsProjectIdChange,
+  onGcsCredentialsChange,
+  onAzureBlobConnectionStringChange,
+  onAzureBlobContainerChange,
+  onAzureBlobNameChange,
+  onAzureBlobAccountNameChange,
+  onAzureBlobAccountKeyChange,
+  // Enterprise handlers
+  onOnedriveUserPrincipalNameChange,
+  onOnedriveClientIdChange,
+  onOnedriveClientSecretChange,
+  onOnedriveTenantIdChange,
+  onSharepointSiteNameChange,  // Changed from onSharepointSiteUrlChange
+  onBoxClientIdChange,
+  onBoxClientSecretChange,
+  onBoxDeveloperTokenChange,
+  onGoogleDriveCredentialsChange,
   onConfigureProcessing, 
   onSourcesConfigured 
 }) => {
-  // Local state (only for UI-specific state that doesn't need persistence)
-  const [isDragOver, setIsDragOver] = useState<boolean>(false);
+  // Local state for form validation and configuration
+  const [isFormValid, setIsFormValid] = useState<boolean>(false);
+  const [currentConfig, setCurrentConfig] = useState<any>(null);
 
-  // Memoized placeholder values
-  const cmisPlaceholder = useMemo(() => {
-    const baseUrl = import.meta.env.VITE_CMIS_BASE_URL || 'http://localhost:8080';
-    return `e.g., ${baseUrl}/alfresco/api/-default-/public/cmis/versions/1.1/atom`;
+  // Handlers for modular components
+  const handleValidationChange = useCallback((isValid: boolean) => {
+    setIsFormValid(isValid);
   }, []);
 
-  const alfrescoPlaceholder = useMemo(() => {
-    const baseUrl = import.meta.env.VITE_ALFRESCO_BASE_URL || 'http://localhost:8080';
-    return `e.g., ${baseUrl}/alfresco`;
-  }, []);
+  const handleConfigurationChange = useCallback((config: any) => {
+    console.log('Configuration changed:', dataSource, config);
+    setCurrentConfig(config);
+  }, [dataSource]);
 
-  // Form validation
-  const isFormValid = useCallback((): boolean => {
-    switch (dataSource) {
-      case 'upload':
-        return selectedFiles.length > 0;
-      case 'cmis':
-        return folderPath.trim() !== '' && 
-               cmisUrl.trim() !== '' && 
-               cmisUsername.trim() !== '' && 
-               cmisPassword.trim() !== '';
-      case 'alfresco':
-        return folderPath.trim() !== '' && 
-               alfrescoUrl.trim() !== '' && 
-               alfrescoUsername.trim() !== '' && 
-               alfrescoPassword.trim() !== '';
-      default:
-        return false;
-    }
-  }, [dataSource, selectedFiles.length, folderPath, cmisUrl, cmisUsername, cmisPassword, alfrescoUrl, alfrescoUsername, alfrescoPassword]);
-
-  // File size formatting
-  const formatFileSize = (bytes: number): string => {
-    if (bytes < 1024) {
-      return bytes === 0 ? "0 B" : "1 KB";
-    } else if (bytes < 1024 * 1024) {
-      return `${Math.ceil(bytes / 1024)} KB`;
-    } else {
-      return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
-    }
-  };
-
-  // File handling
-  const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const files = event.target.files;
-    if (files) {
-      // Use requestAnimationFrame to defer processing and improve perceived performance
-      requestAnimationFrame(() => {
-        const fileArray = Array.from(files);
-        onSelectedFilesChange(fileArray);
-        // Clear the input value only after successful processing to allow re-selecting same files
-        event.target.value = '';
-      });
-    }
-  };
-
-  const handleFileDrop = (event: React.DragEvent<HTMLDivElement>) => {
-    event.preventDefault();
-    event.stopPropagation();
-    setIsDragOver(false);
-    
-    const files = event.dataTransfer.files;
-    if (files) {
-      // Use requestAnimationFrame for consistency with file dialog
-      requestAnimationFrame(() => {
-        const fileArray = Array.from(files);
-        onSelectedFilesChange(fileArray);
-      });
-    }
-  };
-
-  const handleDragOver = (event: React.DragEvent<HTMLDivElement>) => {
-    event.preventDefault();
-    event.stopPropagation();
-    
-    if (event.dataTransfer) {
-      event.dataTransfer.dropEffect = 'copy';
-    }
-  };
-
-  const handleDragEnter = (event: React.DragEvent<HTMLDivElement>) => {
-    event.preventDefault();
-    event.stopPropagation();
-    setIsDragOver(true);
-    
-    if (event.dataTransfer) {
-      event.dataTransfer.dropEffect = 'copy';
-    }
-  };
-
-  const handleDragLeave = (event: React.DragEvent<HTMLDivElement>) => {
-    event.preventDefault();
-    event.stopPropagation();
-    
-    const rect = event.currentTarget.getBoundingClientRect();
-    const x = event.clientX;
-    const y = event.clientY;
-    
-    if (x < rect.left || x > rect.right || y < rect.top || y > rect.bottom) {
-      setIsDragOver(false);
-    }
-  };
-
-  const removeFile = (index: number) => {
-    onSelectedFilesChange(selectedFiles.filter((_, i) => i !== index));
-  };
 
   const handleConfigureProcessing = () => {
+    // Build configuration data based on current source and config
+    console.log('Configure processing - dataSource:', dataSource, 'currentConfig:', currentConfig);
     const configData = {
       dataSource,
-      files: selectedFiles,
-      folderPath,
-      cmisConfig: dataSource === 'cmis' ? {
-        url: cmisUrl,
-        username: cmisUsername,
-        password: cmisPassword,
-        folder_path: folderPath
+      files: dataSource === 'upload' ? selectedFiles : [],
+      folderPath: ['cmis', 'alfresco'].includes(dataSource) ? folderPath : '',
+      // Legacy configs for backward compatibility
+      cmisConfig: dataSource === 'cmis' ? currentConfig : undefined,
+      alfrescoConfig: dataSource === 'alfresco' ? currentConfig : undefined,
+      // New modular configs  
+      webConfig: dataSource === 'web' ? currentConfig : undefined,
+      wikipediaConfig: dataSource === 'wikipedia' ? currentConfig : undefined,
+      youtubeConfig: dataSource === 'youtube' ? currentConfig : undefined,
+      cloudConfig: ['s3', 'gcs', 'azure_blob'].includes(dataSource) ? {
+        type: dataSource,
+        ...currentConfig
       } : undefined,
-      alfrescoConfig: dataSource === 'alfresco' ? {
-        url: alfrescoUrl,
-        username: alfrescoUsername,
-        password: alfrescoPassword,
-        path: folderPath
+      enterpriseConfig: ['onedrive', 'sharepoint', 'box', 'google_drive'].includes(dataSource) ? {
+        type: dataSource,
+        ...currentConfig
       } : undefined
     };
     
@@ -201,163 +228,187 @@ export const SourcesTab: React.FC<SourcesTabProps> = ({
     switch (dataSource) {
       case 'upload':
         return (
-          <Box sx={{ mb: 2 }}>
-            <Box
-              sx={{
-                border: isDragOver ? '2px solid #ffffff' : '2px dashed #ffffff',
-                borderRadius: 2,
-                p: 3,
-                textAlign: 'center',
-                cursor: 'pointer',
-                backgroundColor: isDragOver ? '#000000' : '#1976d2', // Black on hover, blue default like Vue
-                transition: 'all 0.2s ease-in-out',
-              }}
-              onDrop={handleFileDrop}
-              onDragOver={handleDragOver}
-              onDragEnter={handleDragEnter}
-              onDragLeave={handleDragLeave}
-              onClick={() => document.getElementById('file-input')?.click()}
-            >
-              <Typography variant="h6" gutterBottom sx={{ color: '#ffffff' }}>
-                Drop files here or click to select
-              </Typography>
-              <Typography variant="body2" sx={{ color: '#ffffff' }}>
-                Supports: PDF, DOCX, XLSX, PPTX, TXT, MD, HTML, CSV, PNG, JPG
-              </Typography>
-              <input
-                id="file-input"
-                type="file"
-                multiple
-                accept=".pdf,.docx,.xlsx,.pptx,.txt,.md,.html,.csv,.png,.jpg,.jpeg"
-                onChange={handleFileSelect}
-                aria-label="Select files to upload"
-                style={{ display: 'none' }}
-              />
-            </Box>
-            
-            {selectedFiles.length > 0 && (
-              <Box sx={{ mt: 2 }}>
-                <Typography variant="subtitle2" gutterBottom>
-                  Selected Files ({selectedFiles.length}):
-                </Typography>
-                {selectedFiles.map((file, index) => (
-                  <Box key={index} sx={{ 
-                    display: 'flex', 
-                    alignItems: 'center', 
-                    justifyContent: 'space-between',
-                    p: 1,
-                    border: `1px solid ${currentTheme.palette.divider}`,
-                    borderRadius: 1,
-                    mb: 1
-                  }}>
-                    <Box>
-                      <Typography variant="body2">{file.name}</Typography>
-                      <Typography variant="caption" color="text.secondary">
-                        {formatFileSize(file.size)}
-                      </Typography>
-                    </Box>
-                    <Button
-                      size="small"
-                      color="error"
-                      onClick={() => removeFile(index)}
-                    >
-                      Remove
-                    </Button>
-                  </Box>
-                ))}
-              </Box>
-            )}
-          </Box>
+          <FileUploadForm
+            currentTheme={currentTheme}
+            selectedFiles={selectedFiles}
+            onSelectedFilesChange={onSelectedFilesChange}
+            onConfigurationChange={handleConfigurationChange}
+            onValidationChange={handleValidationChange}
+          />
         );
       
       case 'cmis':
         return (
-          <>
-            <TextField
-              fullWidth
-              label="CMIS Repository URL"
-              variant="outlined"
-              value={cmisUrl}
-              onChange={(e) => onCmisUrlChange(e.target.value)}
-              size="small"
-              sx={{ mb: 2 }}
-              placeholder={cmisPlaceholder}
-            />
-            <Box sx={{ display: 'flex', gap: 2, mb: 2 }}>
-              <TextField
-                fullWidth
-                label="Username"
-                variant="outlined"
-                value={cmisUsername}
-                onChange={(e) => onCmisUsernameChange(e.target.value)}
-                size="small"
-              />
-              <TextField
-                fullWidth
-                label="Password"
-                type="password"
-                variant="outlined"
-                value={cmisPassword}
-                onChange={(e) => onCmisPasswordChange(e.target.value)}
-                size="small"
-              />
-            </Box>
-            <TextField
-              fullWidth
-              label="Folder Path"
-              variant="outlined"
-              value={folderPath}
-              onChange={(e) => onFolderPathChange(e.target.value)}
-              size="small"
-              sx={{ mb: 2 }}
-              placeholder="e.g., /Sites/example/documentLibrary"
-            />
-          </>
+          <CMISSourceForm
+            currentTheme={currentTheme}
+            url={cmisUrl}
+            username={cmisUsername}
+            password={cmisPassword}
+            folderPath={folderPath}
+            onUrlChange={onCmisUrlChange}
+            onUsernameChange={onCmisUsernameChange}
+            onPasswordChange={onCmisPasswordChange}
+            onFolderPathChange={onFolderPathChange}
+            onConfigurationChange={handleConfigurationChange}
+            onValidationChange={handleValidationChange}
+          />
         );
       
       case 'alfresco':
         return (
-          <>
-            <TextField
-              fullWidth
-              label="Alfresco Base URL"
-              variant="outlined"
-              value={alfrescoUrl}
-              onChange={(e) => onAlfrescoUrlChange(e.target.value)}
-              size="small"
-              sx={{ mb: 2 }}
-              placeholder={alfrescoPlaceholder}
-            />
-            <Box sx={{ display: 'flex', gap: 2, mb: 2 }}>
-              <TextField
-                fullWidth
-                label="Username"
-                variant="outlined"
-                value={alfrescoUsername}
-                onChange={(e) => onAlfrescoUsernameChange(e.target.value)}
-                size="small"
-              />
-              <TextField
-                fullWidth
-                label="Password"
-                type="password"
-                variant="outlined"
-                value={alfrescoPassword}
-                onChange={(e) => onAlfrescoPasswordChange(e.target.value)}
-                size="small"
-              />
-            </Box>
-            <TextField
-              fullWidth
-              label="Path"
-              variant="outlined"
-              value={folderPath}
-              onChange={(e) => onFolderPathChange(e.target.value)}
-              size="small"
-              sx={{ mb: 2 }}
-              placeholder="e.g., /Sites/example/documentLibrary"
-            />
-          </>
+          <AlfrescoSourceForm
+            currentTheme={currentTheme}
+            url={alfrescoUrl}
+            username={alfrescoUsername}
+            password={alfrescoPassword}
+            path={folderPath}
+            onUrlChange={onAlfrescoUrlChange}
+            onUsernameChange={onAlfrescoUsernameChange}
+            onPasswordChange={onAlfrescoPasswordChange}
+            onPathChange={onFolderPathChange}
+            onConfigurationChange={handleConfigurationChange}
+            onValidationChange={handleValidationChange}
+          />
+        );
+      
+      case 'web':
+        return (
+          <WebSourceForm
+            currentTheme={currentTheme}
+            url={webUrl}
+            onUrlChange={onWebUrlChange}
+            onConfigurationChange={handleConfigurationChange}
+            onValidationChange={handleValidationChange}
+          />
+        );
+      
+      case 'wikipedia':
+        return (
+          <WikipediaSourceForm
+            currentTheme={currentTheme}
+            url={wikipediaUrl}
+            onUrlChange={onWikipediaUrlChange}
+            onConfigurationChange={handleConfigurationChange}
+            onValidationChange={handleValidationChange}
+          />
+        );
+      
+      case 'youtube':
+        return (
+          <YouTubeSourceForm
+            currentTheme={currentTheme}
+            url={youtubeUrl}
+            onUrlChange={onYoutubeUrlChange}
+            onConfigurationChange={handleConfigurationChange}
+            onValidationChange={handleValidationChange}
+          />
+        );
+      
+      case 's3':
+        return (
+          <S3SourceForm
+            currentTheme={currentTheme}
+            accessKey={s3AccessKey}
+            secretKey={s3SecretKey}
+            onAccessKeyChange={onS3AccessKeyChange}
+            onSecretKeyChange={onS3SecretKeyChange}
+            onConfigurationChange={handleConfigurationChange}
+            onValidationChange={handleValidationChange}
+          />
+        );
+      
+      case 'gcs':
+        return (
+          <GCSSourceForm
+            currentTheme={currentTheme}
+            bucketName={gcsBucketName}
+            projectId={gcsProjectId}
+            credentials={gcsCredentials}
+            onBucketNameChange={onGcsBucketNameChange}
+            onProjectIdChange={onGcsProjectIdChange}
+            onCredentialsChange={onGcsCredentialsChange}
+            onConfigurationChange={handleConfigurationChange}
+            onValidationChange={handleValidationChange}
+          />
+        );
+      
+      case 'azure_blob':
+        return (
+          <AzureBlobSourceForm
+            currentTheme={currentTheme}
+            connectionString={azureBlobConnectionString}
+            containerName={azureBlobContainer}
+            blobName={azureBlobName}
+            accountName={azureBlobAccountName}
+            accountKey={azureBlobAccountKey}
+            onConnectionStringChange={onAzureBlobConnectionStringChange}
+            onContainerNameChange={onAzureBlobContainerChange}
+            onBlobNameChange={onAzureBlobNameChange}
+            onAccountNameChange={onAzureBlobAccountNameChange}
+            onAccountKeyChange={onAzureBlobAccountKeyChange}
+            onConfigurationChange={handleConfigurationChange}
+            onValidationChange={handleValidationChange}
+          />
+        );
+      
+      case 'onedrive':
+        return (
+          <OneDriveSourceForm
+            currentTheme={currentTheme}
+            userPrincipalName={onedriveUserPrincipalName}
+            clientId={onedriveClientId}
+            clientSecret={onedriveClientSecret}
+            tenantId={onedriveTenantId}
+            onUserPrincipalNameChange={onOnedriveUserPrincipalNameChange}
+            onClientIdChange={onOnedriveClientIdChange}
+            onClientSecretChange={onOnedriveClientSecretChange}
+            onTenantIdChange={onOnedriveTenantIdChange}
+            onConfigurationChange={handleConfigurationChange}
+            onValidationChange={handleValidationChange}
+          />
+        );
+      
+      case 'sharepoint':
+        return (
+          <SharePointSourceForm
+            currentTheme={currentTheme}
+            siteName={sharepointSiteName}  // Changed from siteUrl to siteName
+            clientId={onedriveClientId}
+            clientSecret={onedriveClientSecret}
+            tenantId={onedriveTenantId}
+            onSiteNameChange={onSharepointSiteNameChange}  // Changed from onSiteUrlChange
+            onClientIdChange={onOnedriveClientIdChange}
+            onClientSecretChange={onOnedriveClientSecretChange}
+            onTenantIdChange={onOnedriveTenantIdChange}
+            onConfigurationChange={handleConfigurationChange}
+            onValidationChange={handleValidationChange}
+          />
+        );
+      
+      case 'box':
+        return (
+          <BoxSourceForm
+            currentTheme={currentTheme}
+            clientId={boxClientId}
+            clientSecret={boxClientSecret}
+            developerToken={boxDeveloperToken}
+            onClientIdChange={onBoxClientIdChange}
+            onClientSecretChange={onBoxClientSecretChange}
+            onDeveloperTokenChange={onBoxDeveloperTokenChange}
+            onConfigurationChange={handleConfigurationChange}
+            onValidationChange={handleValidationChange}
+          />
+        );
+      
+      case 'google_drive':
+        return (
+          <GoogleDriveSourceForm
+            currentTheme={currentTheme}
+            credentials={googleDriveCredentials}
+            onCredentialsChange={onGoogleDriveCredentialsChange}
+            onConfigurationChange={handleConfigurationChange}
+            onValidationChange={handleValidationChange}
+          />
         );
       
       default:
@@ -371,7 +422,7 @@ export const SourcesTab: React.FC<SourcesTabProps> = ({
         Data Source Configuration
       </Typography>
       
-      <FormControl fullWidth sx={{ mb: 2 }}>
+      <FormControl sx={{ mb: 2, maxWidth: 400, width: '100%' }}>
         <InputLabel>Data Source</InputLabel>
         <Select
           value={dataSource}
@@ -382,6 +433,19 @@ export const SourcesTab: React.FC<SourcesTabProps> = ({
           <MenuItem value="upload">File Upload</MenuItem>
           <MenuItem value="alfresco">Alfresco Repository</MenuItem>
           <MenuItem value="cmis">CMIS Repository</MenuItem>
+          <MenuItem disabled>─── Web ───</MenuItem>
+          <MenuItem value="web">Web Page</MenuItem>
+          <MenuItem value="wikipedia">Wikipedia</MenuItem>
+          <MenuItem value="youtube">YouTube</MenuItem>
+          <MenuItem disabled>─── Cloud ───</MenuItem>
+          <MenuItem value="google_drive">Google Drive</MenuItem>
+          <MenuItem value="onedrive">Microsoft OneDrive</MenuItem>
+          <MenuItem value="s3">Amazon S3</MenuItem>
+          <MenuItem value="azure_blob">Azure Blob Storage</MenuItem>
+          <MenuItem value="gcs">Google Cloud Storage</MenuItem>
+          <MenuItem disabled>─── Enterprise ───</MenuItem>
+          <MenuItem value="box">Box</MenuItem>
+          <MenuItem value="sharepoint">SharePoint</MenuItem>
         </Select>
       </FormControl>
       
@@ -391,7 +455,7 @@ export const SourcesTab: React.FC<SourcesTabProps> = ({
         <Button
           variant="contained"
           onClick={handleConfigureProcessing}
-          disabled={!isFormValid()}
+          disabled={!isFormValid}
           sx={{ minWidth: 200 }}
         >
           Configure Processing →

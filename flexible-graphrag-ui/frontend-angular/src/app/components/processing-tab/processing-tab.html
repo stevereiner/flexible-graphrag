@@ -151,9 +151,15 @@
   <!-- Success/Error Messages -->
   <div *ngIf="successMessage" class="message success-message">
     {{ successMessage }}
+    <button mat-icon-button class="close-button" (click)="successMessage = ''" aria-label="Close">
+      <mat-icon>close</mat-icon>
+    </button>
   </div>
   
   <div *ngIf="error" class="message error-message">
     {{ error }}
+    <button mat-icon-button class="close-button" (click)="error = ''" aria-label="Close">
+      <mat-icon>close</mat-icon>
+    </button>
   </div>
 </div>
