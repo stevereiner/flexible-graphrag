@@ -91,6 +91,54 @@ def test_falkordb_factory():
         # Connection or import errors are expected without running FalkorDB instance
         pass
 
+def test_modular_data_sources():
+    """Test that modular data sources can be imported and created"""
+    from ingest.factory import DataSourceFactory
+    from sources.base import BaseDataSource
+    from sources.cmis import CmisSource
+    from sources.alfresco import AlfrescoSource
+    
+    # Test factory exists and has the expected sources
+    factory = DataSourceFactory()
+    supported_types = factory.get_supported_types()
+    
+    assert "cmis" in supported_types
+    assert "alfresco" in supported_types
+    assert "filesystem" in supported_types
+    
+    # Test that CMIS and Alfresco sources inherit from BaseDataSource
+    assert issubclass(CmisSource, BaseDataSource)
+    assert issubclass(AlfrescoSource, BaseDataSource)
+    
+    # Test that both sources have the required methods
+    assert hasattr(CmisSource, 'get_documents')
+    assert hasattr(CmisSource, 'get_documents_with_progress')
+    assert hasattr(CmisSource, 'validate_config')
+    
+    assert hasattr(AlfrescoSource, 'get_documents')
+    assert hasattr(AlfrescoSource, 'get_documents_with_progress')
+    assert hasattr(AlfrescoSource, 'validate_config')
+
+def test_old_sources_still_exist():
+    """Test that old data sources in sources.py still exist for backward compatibility"""
+    # Import from the legacy sources.py file
+    import importlib.util
+    import os
+    sources_file = os.path.join(os.path.dirname(__file__), '..', 'flexible-graphrag', 'sources.py')
+    spec = importlib.util.spec_from_file_location("legacy_sources", sources_file)
+    legacy_sources = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(legacy_sources)
+    
+    # Test that old sources still exist (for backward compatibility)
+    FileSystemSource = legacy_sources.FileSystemSource
+    CmisSource = legacy_sources.CmisSource
+    AlfrescoSource = legacy_sources.AlfrescoSource
+    
+    # Test basic methods exist
+    assert hasattr(FileSystemSource, 'list_files')
+    assert hasattr(CmisSource, 'list_files')
+    assert hasattr(AlfrescoSource, 'list_files')
+
 if __name__ == "__main__":
     # Run basic tests
     test_imports()
@@ -98,4 +146,6 @@ if __name__ == "__main__":
     test_search_db_types()
     test_persistence_config()
     test_falkordb_factory()
+    test_modular_data_sources()
+    test_old_sources_still_exist()
     print("All basic tests passed!") 
