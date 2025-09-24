@@ -13,6 +13,25 @@ export interface IngestRequest {
     password: string;
     path: string;
   };
+  web_config?: {
+    url: string;
+  };
+  wikipedia_config?: {
+    query: string;
+    language?: string;
+    max_docs?: number;
+  };
+  youtube_config?: {
+    url: string;
+    chunk_size_seconds?: number;
+  };
+  s3_config?: any;
+  gcs_config?: any;
+  azure_blob_config?: any;
+  onedrive_config?: any;
+  sharepoint_config?: any;
+  box_config?: any;
+  google_drive_config?: any;
 }
 
 export interface QueryRequest {
@@ -81,5 +100,5 @@ export interface ChatMessage {
 export interface FileDisplayInfo {
   name: string;
   size: number;
-  type: 'file' | 'path' | 'repository' | 'repository-file';
+  type: 'file' | 'path' | 'repository' | 'repository-file' | 'web-source' | 'wikipedia-source' | 'youtube-source' | 'cloud-source';
 }

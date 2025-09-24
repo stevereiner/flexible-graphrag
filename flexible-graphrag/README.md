@@ -4,7 +4,7 @@ A configurable hybrid search system that combines full-text search, vector searc
 
 ## 🚀 Features
 
-- **Multiple Data Sources**: File system, CMIS, and Alfresco repositories
+- **Multiple Data Sources**: File system, CMIS, Alfresco, web pages, Wikipedia, YouTube, Amazon S3, Google Cloud Storage, Azure Blob Storage, OneDrive, SharePoint, Box, and Google Drive
 - **Hybrid Search**: Vector similarity, BM25 full-text, and graph traversal
 - **Configurable Backends**: Neo4j, Qdrant, Elasticsearch, OpenSearch support
 - **Multiple LLM Providers**: OpenAI, Ollama, Gemini, Azure OpenAI, Anthropic
@@ -183,6 +183,146 @@ curl -X POST "http://localhost:8000/api/ingest" \
       "username": "admin", 
       "password": "admin",
       "path": "/Sites/example/documentLibrary"
+    }
+  }'
+```
+
+#### Web Pages
+```bash
+curl -X POST "http://localhost:8000/api/ingest" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "data_source": "web",
+    "web_config": {
+      "url": "https://example.com/article"
+    }
+  }'
+```
+
+#### Wikipedia Articles
+```bash
+curl -X POST "http://localhost:8000/api/ingest" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "data_source": "wikipedia",
+    "wikipedia_config": {
+      "query": "Artificial Intelligence",
+      "language": "en",
+      "max_docs": 1
+    }
+  }'
+```
+
+#### YouTube Videos
+```bash
+curl -X POST "http://localhost:8000/api/ingest" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "data_source": "youtube",
+    "youtube_config": {
+      "url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+      "chunk_size_seconds": 60
+    }
+  }'
+```
+
+#### Amazon S3
+```bash
+curl -X POST "http://localhost:8000/api/ingest" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "data_source": "s3",
+    "s3_config": {
+      "bucket": "my-bucket",
+      "key": "documents/",
+      "aws_access_key_id": "AKIAIOSFODNN7EXAMPLE",
+      "aws_secret_access_key": "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+      "region_name": "us-east-1"
+    }
+  }'
+```
+
+#### Google Cloud Storage
+```bash
+curl -X POST "http://localhost:8000/api/ingest" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "data_source": "gcs",
+    "gcs_config": {
+      "bucket": "my-documents-bucket",
+      "key": "documents/",
+      "project_id": "my-project"
+    }
+  }'
+```
+
+#### Azure Blob Storage
+```bash
+curl -X POST "http://localhost:8000/api/ingest" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "data_source": "azure_blob",
+    "azure_blob_config": {
+      "container_name": "documents",
+      "account_name": "mystorageaccount",
+      "account_key": "your-account-key"
+    }
+  }'
+```
+
+#### Microsoft OneDrive
+```bash
+curl -X POST "http://localhost:8000/api/ingest" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "data_source": "onedrive",
+    "onedrive_config": {
+      "client_id": "your-client-id",
+      "client_secret": "your-client-secret",
+      "tenant_id": "your-tenant-id",
+      "folder_path": "/Documents"
+    }
+  }'
+```
+
+#### Microsoft SharePoint
+```bash
+curl -X POST "http://localhost:8000/api/ingest" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "data_source": "sharepoint",
+    "sharepoint_config": {
+      "client_id": "your-client-id",
+      "client_secret": "your-client-secret",
+      "tenant_id": "your-tenant-id",
+      "sharepoint_site_name": "your-site-name",
+      "sharepoint_folder_path": "/Shared Documents"
+    }
+  }'
+```
+
+#### Box
+```bash
+curl -X POST "http://localhost:8000/api/ingest" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "data_source": "box",
+    "box_config": {
+      "access_token": "your-access-token",
+      "box_folder_id": "0"
+    }
+  }'
+```
+
+#### Google Drive
+```bash
+curl -X POST "http://localhost:8000/api/ingest" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "data_source": "google_drive",
+    "google_drive_config": {
+      "folder_id": "1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms",
+      "credentials_path": "path/to/credentials.json"
     }
   }'
 ```

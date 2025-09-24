@@ -49,9 +49,14 @@ formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
 file_handler.setFormatter(formatter)
 console_handler.setFormatter(formatter)
 
-# Configure root logger
+# Configure root logger (prevent duplicate handlers)
 root_logger = logging.getLogger()
 root_logger.setLevel(logging.INFO)
+
+# Clear any existing handlers to prevent duplicates
+root_logger.handlers.clear()
+
+# Add our handlers
 root_logger.addHandler(file_handler)
 root_logger.addHandler(console_handler)
 
@@ -91,11 +96,93 @@ class AlfrescoConfig(BaseModel):
     password: str
     path: str
 
+class WebConfig(BaseModel):
+    url: str
+
+class WikipediaConfig(BaseModel):
+    query: str
+    language: Optional[str] = "en"
+    max_docs: Optional[int] = 1
+
+class YouTubeConfig(BaseModel):
+    url: str
+    chunk_size_seconds: Optional[int] = 60
+
+class S3Config(BaseModel):
+    bucket_name: str  # Modern approach - required bucket name
+    prefix: Optional[str] = None
+    access_key: str
+    secret_key: str
+    aws_access_key_id: Optional[str] = None
+    aws_secret_access_key: Optional[str] = None
+    aws_session_token: Optional[str] = None
+    region_name: Optional[str] = "us-east-1"
+
+class GCSConfig(BaseModel):
+    bucket_name: str
+    project_id: str
+    credentials: str
+    prefix: Optional[str] = None
+    folder_name: Optional[str] = None
+
+class AzureBlobConfig(BaseModel):
+    container_name: str
+    account_url: str
+    blob: Optional[str] = None  # renamed from blob_name to match LlamaCloud
+    prefix: Optional[str] = None
+    account_name: str
+    account_key: str
+
+class OneDriveConfig(BaseModel):
+    user_principal_name: str  # Required field from LlamaCloud
+    client_id: str
+    client_secret: str
+    tenant_id: str
+    folder_path: Optional[str] = None
+    folder_id: Optional[str] = None
+    file_ids: Optional[List[str]] = []
+
+class SharePointConfig(BaseModel):
+    client_id: str
+    client_secret: str
+    tenant_id: str
+    site_name: str  # Changed from site_url to site_name (LlamaCloud compatible)
+    site_id: Optional[str] = None  # Optional: for Sites.Selected permission
+    folder_path: Optional[str] = None
+    folder_id: Optional[str] = None  # Changed from document_library to folder_id
+
+class BoxConfig(BaseModel):
+    folder_id: Optional[str] = None
+    client_id: Optional[str] = None
+    client_secret: Optional[str] = None
+    developer_token: Optional[str] = None
+    box_folder_id: Optional[str] = "0"
+    box_file_ids: Optional[List[str]] = []
+    access_token: Optional[str] = None
+
+class GoogleDriveConfig(BaseModel):
+    folder_id: Optional[str] = None
+    file_ids: Optional[List[str]] = []
+    query: Optional[str] = ""
+    credentials: Optional[str] = None
+    credentials_path: Optional[str] = None
+    token_path: Optional[str] = None
+
 class IngestRequest(BaseModel):
     paths: Optional[List[str]] = None  # overrides config
-    data_source: Optional[str] = None  # filesystem, cmis, alfresco
+    data_source: Optional[str] = None  # filesystem, cmis, alfresco, web, wikipedia, youtube, s3, gcs, azure_blob, onedrive, sharepoint, box, google_drive
     cmis_config: Optional[CmisConfig] = None
     alfresco_config: Optional[AlfrescoConfig] = None
+    web_config: Optional[WebConfig] = None
+    wikipedia_config: Optional[WikipediaConfig] = None
+    youtube_config: Optional[YouTubeConfig] = None
+    s3_config: Optional[S3Config] = None
+    gcs_config: Optional[GCSConfig] = None
+    azure_blob_config: Optional[AzureBlobConfig] = None
+    onedrive_config: Optional[OneDriveConfig] = None
+    sharepoint_config: Optional[SharePointConfig] = None
+    box_config: Optional[BoxConfig] = None
+    google_drive_config: Optional[GoogleDriveConfig] = None
 
 class QueryRequest(BaseModel):
     query: str
@@ -141,6 +228,26 @@ async def ingest(request: IngestRequest):
             kwargs['cmis_config'] = request.cmis_config.dict()
         if request.alfresco_config:
             kwargs['alfresco_config'] = request.alfresco_config.dict()
+        if request.web_config:
+            kwargs['web_config'] = request.web_config.dict()
+        if request.wikipedia_config:
+            kwargs['wikipedia_config'] = request.wikipedia_config.dict()
+        if request.youtube_config:
+            kwargs['youtube_config'] = request.youtube_config.dict()
+        if request.s3_config:
+            kwargs['s3_config'] = request.s3_config.dict()
+        if request.gcs_config:
+            kwargs['gcs_config'] = request.gcs_config.dict()
+        if request.azure_blob_config:
+            kwargs['azure_blob_config'] = request.azure_blob_config.dict()
+        if request.onedrive_config:
+            kwargs['onedrive_config'] = request.onedrive_config.dict()
+        if request.sharepoint_config:
+            kwargs['sharepoint_config'] = request.sharepoint_config.dict()
+        if request.box_config:
+            kwargs['box_config'] = request.box_config.dict()
+        if request.google_drive_config:
+            kwargs['google_drive_config'] = request.google_drive_config.dict()
         
         result = await backend_instance.ingest_documents(data_source=data_source, paths=paths, **kwargs)
         
@@ -597,4 +704,12 @@ async def root():
     }
 
 if __name__ == "__main__":
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
+    # Disable uvicorn's default logging to prevent duplicate messages
+    uvicorn.run(
+        "main:app", 
+        host="0.0.0.0", 
+        port=8000, 
+        reload=True,
+        log_config=None,  # Disable uvicorn's default logging config
+        access_log=False  # Disable access logging to reduce noise
+    )

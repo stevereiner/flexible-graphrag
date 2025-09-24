@@ -300,6 +300,26 @@ export default defineComponent({
       type: Object,
       default: null,
     },
+    configuredWebConfig: {
+      type: Object,
+      default: null,
+    },
+    configuredWikipediaConfig: {
+      type: Object,
+      default: null,
+    },
+    configuredYoutubeConfig: {
+      type: Object,
+      default: null,
+    },
+    configuredCloudConfig: {
+      type: Object,
+      default: null,
+    },
+    configuredEnterpriseConfig: {
+      type: Object,
+      default: null,
+    },
     configurationTimestamp: {
       type: Number,
       default: 0,
@@ -390,6 +410,44 @@ export default defineComponent({
         };
         console.log('Creating repository file object:', repositoryFile);
         return [repositoryFile];
+      } else if (['web', 'wikipedia', 'youtube', 's3', 'gcs', 'azure_blob', 'onedrive', 'sharepoint', 'box', 'google_drive'].includes(props.configuredDataSource)) {
+        // Handle web sources and cloud sources - create a single display item
+        // Use the actual configuration values that the backend uses for progress tracking
+        const getDisplayName = () => {
+          switch (props.configuredDataSource) {
+            case 'web': 
+              return props.configuredWebConfig?.url || 'Web Page';
+            case 'wikipedia': 
+              return props.configuredWikipediaConfig?.query || props.configuredWikipediaConfig?.url || 'Wikipedia Article';
+            case 'youtube': 
+              return props.configuredYoutubeConfig?.url || 'YouTube Video';
+            case 's3': 
+              return `S3: ${props.configuredCloudConfig?.bucket_name || 'bucket'}`;
+            case 'gcs': 
+              return `GCS: ${props.configuredCloudConfig?.bucket_name || 'bucket'}`;
+            case 'azure_blob': 
+              return `Azure: ${props.configuredCloudConfig?.container_name || 'container'}`;
+            case 'onedrive': 
+              return `OneDrive: ${props.configuredEnterpriseConfig?.user_principal_name || 'user'}`;
+            case 'sharepoint': 
+              return `SharePoint: ${props.configuredEnterpriseConfig?.site_name || 'site'}`;
+            case 'box': 
+              return 'Box Storage';
+            case 'google_drive': 
+              return 'Google Drive';
+            default: 
+              return 'Data Source';
+          }
+        };
+        
+        const displayName = getDisplayName();
+        return [{
+          index: 0,
+          name: displayName,
+          originalFilename: displayName, // Use same name for progress matching
+          size: 0,
+          type: 'source',
+        }];
       }
       return [];
     });
@@ -417,12 +475,38 @@ export default defineComponent({
     };
 
     const getFileProgressData = (filename: string) => {
+      // For repository path placeholder, use overall progress
+      const folderName = props.configuredFolderPath.split(/[/\\]/).pop() || props.configuredFolderPath;
+      if (filename === folderName || filename === props.configuredFolderPath || filename === 'Repository Path') {
+        return {
+          status: isProcessing.value ? 'processing' : (processingProgress.value === 100 ? 'completed' : 'ready'),
+          progress: processingProgress.value,
+          phase: isProcessing.value ? 'processing' : (processingProgress.value === 100 ? 'completed' : 'ready')
+        };
+      }
+
+      // For web sources (web, wikipedia, youtube, cloud, enterprise), use overall progress when no individual files
+      if (['web', 'wikipedia', 'youtube', 's3', 'gcs', 'azure_blob', 'onedrive', 'sharepoint', 'box', 'google_drive'].includes(props.configuredDataSource)) {
+        const files = statusData.value?.individual_files || lastStatusData.value?.individual_files || [];
+        
+        // If no individual files yet, use overall progress for web sources
+        if (files.length === 0) {
+          return {
+            status: isProcessing.value ? 'processing' : (processingProgress.value === 100 ? 'completed' : 'ready'),
+            progress: processingProgress.value,
+            phase: isProcessing.value ? 'processing' : (processingProgress.value === 100 ? 'completed' : 'ready')
+          };
+        }
+      }
+
       const files = statusData.value?.individual_files || lastStatusData.value?.individual_files || [];
       
       // Debug: Log during processing to see what files we have
       if (isProcessing.value) {
         console.log('🔍 Looking for progress data for:', filename);
         console.log('📁 Available files count:', files.length);
+        console.log('📁 Data source:', props.configuredDataSource);
+        console.log('📁 Display files:', displayFiles.value.map(f => ({ name: f.name, originalFilename: f.originalFilename })));
         if (files.length > 0) {
           console.log('📁 Available files:', files.map(f => ({ name: f.filename, progress: f.progress, status: f.status })));
         } else {
@@ -463,31 +547,18 @@ export default defineComponent({
     };
 
     const getFileProgress = (filename: string): number => {
-      // For repository path placeholder, use overall progress
-      if (filename === 'Repository Path' || filename?.includes('Repository')) {
-        return isProcessing.value ? processingProgress.value : 0;
-      }
-      // Try to get individual file data first, fall back to overall progress for repository files
+      // Use the enhanced getFileProgressData function which handles all source types
       const progressData = getFileProgressData(filename);
       if (progressData) {
         return progressData.progress || 0;
       }
-      // Fallback to overall progress for repository files when no individual data
-      if (props.configuredDataSource === 'cmis' || props.configuredDataSource === 'alfresco') {
-        return processingProgress.value; // Always show progress, even when completed
-      }
+      
+      // Fallback for any unhandled cases
       return 0;
     };
 
     const getFilePhase = (filename: string): string => {
-      // For repository path placeholder, use overall status
-      if (filename === 'Repository Path' || filename?.includes('Repository')) {
-        if (isProcessing.value) return 'Processing';
-        if (processingProgress.value === 100) return 'Completed';
-        return 'Ready';
-      }
-      
-      // Try to get individual file data first
+      // Use the enhanced getFileProgressData function which handles all source types
       const progressData = getFileProgressData(filename);
       if (progressData) {
         const phase = progressData.phase || 'ready';
@@ -498,43 +569,25 @@ export default defineComponent({
           'chunking': 'Chunking',
           'kg_extraction': 'Extracting Graph',
           'indexing': 'Indexing',
+          'processing': 'Processing',
           'completed': 'Completed',
           'error': 'Error'
         };
         return phaseNames[phase] || phase;
       }
       
-      // Fallback to overall status for repository files when no individual data
-      if (props.configuredDataSource === 'cmis' || props.configuredDataSource === 'alfresco') {
-        if (processingProgress.value === 100) return 'Completed';
-        if (isProcessing.value) return 'Processing';
-        return 'Ready';
-      }
-      
+      // Fallback for any unhandled cases
       return 'Ready';
     };
 
     const getFileStatus = (filename: string): string => {
-      // For repository path placeholder, use overall status
-      if (filename === 'Repository Path' || filename?.includes('Repository')) {
-        if (isProcessing.value) return 'processing';
-        if (processingProgress.value === 100) return 'completed';
-        return 'ready';
-      }
-      
-      // Try to get individual file data first
+      // Use the enhanced getFileProgressData function which handles all source types
       const progressData = getFileProgressData(filename);
       if (progressData) {
         return progressData.status || 'ready';
       }
       
-      // Fallback to overall status for repository files when no individual data
-      if (props.configuredDataSource === 'cmis' || props.configuredDataSource === 'alfresco') {
-        if (processingProgress.value === 100) return 'completed';
-        if (isProcessing.value) return 'processing';
-        return 'ready';
-      }
-      
+      // Fallback for any unhandled cases
       return 'ready';
     };
 
@@ -751,6 +804,32 @@ export default defineComponent({
             password: 'admin',
             path: props.configuredFolderPath || '/Shared/GraphRAG'
           };
+        } else if (props.configuredDataSource === 'web') {
+          request.web_config = props.configuredWebConfig;
+        } else if (props.configuredDataSource === 'wikipedia') {
+          request.wikipedia_config = props.configuredWikipediaConfig;
+        } else if (props.configuredDataSource === 'youtube') {
+          request.youtube_config = props.configuredYoutubeConfig;
+        } else if (['s3', 'gcs', 'azure_blob'].includes(props.configuredDataSource)) {
+          // Cloud storage sources - send specific config names like React
+          if (props.configuredDataSource === 's3') {
+            request.s3_config = props.configuredCloudConfig;
+          } else if (props.configuredDataSource === 'gcs') {
+            request.gcs_config = props.configuredCloudConfig;
+          } else if (props.configuredDataSource === 'azure_blob') {
+            request.azure_blob_config = props.configuredCloudConfig;
+          }
+        } else if (['onedrive', 'sharepoint', 'box', 'google_drive'].includes(props.configuredDataSource)) {
+          // Enterprise sources - send specific config names like React
+          if (props.configuredDataSource === 'onedrive') {
+            request.onedrive_config = props.configuredEnterpriseConfig;
+          } else if (props.configuredDataSource === 'sharepoint') {
+            request.sharepoint_config = props.configuredEnterpriseConfig;
+          } else if (props.configuredDataSource === 'box') {
+            request.box_config = props.configuredEnterpriseConfig;
+          } else if (props.configuredDataSource === 'google_drive') {
+            request.google_drive_config = props.configuredEnterpriseConfig;
+          }
         }
 
         const response = await axios.post('/api/ingest', request);
@@ -839,6 +918,10 @@ export default defineComponent({
     // Auto-select all files when configured files change or when repository files are discovered
     watch(() => props.configuredFiles, () => {
       if (props.configuredDataSource === 'upload') {
+        // Clear old processing messages when reconfiguring upload files
+        successMessage.value = '';
+        error.value = '';
+        
         selectedItems.value = props.configuredFiles.map((_, index) => index);
       }
     }, { immediate: true });
@@ -847,6 +930,10 @@ export default defineComponent({
     watch(() => props.configurationTimestamp, (newTimestamp, oldTimestamp) => {
       if (newTimestamp > 0 && newTimestamp !== oldTimestamp && 
           (props.configuredDataSource === 'cmis' || props.configuredDataSource === 'alfresco')) {
+        // Clear old processing messages when reconfiguring
+        successMessage.value = '';
+        error.value = '';
+        
         // Reset hidden flag and increment reconfigured counter when repository sources are reconfigured
         repositoryItemsHidden.value = false;
         sourcesReconfiguredFlag.value++;
@@ -867,12 +954,39 @@ export default defineComponent({
       }
     });
 
-    // Auto-select repository files when they are discovered from processing status
+    // Watch for web source configuration changes based on timestamp
+    watch(() => props.configurationTimestamp, (newTimestamp, oldTimestamp) => {
+      if (newTimestamp > 0 && newTimestamp !== oldTimestamp && 
+          ['web', 'wikipedia', 'youtube', 's3', 'gcs', 'azure_blob', 'onedrive', 'sharepoint', 'box', 'google_drive'].includes(props.configuredDataSource)) {
+        // Clear old processing messages when reconfiguring
+        successMessage.value = '';
+        error.value = '';
+        
+        // Auto-select web source items after configuration
+        setTimeout(() => {
+          const currentFiles = displayFiles.value;
+          selectedItems.value = currentFiles.map((_, index) => index);
+          console.log('Auto-selected web source items after configuration:', selectedItems.value, 'for', currentFiles.length, 'items');
+        }, 100); // Small delay to ensure displayFiles is updated
+        
+        console.log('Web source configuration timestamp changed:', {
+          dataSource: props.configuredDataSource,
+          newTimestamp,
+          oldTimestamp
+        });
+      }
+    });
+
+    // Auto-select files when they are discovered from processing status or configuration
     watch(() => displayFiles.value, (newFiles, oldFiles) => {
       if (props.configuredDataSource === 'cmis' || props.configuredDataSource === 'alfresco') {
         console.log('Repository displayFiles changed:', newFiles.length, 'files');
         selectedItems.value = newFiles.map((_, index) => index);
         console.log('Auto-selected repository items:', selectedItems.value);
+      } else if (['web', 'wikipedia', 'youtube', 's3', 'gcs', 'azure_blob', 'onedrive', 'sharepoint', 'box', 'google_drive'].includes(props.configuredDataSource)) {
+        console.log('Web source displayFiles changed:', newFiles.length, 'items');
+        selectedItems.value = newFiles.map((_, index) => index);
+        console.log('Auto-selected web source items:', selectedItems.value);
       }
     }, { immediate: true });
 
@@ -887,6 +1001,8 @@ export default defineComponent({
       selectedItems.value = [];
       repositoryItemsHidden.value = false; // Reset hidden flag
       sourcesReconfiguredFlag.value = 0; // Reset reconfigured counter
+      successMessage.value = ''; // Clear success message (green panel)
+      error.value = ''; // Clear error message (red panel)
       // Note: This ensures clean state when switching between upload/CMIS/Alfresco
     });
 

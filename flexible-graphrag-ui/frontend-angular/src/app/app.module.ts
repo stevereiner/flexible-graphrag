@@ -34,6 +34,24 @@ import { ProcessingTabComponent } from './components/processing-tab/processing-t
 import { SearchTabComponent } from './components/search-tab/search-tab';
 import { ChatTabComponent } from './components/chat-tab/chat-tab';
 
+// Import all source form components
+import { 
+  BaseSourceFormComponent,
+  FileUploadFormComponent,
+  WebSourceFormComponent,
+  WikipediaSourceFormComponent,
+  YouTubeSourceFormComponent,
+  CMISSourceFormComponent,
+  AlfrescoSourceFormComponent,
+  S3SourceFormComponent,
+  GCSSourceFormComponent,
+  AzureBlobSourceFormComponent,
+  OneDriveSourceFormComponent,
+  SharePointSourceFormComponent,
+  BoxSourceFormComponent,
+  GoogleDriveSourceFormComponent
+} from './components/sources';
+
 // Factory function to initialize environment configuration
 export function initializeEnv(envService: EnvService) {
   return () => firstValueFrom(envService.loadEnvConfig());
@@ -47,7 +65,22 @@ export function initializeEnv(envService: EnvService) {
     SourcesTabComponent,
     ProcessingTabComponent,
     SearchTabComponent,
-    ChatTabComponent
+    ChatTabComponent,
+    // Add all source form components
+    BaseSourceFormComponent,
+    FileUploadFormComponent,
+    WebSourceFormComponent,
+    WikipediaSourceFormComponent,
+    YouTubeSourceFormComponent,
+    CMISSourceFormComponent,
+    AlfrescoSourceFormComponent,
+    S3SourceFormComponent,
+    GCSSourceFormComponent,
+    AzureBlobSourceFormComponent,
+    OneDriveSourceFormComponent,
+    SharePointSourceFormComponent,
+    BoxSourceFormComponent,
+    GoogleDriveSourceFormComponent
   ],
   imports: [
     BrowserModule,

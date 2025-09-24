@@ -6,6 +6,7 @@ python-jose[cryptography]
 passlib[bcrypt]
 python-dotenv
 nest-asyncio
+wikipedia
 cmislib
 python-alfresco-api==1.1.1
 docling
@@ -41,3 +42,17 @@ qdrant-client
 kuzu
 elasticsearch
 opensearch-py
+# LlamaIndex Hub Reader dependencies
+llama-index-readers-web
+llama-index-readers-wikipedia
+wikipedia  # Required by llama-index-readers-wikipedia
+llama-index-readers-youtube-transcript
+llama-index-readers-s3
+llama-index-readers-gcs
+llama-index-readers-azstorage-blob
+llama-index-readers-microsoft-onedrive
+llama-index-readers-microsoft-sharepoint
+llama-index-readers-box
+llama-index-readers-google
+
+youtube_transcript_api

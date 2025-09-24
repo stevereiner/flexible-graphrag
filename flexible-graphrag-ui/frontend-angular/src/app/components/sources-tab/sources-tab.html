@@ -2,114 +2,153 @@
   <h2>Data Source Configuration</h2>
   
   <!-- Data Source Selection -->
-  <mat-form-field appearance="outline" class="full-width">
+  <mat-form-field appearance="outline" class="data-source-select">
     <mat-label>Data Source</mat-label>
-    <mat-select [(value)]="dataSource" (selectionChange)="onDataSourceChange()">
+    <mat-select [(value)]="dataSource" (selectionChange)="onDataSourceChange()" panelClass="compact-dropdown">
       <mat-option value="upload">File Upload</mat-option>
       <mat-option value="alfresco">Alfresco Repository</mat-option>
       <mat-option value="cmis">CMIS Repository</mat-option>
+      <mat-option disabled>─── Web ───</mat-option>
+      <mat-option value="web">Web Page</mat-option>
+      <mat-option value="wikipedia">Wikipedia</mat-option>
+      <mat-option value="youtube">YouTube</mat-option>
+      <mat-option disabled>─── Cloud ───</mat-option>
+      <mat-option value="google_drive">Google Drive</mat-option>
+      <mat-option value="onedrive">Microsoft OneDrive</mat-option>
+      <mat-option value="s3">Amazon S3</mat-option>
+      <mat-option value="azure_blob">Azure Blob Storage</mat-option>
+      <mat-option value="gcs">Google Cloud Storage</mat-option>
+      <mat-option disabled>─── Enterprise ───</mat-option>
+      <mat-option value="box">Box</mat-option>
+      <mat-option value="sharepoint">SharePoint</mat-option>
     </mat-select>
   </mat-form-field>
 
-  <!-- File Upload -->
-  <div *ngIf="dataSource === 'upload'" class="upload-section">
-    <mat-card 
-      class="drop-zone"
-      [class.drag-over]="isDragOver"
-      [ngStyle]="dropZoneStyle"
-      (drop)="onFileDrop($event)"
-      (dragover)="onDragOver($event)"
-      (dragenter)="onDragEnter($event)"
-      (dragleave)="onDragLeave($event)"
-      (click)="fileInput.click()">
-      <mat-card-content class="drop-zone-content">
-        <h3 [ngStyle]="{ color: isDragOver ? '#1976d2' : '#ffffff' }">
-          Drop files here or click to select
-        </h3>
-        <p [ngStyle]="{ color: isDragOver ? '#1976d2' : '#ffffff' }">
-          Supports: PDF, DOCX, XLSX, PPTX, TXT, MD, HTML, CSV, PNG, JPG
-        </p>
-        <input 
-          #fileInput
-          type="file"
-          multiple
-          accept=".pdf,.docx,.xlsx,.pptx,.txt,.md,.html,.csv,.png,.jpg,.jpeg"
-          (change)="onFileSelect($event)"
-          style="display: none">
-      </mat-card-content>
-    </mat-card>
+  <!-- Dynamic Source Forms -->
+  <div class="source-form-container">
+    <!-- File Upload Form -->
+    <app-file-upload-form 
+      *ngIf="dataSource === 'upload'"
+      [(selectedFiles)]="selectedFiles"
+      (configurationChange)="onConfigurationChange($event)"
+      (validationChange)="onValidationChange($event)">
+    </app-file-upload-form>
 
-    <!-- Selected Files Display -->
-    <div *ngIf="selectedFiles.length > 0" class="selected-files">
-      <h4>Selected Files ({{ selectedFiles.length }}):</h4>
-      <mat-card *ngFor="let file of selectedFiles; let i = index" class="file-card">
-        <mat-card-content class="file-content">
-          <div class="file-info">
-            <div class="file-name">{{ file.name }}</div>
-            <div class="file-size">{{ formatFileSize(file.size) }}</div>
-          </div>
-          <button mat-button color="warn" (click)="removeFile(i)">
-            Remove
-          </button>
-        </mat-card-content>
-      </mat-card>
-    </div>
+    <!-- CMIS Form -->
+    <app-cmis-source-form 
+      *ngIf="dataSource === 'cmis'"
+      [(url)]="cmisUrl"
+      [(username)]="cmisUsername"
+      [(password)]="cmisPassword"
+      [(folderPath)]="folderPath"
+      (configurationChange)="onConfigurationChange($event)"
+      (validationChange)="onValidationChange($event)">
+    </app-cmis-source-form>
 
-    <!-- Upload Progress -->
-    <div *ngIf="isUploading" class="upload-progress">
-      <p>Uploading files... {{ uploadProgress }}%</p>
-      <mat-progress-bar [value]="uploadProgress" mode="determinate"></mat-progress-bar>
-    </div>
-  </div>
+    <!-- Alfresco Form -->
+    <app-alfresco-source-form 
+      *ngIf="dataSource === 'alfresco'"
+      [(url)]="alfrescoUrl"
+      [(username)]="alfrescoUsername"
+      [(password)]="alfrescoPassword"
+      [(path)]="folderPath"
+      (configurationChange)="onConfigurationChange($event)"
+      (validationChange)="onValidationChange($event)">
+    </app-alfresco-source-form>
 
-  <!-- CMIS Fields -->
-  <div *ngIf="dataSource === 'cmis'" class="cmis-section">
-    <mat-form-field appearance="outline" class="full-width">
-      <mat-label>CMIS Repository URL</mat-label>
-      <input matInput [(ngModel)]="cmisUrl" [placeholder]="cmisPlaceholder">
-    </mat-form-field>
-    
-    <div class="form-row">
-      <mat-form-field appearance="outline" class="half-width">
-        <mat-label>Username</mat-label>
-        <input matInput [(ngModel)]="cmisUsername">
-      </mat-form-field>
-      
-      <mat-form-field appearance="outline" class="half-width">
-        <mat-label>Password</mat-label>
-        <input matInput type="password" [(ngModel)]="cmisPassword">
-      </mat-form-field>
-    </div>
-    
-    <mat-form-field appearance="outline" class="full-width">
-      <mat-label>Folder Path</mat-label>
-      <input matInput [(ngModel)]="folderPath" placeholder="e.g., /Sites/example/documentLibrary">
-    </mat-form-field>
-  </div>
+    <!-- Web Form -->
+    <app-web-source-form 
+      *ngIf="dataSource === 'web'"
+      [(url)]="webUrl"
+      (configurationChange)="onConfigurationChange($event)"
+      (validationChange)="onValidationChange($event)">
+    </app-web-source-form>
 
-  <!-- Alfresco Fields -->
-  <div *ngIf="dataSource === 'alfresco'" class="alfresco-section">
-    <mat-form-field appearance="outline" class="full-width">
-      <mat-label>Alfresco Base URL</mat-label>
-      <input matInput [(ngModel)]="alfrescoUrl" [placeholder]="alfrescoPlaceholder">
-    </mat-form-field>
-    
-    <div class="form-row">
-      <mat-form-field appearance="outline" class="half-width">
-        <mat-label>Username</mat-label>
-        <input matInput [(ngModel)]="alfrescoUsername">
-      </mat-form-field>
-      
-      <mat-form-field appearance="outline" class="half-width">
-        <mat-label>Password</mat-label>
-        <input matInput type="password" [(ngModel)]="alfrescoPassword">
-      </mat-form-field>
-    </div>
-    
-    <mat-form-field appearance="outline" class="full-width">
-      <mat-label>Path</mat-label>
-      <input matInput [(ngModel)]="folderPath" placeholder="e.g., /Sites/example/documentLibrary">
-    </mat-form-field>
+    <!-- Wikipedia Form -->
+    <app-wikipedia-source-form 
+      *ngIf="dataSource === 'wikipedia'"
+      [(url)]="wikipediaUrl"
+      [(language)]="wikipediaLanguage"
+      [(maxDocs)]="wikipediaMaxDocs"
+      (configurationChange)="onConfigurationChange($event)"
+      (validationChange)="onValidationChange($event)">
+    </app-wikipedia-source-form>
+
+    <!-- YouTube Form -->
+    <app-youtube-source-form 
+      *ngIf="dataSource === 'youtube'"
+      [(url)]="youtubeUrl"
+      (configurationChange)="onConfigurationChange($event)"
+      (validationChange)="onValidationChange($event)">
+    </app-youtube-source-form>
+
+    <!-- S3 Form -->
+    <app-s3-source-form 
+      *ngIf="dataSource === 's3'"
+      [(accessKey)]="s3AccessKey"
+      [(secretKey)]="s3SecretKey"
+      (configurationChange)="onConfigurationChange($event)"
+      (validationChange)="onValidationChange($event)">
+    </app-s3-source-form>
+
+    <!-- GCS Form -->
+    <app-gcs-source-form 
+      *ngIf="dataSource === 'gcs'"
+      [(bucketName)]="gcsBucketName"
+      [(projectId)]="gcsProjectId"
+      [(credentials)]="gcsCredentials"
+      (configurationChange)="onConfigurationChange($event)"
+      (validationChange)="onValidationChange($event)">
+    </app-gcs-source-form>
+
+    <!-- Azure Blob Form -->
+    <app-azure-blob-source-form 
+      *ngIf="dataSource === 'azure_blob'"
+      [(connectionString)]="azureBlobConnectionString"
+      [(containerName)]="azureBlobContainer"
+      [(blobName)]="azureBlobName"
+      [(accountName)]="azureBlobAccountName"
+      [(accountKey)]="azureBlobAccountKey"
+      (configurationChange)="onConfigurationChange($event)"
+      (validationChange)="onValidationChange($event)">
+    </app-azure-blob-source-form>
+
+    <!-- OneDrive Form -->
+    <app-onedrive-source-form 
+      *ngIf="dataSource === 'onedrive'"
+      [(userPrincipalName)]="onedriveUserPrincipalName"
+      [(clientId)]="onedriveClientId"
+      [(clientSecret)]="onedriveClientSecret"
+      [(tenantId)]="onedriveTenantId"
+      (configurationChange)="onConfigurationChange($event)"
+      (validationChange)="onValidationChange($event)">
+    </app-onedrive-source-form>
+
+    <!-- SharePoint Form -->
+    <app-sharepoint-source-form 
+      *ngIf="dataSource === 'sharepoint'"
+      [(siteName)]="sharepointSiteName"
+      (configurationChange)="onConfigurationChange($event)"
+      (validationChange)="onValidationChange($event)">
+    </app-sharepoint-source-form>
+
+    <!-- Box Form -->
+    <app-box-source-form 
+      *ngIf="dataSource === 'box'"
+      [(clientId)]="boxClientId"
+      [(clientSecret)]="boxClientSecret"
+      [(developerToken)]="boxDeveloperToken"
+      (configurationChange)="onConfigurationChange($event)"
+      (validationChange)="onValidationChange($event)">
+    </app-box-source-form>
+
+    <!-- Google Drive Form -->
+    <app-google-drive-source-form 
+      *ngIf="dataSource === 'google_drive'"
+      [(credentials)]="googleDriveCredentials"
+      (configurationChange)="onConfigurationChange($event)"
+      (validationChange)="onValidationChange($event)">
+    </app-google-drive-source-form>
   </div>
 
   <!-- Configure Processing Button -->
@@ -117,8 +156,8 @@
     <button 
       mat-raised-button 
       color="primary" 
-      [disabled]="!isFormValid()"
-          (click)="onConfigureProcessing()">
+      [disabled]="!isFormValid"
+      (click)="onConfigureProcessing()">
       CONFIGURE PROCESSING →
     </button>
   </div>

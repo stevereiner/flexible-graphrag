@@ -33,7 +33,8 @@ from pathlib import Path
 
 from config import Settings
 from hybrid_system import HybridSearchSystem
-from sources import FileSystemSource
+from ingest import IngestionManager
+from sources.filesystem import FileSystemSource
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +55,7 @@ class FlexibleGraphRAGBackend:
     def __init__(self, settings: Settings = None):
         self.settings = settings or Settings()
         self._system = None
+        self.ingestion_manager = IngestionManager()
         logger.info("FlexibleGraphRAGBackend initialized")
     
     @property
@@ -256,6 +258,133 @@ class FlexibleGraphRAGBackend:
                 "error": None
             })
         return file_progress
+    
+    def _initialize_data_source_progress(self, processing_id: str, data_source: str, source_description: str = None) -> List[Dict]:
+        """Initialize progress tracking for new modular data sources"""
+        # Create a single "file" entry representing the data source
+        source_name = source_description or f"{data_source.title()} Source"
+        file_progress = [{
+            "index": 0,
+            "filename": source_name,
+            "filepath": source_name,
+            "status": "pending",
+            "progress": 0,
+            "phase": "connecting",
+            "message": f"Connecting to {data_source}...",
+            "started_at": None,
+            "completed_at": None,
+            "error": None
+        }]
+        return file_progress
+    
+    def _update_data_source_progress(self, processing_id: str, status: str = None, 
+                                   progress: int = None, phase: str = None, message: str = None):
+        """Update progress for modular data sources (single source entry)"""
+        current_status = PROCESSING_STATUS.get(processing_id, {})
+        file_progress = current_status.get("individual_files", [])
+        
+        if file_progress:
+            # Update the single data source entry
+            if status:
+                file_progress[0]["status"] = status
+            if progress is not None:
+                file_progress[0]["progress"] = progress
+            if phase:
+                file_progress[0]["phase"] = phase
+            if message:
+                file_progress[0]["message"] = message
+            
+            # Update completion time
+            if status == "completed":
+                from datetime import datetime
+                file_progress[0]["completed_at"] = datetime.now().isoformat()
+            elif status == "processing" and not file_progress[0]["started_at"]:
+                from datetime import datetime
+                file_progress[0]["started_at"] = datetime.now().isoformat()
+            
+            # CRITICAL FIX: Update the main processing status to reflect the individual file progress
+            # This ensures the UI's top area progress bar gets updated
+            files_completed = 1 if status == "completed" else 0
+            self._update_processing_status(
+                processing_id=processing_id,
+                status=status or current_status.get("status", "processing"),
+                message=message or current_status.get("message", "Processing..."),
+                progress=progress if progress is not None else current_status.get("progress", 0),
+                total_files=1,
+                files_completed=files_completed,
+                file_progress=file_progress
+            )
+    
+    async def _process_modular_data_source(self, processing_id: str, data_source: str, config_key: str, 
+                                         display_name: str, connect_message: str, process_message: str, **kwargs):
+        """Generic method to process modular data sources with proper progress tracking"""
+        # Get configuration
+        config = kwargs.get(config_key)
+        if not config:
+            raise ValueError(f"{data_source.title()} configuration is required for {data_source} data source")
+        
+        # Initialize progress tracking
+        file_progress = self._initialize_data_source_progress(processing_id, data_source, display_name)
+        
+        # Initial connection status
+        self._update_processing_status(
+            processing_id, 
+            "processing", 
+            connect_message, 
+            20,
+            total_files=1,
+            files_completed=0,
+            file_progress=file_progress
+        )
+        self._update_data_source_progress(processing_id, "processing", 20, "connecting", connect_message)
+        
+        # Check for cancellation
+        if self._is_processing_cancelled(processing_id):
+            return
+            
+        # Processing status
+        self._update_processing_status(
+            processing_id, 
+            "processing", 
+            process_message, 
+            60,
+            total_files=1,
+            files_completed=0,
+            file_progress=file_progress
+        )
+        self._update_data_source_progress(processing_id, "processing", 60, "loading", process_message)
+        
+        # Create status callback
+        def status_callback(**cb_kwargs):
+            status = cb_kwargs.get("status", "processing")
+            progress = cb_kwargs.get("progress", 0)
+            message = cb_kwargs.get("message", "")
+            
+            # Update data source progress
+            self._update_data_source_progress(processing_id, status, progress, "processing", message)
+            
+            # Update overall status
+            current_status = PROCESSING_STATUS.get(processing_id, {})
+            current_file_progress = current_status.get("individual_files", file_progress)
+            
+            self._update_processing_status(
+                processing_id=processing_id,
+                status=status,
+                message=message,
+                progress=progress,
+                total_files=1,
+                files_completed=1 if status == "completed" else 0,
+                file_progress=current_file_progress
+            )
+        
+        # Process documents
+        documents = await self.ingestion_manager.ingest_from_source(
+            source_type=data_source,
+            config=config,
+            processing_id=processing_id,
+            status_callback=status_callback
+        )
+        await self.system._process_documents_direct(documents, processing_id=processing_id, status_callback=status_callback)
     
     def _update_file_progress(self, processing_id: str, file_index: int, status: str = None, 
                              progress: int = None, phase: str = None, message: str = None, error: str = None):
@@ -669,32 +798,99 @@ class FlexibleGraphRAGBackend:
                     else:
                         cleaned_paths.append(path)
                 
-                # Initialize per-file progress tracking
+                # Initialize per-file progress tracking for UI
                 file_progress = self._initialize_file_progress(processing_id, cleaned_paths)
                 logger.info(f"Initialized per-file progress for {len(file_progress)} files")
                 
                 self._update_processing_status(
-                    processing_id, 
-                    "processing", 
-                    f"Processing {len(cleaned_paths)} file(s)...", 
-                    30,
+                    processing_id,
+                    "processing",
+                    "Initializing filesystem document ingestion...",
+                    20,
+                    total_files=len(cleaned_paths),
+                    files_completed=0,
+                    file_progress=file_progress
+                )
+                if self._is_processing_cancelled(processing_id):
+                    return
+                self._update_processing_status(
+                    processing_id,
+                    "processing",
+                    "Scanning filesystem paths...",
+                    40,
+                    total_files=len(cleaned_paths),
+                    files_completed=0,
+                    file_progress=file_progress
+                )
+                if self._is_processing_cancelled(processing_id):
+                    return
+                self._update_processing_status(
+                    processing_id,
+                    "processing",
+                    "Processing filesystem documents...",
+                    60,
                     total_files=len(cleaned_paths),
                     files_completed=0,
                     file_progress=file_progress
                 )
                 
-                logger.info(f"Updated status with file_progress: {len(file_progress)} files")
+                config = {"paths": cleaned_paths}
                 
-                # Check for cancellation before heavy processing
-                if self._is_processing_cancelled(processing_id):
-                    return
+                # Use the same pattern as CMIS and Alfresco - go through IngestionManager
+                # But create a custom status callback that provides individual_files data for UI
+                def filesystem_status_callback(**cb_kwargs):
+                    status = cb_kwargs.get("status", "processing")
+                    progress = cb_kwargs.get("progress", 0)
+                    current_file = cb_kwargs.get("current_file", "")
+                    files_completed = cb_kwargs.get("files_completed", 0)
+                    total_files = cb_kwargs.get("total_files", 0)
+                    
+                    # Handle completion status - mark all individual files as completed
+                    if status == "completed" and progress == 100:
+                        for i in range(len(file_progress)):
+                            self._update_file_progress(
+                                processing_id, 
+                                i, 
+                                status="completed", 
+                                progress=100,
+                                phase="completed",
+                                message="Processing completed"
+                            )
+                    # Handle loading progress - update individual file progress
+                    elif files_completed > 0 and files_completed <= len(file_progress):
+                        file_index = files_completed - 1  # Convert to 0-based index
+                        self._update_file_progress(
+                            processing_id, 
+                            file_index, 
+                            status="processing", 
+                            progress=min(progress, 90),  # Don't complete during loading
+                            phase="loading",
+                            message=f"Loading {current_file}" if current_file else "Loading..."
+                        )
+                    
+                    # Add the individual_files data to the callback
+                    cb_kwargs["file_progress"] = file_progress
+                    self._update_processing_status(**cb_kwargs)
                 
-                # Process files with per-file progress tracking (batch processing)
-                await self._process_files_batch_with_progress(processing_id, cleaned_paths)
+                documents = await self.ingestion_manager.ingest_from_source(
+                    source_type="filesystem",
+                    config=config,
+                    processing_id=processing_id,
+                    status_callback=filesystem_status_callback
+                )
                 
-                # Completion status is now sent by the callback from hybrid_system.py
-                # This ensures proper timing after all processing logs are written
-                logger.info(f"Batch processing method completed for {len(cleaned_paths)} files")
+                # Mark all files as loaded (not completed) after IngestionManager finishes
+                for i in range(len(file_progress)):
+                    self._update_file_progress(
+                        processing_id, 
+                        i, 
+                        status="processing", 
+                        progress=90,  # Loaded but not processed
+                        phase="loaded",
+                        message="Documents loaded, starting pipeline processing..."
+                    )
+                
+                await self.system._process_documents_direct(documents, processing_id=processing_id, status_callback=filesystem_status_callback)
                 
             elif data_source == "cmis":
                 self._update_processing_status(
@@ -711,29 +907,32 @@ class FlexibleGraphRAGBackend:
                 self._update_processing_status(
                     processing_id, 
                     "processing", 
-                    "Scanning CMIS repository for documents...", 
-                    40
-                )
-                
-                self._update_processing_status(
-                    processing_id, 
-                    "processing", 
-                    "Downloading and processing CMIS documents...", 
+                    "Processing CMIS documents...", 
                     60
                 )
                 
+                # Use new modular approach with IngestionManager
                 cmis_config = kwargs.get('cmis_config')
                 if cmis_config:
-                    await self.system.ingest_cmis(cmis_config, processing_id=processing_id, status_callback=self._update_processing_status)
+                    # Use provided config
+                    config = cmis_config
                 else:
-                    await self.system.ingest_cmis(processing_id=processing_id, status_callback=self._update_processing_status)
-                    
-                self._update_processing_status(
-                    processing_id, 
-                    "completed", 
-                    "Successfully ingested documents from CMIS repository!", 
-                    100
+                    # Use environment variables
+                    import os
+                    config = {
+                        "url": os.getenv("CMIS_URL", "http://localhost:8080/alfresco/api/-default-/public/cmis/versions/1.1/atom"),
+                        "username": os.getenv("CMIS_USERNAME", "admin"),
+                        "password": os.getenv("CMIS_PASSWORD", "admin"),
+                        "folder_path": os.getenv("CMIS_FOLDER_PATH", "/")
+                    }
+                
+                documents = await self.ingestion_manager.ingest_from_source(
+                    source_type="cmis",
+                    config=config,
+                    processing_id=processing_id,
+                    status_callback=lambda **cb_kwargs: self._update_processing_status(**cb_kwargs)
                 )
+                await self.system._process_documents_direct(documents, processing_id=processing_id, status_callback=lambda **cb_kwargs: self._update_processing_status(**cb_kwargs))
                 
             elif data_source == "alfresco":
                 self._update_processing_status(
@@ -750,28 +949,391 @@ class FlexibleGraphRAGBackend:
                 self._update_processing_status(
                     processing_id, 
                     "processing", 
-                    "Scanning Alfresco repository for documents...", 
-                    40
+                    "Processing Alfresco documents...", 
+                    60
                 )
+                
+                # Use new modular approach with IngestionManager
+                alfresco_config = kwargs.get('alfresco_config')
+                if alfresco_config:
+                    # Use provided config
+                    config = alfresco_config
+                else:
+                    # Use environment variables
+                    import os
+                    config = {
+                        "url": os.getenv("ALFRESCO_URL", "http://localhost:8080/alfresco"),
+                        "username": os.getenv("ALFRESCO_USERNAME", "admin"),
+                        "password": os.getenv("ALFRESCO_PASSWORD", "admin"),
+                        "path": os.getenv("ALFRESCO_PATH", "/")
+                    }
+                
+                documents = await self.ingestion_manager.ingest_from_source(
+                    source_type="alfresco",
+                    config=config,
+                    processing_id=processing_id,
+                    status_callback=lambda **cb_kwargs: self._update_processing_status(**cb_kwargs)
+                )
+                await self.system._process_documents_direct(documents, processing_id=processing_id, status_callback=lambda **cb_kwargs: self._update_processing_status(**cb_kwargs))
+                
+            elif data_source == "web":
+                # Initialize progress tracking for web source
+                web_config = kwargs.get('web_config')
+                if not web_config:
+                    raise ValueError("Web configuration is required for web data source")
+                
+                # Get URL for display
+                url = web_config.get('url', 'Web Page')
+                file_progress = self._initialize_data_source_progress(processing_id, "web", url)
                 
                 self._update_processing_status(
                     processing_id, 
                     "processing", 
-                    "Downloading and processing Alfresco documents...", 
-                    60
+                    "Connecting to web page...", 
+                    20,
+                    total_files=1,
+                    files_completed=0,
+                    file_progress=file_progress
                 )
                 
-                alfresco_config = kwargs.get('alfresco_config')
-                if alfresco_config:
-                    await self.system.ingest_alfresco(alfresco_config, processing_id=processing_id, status_callback=self._update_processing_status)
-                else:
-                    await self.system.ingest_alfresco(processing_id=processing_id, status_callback=self._update_processing_status)
+                # Update data source progress
+                self._update_data_source_progress(processing_id, "processing", 20, "connecting", "Connecting to web page...")
+                
+                # Check for cancellation before connecting
+                if self._is_processing_cancelled(processing_id):
+                    return
                     
                 self._update_processing_status(
                     processing_id, 
-                    "completed", 
-                    "Successfully ingested documents from Alfresco repository!", 
-                    100
+                    "processing", 
+                    "Processing web page content...", 
+                    60,
+                    total_files=1,
+                    files_completed=0,
+                    file_progress=file_progress
+                )
+                
+                # Update data source progress
+                self._update_data_source_progress(processing_id, "processing", 60, "loading", "Processing web page content...")
+                
+                # Create status callback that updates both overall and individual progress
+                def web_status_callback(**cb_kwargs):
+                    status = cb_kwargs.get("status", "processing")
+                    progress = cb_kwargs.get("progress", 0)
+                    message = cb_kwargs.get("message", "")
+                    
+                    # Update data source progress
+                    self._update_data_source_progress(processing_id, status, progress, "processing", message)
+                    
+                    # Update overall status
+                    current_status = PROCESSING_STATUS.get(processing_id, {})
+                    current_file_progress = current_status.get("individual_files", file_progress)
+                    
+                    self._update_processing_status(
+                        processing_id=processing_id,
+                        status=status,
+                        message=message,
+                        progress=progress,
+                        total_files=1,
+                        files_completed=1 if status == "completed" else 0,
+                        file_progress=current_file_progress
+                    )
+                
+                documents = await self.ingestion_manager.ingest_from_source(
+                    source_type="web",
+                    config=web_config,
+                    processing_id=processing_id,
+                    status_callback=web_status_callback
+                )
+                await self.system._process_documents_direct(documents, processing_id=processing_id, status_callback=web_status_callback)
+                
+            elif data_source == "youtube":
+                # Initialize progress tracking for YouTube source
+                youtube_config = kwargs.get('youtube_config')
+                if not youtube_config:
+                    raise ValueError("YouTube configuration is required for YouTube data source")
+                
+                # Get video URL for display
+                video_url = youtube_config.get('url', 'YouTube Video')
+                file_progress = self._initialize_data_source_progress(processing_id, "youtube", video_url)
+                
+                self._update_processing_status(
+                    processing_id, 
+                    "processing", 
+                    "Connecting to YouTube...", 
+                    20,
+                    total_files=1,
+                    files_completed=0,
+                    file_progress=file_progress
+                )
+                
+                # Update data source progress
+                self._update_data_source_progress(processing_id, "processing", 20, "connecting", "Connecting to YouTube...")
+                
+                # Check for cancellation before connecting
+                if self._is_processing_cancelled(processing_id):
+                    return
+                    
+                self._update_processing_status(
+                    processing_id, 
+                    "processing", 
+                    "Processing YouTube transcript...", 
+                    60,
+                    total_files=1,
+                    files_completed=0,
+                    file_progress=file_progress
+                )
+                
+                # Update data source progress
+                self._update_data_source_progress(processing_id, "processing", 60, "loading", "Processing YouTube transcript...")
+                
+                # Create status callback that updates both overall and individual progress
+                def youtube_status_callback(**cb_kwargs):
+                    status = cb_kwargs.get("status", "processing")
+                    progress = cb_kwargs.get("progress", 0)
+                    message = cb_kwargs.get("message", "")
+                    
+                    # Update data source progress
+                    self._update_data_source_progress(processing_id, status, progress, "processing", message)
+                    
+                    # Update overall status
+                    current_status = PROCESSING_STATUS.get(processing_id, {})
+                    current_file_progress = current_status.get("individual_files", file_progress)
+                    
+                    self._update_processing_status(
+                        processing_id=processing_id,
+                        status=status,
+                        message=message,
+                        progress=progress,
+                        total_files=1,
+                        files_completed=1 if status == "completed" else 0,
+                        file_progress=current_file_progress
+                    )
+                
+                documents = await self.ingestion_manager.ingest_from_source(
+                    source_type="youtube",
+                    config=youtube_config,
+                    processing_id=processing_id,
+                    status_callback=youtube_status_callback
+                )
+                await self.system._process_documents_direct(documents, processing_id=processing_id, status_callback=youtube_status_callback)
+                
+            elif data_source == "wikipedia":
+                # Initialize progress tracking for Wikipedia source
+                wikipedia_config = kwargs.get('wikipedia_config')
+                if not wikipedia_config:
+                    raise ValueError("Wikipedia configuration is required for Wikipedia data source")
+                
+                # Get query for display
+                query = wikipedia_config.get('query', 'Wikipedia Article')
+                file_progress = self._initialize_data_source_progress(processing_id, "wikipedia", query)
+                
+                self._update_processing_status(
+                    processing_id, 
+                    "processing", 
+                    "Connecting to Wikipedia...", 
+                    20,
+                    total_files=1,
+                    files_completed=0,
+                    file_progress=file_progress
+                )
+                
+                # Update data source progress
+                self._update_data_source_progress(processing_id, "processing", 20, "connecting", "Connecting to Wikipedia...")
+                
+                # Check for cancellation before connecting
+                if self._is_processing_cancelled(processing_id):
+                    return
+                    
+                self._update_processing_status(
+                    processing_id, 
+                    "processing", 
+                    "Processing Wikipedia content...", 
+                    60,
+                    total_files=1,
+                    files_completed=0,
+                    file_progress=file_progress
+                )
+                
+                # Update data source progress
+                self._update_data_source_progress(processing_id, "processing", 60, "loading", "Processing Wikipedia content...")
+                
+                # Create status callback that updates both overall and individual progress
+                def wikipedia_status_callback(**cb_kwargs):
+                    status = cb_kwargs.get("status", "processing")
+                    progress = cb_kwargs.get("progress", 0)
+                    message = cb_kwargs.get("message", "")
+                    
+                    # Update data source progress
+                    self._update_data_source_progress(processing_id, status, progress, "processing", message)
+                    
+                    # Update overall status
+                    current_status = PROCESSING_STATUS.get(processing_id, {})
+                    current_file_progress = current_status.get("individual_files", file_progress)
+                    
+                    self._update_processing_status(
+                        processing_id=processing_id,
+                        status=status,
+                        message=message,
+                        progress=progress,
+                        total_files=1,
+                        files_completed=1 if status == "completed" else 0,
+                        file_progress=current_file_progress
+                    )
+                
+                documents = await self.ingestion_manager.ingest_from_source(
+                    source_type="wikipedia",
+                    config=wikipedia_config,
+                    processing_id=processing_id,
+                    status_callback=wikipedia_status_callback
+                )
+                await self.system._process_documents_direct(documents, processing_id=processing_id, status_callback=wikipedia_status_callback)
+                
+            elif data_source == "s3":
+                s3_config = kwargs.get('s3_config', {})
+                bucket_name = s3_config.get('bucket_name', 'S3 Bucket')
+                prefix = s3_config.get('prefix', '')
+                
+                # Create display name with bucket and prefix
+                if prefix:
+                    display_name = f'S3: {bucket_name}/{prefix}'
+                else:
+                    display_name = f'S3: {bucket_name}'
+                    
+                await self._process_modular_data_source(
+                    processing_id=processing_id,
+                    data_source="s3",
+                    config_key="s3_config",
+                    display_name=display_name,
+                    connect_message="Connecting to Amazon S3...",
+                    process_message="Processing S3 documents...",
+                    **kwargs
+                )
+                
+            elif data_source == "gcs":
+                gcs_config = kwargs.get('gcs_config', {})
+                bucket_name = gcs_config.get('bucket_name', 'GCS Bucket')
+                await self._process_modular_data_source(
+                    processing_id=processing_id,
+                    data_source="gcs",
+                    config_key="gcs_config",
+                    display_name=bucket_name,
+                    connect_message="Connecting to Google Cloud Storage...",
+                    process_message="Processing GCS documents...",
+                    **kwargs
+                )
+                
+            elif data_source == "azure_blob":
+                azure_blob_config = kwargs.get('azure_blob_config', {})
+                container_name = azure_blob_config.get('container_name', 'Container')
+                account_url = azure_blob_config.get('account_url', '')
+                # Extract account name from URL for display
+                if account_url:
+                    try:
+                        from urllib.parse import urlparse
+                        parsed = urlparse(account_url)
+                        account_name = parsed.hostname.split('.')[0] if parsed.hostname else 'Azure'
+                        display_name = f'Azure: {account_name}/{container_name}'
+                    except:
+                        display_name = f'Azure: {container_name}'
+                else:
+                    display_name = f'Azure: {container_name}'
+                await self._process_modular_data_source(
+                    processing_id=processing_id,
+                    data_source="azure_blob",
+                    config_key="azure_blob_config",
+                    display_name=display_name,
+                    connect_message="Connecting to Azure Blob Storage...",
+                    process_message="Processing Azure Blob Storage documents...",
+                    **kwargs
+                )
+                
+            elif data_source == "onedrive":
+                onedrive_config = kwargs.get('onedrive_config', {})
+                user_principal_name = onedrive_config.get('user_principal_name', '')
+                folder_path = onedrive_config.get('folder_path', '')
+                folder_id = onedrive_config.get('folder_id', '')
+                
+                # Create display name using user principal name and folder info
+                if user_principal_name:
+                    if folder_path:
+                        display_name = f'OneDrive: {user_principal_name}{folder_path}'
+                    elif folder_id:
+                        display_name = f'OneDrive: {user_principal_name} (Folder ID: {folder_id})'
+                    else:
+                        display_name = f'OneDrive: {user_principal_name}'
+                else:
+                    display_name = 'OneDrive'
+                    
+                await self._process_modular_data_source(
+                    processing_id=processing_id,
+                    data_source="onedrive",
+                    config_key="onedrive_config",
+                    display_name=display_name,
+                    connect_message="Connecting to Microsoft OneDrive...",
+                    process_message="Processing OneDrive documents...",
+                    **kwargs
+                )
+                
+            elif data_source == "sharepoint":
+                sharepoint_config = kwargs.get('sharepoint_config', {})
+                site_name = sharepoint_config.get('site_name', '')
+                site_id = sharepoint_config.get('site_id', '')
+                folder_path = sharepoint_config.get('folder_path', '')
+                folder_id = sharepoint_config.get('folder_id', '')
+                
+                # Create display name using site name and folder info
+                if site_name:
+                    if folder_path:
+                        display_name = f'SharePoint: {site_name}{folder_path}'
+                    elif folder_id:
+                        display_name = f'SharePoint: {site_name} (Folder ID: {folder_id})'
+                    else:
+                        display_name = f'SharePoint: {site_name}'
+                elif site_id:
+                    display_name = f'SharePoint: Site ID {site_id}'
+                else:
+                    display_name = 'SharePoint'
+                    
+                await self._process_modular_data_source(
+                    processing_id=processing_id,
+                    data_source="sharepoint",
+                    config_key="sharepoint_config",
+                    display_name=display_name,
+                    connect_message="Connecting to Microsoft SharePoint...",
+                    process_message="Processing SharePoint documents...",
+                    **kwargs
+                )
+                
+            elif data_source == "box":
+                box_config = kwargs.get('box_config', {})
+                folder_id = box_config.get('folder_id', 'Box Folder')
+                await self._process_modular_data_source(
+                    processing_id=processing_id,
+                    data_source="box",
+                    config_key="box_config",
+                    display_name=folder_id,
+                    connect_message="Connecting to Box...",
+                    process_message="Processing Box documents...",
+                    **kwargs
+                )
+                
+            elif data_source == "google_drive":
+                google_drive_config = kwargs.get('google_drive_config', {})
+                # Use folder_id if provided, otherwise generic name
+                folder_id = google_drive_config.get('folder_id')
+                if folder_id:
+                    display_name = f'Google Drive: {folder_id}'
+                else:
+                    display_name = 'Google Drive'
+                await self._process_modular_data_source(
+                    processing_id=processing_id,
+                    data_source="google_drive",
+                    config_key="google_drive_config",
+                    display_name=display_name,
+                    connect_message="Connecting to Google Drive...",
+                    process_message="Processing Google Drive documents...",
+                    **kwargs
                 )
                 
             else:

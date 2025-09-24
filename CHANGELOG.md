@@ -3,6 +3,143 @@
 All notable changes to this project will be documented in this file.
 
 
+## [2025-09-22] - Wikipedia Data Source Enhancement and Performance Logging Fixes
+
+### Enhanced
+- **Wikipedia Data Source**: Improved Wikipedia page resolution with search-based fallback for special characters (e.g., "Nasdaq-100")
+  - Reordered loading methods: LlamaIndex WikipediaReader primary, direct wikipedia library fallback
+  - Added content length limit (100,000 characters) following Neo4j LLM Graph Builder approach
+  - Enhanced URL parsing with proper handling of hyphens and underscores
+
+### Fixed
+- **Performance Logging**: Fixed inaccurate graph extraction timing measurements in performance summary logs
+  - Resolved variable scope issues causing "Graph: 0.00s" display errors
+  - Both processing methods now show accurate timing for all phases (Pipeline, Vector, Graph)
+
+## [2025-09-21] - Angular Data Source Integration and UI Consistency Fixes
+
+### Fixed
+- **Angular Web Data Source Configuration**
+  - Fixed missing web_config parameter passing in Angular processing tab
+  - Angular web sources now work consistently with React and Vue frontends
+  - Resolved "configuration is required" errors for web data sources
+
+- **Angular Cloud Data Source Validation Errors**
+  - Fixed 422 "Unprocessable Content" errors for cloud storage data sources
+  - Corrected configuration parameter mapping to send only relevant configs per data source
+  - SharePoint form enhanced with required Azure authentication fields (client_id, client_secret, tenant_id)
+
+- **Wikipedia Data Source Special Characters**
+  - Improved URL parsing across all frontends to preserve page titles with hyphens
+  - Added fallback mechanisms for Wikipedia pages with special characters
+  - Enhanced error handling and logging for Wikipedia API interactions
+
+### Enhanced
+- **Cross-Frontend Consistency**
+  - All three frontends (React, Vue, Angular) now have identical data source support
+  - Consistent cloud storage configuration validation and error handling
+  - Unified Wikipedia URL parsing logic across all frontends
+
+- **Angular UI Improvements**
+  - Enhanced SharePoint form with complete Azure app registration fields
+  - Improved cloud data source form layouts and validation
+  - Better error messages and user guidance for data source configuration
+
+
+## [2025-09-19] - Data Source Alignment and Progress Tracking Fixes
+
+### Fixed
+- **Critical Progress Bar Issues for New Data Sources**
+  - New modular sources (Web, Wikipedia, YouTube, cloud storage) now display progress bars correctly
+  - Fixed missing individual_files data structure and main PROCESSING_STATUS updates
+  - YouTube field name mismatch resolved (backend 'video_url' vs frontend 'url')
+  - All 13 data sources now have consistent progress tracking
+
+### Enhanced
+- **Cloud Storage Data Source Improvements**
+  - Azure Blob Storage: Updated to Method 1 (Account Key Authentication)
+  - Microsoft OneDrive: Added required user_principal_name field
+  - Amazon S3: Removed legacy bucket_url field, streamlined to bucket_name approach
+  - Microsoft SharePoint: Updated to use site_name and folder_id field names
+  - Added comprehensive autocomplete prevention for sensitive fields
+
+### Added
+- **10 New Modular Data Sources**
+  - Web sources: Web Page, Wikipedia, YouTube
+  - Cloud storage: Amazon S3, Google Cloud Storage, Azure Blob Storage
+  - Enterprise cloud: Microsoft OneDrive, SharePoint, Box, Google Drive
+  - Complete UI forms and backend integration for all new sources
+  - Expanded from 3 legacy sources to 13 total data sources
+
+### Enhanced
+- **Cross-Frontend UI Consistency**
+  - Ported React's modular source form components to Vue and Angular
+  - BaseSourceForm inheritance pattern with dynamic component rendering
+  - Complete feature parity across all three frontends (React, Vue, Angular)
+  - Fixed Vue dropdown styling issues and Angular compilation errors
+
+## [2025-09-18] - YouTube Fix and Cloud Storage Organizational Fields
+
+### Fixed
+- **YouTube Data Source**
+  - Switched from LlamaIndex wrapper to direct youtube_transcript_api usage
+  - Implemented proper 60-second time-based chunking with timestamp metadata
+  - Resolved parameter errors and achieved 21 document chunks from videos
+
+### Enhanced
+- **Google Drive Authentication**
+  - Fixed authentication using proper service_account_key parameter
+  - Added JSON credential parsing from UI form
+  - Resolved "Must specify client_config or service_account_key" error
+
+### Added
+- **Cloud Storage Organizational Fields**
+  - Azure Blob: Added prefix field separate from blob_name
+  - Box: Added folder_id field for specific folder access
+  - Amazon S3: Added bucket name + prefix fields (marked bucket_url as legacy)
+  - OneDrive: Added folder_path and folder_id fields
+  - Google Cloud Storage: Added prefix and folder_name fields
+  - SharePoint: Added document_library and folder_path fields
+  - Fixed 422 "Unprocessable Content" errors by updating backend API models
+
+## [2025-09-17] - UI Fixes and Backend Integration
+
+### Fixed
+- **Critical Configuration Flow Issue**
+  - Web sources (Web, Wikipedia, YouTube) failing with "configuration is required" errors
+  - Added 5 new state variables in App.tsx for web/cloud/enterprise configs
+  - Fixed complete data flow: UI Form → SourcesTab → App.tsx → ProcessingTab → API → Backend
+
+### Enhanced
+- **Async/Await Backend Integration**
+  - Made get_documents_with_progress() methods async for all new modular sources
+  - Fixed "object list can't be used in 'await' expression" errors
+  - Enhanced Azure Blob Storage form with 3 missing fields (blob_name, account_name, account_key)
+
+## [2025-09-16] - Data Source Migration and Progress Tracking
+
+### Added
+- **Complete Data Source Migration**
+  - Migrated all three legacy sources (Filesystem, Alfresco, CMIS) to modular architecture
+  - BaseDataSource inheritance with IngestionManager orchestration
+  - Unified progress tracking across all data sources
+
+### Fixed
+- **File Upload Progress Issues**
+  - Fixed missing top area progress feedback for filesystem source
+  - Resolved progress reset issue where completion status appeared then reset
+  - All sources now have consistent progress feedback (top/middle/bottom areas)
+
+### Enhanced
+- **Completion Messages**
+  - Improved order: Vector → Search → Knowledge Graph
+  - Dynamic database types (e.g., "Qdrant vector index, Elasticsearch search, Neo4J knowledge graph")
+  - Proper grammar without duplicate "and"
+
+### Removed
+- Deprecated sources.py file and old ingest_cmis/ingest_alfresco methods
+- Cleaned up codebase while preserving ingest_documents (API/MCP) and ingest_text (MCP server)
+
 ## [2025-09-08] - FalkorDB Integration and Configuration Optimization
 
 ### Added

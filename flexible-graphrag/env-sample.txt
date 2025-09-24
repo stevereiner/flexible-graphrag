@@ -1,8 +1,20 @@
 # Flexible GraphRAG Configuration
 
-# Data Source (filesystem, cmis, alfresco)
+# Data Source (filesystem, cmis, alfresco, upload, web, wikipedia, youtube, s3, gcs, azure_blob, onedrive, sharepoint, box, google_drive)
 DATA_SOURCE=filesystem
 SOURCE_PATHS=["./sample-docs/cmispress.txt"]
+
+# Example configurations for different data sources:
+# WEB_CONFIG={"url": "https://example.com/page"}
+# WIKIPEDIA_CONFIG={"query": "artificial intelligence", "language": "en", "max_docs": 1}
+# YOUTUBE_CONFIG={"url": "https://www.youtube.com/watch?v=VIDEO_ID", "chunk_size_seconds": 60}
+# S3_CONFIG={"bucket": "my-bucket", "key": "documents/", "region_name": "us-east-1"}
+# GCS_CONFIG={"bucket": "my-bucket", "key": "documents/", "project_id": "my-project"}
+# AZURE_BLOB_CONFIG={"container_name": "documents", "account_name": "myaccount"}
+# ONEDRIVE_CONFIG={"client_id": "your-client-id", "client_secret": "your-secret", "tenant_id": "your-tenant"}
+# SHAREPOINT_CONFIG={"client_id": "your-client-id", "client_secret": "your-secret", "tenant_id": "your-tenant", "sharepoint_site_name": "your-site"}
+# BOX_CONFIG={"access_token": "your-access-token", "box_folder_id": "0"}
+# GOOGLE_DRIVE_CONFIG={"folder_id": "your-folder-id", "credentials_path": "path/to/credentials.json"}
 
 # Sample Text for Testing (optional - overrides default Dune text)
 # SAMPLE_TEXT="Luke Skywalker is a Jedi Knight from Tatooine. His father is Darth Vader, formerly known as Anakin Skywalker."

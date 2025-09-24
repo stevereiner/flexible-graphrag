@@ -10,6 +10,16 @@ class DataSourceType(str, Enum):
     CMIS = "cmis"
     ALFRESCO = "alfresco"
     UPLOAD = "upload"
+    WEB = "web"
+    WIKIPEDIA = "wikipedia"
+    YOUTUBE = "youtube"
+    S3 = "s3"
+    GCS = "gcs"
+    AZURE_BLOB = "azure_blob"
+    ONEDRIVE = "onedrive"
+    SHAREPOINT = "sharepoint"
+    BOX = "box"
+    GOOGLE_DRIVE = "google_drive"
 
 class VectorDBType(str, Enum):
     NONE = "none"  # Disable vector search
@@ -265,6 +275,11 @@ an aristocratic family that rules the planet Caladan, the rainy planet, since 10
             # If named schema not found, log warning and return None
             logger.warning(f"Schema '{self.schema_name}' not found in schemas array. Available schemas: {[s.get('name') for s in schemas_list]}")
             return None
+
+    @property
+    def schema_config(self) -> Optional[Dict[str, Any]]:
+        """Alias for get_active_schema() for backward compatibility"""
+        return self.get_active_schema()
 
     model_config = {
         "env_file": ".env",

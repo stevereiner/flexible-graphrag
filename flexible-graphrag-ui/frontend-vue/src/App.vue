@@ -51,6 +51,11 @@
                   :configured-folder-path="configuredFolderPath"
                   :configured-cmis-config="configuredCmisConfig"
                   :configured-alfresco-config="configuredAlfrescoConfig"
+                  :configured-web-config="configuredWebConfig"
+                  :configured-wikipedia-config="configuredWikipediaConfig"
+                  :configured-youtube-config="configuredYoutubeConfig"
+                  :configured-cloud-config="configuredCloudConfig"
+                  :configured-enterprise-config="configuredEnterpriseConfig"
                   :configuration-timestamp="configurationTimestamp"
                   @go-to-sources="mainTab = 'sources'"
                   @files-removed="configuredFiles = $event"
@@ -128,6 +133,11 @@ export default defineComponent({
     const configuredFolderPath = ref('');
     const configuredCmisConfig = ref<any>(null);
     const configuredAlfrescoConfig = ref<any>(null);
+    const configuredWebConfig = ref<any>(null);
+    const configuredWikipediaConfig = ref<any>(null);
+    const configuredYoutubeConfig = ref<any>(null);
+    const configuredCloudConfig = ref<any>(null);
+    const configuredEnterpriseConfig = ref<any>(null);
     const configurationTimestamp = ref(0);
 
     const onSourcesConfigured = (data: { 
@@ -136,6 +146,11 @@ export default defineComponent({
       folderPath?: string;
       cmisConfig?: any;
       alfrescoConfig?: any;
+      webConfig?: any;
+      wikipediaConfig?: any;
+      youtubeConfig?: any;
+      cloudConfig?: any;
+      enterpriseConfig?: any;
     }) => {
       // Clear previous configuration to prevent filename conflicts
       hasConfiguredSources.value = false;
@@ -143,20 +158,35 @@ export default defineComponent({
       configuredFolderPath.value = '';
       configuredCmisConfig.value = null;
       configuredAlfrescoConfig.value = null;
+      configuredWebConfig.value = null;
+      configuredWikipediaConfig.value = null;
+      configuredYoutubeConfig.value = null;
+      configuredCloudConfig.value = null;
+      configuredEnterpriseConfig.value = null;
       
       // Set new configuration
       hasConfiguredSources.value = true;
       configuredDataSource.value = data.dataSource;
-      configuredFiles.value = data.files;
+      configuredFiles.value = data.files || []; // Handle empty files for web sources
       configuredFolderPath.value = data.folderPath || '';
       configuredCmisConfig.value = data.cmisConfig || null;
       configuredAlfrescoConfig.value = data.alfrescoConfig || null;
+      configuredWebConfig.value = data.webConfig || null;
+      configuredWikipediaConfig.value = data.wikipediaConfig || null;
+      configuredYoutubeConfig.value = data.youtubeConfig || null;
+      configuredCloudConfig.value = data.cloudConfig || null;
+      configuredEnterpriseConfig.value = data.enterpriseConfig || null;
       configurationTimestamp.value = Date.now(); // Update timestamp every time sources are configured
       
       console.log('📁 Vue onSourcesConfigured (cleared previous state):', {
         dataSource: data.dataSource,
         folderPath: data.folderPath,
-        filesCount: data.files.length
+        filesCount: (data.files || []).length,
+        hasWebConfig: !!data.webConfig,
+        hasWikipediaConfig: !!data.wikipediaConfig,
+        hasYoutubeConfig: !!data.youtubeConfig,
+        hasCloudConfig: !!data.cloudConfig,
+        hasEnterpriseConfig: !!data.enterpriseConfig
       });
     };
 
@@ -168,6 +198,11 @@ export default defineComponent({
       configuredFolderPath,
       configuredCmisConfig,
       configuredAlfrescoConfig,
+      configuredWebConfig,
+      configuredWikipediaConfig,
+      configuredYoutubeConfig,
+      configuredCloudConfig,
+      configuredEnterpriseConfig,
       configurationTimestamp,
       onConfigureProcessing,
       onSourcesConfigured,
