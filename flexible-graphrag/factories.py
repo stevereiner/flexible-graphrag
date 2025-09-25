@@ -16,6 +16,19 @@ from llama_index.vector_stores.opensearch import OpensearchVectorStore, Opensear
 from llama_index.graph_stores.neo4j import Neo4jPropertyGraphStore
 from llama_index.graph_stores.kuzu import KuzuPropertyGraphStore
 from llama_index.graph_stores.falkordb import FalkorDBPropertyGraphStore
+from llama_index.graph_stores.memgraph import MemgraphPropertyGraphStore
+from llama_index.graph_stores.nebula.nebula_property_graph import (
+    NebulaPropertyGraphStore,
+)
+from llama_index.graph_stores.neptune.analytics_property_graph import (
+    NeptuneAnalyticsPropertyGraphStore,
+)
+from llama_index.graph_stores.neptune.database_property_graph import (
+    NeptuneDatabasePropertyGraphStore,
+)
+
+from llama_index.graph_stores.arcadedb import ArcadeDBPropertyGraphStore
+
 from llama_index.retrievers.bm25 import BM25Retriever
 from llama_index.core.storage.docstore import SimpleDocumentStore
 from qdrant_client import QdrantClient, AsyncQdrantClient
@@ -257,6 +270,165 @@ class DatabaseFactory:
             
             return OpensearchVectorStore(client)
         
+        elif db_type == VectorDBType.CHROMA:
+            from llama_index.vector_stores.chroma import ChromaVectorStore
+            import chromadb
+            
+            # Create Chroma client
+            persist_directory = config.get("persist_directory", "./chroma_db")
+            collection_name = config.get("collection_name", "hybrid_search")
+            logger.info(f"Creating Chroma vector store - Collection: {collection_name}, Persist dir: {persist_directory}, Embed dim: {embed_dim}")
+            
+            # Initialize Chroma client
+            chroma_client = chromadb.PersistentClient(path=persist_directory)
+            chroma_collection = chroma_client.get_or_create_collection(collection_name)
+            
+            return ChromaVectorStore(chroma_collection=chroma_collection)
+        
+        elif db_type == VectorDBType.MILVUS:
+            from llama_index.vector_stores.milvus import MilvusVectorStore
+            
+            host = config.get("host", "localhost")
+            port = config.get("port", 19530)
+            collection_name = config.get("collection_name", "hybrid_search")
+            
+            # Use URI format for proper connection to Milvus server
+            uri = f"http://{host}:{port}"
+            logger.info(f"Creating Milvus vector store - URI: {uri}, Collection: {collection_name}, Embed dim: {embed_dim}")
+            
+            return MilvusVectorStore(
+                uri=uri,
+                collection_name=collection_name,
+                dim=embed_dim,
+                user=config.get("username"),
+                password=config.get("password"),
+                token=config.get("token"),  # For cloud Milvus
+                overwrite=config.get("overwrite", False)
+            )
+        
+        elif db_type == VectorDBType.WEAVIATE:
+            from llama_index.vector_stores.weaviate import WeaviateVectorStore
+            import weaviate
+            
+            url = config.get("url", "http://localhost:8081")
+            index_name = config.get("index_name", "HybridSearch")  # Must start with capital letter
+            logger.info(f"Creating Weaviate vector store - URL: {url}, Index: {index_name}, Embed dim: {embed_dim}")
+            
+            # Create Weaviate client using v4 API
+            if config.get("api_key"):
+                # For authenticated instances, use connect_to_custom (REST-only)
+                from weaviate.classes.init import Auth, AdditionalConfig, Timeout
+                client = weaviate.connect_to_custom(
+                    http_host=url.replace("http://", "").replace("https://", "").replace(":8081", ""),
+                    http_port=8081,
+                    http_secure=False,
+                    grpc_host="localhost",  # Required parameter but won't be used
+                    grpc_port=50051,       # Required parameter but won't be used  
+                    grpc_secure=False,
+                    skip_init_checks=True,  # Skip all health checks - REST-only mode
+                    additional_config=AdditionalConfig(
+                        timeout=Timeout(init=60, query=60, insert=180)
+                    ),
+                    auth_credentials=Auth.api_key(config.get("api_key")),
+                    headers=config.get("additional_headers", {})
+                )
+            else:
+                # For local unauthenticated instances (REST-only)
+                from weaviate.classes.init import AdditionalConfig, Timeout
+                client = weaviate.connect_to_custom(
+                    http_host=url.replace("http://", "").replace("https://", "").replace(":8081", ""),
+                    http_port=8081,
+                    http_secure=False,
+                    grpc_host="localhost",  # Required parameter but won't be used
+                    grpc_port=50051,       # Required parameter but won't be used
+                    grpc_secure=False,
+                    skip_init_checks=True,  # Skip all health checks - REST-only mode
+                    additional_config=AdditionalConfig(
+                        timeout=Timeout(init=60, query=60, insert=180)
+                    ),
+                    headers=config.get("additional_headers", {})
+                )
+            
+            return WeaviateVectorStore(
+                weaviate_client=client,
+                index_name=index_name,
+                text_key=config.get("text_key", "content")
+            )
+        
+        elif db_type == VectorDBType.PINECONE:
+            from llama_index.vector_stores.pinecone import PineconeVectorStore
+            import pinecone
+            
+            api_key = config.get("api_key")
+            environment = config.get("environment")
+            index_name = config.get("index_name", "hybrid-search")
+            logger.info(f"Creating Pinecone vector store - Index: {index_name}, Environment: {environment}, Embed dim: {embed_dim}")
+            
+            if not api_key:
+                raise ValueError("Pinecone API key is required")
+            
+            # Initialize Pinecone
+            pinecone.init(api_key=api_key, environment=environment)
+            
+            # Create or get index
+            if index_name not in pinecone.list_indexes():
+                pinecone.create_index(
+                    name=index_name,
+                    dimension=embed_dim,
+                    metric=config.get("metric", "cosine")
+                )
+            
+            pinecone_index = pinecone.Index(index_name)
+            
+            return PineconeVectorStore(
+                pinecone_index=pinecone_index,
+                namespace=config.get("namespace")
+            )
+        
+        elif db_type == VectorDBType.POSTGRES:
+            from llama_index.vector_stores.postgres import PGVectorStore
+            
+            connection_string = config.get("connection_string")
+            if not connection_string:
+                # Build connection string from components
+                host = config.get("host", "localhost")
+                port = config.get("port", 5432)
+                database = config.get("database", "postgres")
+                username = config.get("username", "postgres")
+                password = config.get("password")
+                connection_string = f"postgresql://{username}:{password}@{host}:{port}/{database}"
+            
+            table_name = config.get("table_name", "hybrid_search_vectors")
+            logger.info(f"Creating PostgreSQL vector store - Table: {table_name}, Embed dim: {embed_dim}")
+            
+            return PGVectorStore.from_params(
+                database=config.get("database", "postgres"),
+                host=config.get("host", "localhost"),
+                password=config.get("password"),
+                port=config.get("port", 5432),
+                user=config.get("username", "postgres"),
+                table_name=table_name,
+                embed_dim=embed_dim
+            )
+        
+        elif db_type == VectorDBType.LANCEDB:
+            from llama_index.vector_stores.lancedb import LanceDBVectorStore
+            import lancedb
+            
+            uri = config.get("uri", "./lancedb")
+            table_name = config.get("table_name", "hybrid_search")
+            logger.info(f"Creating LanceDB vector store - URI: {uri}, Table: {table_name}, Embed dim: {embed_dim}")
+            
+            # Connect to LanceDB
+            db = lancedb.connect(uri)
+            
+            return LanceDBVectorStore(
+                uri=uri,
+                table_name=table_name,
+                vector_column_name=config.get("vector_column_name", "vector"),
+                text_column_name=config.get("text_column_name", "text")
+            )
+        
         else:
             raise ValueError(f"Unsupported vector database: {db_type}")
     
@@ -410,6 +582,110 @@ class DatabaseFactory:
                 url=url,
                 username=config.get("username"),
                 password=config.get("password")
+            )
+        
+        elif db_type == GraphDBType.ARCADEDB:
+            host = config.get("host", "localhost")
+            port = config.get("port", 2480)
+            username = config.get("username", "root")
+            password = config.get("password", "playwithdata")
+            database = config.get("database", "flexible_graphrag")
+            include_basic_schema = config.get("include_basic_schema", True)
+            
+            # Get embedding dimension from centralized function
+            embed_dim = config.get("embed_dim")
+            if embed_dim is None and llm_provider and llm_config:
+                embed_dim = get_embedding_dimension(llm_provider, llm_config)
+                logger.info(f"Detected embedding dimension for ArcadeDB: {embed_dim} for provider: {llm_provider}")
+            elif embed_dim is None:
+                embed_dim = 1536  # Fallback default
+                logger.warning(f"No embedding dimension detected for ArcadeDB, using fallback: {embed_dim}")
+            
+            logger.info(f"Creating ArcadeDB graph store - Host: {host}:{port}, Database: {database}, Include basic schema: {include_basic_schema}, Embed dim: {embed_dim}")
+            
+            return ArcadeDBPropertyGraphStore(
+                host=host,
+                port=port,
+                username=username,
+                password=password,
+                database=database,
+                embedding_dimension=embed_dim,
+                include_basic_schema=include_basic_schema
+            )
+        
+        elif db_type == GraphDBType.MEMGRAPH:
+            username = config.get("username", "")
+            password = config.get("password", "")
+            url = config.get("url", "bolt://localhost:7688")  # Default MemGraph port
+            database = config.get("database", "memgraph")
+            
+            logger.info(f"Creating MemGraph graph store - URL: {url}, Database: {database}")
+            logger.info("Using MemGraph-specific configuration to avoid relationship naming issues")
+            
+            return MemgraphPropertyGraphStore(
+                username=username,
+                password=password,
+                url=url,
+                database=database,
+                refresh_schema=False  # Bypass schema validation to avoid naming conflicts
+            )
+        
+        elif db_type == GraphDBType.NEBULA:
+            # Handle both 'space' and 'space_name' for backward compatibility
+            space = config.get("space") or config.get("space_name", "flexible_graphrag")
+            overwrite = config.get("overwrite", True)
+            
+            # Connection parameters using correct parameter names
+            username = config.get("username", "root")
+            password = config.get("password", "nebula")
+            # Build URL from address and port, or use provided URL
+            if "url" in config:
+                url = config["url"]
+            else:
+                address = config.get("address", "localhost")
+                port = config.get("port", 9669)
+                url = f"nebula://{address}:{port}"
+            
+            # Custom props schema including all required columns for LlamaIndex
+            # Based on the error, LlamaIndex tries to insert these specific properties
+            CUSTOM_PROPS_SCHEMA = "`source` STRING, `conversion_method` STRING, `file_type` STRING, `file_name` STRING, `_node_content` STRING, `_node_type` STRING, `document_id` STRING, `doc_id` STRING, `ref_doc_id` STRING, `triplet_source_id` STRING, `file_path` STRING, `file_size` INT, `creation_date` STRING, `last_modified_date` STRING"
+            
+            logger.info(f"Creating NebulaGraph graph store - Space: {space}, URL: {url}, Overwrite: {overwrite}")
+            logger.info("Using custom props schema to include all required LlamaIndex properties")
+            logger.info(f"Props schema: {CUSTOM_PROPS_SCHEMA}")
+            
+            return NebulaPropertyGraphStore(
+                space=space,
+                username=username,
+                password=password,
+                url=url,
+                overwrite=overwrite,
+                props_schema=CUSTOM_PROPS_SCHEMA
+            )
+        
+        elif db_type == GraphDBType.NEPTUNE:
+            host = config.get("host")
+            port = config.get("port", 8182)
+            
+            if not host:
+                raise ValueError("Neptune host is required (format: <GRAPH NAME>.<CLUSTER ID>.<REGION>.neptune.amazonaws.com)")
+            
+            logger.info(f"Creating Neptune graph store - Host: {host}:{port}")
+            
+            return NeptuneDatabasePropertyGraphStore(
+                host=host,
+                port=port
+            )
+        elif db_type == GraphDBType.NEPTUNE_ANALYTICS:
+            graph_identifier = config.get("graph_identifier")
+            
+            if not graph_identifier:
+                raise ValueError("Neptune Analytics graph_identifier is required")
+            
+            logger.info(f"Creating Neptune Analytics graph store - Graph ID: {graph_identifier}")
+            
+            return NeptuneAnalyticsPropertyGraphStore(
+                graph_identifier=graph_identifier
             )
         
         else:

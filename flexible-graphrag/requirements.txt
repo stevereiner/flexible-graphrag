@@ -20,6 +20,7 @@ pydantic
 pydantic-settings
 # LlamaIndex core and integrations
 llama-index
+llama-index-core
 llama-index-llms-openai
 llama-index-llms-ollama
 llama-index-llms-gemini
@@ -32,21 +33,46 @@ llama-index-vector-stores-neo4jvector
 llama-index-vector-stores-qdrant
 llama-index-vector-stores-elasticsearch
 llama-index-vector-stores-opensearch
+llama-index-vector-stores-chroma
+llama-index-vector-stores-milvus
+llama-index-vector-stores-weaviate
+llama-index-vector-stores-pinecone
+llama-index-vector-stores-postgres
+llama-index-vector-stores-lancedb
 llama-index-graph-stores-neo4j
 llama-index-graph-stores-kuzu
 llama-index-graph-stores-falkordb
+llama-index-graph-stores-memgraph
+llama-index-graph-stores-nebula
+llama-index-graph-stores-neptune
 llama-index-retrievers-bm25
-# Additional dependencies  
-qdrant-client
-# Kuzu graph database (install with: uv pip install kuzu)
+
+# ArcadeDB graph database dependencies
+arcadedb-python
+llama-index-graph-stores-arcadedb
+
+# Kuzu graph database dependencies
 kuzu
+
+# Search / Vector database dependencies
 elasticsearch
 opensearch-py
-# LlamaIndex Hub Reader dependencies
+
+# Vector database client libraries
+qdrant-client
+chromadb
+pymilvus
+weaviate-client
+pinecone-client
+psycopg2-binary
+lancedb
+
+# Data Source LlamaIndex Reader dependencies
 llama-index-readers-web
 llama-index-readers-wikipedia
-wikipedia  # Required by llama-index-readers-wikipedia
+wikipedia 
 llama-index-readers-youtube-transcript
+youtube_transcript_api
 llama-index-readers-s3
 llama-index-readers-gcs
 llama-index-readers-azstorage-blob
@@ -55,4 +81,3 @@ llama-index-readers-microsoft-sharepoint
 llama-index-readers-box
 llama-index-readers-google
 
-youtube_transcript_api

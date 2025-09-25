@@ -1,0 +1,176 @@
+# LanceDB Vector Database Configuration
+# 
+# NOTE: LanceDB is an embedded vector database - no server container needed.
+# This configuration provides LanceDB Viewer, a web dashboard for managing LanceDB databases.
+#
+# LanceDB Configuration Requirements:
+# - VECTOR_DB=lancedb
+# - VECTOR_DB_CONFIG={"uri": "./lancedb", "table_name": "hybrid_search", "vector_column_name": "vector", "text_column_name": "text"}
+#
+# LanceDB Viewer provides:
+# - Web-based CRUD operations (Create, Read, Update, Delete)
+# - Database browsing and table management
+# - Query interface for vector similarity search
+# - Data visualization and inspection tools
+
+services:
+  lancedb-viewer:
+    # LanceDB Viewer - Web dashboard for LanceDB management
+    # Repository: https://github.com/mythrantic/lancedb-viewer
+    # Architecture: Python FastAPI (backend) + SvelteKit (frontend)
+    image: node:18-alpine
+    container_name: flexible-graphrag-lancedb-viewer
+    ports:
+      - "3005:5173"  # LanceDB Viewer frontend (SvelteKit dev server)
+    working_dir: /app
+    volumes:
+      - lancedb_viewer_data:/app
+      - lancedb_data:/data/lancedb  # Mount LanceDB data directory
+    environment:
+      - NODE_ENV=development
+      - PORT=5173
+      # LanceDB configuration
+      - LANCEDB_URI=/data/lancedb
+      - LANCEDB_TABLE_NAME=hybrid_search
+      # Pre-create database directory
+      - LANCEDB_AUTO_CREATE=true
+    command: >
+      sh -c "
+        if [ ! -f frontend/package.json ]; then
+          echo 'Setting up LanceDB Viewer dashboard...'
+          
+          # Install required packages
+          apk add --no-cache git python3 py3-pip build-base
+          
+          # Clean any existing files and clone fresh
+          rm -rf /tmp/lancedb-viewer
+          git clone https://github.com/mythrantic/lancedb-viewer.git /tmp/lancedb-viewer
+          
+          # Copy files to working directory
+          cp -r /tmp/lancedb-viewer/* .
+          cp -r /tmp/lancedb-viewer/.[^.]* . 2>/dev/null || true
+          
+          # Clean up temp directory
+          rm -rf /tmp/lancedb-viewer
+          
+          echo 'LanceDB Viewer repository cloned successfully!'
+        fi
+        
+        # Navigate to frontend directory and install dependencies
+        cd frontend
+        if [ ! -d node_modules ]; then
+          echo 'Installing frontend dependencies...'
+          npm install
+        fi
+        
+        # Start the SvelteKit development server
+        echo 'Starting LanceDB Viewer frontend...'
+        npm run dev -- --host 0.0.0.0 --port 5173
+      "
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:5173"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Alternative: Simple info page if LanceDB Viewer fails
+  lancedb-info:
+    image: nginx:alpine
+    container_name: flexible-graphrag-lancedb-info
+    ports:
+      - "3006:80"  # Backup info dashboard
+    volumes:
+      - lancedb_data:/data/lancedb  # Mount LanceDB data directory (read-only)
+    environment:
+      - LANCEDB_URI=${LANCEDB_URI:-./lancedb}
+      - LANCEDB_TABLE_NAME=${LANCEDB_TABLE_NAME:-hybrid_search}
+    command: >
+      sh -c "
+        echo 'Setting up LanceDB Info page...'
+        
+        # Create a simple HTML info page
+        cat > /usr/share/nginx/html/index.html << 'EOF'
+        <!DOCTYPE html>
+        <html lang=\"en\">
+        <head>
+            <meta charset=\"UTF-8\">
+            <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">
+            <title>LanceDB - Flexible GraphRAG</title>
+            <style>
+                body { font-family: Arial, sans-serif; margin: 40px; background: #f5f5f5; }
+                .container { max-width: 800px; margin: 0 auto; background: white; padding: 30px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+                h1 { color: #2c3e50; border-bottom: 3px solid #3498db; padding-bottom: 10px; }
+                h2 { color: #34495e; margin-top: 30px; }
+                .status { padding: 15px; border-radius: 5px; margin: 15px 0; }
+                .info { background: #e8f4fd; border-left: 4px solid #3498db; }
+                .success { background: #d4edda; border-left: 4px solid #28a745; }
+                .warning { background: #fff3cd; border-left: 4px solid #ffc107; }
+                code { background: #f8f9fa; padding: 2px 6px; border-radius: 3px; font-family: 'Courier New', monospace; }
+                .config-block { background: #f8f9fa; padding: 15px; border-radius: 5px; margin: 10px 0; }
+                ul { line-height: 1.6; }
+                a { color: #3498db; text-decoration: none; }
+                a:hover { text-decoration: underline; }
+            </style>
+        </head>
+        <body>
+            <div class=\"container\">
+                <h1>🚀 LanceDB Vector Database</h1>
+                
+                <div class=\"status info\">
+                    <strong>ℹ️ Backup Info Page</strong><br>
+                    This is a fallback page. The main LanceDB Viewer is available at <a href=\"http://localhost:3005\" target=\"_blank\">http://localhost:3005</a>
+                </div>
+                
+                <h2>📊 Configuration</h2>
+                <div class=\"config-block\">
+                    <strong>Database Type:</strong> <code>VECTOR_DB=lancedb</code><br>
+                    <strong>Default URI:</strong> <code>./lancedb</code><br>
+                    <strong>Default Table:</strong> <code>hybrid_search</code><br>
+                    <strong>Vector Column:</strong> <code>vector</code><br>
+                    <strong>Text Column:</strong> <code>text</code>
+                </div>
+                
+                <h2>🔧 LanceDB Viewer</h2>
+                <p>The main LanceDB Viewer provides:</p>
+                <ul>
+                    <li><strong>Visual Interface:</strong> Browse and manage LanceDB databases</li>
+                    <li><strong>CRUD Operations:</strong> Create, Read, Update, Delete records</li>
+                    <li><strong>Query Interface:</strong> Vector similarity search</li>
+                    <li><strong>Data Visualization:</strong> Inspect database contents</li>
+                </ul>
+                
+                <div class=\"status success\">
+                    <strong>🔗 Access LanceDB Viewer:</strong><br>
+                    <a href=\"http://localhost:3005\" target=\"_blank\" style=\"font-size: 18px; font-weight: bold;\">http://localhost:3005</a>
+                </div>
+                
+                <h2>📚 Documentation</h2>
+                <ul>
+                    <li><a href=\"https://github.com/mythrantic/lancedb-viewer\" target=\"_blank\">LanceDB Viewer Repository</a></li>
+                    <li><a href=\"https://lancedb.github.io/lancedb/\" target=\"_blank\">Official LanceDB Documentation</a></li>
+                    <li><a href=\"https://github.com/lancedb/lancedb\" target=\"_blank\">LanceDB GitHub Repository</a></li>
+                </ul>
+            </div>
+        </body>
+        </html>
+        EOF
+        
+        echo 'LanceDB Info page ready!'
+        nginx -g 'daemon off;'
+      "
+    restart: unless-stopped
+    profiles:
+      - backup  # Only start with --profile backup
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:80"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+volumes:
+  lancedb_viewer_data:
+    driver: local
+  lancedb_data:
+    driver: local
+

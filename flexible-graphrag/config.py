@@ -27,12 +27,23 @@ class VectorDBType(str, Enum):
     NEO4J = "neo4j"
     ELASTICSEARCH = "elasticsearch"
     OPENSEARCH = "opensearch"
+    CHROMA = "chroma"
+    MILVUS = "milvus"
+    WEAVIATE = "weaviate"
+    PINECONE = "pinecone"
+    POSTGRES = "postgres"
+    LANCEDB = "lancedb"
 
 class GraphDBType(str, Enum):
     NONE = "none"  # Disable graph search
     NEO4J = "neo4j"
     KUZU = "kuzu"
     FALKORDB = "falkordb"
+    ARCADEDB = "arcadedb"
+    MEMGRAPH = "memgraph"
+    NEBULA = "nebula"
+    NEPTUNE = "neptune"
+    NEPTUNE_ANALYTICS = "neptune_analytics"
 
 class SearchDBType(str, Enum):
     NONE = "none"  # Disable fulltext search
@@ -217,6 +228,58 @@ an aristocratic family that rules the planet Caladan, the rainy planet, since 10
                     "text_field": "content",
                     "search_pipeline": "hybrid-search-pipeline"
                 }
+            elif self.vector_db == VectorDBType.CHROMA:
+                self.vector_db_config = {
+                    "persist_directory": os.getenv("CHROMA_PERSIST_DIR", "./chroma_db"),
+                    "collection_name": os.getenv("CHROMA_COLLECTION", "hybrid_search"),
+                    "embed_dim": 1536 if self.llm_provider == LLMProvider.OPENAI else 1024
+                }
+            elif self.vector_db == VectorDBType.MILVUS:
+                self.vector_db_config = {
+                    "host": os.getenv("MILVUS_HOST", "localhost"),
+                    "port": int(os.getenv("MILVUS_PORT", "19530")),
+                    "collection_name": os.getenv("MILVUS_COLLECTION", "hybrid_search"),
+                    "username": os.getenv("MILVUS_USERNAME"),
+                    "password": os.getenv("MILVUS_PASSWORD"),
+                    "use_secure": os.getenv("MILVUS_USE_SECURE", "false").lower() == "true",
+                    "embed_dim": 1536 if self.llm_provider == LLMProvider.OPENAI else 1024
+                }
+            elif self.vector_db == VectorDBType.WEAVIATE:
+                self.vector_db_config = {
+                    "url": os.getenv("WEAVIATE_URL", "http://localhost:8081"),
+                    "index_name": os.getenv("WEAVIATE_INDEX_NAME", "HybridSearch"),  # Must start with capital letter
+                    "api_key": os.getenv("WEAVIATE_API_KEY"),
+                    "text_key": os.getenv("WEAVIATE_TEXT_KEY", "content"),
+                    "embed_dim": 1536 if self.llm_provider == LLMProvider.OPENAI else 1024
+                }
+            elif self.vector_db == VectorDBType.PINECONE:
+                self.vector_db_config = {
+                    "api_key": os.getenv("PINECONE_API_KEY"),
+                    "environment": os.getenv("PINECONE_ENVIRONMENT"),
+                    "index_name": os.getenv("PINECONE_INDEX", "hybrid-search"),
+                    "namespace": os.getenv("PINECONE_NAMESPACE"),
+                    "metric": os.getenv("PINECONE_METRIC", "cosine"),
+                    "embed_dim": 1536 if self.llm_provider == LLMProvider.OPENAI else 1024
+                }
+            elif self.vector_db == VectorDBType.POSTGRES:
+                self.vector_db_config = {
+                    "host": os.getenv("POSTGRES_HOST", "localhost"),
+                    "port": int(os.getenv("POSTGRES_PORT", "5433")),
+                    "database": os.getenv("POSTGRES_DATABASE", "postgres"),
+                    "username": os.getenv("POSTGRES_USERNAME", "postgres"),
+                    "password": os.getenv("POSTGRES_PASSWORD"),
+                    "table_name": os.getenv("POSTGRES_TABLE", "hybrid_search_vectors"),
+                    "connection_string": os.getenv("POSTGRES_CONNECTION_STRING"),
+                    "embed_dim": 1536 if self.llm_provider == LLMProvider.OPENAI else 1024
+                }
+            elif self.vector_db == VectorDBType.LANCEDB:
+                self.vector_db_config = {
+                    "uri": os.getenv("LANCEDB_URI", "./lancedb"),
+                    "table_name": os.getenv("LANCEDB_TABLE", "hybrid_search"),
+                    "vector_column_name": os.getenv("LANCEDB_VECTOR_COLUMN", "vector"),
+                    "text_column_name": os.getenv("LANCEDB_TEXT_COLUMN", "text"),
+                    "embed_dim": 1536 if self.llm_provider == LLMProvider.OPENAI else 1024
+                }
         
         if not self.graph_db_config:
             if self.graph_db == GraphDBType.NEO4J:
@@ -225,6 +288,49 @@ an aristocratic family that rules the planet Caladan, the rainy planet, since 10
                     "password": os.getenv("NEO4J_PASSWORD", "password"),
                     "url": os.getenv("NEO4J_URI", "bolt://localhost:7689"),  # Updated default port
                     "database": os.getenv("NEO4J_DATABASE", "neo4j")
+                }
+            elif self.graph_db == GraphDBType.KUZU:
+                self.graph_db_config = {
+                    "db_path": os.getenv("KUZU_DB_PATH", "./kuzu_db")
+                }
+            elif self.graph_db == GraphDBType.FALKORDB:
+                self.graph_db_config = {
+                    "url": os.getenv("FALKORDB_URL", "falkor://localhost:6379"),
+                    "username": os.getenv("FALKORDB_USERNAME"),
+                    "password": os.getenv("FALKORDB_PASSWORD")
+                }
+            elif self.graph_db == GraphDBType.ARCADEDB:
+                self.graph_db_config = {
+                    "host": os.getenv("ARCADEDB_HOST", "localhost"),
+                    "port": int(os.getenv("ARCADEDB_PORT", "2480")),
+                    "username": os.getenv("ARCADEDB_USERNAME", "root"),
+                    "password": os.getenv("ARCADEDB_PASSWORD", "playwithdata"),
+                    "database": os.getenv("ARCADEDB_DATABASE", "flexible_graphrag"),
+                    "include_basic_schema": os.getenv("ARCADEDB_INCLUDE_BASIC_SCHEMA", "true").lower() == "true"
+                }
+            elif self.graph_db == GraphDBType.MEMGRAPH:
+                self.graph_db_config = {
+                    "username": os.getenv("MEMGRAPH_USERNAME", ""),
+                    "password": os.getenv("MEMGRAPH_PASSWORD", ""),
+                    "url": os.getenv("MEMGRAPH_URL", "bolt://localhost:7688")
+                }
+            elif self.graph_db == GraphDBType.NEBULA:
+                self.graph_db_config = {
+                    "space": os.getenv("NEBULA_SPACE", "flexible_graphrag"),
+                    "overwrite": os.getenv("NEBULA_OVERWRITE", "true").lower() == "true",
+                    "address": os.getenv("NEBULA_ADDRESS", "localhost"),
+                    "port": int(os.getenv("NEBULA_PORT", "9669")),
+                    "username": os.getenv("NEBULA_USERNAME", "root"),
+                    "password": os.getenv("NEBULA_PASSWORD", "nebula")
+                }
+            elif self.graph_db == GraphDBType.NEPTUNE:
+                self.graph_db_config = {
+                    "host": os.getenv("NEPTUNE_HOST"),
+                    "port": int(os.getenv("NEPTUNE_PORT", "8182"))
+                }
+            elif self.graph_db == GraphDBType.NEPTUNE_ANALYTICS:
+                self.graph_db_config = {
+                    "graph_identifier": os.getenv("NEPTUNE_ANALYTICS_GRAPH_ID")
                 }
         
         if not self.search_db_config:

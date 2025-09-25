@@ -18,6 +18,8 @@ The `includes/` directory contains individual service definitions:
 | Neo4j | `includes/neo4j.yaml` | Graph database with APOC & GDS |
 | Kuzu | `includes/kuzu.yaml` | Embedded graph DB + web explorer |
 | FalkorDB | `includes/falkordb.yaml` | Production graph DB with browser (ports 6379, 3001) |
+| MemGraph | `includes/memgraph.yaml` | Real-time graph database with Lab dashboard (ports 7688, 3002) |
+| ArcadeDB | `includes/arcadedb.yaml` | Multi-model database with graph capabilities (ports 2480, 2424) |
 | Qdrant | `includes/qdrant.yaml` | Vector database |
 | Elasticsearch | `includes/elasticsearch.yaml` | Search engine |
 | Kibana | `includes/kibana.yaml` | Elasticsearch dashboard & visualization |
@@ -92,6 +94,8 @@ After deployment with full stack (docker-compose.yaml), access services at:
 - **Neo4j Browser**: http://localhost:7474/
 - **Kuzu Explorer**: http://localhost:8002/
 - **FalkorDB Browser**: http://localhost:3001/
+- **MemGraph Lab**: http://localhost:3002/
+- **ArcadeDB Studio**: http://localhost:2480/
 - **Qdrant Dashboard**: http://localhost:6333/dashboard
 - **Elasticsearch**: http://localhost:9200/
 - **Kibana Dashboard**: http://localhost:5601/

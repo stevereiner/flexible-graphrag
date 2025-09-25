@@ -165,6 +165,9 @@ uploads/
 # Database directories - contains database files
 flexible-graphrag/kuzu_db/
 kuzu_db/
+chroma_db/
+lancedb/
+
 
 # Cursor  
 #  Cursor is an AI-powered code editor.`.cursorignore` specifies files/directories to 

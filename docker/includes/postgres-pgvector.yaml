@@ -1,0 +1,37 @@
+services:
+  postgres:
+    container_name: flexible-graphrag-postgres
+    image: pgvector/pgvector:pg16
+    ports:
+      - "5433:5432"  # Changed from 5432 to avoid conflict with Alfresco PostgreSQL
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./postgres-init:/docker-entrypoint-initdb.d
+    environment:
+      POSTGRES_DB: flexible_graphrag
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+    command: postgres -c shared_preload_libraries=vector
+    restart: unless-stopped
+
+  pgadmin:
+    container_name: flexible-graphrag-pgadmin
+    image: dpage/pgadmin4:latest
+    ports:
+      - "5050:80"
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@flexible-graphrag.com
+      PGADMIN_DEFAULT_PASSWORD: admin
+      PGADMIN_CONFIG_SERVER_MODE: 'False'
+    depends_on:
+      - postgres
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+    driver: local
+  pgadmin_data:
+    driver: local
+

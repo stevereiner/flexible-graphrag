@@ -1,0 +1,22 @@
+services:
+  weaviate:
+    container_name: flexible-graphrag-weaviate
+    image: semitechnologies/weaviate:1.25.6
+    ports:
+      - "8081:8080"  # Changed from 8080 to avoid conflict with Alfresco
+      # - "50051:50051"  # gRPC port disabled - using REST-only mode
+    volumes:
+      - weaviate_data:/var/lib/weaviate
+    environment:
+      QUERY_DEFAULTS_LIMIT: 25
+      AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED: 'true'
+      PERSISTENCE_DATA_PATH: '/var/lib/weaviate'
+      DEFAULT_VECTORIZER_MODULE: 'none'
+      ENABLE_MODULES: 'text2vec-openai,text2vec-cohere,text2vec-huggingface,ref2vec-centroid,generative-openai,qna-openai'
+      CLUSTER_HOSTNAME: 'node1'
+    restart: unless-stopped
+
+volumes:
+  weaviate_data:
+    driver: local
+

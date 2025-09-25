@@ -1,0 +1,54 @@
+# Amazon Neptune - Managed Graph Database Service
+# 
+# Neptune is a fully managed graph database service by AWS.
+# It cannot be run locally via Docker as it's a cloud-only service.
+# 
+# To use Neptune with Flexible GraphRAG:
+# 
+# 1. Create a Neptune cluster in AWS Console:
+#    - Go to Amazon Neptune in AWS Console
+#    - Create a new database cluster
+#    - Note the cluster endpoint and port
+# 
+# 2. Configure IAM permissions:
+#    - Create IAM user with Neptune access
+#    - Get Access Key ID and Secret Access Key
+# 
+# 3. Set environment variables:
+#    GRAPH_DB=neptune
+#    GRAPH_DB_CONFIG={"endpoint": "your-cluster.cluster-xyz.region.neptune.amazonaws.com", "port": 8182, "region": "us-east-1", "access_key": "your_access_key", "secret_key": "your_secret_key"}
+# 
+# 4. Alternative: Use AWS credentials from environment
+#    AWS_ACCESS_KEY_ID=your_access_key
+#    AWS_SECRET_ACCESS_KEY=your_secret_key
+#    NEPTUNE_ENDPOINT=your-cluster.cluster-xyz.region.neptune.amazonaws.com
+#    NEPTUNE_REGION=us-east-1
+# 
+# For local development, consider using Neo4j, MemGraph, or NebulaGraph instead.
+# 
+# Documentation: https://docs.aws.amazon.com/neptune/
+# Pricing: https://aws.amazon.com/neptune/pricing/
+
+# Graph-Explorer: Open-source Neptune dashboard (can be used with Neptune clusters)
+services:
+  graph-explorer:
+    image: public.ecr.aws/neptune/graph-explorer:latest
+    container_name: flexible-graphrag-graph-explorer
+    environment:
+      # Configure connection to your Neptune cluster
+      - GRAPH_CONNECTION_URL=wss://your-neptune-cluster.cluster-xyz.region.neptune.amazonaws.com:8182/gremlin
+      - GRAPH_TYPE=gremlin
+      # Optional: Configure proxy endpoint if using Neptune with IAM
+      - PROXY_SERVER_HTTPS_CONNECTION=true
+      - USING_PROXY_SERVER=false
+    ports:
+      - "3007:80"     # Graph-Explorer web interface
+    restart: unless-stopped
+    # Note: This container can connect to Neptune clusters but requires:
+    # 1. Network connectivity to your Neptune cluster
+    # 2. Proper AWS credentials/IAM roles for authentication
+    # 3. Security group rules allowing connections from this container
+    
+# Alternative: Neptune Workbench (Jupyter-based, requires AWS setup)
+# Neptune Workbench cannot be containerized as it's a managed AWS service
+# Access via: AWS Console > Neptune > Notebooks > Create notebook instance

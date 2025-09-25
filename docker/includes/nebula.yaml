@@ -1,0 +1,121 @@
+# NebulaGraph Distributed Graph Database
+services:
+  nebula-metad:
+    image: vesoft/nebula-metad:v3.6.0
+    container_name: flexible-graphrag-nebula-metad
+    environment:
+      USER: root
+    command:
+      - --meta_server_addrs=nebula-metad:9559
+      - --local_ip=nebula-metad
+      - --ws_ip=nebula-metad
+      - --port=9559
+      - --ws_http_port=19559
+      - --data_path=/data/meta
+      - --log_dir=/logs
+      - --v=0
+      - --minloglevel=0
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://nebula-metad:19559/status"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    ports:
+      - "9559:9559"
+      - "19559:19559"
+    volumes:
+      - nebula_meta_data:/data/meta
+      - nebula_meta_logs:/logs
+    restart: unless-stopped
+
+  nebula-storaged:
+    image: vesoft/nebula-storaged:v3.6.0
+    container_name: flexible-graphrag-nebula-storaged
+    environment:
+      USER: root
+    command:
+      - --meta_server_addrs=nebula-metad:9559
+      - --local_ip=nebula-storaged
+      - --ws_ip=nebula-storaged
+      - --port=9779
+      - --ws_http_port=19779
+      - --data_path=/data/storage
+      - --log_dir=/logs
+      - --v=0
+      - --minloglevel=0
+    depends_on:
+      - nebula-metad
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://nebula-storaged:19779/status"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    ports:
+      - "9779:9779"
+      - "19779:19779"
+    volumes:
+      - nebula_storage_data:/data/storage
+      - nebula_storage_logs:/logs
+    restart: unless-stopped
+
+  nebula-graphd:
+    image: vesoft/nebula-graphd:v3.6.0
+    container_name: flexible-graphrag-nebula-graphd
+    environment:
+      USER: root
+    command:
+      - --meta_server_addrs=nebula-metad:9559
+      - --local_ip=nebula-graphd
+      - --ws_ip=nebula-graphd
+      - --port=9669
+      - --ws_http_port=19669
+      - --log_dir=/logs
+      - --v=0
+      - --minloglevel=0
+    depends_on:
+      - nebula-metad
+      - nebula-storaged
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://nebula-graphd:19669/status"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    ports:
+      - "9669:9669"
+      - "19669:19669"
+    volumes:
+      - nebula_graph_logs:/logs
+    restart: unless-stopped
+
+  nebula-studio:
+    image: vesoft/nebula-graph-studio:v3.8.0
+    container_name: flexible-graphrag-nebula-studio
+    environment:
+      USER: root
+      # Pre-configure connection to graphd service
+      NEBULA_HOST: nebula-graphd
+      NEBULA_PORT: 9669
+      NEBULA_USER: root
+      NEBULA_PASSWORD: nebula
+    depends_on:
+      nebula-graphd:
+        condition: service_healthy
+    ports:
+      - "7001:7001"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:7001"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+volumes:
+  nebula_meta_data:
+  nebula_meta_logs:
+  nebula_storage_data:
+  nebula_storage_logs:
+  nebula_graph_logs:
+

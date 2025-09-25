@@ -1,0 +1,35 @@
+# MemGraph Real-time Graph Database
+services:
+  memgraph:
+    image: memgraph/memgraph:2.22.0
+    container_name: flexible-graphrag-memgraph
+    ports:
+      - "7688:7687"    # Bolt (changed from 7687 to avoid Neo4j conflict)
+    volumes:
+      - memgraph_data:/var/lib/memgraph
+      - memgraph_log:/var/log/memgraph
+    restart: unless-stopped
+    command: ["--log-level=WARNING", "--also-log-to-stderr"]
+    # Simplified startup - remove health check dependency for now
+    # healthcheck:
+    #   test: ["CMD-SHELL", "nc -z localhost 7687 || exit 1"]
+    #   interval: 30s
+    #   timeout: 10s
+    #   retries: 5
+    #   start_period: 30s
+
+  memgraph-lab:
+    image: memgraph/lab:latest
+    container_name: flexible-graphrag-memgraph-lab
+    ports:
+      - "3002:3000"    # MemGraph Lab web interface
+    environment:
+      - QUICK_CONNECT_MG_HOST=memgraph
+      - QUICK_CONNECT_MG_PORT=7687
+    depends_on:
+      - memgraph  # Simple dependency without health check
+    restart: unless-stopped
+
+volumes:
+  memgraph_data:
+  memgraph_log:

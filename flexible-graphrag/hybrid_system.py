@@ -200,6 +200,74 @@ class HybridSearchSystem:
         logger.info("=== SYSTEM READY ===")
         logger.info("HybridSearchSystem initialized successfully with Ollama!" if config.llm_provider == LLMProvider.OLLAMA else "HybridSearchSystem initialized successfully")
     
+    def _init_nebula_schema(self):
+        """Initialize NebulaGraph schema with required vertex types and properties"""
+        try:
+            # Get the NebulaGraph client from the graph store
+            if hasattr(self.graph_store, '_client') and self.graph_store._client:
+                client = self.graph_store._client
+                
+                # Make sure we're using the correct space
+                space_name = getattr(self.graph_store, 'space', 'flexible_graphrag')
+                use_space_result = client.execute(f"USE {space_name}")
+                if not use_space_result.is_succeeded():
+                    logger.warning(f"Failed to switch to space {space_name}: {use_space_result.error_msg()}")
+                else:
+                    logger.info(f"Switched to NebulaGraph space: {space_name}")
+                
+                # Create basic vertex types (tags) that LlamaIndex uses
+                schema_commands = [
+                    # Props tag for document properties (removed double underscore)
+                    """CREATE TAG IF NOT EXISTS `Props__` (
+                        `source` string,
+                        `conversion_method` string,
+                        `file_type` string,
+                        `file_name` string,
+                        `_node_content` string,
+                        `_node_type` string,
+                        `document_id` string,
+                        `doc_id` string,
+                        `ref_doc_id` string
+                    )""",
+                    
+                    # Chunk tag for text chunks (removed double underscore)
+                    """CREATE TAG IF NOT EXISTS `Chunk__` (
+                        `text` string
+                    )""",
+                    
+                    # Entity tag for extracted entities
+                    """CREATE TAG IF NOT EXISTS `Entity` (
+                        `name` string,
+                        `type` string,
+                        `description` string
+                    )""",
+                    
+                    # Basic relationship types
+                    """CREATE EDGE IF NOT EXISTS `MENTIONS` ()""",
+                    """CREATE EDGE IF NOT EXISTS `NEXT` ()""",
+                    """CREATE EDGE IF NOT EXISTS `CONTAINS` ()"""
+                ]
+                
+                # Execute schema creation commands
+                for command in schema_commands:
+                    try:
+                        result = client.execute(command)
+                        if not result.is_succeeded():
+                            logger.warning(f"Schema command failed: {command} - Error: {result.error_msg()}")
+                        else:
+                            logger.debug(f"Schema command succeeded: {command.split()[2]} {command.split()[5]}")
+                    except Exception as e:
+                        logger.warning(f"Failed to execute schema command: {command} - Error: {e}")
+                
+                logger.info("NebulaGraph basic schema created successfully")
+                
+            else:
+                logger.warning("NebulaGraph client not available for schema initialization")
+                
+        except Exception as e:
+            logger.error(f"Failed to initialize NebulaGraph schema: {e}")
+            raise
+    
     def _setup_databases(self):
         """Initialize database connections based on configuration"""
         
@@ -529,6 +597,44 @@ class HybridSearchSystem:
                     
                 except Exception as e:
                     logger.warning(f"Schema initialization failed: {e} - LlamaIndex will create tables as needed during extraction")
+            
+            elif str(self.config.graph_db) == "nebula":
+                # NebulaGraph schema is now handled automatically via props_schema parameter
+                logger.info("NebulaGraph schema will be created automatically via props_schema parameter")
+            
+            elif str(self.config.graph_db) == "memgraph":
+                # MemGraph requires proper relationship naming conventions
+                logger.info("MemGraph configured with custom extractors to avoid relationship naming conflicts")
+                logger.info("Using UPPER_CASE relationship naming conventions for MemGraph compatibility")
+                
+                # Override extractors for MemGraph with proper naming conventions
+                from llama_index.core.indices.property_graph import SchemaLLMPathExtractor
+                
+                # Define MemGraph-compatible relationship names (UPPER_CASE with underscores)
+                memgraph_relations = [
+                    "MENTIONS", "WORKS_FOR", "LOCATED_IN", "PART_OF", "RELATED_TO",
+                    "CONTAINS", "DEVELOPS", "USES", "CREATES", "MANAGES", "OWNS",
+                    "CONNECTS_TO", "DEPENDS_ON", "IMPLEMENTS", "SUPPORTS"
+                ]
+                
+                # Define common entity types
+                memgraph_entities = [
+                    "Person", "Organization", "Location", "Technology", "Product", 
+                    "Service", "Document", "Project", "Concept", "Event"
+                ]
+                
+                # Create MemGraph-compatible extractor
+                # Note: SchemaLLMPathExtractor expects string parameters, not lists
+                memgraph_extractor = SchemaLLMPathExtractor(
+                    llm=self.llm,
+                    possible_entities=", ".join(memgraph_entities),
+                    possible_relations=", ".join(memgraph_relations),
+                    strict=False  # Allow flexible extraction while guiding naming
+                )
+                
+                # Override the extractors in graph_index_kwargs
+                graph_index_kwargs["kg_extractors"] = [memgraph_extractor]
+                logger.info(f"MemGraph: Using custom extractor with {len(memgraph_relations)} relationship types")
             
             # Use run_in_executor with proper nest_asyncio handling
             create_graph_index = functools.partial(PropertyGraphIndex.from_documents, **graph_index_kwargs)

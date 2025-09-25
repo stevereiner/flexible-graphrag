@@ -35,6 +35,11 @@ SOURCE_PATHS=["./sample-docs/cmispress.txt"]
 GRAPH_DB=neo4j
 #GRAPH_DB=kuzu
 #GRAPH_DB=falkordb
+#GRAPH_DB=arcadedb
+#GRAPH_DB=memgraph
+#GRAPH_DB=nebula
+#GRAPH_DB=neptune
+#GRAPH_DB=neptune_analytics
 #GRAPH_DB=none
 
 # Enable knowledge graph extraction 
@@ -65,6 +70,36 @@ GRAPH_DB_CONFIG={"url": "bolt://localhost:7687", "username": "neo4j", "password"
 # With authentication:
 #GRAPH_DB_CONFIG={"url": "falkor://localhost:6379", "username": "user", "password": "pass"}
 
+# ArcadeDB (multi-model database with graph capabilities)
+# include_basic_schema: True (default) - initial types: PERSON, ORGANIZATION, LOCATION, PLACE + Entity, TextChunk, MENTIONS
+#                       False - initial types: Entity, TextChunk, MENTIONS only
+#                       For both settings: LlamaIndex PathExtractors/KG_EXTRACTOR_TYPE control additional types
+#GRAPH_DB_CONFIG={"host": "localhost", "port": 2480, "username": "root", "password": "playwithdata", "database": "flexible_graphrag", "include_basic_schema": true}
+#GRAPH_DB_CONFIG={"host": "localhost", "port": 2480, "username": "root", "password": "playwithdata", "database": "flexible_graphrag", "include_basic_schema": false}
+
+# MemGraph (real-time graph database)
+# Basic configuration:
+#GRAPH_DB_CONFIG={"url": "bolt://localhost:7688", "username": "", "password": ""}
+# Full configuration with database parameter:
+#GRAPH_DB_CONFIG={"url": "bolt://localhost:7688", "username": "", "password": "", "database": "memgraph"}
+
+# NebulaGraph (distributed graph database)
+# Basic configuration (uses defaults for connection):
+#GRAPH_DB_CONFIG={"space": "flexible_graphrag", "overwrite": true}
+# Full configuration with connection parameters (address/port format):
+#GRAPH_DB_CONFIG={"space": "flexible_graphrag", "overwrite": true, "address": "localhost", "port": 9669, "username": "root", "password": "nebula"}
+# Full configuration with URL format:
+#GRAPH_DB_CONFIG={"space": "flexible_graphrag", "overwrite": true, "url": "nebula://localhost:9669", "username": "root", "password": "nebula"}
+# Alternative format (space_name also supported for backward compatibility):
+#GRAPH_DB_CONFIG={"space_name": "flexible_graphrag", "address": "localhost", "port": 9669, "username": "root", "password": "nebula"}
+
+# Amazon Neptune (managed graph database service)
+#GRAPH_DB_CONFIG={"host": "your-graph-name.cluster-id.region.neptune.amazonaws.com", "port": 8182}
+#GRAPH_DB_CONFIG={"endpoint": "your-neptune-cluster.cluster-xyz.us-east-1.neptune.amazonaws.com", "port": 8182, "region": "us-east-1", "access_key": "your_access_key", "secret_key": "your_secret_key"}
+
+# Amazon Neptune Analytics (serverless graph analytics engine)
+#GRAPH_DB_CONFIG={"graph_identifier": "your-graph-identifier"}
+#GRAPH_DB_CONFIG={"graph_identifier": "your-graph-identifier", "region": "us-east-1"}
 
 
 # ====================================================================
@@ -89,6 +124,12 @@ SCHEMA_NAME=default
 VECTOR_DB=qdrant
 #VECTOR_DB=elasticsearch
 #VECTOR_DB=opensearch
+#VECTOR_DB=chroma
+#VECTOR_DB=milvus
+#VECTOR_DB=weaviate
+#VECTOR_DB=pinecone
+#VECTOR_DB=postgres
+#VECTOR_DB=lancedb
 #VECTOR_DB=none
 
 # Vector Database Connection Configurations:
@@ -104,6 +145,27 @@ VECTOR_DB_CONFIG={"host": "localhost", "port": 6333, "collection_name": "hybrid_
 
 # Neo4j VECTOR database configuration (separate from graph)
 #VECTOR_DB_CONFIG={"url": "bolt://localhost:7687", "username": "neo4j", "password": "password", "index_name": "hybrid_search_vector", "database": "neo4j"}
+
+# Chroma (local vector database with persistence)
+#VECTOR_DB_CONFIG={"persist_directory": "./chroma_db", "collection_name": "hybrid_search"}
+
+# Milvus (scalable vector database)
+#VECTOR_DB_CONFIG={"host": "localhost", "port": 19530, "collection_name": "hybrid_search", "username": "root", "password": "milvus"}
+
+# Weaviate (vector search engine with semantic capabilities)
+# For local Docker instance (no authentication):
+#VECTOR_DB_CONFIG={"url": "http://localhost:8081", "index_name": "HybridSearch"}
+# For authenticated instance (with API key):
+#VECTOR_DB_CONFIG={"url": "http://localhost:8081", "index_name": "HybridSearch", "api_key": "your_weaviate_api_key"}
+
+# Pinecone (managed vector database service)
+#VECTOR_DB_CONFIG={"api_key": "your_pinecone_api_key", "environment": "us-east1-gcp", "index_name": "hybrid-search", "namespace": "default"}
+
+# PostgreSQL with pgvector extension
+#VECTOR_DB_CONFIG={"host": "localhost", "port": 5433, "database": "postgres", "username": "postgres", "password": "password", "table_name": "hybrid_search_vectors"}
+
+# LanceDB (modern embedded vector database)
+#VECTOR_DB_CONFIG={"uri": "./lancedb", "table_name": "hybrid_search", "vector_column_name": "vector", "text_column_name": "text"}
 
 
 # ====================================================================
@@ -206,6 +268,12 @@ QDRANT_PORT=6333
 QDRANT_API_KEY=
 # QDRANT_COLLECTION=hybrid_search  # Optional: collection name
 # QDRANT_HTTPS=false  # Use HTTPS for remote Qdrant instances
+
+# Weaviate Configuration
+WEAVIATE_URL=http://localhost:8081
+WEAVIATE_INDEX_NAME=HybridSearch
+# WEAVIATE_API_KEY=your_weaviate_api_key  # Optional: for authenticated instances
+# WEAVIATE_TEXT_KEY=content  # Optional: field name for text content
 
 # OpenSearch Configuration
 OPENSEARCH_URL=http://localhost:9201

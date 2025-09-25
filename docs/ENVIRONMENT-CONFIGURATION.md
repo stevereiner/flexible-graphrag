@@ -50,7 +50,7 @@ These control which backend to use:
 ```bash
 VECTOR_DB=neo4j        # neo4j, qdrant, elasticsearch, opensearch, none
 SEARCH_DB=elasticsearch # elasticsearch, opensearch, bm25, none  
-GRAPH_DB=neo4j         # neo4j, kuzu, none
+GRAPH_DB=neo4j         # neo4j, kuzu, falkordb, arcadedb, memgraph, nebula, neptune, neptune_analytics, none
 ```
 
 ### **Connection Configuration**

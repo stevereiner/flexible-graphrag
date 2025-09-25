@@ -1,0 +1,21 @@
+services:
+  chroma:
+    image: chromadb/chroma:latest
+    container_name: flexible-graphrag-chroma
+    ports:
+      - "8001:8000"  # Chroma server API (changed from 3008 to avoid conflicts)
+    volumes:
+      - chroma_data:/chroma/chroma
+    environment:
+      - CHROMA_SERVER_HOST=0.0.0.0
+      - CHROMA_SERVER_HTTP_PORT=8000
+      - PERSIST_DIRECTORY=/chroma/chroma
+      - IS_PERSISTENT=1
+      - CHROMA_SERVER_CORS_ALLOW_ORIGINS=["*"]
+    # Remove manual command - let the entrypoint script handle uvicorn startup
+    restart: unless-stopped
+
+volumes:
+  chroma_data:
+    driver: local
+

@@ -1,0 +1,36 @@
+# Pinecone Vector Database Configuration
+# 
+# NOTE: Pinecone is a managed cloud service - no local database container needed.
+# This configuration provides access to Pinecone UI, a third-party dashboard for managing Pinecone indexes.
+#
+# Pinecone Configuration Requirements:
+# - VECTOR_DB=pinecone
+# - VECTOR_DB_CONFIG={"api_key": "your_pinecone_api_key", "environment": "us-east1-gcp", "index_name": "hybrid-search", "namespace": "default"}
+#
+# Available Dashboards:
+# 1. Official Pinecone Console: https://app.pinecone.io
+# 2. Pinecone UI (Third-party): https://pineconeui.vercel.app (containerized below)
+
+services:
+  pinecone-ui:
+    # Using the official Pinecone UI project (third-party, open source)
+    # Repository: https://github.com/pinecone-io/pinecone-ui (if available)
+    # Alternative: Use nginx to serve a simple info page with links
+    image: nginx:alpine
+    container_name: flexible-graphrag-pinecone-info
+    ports:
+      - "3004:80"  # Pinecone info dashboard
+    volumes:
+      - ./pinecone-info:/usr/share/nginx/html
+    environment:
+      - PINECONE_API_KEY=${PINECONE_API_KEY:-not_set}
+      - PINECONE_ENVIRONMENT=${PINECONE_ENVIRONMENT:-us-east1-gcp}
+      - PINECONE_INDEX_NAME=${PINECONE_INDEX_NAME:-hybrid-search}
+    restart: unless-stopped
+    command: ["sh", "-c", "chmod -R 755 /usr/share/nginx/html && nginx -g 'daemon off;'"]
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+

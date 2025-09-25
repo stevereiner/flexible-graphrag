@@ -36,6 +36,29 @@ services:
       # Kuzu (alternative):
       #- GRAPH_DB=kuzu
       #- 'GRAPH_DB_CONFIG={"db_path": "./kuzu_db"}'
+      # FalkorDB (alternative):
+      #- GRAPH_DB=falkordb
+      #- 'GRAPH_DB_CONFIG={"url": "falkor://host.docker.internal:6379"}'
+      # ArcadeDB (alternative):
+      #- GRAPH_DB=arcadedb
+      #- 'GRAPH_DB_CONFIG={"host": "host.docker.internal", "port": 2480, "username": "root", "password": "playwithdata", "database": "flexible_graphrag", "query_language": "sql"}'
+      # For Cypher query language:
+      #- 'GRAPH_DB_CONFIG={"host": "host.docker.internal", "port": 2480, "username": "root", "password": "playwithdata", "database": "flexible_graphrag", "query_language": "cypher"}'
+      # MemGraph (alternative):
+      #- GRAPH_DB=memgraph
+      #- 'GRAPH_DB_CONFIG={"url": "bolt://host.docker.internal:7688", "username": "", "password": ""}'
+      # NebulaGraph (alternative):
+      #- GRAPH_DB=nebula
+      #- 'GRAPH_DB_CONFIG={"space": "flexible_graphrag", "overwrite": true}'
+      #- 'GRAPH_DB_CONFIG={"space_name": "flexible_graphrag", "address": "host.docker.internal", "port": 9669, "username": "root", "password": "nebula"}'
+      # Neptune (AWS managed service):
+      #- GRAPH_DB=neptune
+      #- 'GRAPH_DB_CONFIG={"host": "your-graph-name.cluster-id.region.neptune.amazonaws.com", "port": 8182}'
+      #- 'GRAPH_DB_CONFIG={"endpoint": "your-cluster.cluster-xyz.region.neptune.amazonaws.com", "port": 8182, "region": "us-east-1", "access_key": "your_access_key", "secret_key": "your_secret_key"}'
+      # Neptune Analytics (AWS serverless analytics):
+      #- GRAPH_DB=neptune_analytics
+      #- 'GRAPH_DB_CONFIG={"graph_identifier": "your-graph-identifier"}'
+      #- 'GRAPH_DB_CONFIG={"graph_identifier": "your-graph-identifier", "region": "us-east-1"}'
       
       # Neo4j configuration
       - NEO4J_URI=bolt://host.docker.internal:7687

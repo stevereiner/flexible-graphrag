@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pinecone Dashboard - Flexible GraphRAG</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { 
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .container { 
+            max-width: 800px; 
+            margin: 0 auto; 
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+        .header { 
+            background: linear-gradient(135deg, #2c3e50, #3498db);
+            color: white; 
+            padding: 30px; 
+            text-align: center;
+        }
+        .header h1 { font-size: 2.5em; margin-bottom: 10px; }
+        .header p { opacity: 0.9; font-size: 1.1em; }
+        .content { padding: 30px; }
+        .card { 
+            background: #f8f9fa; 
+            border-radius: 8px; 
+            padding: 20px; 
+            margin-bottom: 20px;
+            border-left: 4px solid #3498db;
+        }
+        .card h3 { color: #2c3e50; margin-bottom: 15px; }
+        .btn { 
+            display: inline-block;
+            background: #3498db; 
+            color: white; 
+            text-decoration: none;
+            padding: 12px 24px; 
+            border-radius: 6px; 
+            margin: 5px 10px 5px 0;
+            transition: all 0.3s ease;
+            font-weight: 500;
+        }
+        .btn:hover { 
+            background: #2980b9; 
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(52, 152, 219, 0.3);
+        }
+        .btn.secondary { background: #95a5a6; }
+        .btn.secondary:hover { background: #7f8c8d; }
+        .status { 
+            padding: 8px 16px; 
+            border-radius: 20px; 
+            font-size: 0.9em; 
+            font-weight: 500;
+            display: inline-block;
+            margin: 10px 0;
+        }
+        .status.cloud { background: #e8f5e8; color: #27ae60; }
+        .config-section { 
+            background: #2c3e50; 
+            color: white; 
+            padding: 20px; 
+            border-radius: 8px;
+            font-family: 'Courier New', monospace;
+            font-size: 0.9em;
+            line-height: 1.6;
+            overflow-x: auto;
+        }
+        .note { 
+            background: #fff3cd; 
+            border: 1px solid #ffeaa7; 
+            color: #856404; 
+            padding: 15px; 
+            border-radius: 6px; 
+            margin: 20px 0;
+        }
+        .feature-grid { 
+            display: grid; 
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); 
+            gap: 20px; 
+            margin: 20px 0;
+        }
+        .feature { 
+            text-align: center; 
+            padding: 20px;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        .feature-icon { font-size: 2em; margin-bottom: 10px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🌲 Pinecone Dashboard</h1>
+            <p>Vector Database Management for Flexible GraphRAG</p>
+            <div class="status cloud">☁️ Managed Cloud Service</div>
+        </div>
+        
+        <div class="content">
+            <div class="note">
+                <strong>📌 Important:</strong> Pinecone is a managed cloud service. Unlike other vector databases, 
+                there's no local container to run. Use the official dashboards below to manage your indexes.
+            </div>
+            
+            <div class="card">
+                <h3>🎛️ Available Dashboards</h3>
+                <a href="https://app.pinecone.io" target="_blank" class="btn">
+                    🏢 Official Pinecone Console
+                </a>
+                <a href="https://pineconeui.vercel.app" target="_blank" class="btn secondary">
+                    🔧 Pinecone UI (Third-party)
+                </a>
+                <a href="https://docs.pinecone.io" target="_blank" class="btn secondary">
+                    📚 Documentation
+                </a>
+            </div>
+            
+            <div class="feature-grid">
+                <div class="feature">
+                    <div class="feature-icon">🏢</div>
+                    <h4>Official Console</h4>
+                    <p>Full-featured dashboard with index management, monitoring, and analytics</p>
+                </div>
+                <div class="feature">
+                    <div class="feature-icon">🔧</div>
+                    <h4>Pinecone UI</h4>
+                    <p>Third-party query console with OpenAI integration for easier testing</p>
+                </div>
+                <div class="feature">
+                    <div class="feature-icon">📊</div>
+                    <h4>Datadog Integration</h4>
+                    <p>Advanced monitoring and alerting through Datadog platform</p>
+                </div>
+            </div>
+            
+            <div class="card">
+                <h3>⚙️ Configuration for Flexible GraphRAG</h3>
+                <div class="config-section">
+# Vector Database Configuration
+VECTOR_DB=pinecone
+VECTOR_DB_CONFIG={"api_key": "your_pinecone_api_key", "environment": "us-east1-gcp", "index_name": "hybrid-search", "namespace": "default"}
+
+# Alternative: Individual environment variables
+PINECONE_API_KEY=your_pinecone_api_key
+PINECONE_ENVIRONMENT=us-east1-gcp
+PINECONE_INDEX_NAME=hybrid-search
+PINECONE_NAMESPACE=default
+PINECONE_METRIC=cosine
+                </div>
+            </div>
+            
+            <div class="card">
+                <h3>🚀 Quick Start</h3>
+                <ol style="line-height: 1.8; margin-left: 20px;">
+                    <li>Sign up at <a href="https://app.pinecone.io" target="_blank">Pinecone Console</a></li>
+                    <li>Create a new index with your preferred dimensions</li>
+                    <li>Copy your API key and environment details</li>
+                    <li>Update your <code>.env</code> file with Pinecone configuration</li>
+                    <li>Start using Flexible GraphRAG with Pinecone!</li>
+                    <li>Access this dashboard at <code>http://localhost:3004</code></li>
+                </ol>
+            </div>
+            
+            <div class="card">
+                <h3>🔗 Useful Links</h3>
+                <a href="https://docs.pinecone.io/guides/get-started/quickstart" target="_blank" class="btn secondary">Quickstart Guide</a>
+                <a href="https://docs.pinecone.io/integrations/datadog" target="_blank" class="btn secondary">Datadog Integration</a>
+                <a href="https://community.pinecone.io" target="_blank" class="btn secondary">Community Forum</a>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

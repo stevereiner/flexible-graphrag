@@ -9,12 +9,22 @@
 # Include or comment out (if have externally or don't need) services
 include:
    - includes/neo4j.yaml          # Neo4j graph database
-   - includes/kuzu-explorer.yaml   # Kuzu Explorer web interface (port 7000)
+   #- includes/kuzu-explorer.yaml   # Kuzu Explorer web interface (port 7000)
    #- includes/kuzu-api.yaml       # Kuzu API server (port 7001) - commented out, not used
-   - includes/falkordb.yaml        # FalkorDB graph database with browser (ports 6379, 3001)
-   - includes/qdrant.yaml          # Commented - using existing external container  
+   #- includes/falkordb.yaml        # FalkorDB graph database with browser (ports 6379, 3001)
+   - includes/arcadedb.yaml        # ArcadeDB multi-model database (ports 2480, 2424)
+   #- includes/memgraph.yaml        # MemGraph graph database
+   #- includes/nebula.yaml          # NebulaGraph distributed graph database
+   #- includes/neptune.yaml         # Amazon Neptune graph database
+   - includes/qdrant.yaml          # Commented - using existing external container
+   #- includes/chroma.yaml          # Chroma vector database
+   #- includes/milvus.yaml          # Milvus vector database with Attu dashboard
+   #- includes/weaviate.yaml        # Weaviate vector database
+   #- includes/pinecone.yaml        # Pinecone managed vector database
+   #- includes/postgres-pgvector.yaml  # PostgreSQL with pgvector extension
+   #- includes/lancedb.yaml         # LanceDB embedded vector database  
    - includes/elasticsearch-dev.yaml  # Elasticsearch with security disabled
-   - includes/kibana-simple.yaml       # Kibana working configuration
+   - includes/kibana-simple.yaml      # Kibana working configuration
    #- includes/opensearch.yaml      # Commented - using elasticsearch instead
    #- includes/alfresco.yaml        # Alfresco content management system
    # commented out app-stack.yaml and proxy.yaml currently using external/standalone flexible-graphrag 
