@@ -105,16 +105,16 @@ services:
       - LLM_PROVIDER=ollama
       - OLLAMA_BASE_URL=http://host.docker.internal:11434
       #- OLLAMA_MODEL=llama3.1:8b
-      #- OLLAMA_MODEL=llama3.2:latest
-      - OLLAMA_MODEL=gpt-oss:20b
-      
+      - OLLAMA_MODEL=llama3.2:3b
+      #- OLLAMA_MODEL=gpt-oss:20b
+      - EMBEDDING_MODEL=all-minilm   
                   
       #  OpenAI LLM configuration (commented out - add OPENAI_API_KEY to use)
       #- USE_OPENAI=true
       #- LLM_PROVIDER=openai
       #- OPENAI_API_KEY=${OPENAI_API_KEY:-}
       #- OPENAI_MODEL=gpt-4o-mini
-        
+      #- EMBEDDING_MODEL=text-embedding-3-small  
        
       # Processing configuration
       - CHUNK_SIZE=1024

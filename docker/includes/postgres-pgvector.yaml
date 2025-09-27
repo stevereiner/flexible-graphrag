@@ -1,5 +1,5 @@
 services:
-  postgres:
+  postgres-pgvector:
     container_name: flexible-graphrag-postgres
     image: pgvector/pgvector:pg16
     ports:
@@ -26,7 +26,7 @@ services:
       PGADMIN_DEFAULT_PASSWORD: admin
       PGADMIN_CONFIG_SERVER_MODE: 'False'
     depends_on:
-      - postgres
+      - postgres-pgvector
     restart: unless-stopped
 
 volumes:

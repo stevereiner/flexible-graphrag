@@ -94,6 +94,7 @@ Several databases can serve **multiple roles** in your Flexible GraphRAG setup:
 - **Authentication**: None required
 - **Features**: Real-time graph analytics, Cypher queries
 - **Containers**: `flexible-graphrag-memgraph`, `flexible-graphrag-memgraph-lab`
+- **Docker Version**: 3.5.0 (upgraded for to not get cypher error)
 - **Note**: Requires both MemGraph database and MemGraph Lab services
 
 #### **NebulaGraph** 🟢

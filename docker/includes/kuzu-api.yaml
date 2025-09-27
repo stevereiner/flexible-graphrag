@@ -4,7 +4,7 @@ services:
     image: kuzudb/api-server:latest
     container_name: flexible-graphrag-kuzu-api
     ports:
-      - "7001:8000"    # Map external 7001 to internal 8000 (Kuzu API default port)
+      - "7002:8000"    # Map external 7002 to internal 8000 (Kuzu API default port)
     volumes:
       - ../../flexible-graphrag/kuzu_db:/database    # Bind mount to backend kuzu_db directory
     environment:

@@ -3,7 +3,46 @@
 All notable changes to this project will be documented in this file.
 
 
-## [2025-09-22] - Vector Database Expansion and Dashboard Integration
+## [2025-09-26] - Fixed MemGraph issues, fixed issues with everything in docker compose included
+
+### Fixed
+- **MemGraph Cypher Relation Error**
+  - Upgraded MemGraph Docker image to version 3.5.0
+  - Resolved Cypher relation errors during graph building
+  - Improved stability and compatibility with latest MemGraph features
+
+- **Docker Port Conflicts**
+  - Fixed Kuzu API server port conflict with NebulaGraph Studio (7001 → 7002)
+  - Renamed postgres-pgvector service to avoid conflict with Alfresco postgres
+  - Updated PORT-MAPPINGS.md with accurate conflict documentation
+
+- **Angular Production Build Issues**
+  - Increased Angular budget limits from 1MB to 5MB for Docker production builds
+  - Resolved build failures with Angular Material components in Docker environment
+  - Updated angular.json configuration for proper containerized deployment
+
+- **Docker Backend AsyncIO Compatibility**
+  - Added `--loop asyncio` flag to uvicorn in Docker to support nest_asyncio.apply()
+  - Upgraded Docker Python version from 3.11 to 3.12 for ArcadeDB compatibility
+  - Resolved uvloop/nest_asyncio conflicts in containerized environment
+
+### Enhanced
+- **Docker Compose Configuration**
+  - Updated app-stack.yaml with improved Ollama model defaults
+  - Added embedding configuration for both OpenAI and Ollama providers
+  - Commented out ArcadeDB in env-sample.txt to reflect Neo4j default setup
+
+### Removed
+- **Code Cleanup**
+  - Removed unused `_init_nebula_schema()` function from hybrid_system.py
+  - Proper NebulaGraph setup now documented in NEBULA-SETUP.md
+
+### Notes
+- Backend successfully runs in Docker via app-stack.yaml
+- Frontend containers in app-stack.yaml currently have issues - recommend standalone frontend with Docker databases
+- Full Docker stack functional for databases, selective deployment recommended for UI components
+
+## [2025-09-25] - Vector Database Expansion and Dashboard Integration
 
 ### Added
 - **6 Additional Vector Databases**
@@ -71,7 +110,7 @@ All notable changes to this project will be documented in this file.
 - **Data Source Expansion**: 13 total sources with modular processing architecture
 - **Dashboard Reliability**: Systematic testing identified working vs problematic solutions
 
-## [2025-09-22] - Wikipedia Data Source Enhancement and Performance Logging Fixes
+## [2025-09-23] - Wikipedia Data Source Enhancement and Performance Logging Fixes
 
 ### Enhanced
 - **Wikipedia Data Source**: Improved Wikipedia page resolution with search-based fallback for special characters (e.g., "Nasdaq-100")
@@ -84,7 +123,7 @@ All notable changes to this project will be documented in this file.
   - Resolved variable scope issues causing "Graph: 0.00s" display errors
   - Both processing methods now show accurate timing for all phases (Pipeline, Vector, Graph)
 
-## [2025-09-21] - Angular Data Source Integration and UI Consistency Fixes
+## [2025-09-23] - Angular Data Source Integration and UI Consistency Fixes
 
 ### Fixed
 - **Angular Web Data Source Configuration**
@@ -114,7 +153,7 @@ All notable changes to this project will be documented in this file.
   - Better error messages and user guidance for data source configuration
 
 
-## [2025-09-19] - Data Source Alignment and Progress Tracking Fixes
+## [2025-09-23] - Data Source Alignment and Progress Tracking Fixes
 
 ### Fixed
 - **Critical Progress Bar Issues for New Data Sources**
@@ -146,7 +185,7 @@ All notable changes to this project will be documented in this file.
   - Complete feature parity across all three frontends (React, Vue, Angular)
   - Fixed Vue dropdown styling issues and Angular compilation errors
 
-## [2025-09-18] - YouTube Fix and Cloud Storage Organizational Fields
+## [2025-09-23] - YouTube Fix and Cloud Storage Organizational Fields
 
 ### Fixed
 - **YouTube Data Source**
@@ -170,7 +209,7 @@ All notable changes to this project will be documented in this file.
   - SharePoint: Added document_library and folder_path fields
   - Fixed 422 "Unprocessable Content" errors by updating backend API models
 
-## [2025-09-17] - UI Fixes and Backend Integration
+## [2025-09-23] - UI Fixes and Backend Integration
 
 ### Fixed
 - **Critical Configuration Flow Issue**
@@ -184,7 +223,7 @@ All notable changes to this project will be documented in this file.
   - Fixed "object list can't be used in 'await' expression" errors
   - Enhanced Azure Blob Storage form with 3 missing fields (blob_name, account_name, account_key)
 
-## [2025-09-16] - Data Source Migration and Progress Tracking
+## [2025-09-23] - Data Source Migration and Progress Tracking
 
 ### Added
 - **Complete Data Source Migration**

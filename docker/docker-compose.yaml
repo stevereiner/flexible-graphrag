@@ -10,9 +10,9 @@
 include:
    - includes/neo4j.yaml          # Neo4j graph database
    #- includes/kuzu-explorer.yaml   # Kuzu Explorer web interface (port 7000)
-   #- includes/kuzu-api.yaml       # Kuzu API server (port 7001) - commented out, not used
+   #- includes/kuzu-api.yaml       # Kuzu API server (port 7002) - using embedded not this
    #- includes/falkordb.yaml        # FalkorDB graph database with browser (ports 6379, 3001)
-   - includes/arcadedb.yaml        # ArcadeDB multi-model database (ports 2480, 2424)
+   #- includes/arcadedb.yaml        # ArcadeDB multi-model database (ports 2480, 2424)
    #- includes/memgraph.yaml        # MemGraph graph database
    #- includes/nebula.yaml          # NebulaGraph distributed graph database
    #- includes/neptune.yaml         # Amazon Neptune graph database
