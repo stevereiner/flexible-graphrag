@@ -117,8 +117,6 @@ an aristocratic family that rules the planet Caladan, the rainy planet, since 10
     enable_knowledge_graph: bool = Field(True, description="Enable knowledge graph extraction for graph functionality")
     kg_extractor_type: str = Field("schema", description="Type of KG extractor: 'simple', 'schema', or 'dynamic'")
     
-    # Kuzu-specific configuration
-    kuzu_use_vector_index: bool = Field(False, description="Enable Kuzu's built-in vector index (disabled by default)")
     
     # Database connection parameters
     vector_db_config: Dict[str, Any] = {}
@@ -148,6 +146,7 @@ an aristocratic family that rules the planet Caladan, the rainy planet, since 10
     kg_progress_reporting: bool = Field(True, description="Enable detailed progress reporting during knowledge graph extraction")
     kg_batch_size: int = Field(20, description="Number of chunks to process in each batch during KG extraction - increased for better Ollama parallel processing")
     kg_cancel_check_interval: float = Field(2.0, description="How often to check for cancellation during KG extraction in seconds")
+    
     
     # Environment-based defaults
     def __init__(self, **data):

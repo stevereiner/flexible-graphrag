@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2025-09-28] - Kuzu can now do structured schema if enabled in config, code cleanup
+
+### Enhanced
+- env-samples.txt graph_db_config for kuzu now has use_structured_schema and use_vector_index parameters
+- in factories.py create_graph_store, for kuzu, use use_structured_schema and use_vector_index config parameters to setup KuzuPropertyGraphStore to set use_vector_index, and set use_structured_schema (and give a relationship_schema if so)
+
+### Fixed
+- Previous code was always setting use_structured_schema to false
+
+### Removed
+- removed separate kuzu_use_vector_index independent configuration item from config.py
+- in hybrid_system.py ingest_document(), code cleanup:
+  - took out for kuzu setting external vector store in graph_index_kwargs
+  - took out for kuzu calling graph_store.init_schema()
+  - took out for memgraph unneeded code setting up a SchemaLLMPathExtractor with a hard coded schema to get relationship to have all relationship types with all caps and "_"
+
 
 ## [2025-09-26] - Fixed MemGraph issues, fixed issues with everything in docker compose included
 

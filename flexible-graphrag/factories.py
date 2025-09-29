@@ -468,9 +468,11 @@ class DatabaseFactory:
             
             kuzu_db = kuzu.Database(db_path)
             
-            # Determine if structured schema should be used based on configuration
-            has_schema = schema_config is not None and schema_config.get("validation_schema") is not None
-            use_structured_schema = has_schema
+            # Get Kuzu-specific configuration from GRAPH_DB_CONFIG
+            use_structured_schema = config.get("use_structured_schema", False)  # Default to False
+            use_vector_index = config.get("use_vector_index", False)  # Default to False
+            
+            logger.info(f"Kuzu configuration from GRAPH_DB_CONFIG: use_structured_schema={use_structured_schema}, use_vector_index={use_vector_index}")
             
             # Helper function to process validation schema
             def process_validation_schema(validation_data):
@@ -518,30 +520,21 @@ class DatabaseFactory:
                     # No schema guidance - full LLM freedom with unstructured schema
                     logger.info("Using DynamicLLMPathExtractor with no starting schema (full LLM freedom, unstructured schema)")
             else:  # 'schema' or default
-                # SchemaLLMPathExtractor - Kuzu requires unstructured schema even with SchemaLLMPathExtractor
-                # The schema entities/relations will still be used by the extractor for guidance
-                use_structured_schema = False  # Always False for Kuzu to avoid "Table Entity does not exist" error
-                relationship_schema = None     # Don't pass relationship_schema to avoid validation conflicts
+                # SchemaLLMPathExtractor - schema handling based on use_structured_schema config
+                relationship_schema = None
                 
-                # ORIGINAL CODE (commented out to fix Kuzu "Table Entity does not exist" error):
-                # if schema_config and schema_config.get('validation_schema'):
-                #     use_structured_schema = True
-                #     relationship_schema = process_validation_schema(schema_config['validation_schema'])
-                #     logger.info(f"Using SchemaLLMPathExtractor with user-configured schema: {len(relationship_schema) if relationship_schema else 0} relationships")
-                # else:
-                #     # Fallback to SAMPLE_SCHEMA for SchemaLLMPathExtractor
-                #     logger.info("No user schema - using SAMPLE_SCHEMA for SchemaLLMPathExtractor")
-                #     from config import SAMPLE_SCHEMA
-                #     use_structured_schema = True
-                #     relationship_schema = process_validation_schema(SAMPLE_SCHEMA.get("validation_schema"))
-                #     logger.info(f"Using SAMPLE_SCHEMA with {len(relationship_schema) if relationship_schema else 0} relationship rules")
-                
-                if schema_config and schema_config.get('validation_schema'):
-                    logger.info(f"Using SchemaLLMPathExtractor with user-configured schema (unstructured mode for Kuzu)")
-                else:
-                    # Fallback to SAMPLE_SCHEMA for SchemaLLMPathExtractor
-                    logger.info("Using SchemaLLMPathExtractor with SAMPLE_SCHEMA (unstructured mode for Kuzu)")
+                if use_structured_schema and schema_config and schema_config.get('validation_schema'):
+                    logger.info(f"Using SchemaLLMPathExtractor with user-configured schema (structured extraction enabled)")
+                    relationship_schema = process_validation_schema(schema_config['validation_schema'])
+                    logger.info(f"Processed {len(relationship_schema) if relationship_schema else 0} relationship rules for structured schema")
+                elif use_structured_schema:
+                    # Use SAMPLE_SCHEMA for SchemaLLMPathExtractor with full structured validation
+                    logger.info("Using SchemaLLMPathExtractor with SAMPLE_SCHEMA (structured extraction enabled)")
                     from config import SAMPLE_SCHEMA
+                    relationship_schema = process_validation_schema(SAMPLE_SCHEMA.get("validation_schema"))
+                    logger.info(f"Using SAMPLE_SCHEMA with {len(relationship_schema) if relationship_schema else 0} relationship rules")
+                else:
+                    logger.info("Using SchemaLLMPathExtractor without structured schema (unstructured mode)")
             
             # Use the proper embedding model based on LLM provider
             if llm_provider and llm_config:
@@ -554,18 +547,14 @@ class DatabaseFactory:
                 embed_model = OpenAIEmbedding(model_name="text-embedding-3-small")
                 logger.warning("No LLM provider specified for Kuzu, falling back to OpenAI embeddings")
             
-            # Get vector index configuration (default True for better text2cypher and GraphRAG performance)
-            use_kuzu_vector_index = getattr(app_config, 'kuzu_use_vector_index', True)
-            logger.info(f"Kuzu vector index enabled: {use_kuzu_vector_index}")
-            
             # Log final configuration
-            logger.info(f"Final Kuzu configuration: use_structured_schema={use_structured_schema}, relationship_schema_count={len(relationship_schema) if relationship_schema else 0}")
+            logger.info(f"Final Kuzu configuration: use_structured_schema={use_structured_schema}, use_vector_index={use_vector_index}, relationship_schema_count={len(relationship_schema) if relationship_schema else 0}")
             
-            # Create KuzuPropertyGraphStore with unified configuration
+            # Create KuzuPropertyGraphStore with configuration from GRAPH_DB_CONFIG
             graph_store = KuzuPropertyGraphStore(
                 kuzu_db,
                 has_structured_schema=use_structured_schema,
-                use_vector_index=use_kuzu_vector_index,
+                use_vector_index=use_vector_index,
                 embed_model=embed_model,
                 relationship_schema=relationship_schema if use_structured_schema else None
             )

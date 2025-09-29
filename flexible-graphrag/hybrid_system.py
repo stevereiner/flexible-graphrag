@@ -505,69 +505,11 @@ class HybridSearchSystem:
                 "use_async": False  # Temporarily disable async to fix multi-file event loop conflicts
             }
             
-            # If using Kuzu with separate vector store, provide explicit vector store
-            if str(self.config.graph_db) == "kuzu" and hasattr(self, 'vector_store') and self.vector_store:
-                graph_index_kwargs["vector_store"] = self.vector_store
-                logger.info("Using explicit vector store for Kuzu PropertyGraphIndex")
-            
-
             # This is the most time-consuming step - LLM calls for entity/relationship extraction
             graph_creation_start_time = time.time()
             logger.info(f"Starting PropertyGraphIndex.from_documents() - this will make LLM calls to extract entities and relationships from {len(documents)} documents")
             logger.info(f"LLM model being used for knowledge graph extraction: {llm_model_name}")
-            logger.info(f"Graph database target: {graph_store_type}")
-            
-            # Initialize schema right before PropertyGraphIndex creation for optimal timing
-            if str(self.config.graph_db) == "kuzu":
-                try:
-                    logger.info("Initializing Kuzu schema right before PropertyGraphIndex creation")
-                    self.graph_store.init_schema()
-                    logger.info("Kuzu schema initialized successfully")
-                    
-                    # Inspect schema after initialization
-                    schema = self.graph_store.get_schema()
-                    # logger.info(f"Schema after initialization: {schema}")  # Commented out - verbose schema dump
-                    
-                except Exception as e:
-                    logger.warning(f"Schema initialization failed: {e} - LlamaIndex will create tables as needed during extraction")
-            
-            elif str(self.config.graph_db) == "nebula":
-                # NebulaGraph schema is now handled automatically via props_schema parameter
-                logger.info("NebulaGraph schema will be created automatically via props_schema parameter")
-            
-            elif str(self.config.graph_db) == "memgraph":
-                # MemGraph requires proper relationship naming conventions
-                logger.info("MemGraph configured with custom extractors to avoid relationship naming conflicts")
-                logger.info("Using UPPER_CASE relationship naming conventions for MemGraph compatibility")
-                
-                # Override extractors for MemGraph with proper naming conventions
-                from llama_index.core.indices.property_graph import SchemaLLMPathExtractor
-                
-                # Define MemGraph-compatible relationship names (UPPER_CASE with underscores)
-                memgraph_relations = [
-                    "MENTIONS", "WORKS_FOR", "LOCATED_IN", "PART_OF", "RELATED_TO",
-                    "CONTAINS", "DEVELOPS", "USES", "CREATES", "MANAGES", "OWNS",
-                    "CONNECTS_TO", "DEPENDS_ON", "IMPLEMENTS", "SUPPORTS"
-                ]
-                
-                # Define common entity types
-                memgraph_entities = [
-                    "Person", "Organization", "Location", "Technology", "Product", 
-                    "Service", "Document", "Project", "Concept", "Event"
-                ]
-                
-                # Create MemGraph-compatible extractor
-                # Note: SchemaLLMPathExtractor expects string parameters, not lists
-                memgraph_extractor = SchemaLLMPathExtractor(
-                    llm=self.llm,
-                    possible_entities=", ".join(memgraph_entities),
-                    possible_relations=", ".join(memgraph_relations),
-                    strict=False  # Allow flexible extraction while guiding naming
-                )
-                
-                # Override the extractors in graph_index_kwargs
-                graph_index_kwargs["kg_extractors"] = [memgraph_extractor]
-                logger.info(f"MemGraph: Using custom extractor with {len(memgraph_relations)} relationship types")
+            logger.info(f"Graph database target: {graph_store_type}")                    
             
             # Use run_in_executor with proper nest_asyncio handling
             create_graph_index = functools.partial(PropertyGraphIndex.from_documents, **graph_index_kwargs)

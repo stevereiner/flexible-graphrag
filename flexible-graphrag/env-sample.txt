@@ -63,7 +63,9 @@ KG_EXTRACTOR_TYPE=schema
 GRAPH_DB_CONFIG={"url": "bolt://localhost:7687", "username": "neo4j", "password": "password"}
 
 # Kuzu (database file will be created as ./kuzu_db/database.kz)
-#GRAPH_DB_CONFIG={"db_path": "./kuzu_db/database.kz"}
+# use_structured_schema: false (default) - enables initial entity types and schema (not generic entity type schema)
+# use_vector_index: false (default) - enables Kuzu's built-in vector capabilities use internally
+GRAPH_DB_CONFIG={"db_path": "./kuzu_db/database.kz", "use_structured_schema": false, "use_vector_index": false}
 
 # FalkorDB
 #GRAPH_DB_CONFIG={"url": "falkor://localhost:6379"}
