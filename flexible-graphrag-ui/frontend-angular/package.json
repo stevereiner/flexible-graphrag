@@ -6,7 +6,6 @@
     "ng": "ng",
     "start": "ng serve",
     "build": "ng build",
-    "build:docker": "DOCKER_MODE=true npx ts-node --esm generate-env-config.ts && ng build --configuration=production",
     "build:standalone": "npx ts-node --esm generate-env-config.ts && ng build --configuration=production",
     "watch": "ng build --watch --configuration development",
     "test": "ng test"

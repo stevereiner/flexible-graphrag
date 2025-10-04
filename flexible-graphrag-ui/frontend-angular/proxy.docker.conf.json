@@ -1,1 +1,8 @@
-{}
+{
+  "/api": {
+    "target": "http://flexible-graphrag-backend:8000",
+    "secure": false,
+    "changeOrigin": true,
+    "logLevel": "debug"
+  }
+}

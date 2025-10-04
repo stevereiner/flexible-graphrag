@@ -2,6 +2,53 @@
 
 All notable changes to this project will be documented in this file.
 
+
+## [2025-10-04] - 3 frontends and backend can now work in docker in addition to in standalone mode
+
+### Added
+- **Complete Docker Frontend Support**
+  - All three frontends (React, Vue, Angular) now work in Docker with nginx proxy
+  - Dual access capability: direct container ports AND nginx proxy routing
+  - React: `localhost:3000/ui/react/` and `localhost:8070/ui/react/`
+  - Vue: `localhost:5173/ui/vue/` and `localhost:8070/ui/vue/`
+  - Angular: `localhost:4200/` and `localhost:8070/ui/angular/`
+
+### Fixed
+- **Vue Docker Frontend API Routing**
+  - Added proxy configuration to `vite.docker.config.ts` routing `/api` to backend
+  - Resolved 404 errors on `/api/upload` endpoint in Docker environment
+  - Vue frontend now processes files correctly in Docker deployment
+
+- **Angular Docker Frontend Issues**
+  - Fixed blank page issues by switching from static file serving to Angular dev server
+  - Added `proxy.docker.conf.json` with backend routing configuration
+  - Updated Dockerfile to use `npm run start` instead of static file serving
+  - Implemented nginx `sub_filter` to dynamically inject correct base href for dual access
+
+### Enhanced
+- **Docker Configuration**
+  - Environment variables configured in `app-stack.yaml` instead of `.env` for Docker backend
+  - Default Ollama configuration (for OpenAI, update commented/uncommented sections and add API key)
+  - Enabled nginx proxy with `proxy.yaml` included in docker-compose configuration
+
+- **Angular Environment Configuration**
+  - Added `environment.docker.ts` with Docker-specific settings
+  - Updated `api.service.ts` to use `apiUrl = environment.apiUrl` instead of hardcoded `/api`
+  - Added Docker build configuration section to `angular.json`
+  - Removed obsolete `build:docker` script from `package.json`
+
+### Maintained
+- **Standalone Mode Compatibility**
+  - All three frontends continue to work in standalone development mode
+  - React: `localhost:3000`, Vue: `localhost:5173`, Angular: `localhost:4200`
+  - Separate configuration files ensure no conflicts between Docker and standalone modes
+
+### Technical Implementation
+- Vue uses separate `vite.docker.config.ts` with backend proxy configuration
+- Angular uses environment-based configuration with Docker-specific proxy setup
+- React maintains existing dual access capability (already working)
+- nginx `sub_filter` dynamically modifies Angular base href for proxy access compatibility
+
 ## [2025-09-28] - Kuzu can now do structured schema if enabled in config, code cleanup
 
 ### Enhanced

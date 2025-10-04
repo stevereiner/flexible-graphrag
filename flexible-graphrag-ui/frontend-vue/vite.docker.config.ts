@@ -20,7 +20,14 @@ export default defineConfig({
     port: 5173,
     host: '0.0.0.0',
     strictPort: true,
-    // No proxy needed - nginx handles API routing
+    // Add proxy for direct access (port 5173)
+    proxy: {
+      '/api': {
+        target: 'http://flexible-graphrag-backend:8000',
+        changeOrigin: true,
+        secure: false,
+      },
+    },
   },
   define: {
     'import.meta.env.VITE_API_BASE_URL': JSON.stringify(API_BASE_URL),
