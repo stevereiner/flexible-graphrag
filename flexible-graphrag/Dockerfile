@@ -1,4 +1,6 @@
-FROM python:3.12-slim
+#FROM python:3.12-slim
+# use full version so can build on macos
+FROM python:3.12
 
 WORKDIR /app
 

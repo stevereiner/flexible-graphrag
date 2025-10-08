@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2025-10-08] - Fixed standalone on Linux and Mac, fixed docker with app-stack on Mac
+
+### Fixed
+- **Docker Build Issues on Mac**
+  - In Dockerfile use full python so can build on Mac when include app-stack.yaml
+- **Standalone Backend Issues on Linux and Mac**
+  - In start.py, added loop='asyncio' so don't get nest_asyncio errors on linux and mac
+  - In start.py changed reload = false in general (not just windows) to simplify 
+
 
 ## [2025-10-04] - 3 frontends and backend can now work in docker in addition to in standalone mode
 
