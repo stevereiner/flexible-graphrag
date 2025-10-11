@@ -89,10 +89,16 @@ class IngestionManager:
             
             # Final status update
             if status_callback:
+                # YouTube returns pre-chunked transcript segments, so report as 1 video instead of chunk count
+                if source_type == "youtube":
+                    doc_count_message = f"Successfully loaded 1 video transcript from {source_type} ({len(documents)} time-based chunks)"
+                else:
+                    doc_count_message = f"Successfully loaded {len(documents)} documents from {source_type}"
+                
                 status_callback(
                     processing_id=processing_id,
                     status="processing",
-                    message=f"Successfully loaded {len(documents)} documents from {source_type}",
+                    message=doc_count_message,
                     progress=90
                 )
             
@@ -114,19 +120,51 @@ class IngestionManager:
             raise
     
     def _create_progress_wrapper(self, source_type: str, processing_id: Optional[str], status_callback: Optional[Callable]):
-        """Create a progress callback wrapper for data sources."""
+        """Create a progress callback wrapper for data sources with individual file tracking."""
+        # Track individual files for UI progress bars
+        file_progress = []
+        initialized = False
+        
         def progress_callback(current: int, total: int, message: str = "", current_file: str = ""):
+            nonlocal file_progress, initialized
+            
             if status_callback:
+                # Initialize individual_files array on first call with total > 0
+                if not initialized and total > 0:
+                    initialized = True
+                    file_progress = [
+                        {
+                            "filename": f"File {i+1}",  # Placeholder, will be updated with actual filename
+                            "status": "pending",
+                            "progress": 0,
+                            "phase": "pending",
+                            "message": ""
+                        }
+                        for i in range(total)
+                    ]
+                    logger.info(f"Initialized progress tracking for {total} files from {source_type}")
+                
                 # Calculate progress: 20% (connection) + 70% (loading) = 90% max
                 base_progress = 20
                 loading_progress = int((current / total) * 70) if total > 0 else 0
                 total_progress = min(base_progress + loading_progress, 90)
                 
-                # Create detailed message
-                if current_file:
+                # Update individual file progress
+                if current > 0 and current <= len(file_progress):
+                    file_index = current - 1
+                    file_progress[file_index] = {
+                        "filename": current_file or f"File {current}",
+                        "status": "processing",
+                        "progress": min(total_progress, 90),  # Don't complete until final phase
+                        "phase": "loading",
+                        "message": message or f"Processing {current_file}"
+                    }
+                
+                # Create detailed message - prefer the source's message if provided
+                if message:
+                    detailed_message = f"{message}"
+                elif current_file:
                     detailed_message = f"Processing file {current}/{total}: {current_file}"
-                elif message:
-                    detailed_message = f"{message} ({current}/{total})"
                 else:
                     detailed_message = f"Loading documents from {source_type} ({current}/{total})"
                 
@@ -138,7 +176,8 @@ class IngestionManager:
                     current_file=current_file,
                     current_phase="loading",
                     files_completed=current,
-                    total_files=total
+                    total_files=total,
+                    file_progress=file_progress  # Include individual file progress
                 )
         
         return progress_callback

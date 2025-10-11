@@ -73,7 +73,10 @@ llama-index-readers-wikipedia
 wikipedia 
 llama-index-readers-youtube-transcript
 youtube_transcript_api
-llama-index-readers-s3
+# llama-index-readers-s3  # Not used: S3Reader has path type issues with DoclingReader
+# llama-index-readers-docling  # Not used: DoclingReader incompatible with S3Reader's PurePosixPath
+s3fs  # S3 filesystem interface for file access (used for manual download + DocumentProcessor+Docling)
+boto3  # AWS SDK (used by s3fs)
 llama-index-readers-gcs
 llama-index-readers-azstorage-blob
 llama-index-readers-microsoft-onedrive

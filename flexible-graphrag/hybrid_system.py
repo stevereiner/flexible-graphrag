@@ -550,7 +550,12 @@ class HybridSearchSystem:
         # Notify completion via status callback - this will trigger the UI completion status
         if status_callback:
             # Generate proper completion message based on enabled features
-            completion_message = self._generate_completion_message(len(documents))
+            # For YouTube, show 1 video instead of chunk count
+            from backend import PROCESSING_STATUS
+            data_source = PROCESSING_STATUS.get(processing_id, {}).get("data_source", "")
+            doc_count = 1 if data_source == "youtube" else len(documents)
+            
+            completion_message = self._generate_completion_message(doc_count)
             status_callback(
                 processing_id=processing_id,
                 status="completed",
@@ -1479,7 +1484,12 @@ class HybridSearchSystem:
         # Notify completion via status callback - this will trigger the UI completion status
         if status_callback:
             # Generate proper completion message based on enabled features
-            completion_message = self._generate_completion_message(len(documents))
+            # For YouTube, show 1 video instead of chunk count
+            from backend import PROCESSING_STATUS
+            data_source = PROCESSING_STATUS.get(processing_id, {}).get("data_source", "")
+            doc_count = 1 if data_source == "youtube" else len(documents)
+            
+            completion_message = self._generate_completion_message(doc_count)
             status_callback(
                 processing_id=processing_id,
                 status="completed",

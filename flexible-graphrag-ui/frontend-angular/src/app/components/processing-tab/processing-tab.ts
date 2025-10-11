@@ -127,7 +127,7 @@ export class ProcessingTabComponent implements OnInit, OnChanges {
         }];
       }
     } else if (['web', 'wikipedia', 'youtube', 's3', 'gcs', 'azure_blob', 'onedrive', 'sharepoint', 'box', 'google_drive'].includes(this.configuredDataSource)) {
-      // Handle web, cloud, and enterprise sources - create a single display item
+      // Handle web, cloud, and enterprise sources
       const getDisplayName = (): string => {
         switch (this.configuredDataSource) {
           case 'web':
@@ -136,8 +136,11 @@ export class ProcessingTabComponent implements OnInit, OnChanges {
             return this.configuredWikipediaConfig?.query || 'Wikipedia Article';
           case 'youtube':
             return this.configuredYoutubeConfig?.url || 'YouTube Video';
-          case 's3':
-            return `S3: ${this.configuredCloudConfig?.bucket_name || 'Bucket'}`;
+          case 's3': {
+            const bucket = this.configuredCloudConfig?.bucket_name || this.configuredCloudConfig?.bucket || 'Bucket';
+            const prefix = this.configuredCloudConfig?.prefix || '';
+            return prefix ? `s3://${bucket}/${prefix}` : `s3://${bucket}`;
+          }
           case 'gcs':
             return `GCS: ${this.configuredCloudConfig?.bucket_name || 'Bucket'}`;
           case 'azure_blob':
@@ -155,12 +158,34 @@ export class ProcessingTabComponent implements OnInit, OnChanges {
         }
       };
 
-      this.displayFiles = [{
-        index: 0,
-        name: getDisplayName(),
-        size: 0,
-        type: 'source',
-      }];
+      const displayName = getDisplayName();
+      
+      // Check for individual files from status data (like CMIS/Alfresco)
+      const individualFiles = (this.isProcessing || this.currentProcessingId) ? 
+        (this.statusData?.individual_files || this.lastStatusData?.individual_files || []) : [];
+      
+      // If we have individual_files data, show it (this shows the single source entry with progress)
+      if (individualFiles.length > 0) {
+        this.displayFiles = individualFiles.map((file: any, index: number) => {
+          // Use the filename from status (should be the bucket/source path)
+          const fileName = file.filename || displayName;
+          
+          return {
+            index,
+            name: fileName,
+            size: 0,
+            type: 'source'
+          };
+        });
+      } else {
+        // Default to source path when no individual files yet
+        this.displayFiles = [{
+          index: 0,
+          name: displayName,
+          size: 0,
+          type: 'source',
+        }];
+      }
     }
     
     // Auto-select files after updating display

@@ -411,7 +411,7 @@ export default defineComponent({
         console.log('Creating repository file object:', repositoryFile);
         return [repositoryFile];
       } else if (['web', 'wikipedia', 'youtube', 's3', 'gcs', 'azure_blob', 'onedrive', 'sharepoint', 'box', 'google_drive'].includes(props.configuredDataSource)) {
-        // Handle web sources and cloud sources - create a single display item
+        // Handle web sources and cloud sources
         // Use the actual configuration values that the backend uses for progress tracking
         const getDisplayName = () => {
           switch (props.configuredDataSource) {
@@ -421,8 +421,11 @@ export default defineComponent({
               return props.configuredWikipediaConfig?.query || props.configuredWikipediaConfig?.url || 'Wikipedia Article';
             case 'youtube': 
               return props.configuredYoutubeConfig?.url || 'YouTube Video';
-            case 's3': 
-              return `S3: ${props.configuredCloudConfig?.bucket_name || 'bucket'}`;
+            case 's3': {
+              const bucket = props.configuredCloudConfig?.bucket_name || props.configuredCloudConfig?.bucket || 'bucket';
+              const prefix = props.configuredCloudConfig?.prefix || '';
+              return prefix ? `s3://${bucket}/${prefix}` : `s3://${bucket}`;
+            }
             case 'gcs': 
               return `GCS: ${props.configuredCloudConfig?.bucket_name || 'bucket'}`;
             case 'azure_blob': 
@@ -441,6 +444,28 @@ export default defineComponent({
         };
         
         const displayName = getDisplayName();
+        
+        // Check for individual files from status data (like CMIS/Alfresco)
+        const individualFiles = (isProcessing.value || currentProcessingId.value) ? 
+          (statusData.value?.individual_files || lastStatusData.value?.individual_files || []) : [];
+        
+        // If we have individual_files data, show it (this shows the single source entry with progress)
+        if (individualFiles.length > 0) {
+          return individualFiles.map((file: any, index: number) => {
+            // Use the filename from status (should be the bucket/source path)
+            const fileName = file.filename || displayName;
+            
+            return {
+              index,
+              name: fileName,
+              originalFilename: fileName, // Use same name for progress matching
+              size: 0,
+              type: 'source',
+            };
+          });
+        }
+        
+        // Default to source path when no individual files yet
         return [{
           index: 0,
           name: displayName,

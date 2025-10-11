@@ -211,7 +211,9 @@ export const ProcessingTab: React.FC<ProcessingTabProps> = ({
       let displayName = 'Cloud Storage';
       
       if (configuredDataSource === 's3') {
-        displayName = `S3: ${config?.bucket || 'Bucket'}/${config?.prefix || ''}`;
+        const bucket = config?.bucket_name || config?.bucket || 'Bucket';
+        const prefix = config?.prefix || '';
+        displayName = prefix ? `s3://${bucket}/${prefix}` : `s3://${bucket}`;
       } else if (configuredDataSource === 'gcs') {
         displayName = `GCS: ${config?.bucket || 'Bucket'}/${config?.prefix || ''}`;
       } else if (configuredDataSource === 'azure_blob') {
@@ -227,6 +229,25 @@ export const ProcessingTab: React.FC<ProcessingTabProps> = ({
         displayName = `Box: ${config?.folder_id || 'Folder'}`;
       }
       
+      // Check for individual files from status data (like CMIS/Alfresco)
+      const individualFiles = (isProcessing || currentProcessingId) ? 
+        (statusData?.individual_files || lastStatusData?.individual_files || []) : [];
+      
+      // If we have individual_files data, show it (this shows the single source entry with progress)
+      if (individualFiles.length > 0) {
+        return individualFiles.map((file: any, index: number) => {
+          // Use the filename from status (should be the bucket/source path)
+          const fileName = file.filename || displayName;
+          
+          return {
+            name: fileName,
+            size: 0,
+            type: 'cloud-source' as const
+          };
+        });
+      }
+      
+      // Default to cloud source path when no individual files yet
       return [{
         name: displayName,
         size: 0,

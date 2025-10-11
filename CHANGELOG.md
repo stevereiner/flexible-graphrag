@@ -2,6 +2,35 @@
 
 All notable changes to this project will be documented in this file.
 
+
+## [2025-10-10] - S3 Data Source is now fully working and Docling processing added for S3 files
+
+### Enhanced
+- **S3 Data Source Rewrite**
+  - In `sources/s3.py` was rewritten to use s3fs directly and not use llamaindex S3Reader
+  - Downloads S3 files and gives them to DocumentProcessor (which processes with Docling)
+  - Sets up llamaindex documents for llamaindex pipeline integration
+  - Progress feedback callbacks are also setup in s3.py
+  - Fixed to give feedback in terms of number of documents not count of chunks as doc count
+
+- **Backend S3 Progress Handling**
+  - In `backend.py` handling of S3 progressing status was setup
+  - Removed 2 un-needed processing status updating in general
+
+- **Progress Feedback Improvements**
+  - In `ingest/manager.py` was changed to give better doc count progress feedback
+  - In `hybrid_system.py` was changed to give specific feedback for YouTube to be one document not chunk for doc count
+
+- **Frontend S3 Integration**
+  - In `ProcessingTab.tsx` for React, `ProcessingTab.vue` for Vue, and `processing-tab.ts` for Angular
+  - Code was added to get the progress bar and other feedback to work for S3
+
+### Added
+- **S3 Configuration**
+  - In `env-sample.txt` configuration for S3 default parameters can be set
+  - In `requirements.txt` include boto3 and s3fs for dealing with S3 instead of using llamaindex S3Reader
+
+
 ## [2025-10-08] - Fixed standalone on Linux and Mac, fixed docker with app-stack on Mac
 
 ### Fixed

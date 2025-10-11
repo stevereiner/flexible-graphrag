@@ -242,6 +242,16 @@ ALFRESCO_URL=http://localhost:8080/alfresco
 ALFRESCO_USERNAME=admin
 ALFRESCO_PASSWORD=admin
 
+# Amazon S3 Configuration (if using S3)
+# Note: These values can be configured in UI or set here as defaults
+# UI values take precedence over these environment variables
+# S3_REGION_NAME=us-east-2           # AWS region for S3 bucket (default: us-east-2)
+# S3_BUCKET_NAME=my-bucket           # Default bucket name (used if not specified in UI)
+# S3_PREFIX=documents/               # Default prefix/path within bucket
+# S3_PREFIX=""                       # Or leave empty for whole bucket (top level)
+# S3_ACCESS_KEY=myaccesskeyid        # AWS access key ID (used if not specified in UI)
+# S3_SECRET_KEY=mysecretaccesskey    # AWS secret access key (used if not specified in UI)
+
 # ====================================================================
 # DATABASE CONNECTION DETAILS (Individual Configs)
 # ====================================================================

@@ -360,22 +360,8 @@ class FlexibleGraphRAGBackend:
             progress = cb_kwargs.get("progress", 0)
             message = cb_kwargs.get("message", "")
             
-            # Update data source progress
+            # Update data source progress (this internally calls _update_processing_status)
             self._update_data_source_progress(processing_id, status, progress, "processing", message)
-            
-            # Update overall status
-            current_status = PROCESSING_STATUS.get(processing_id, {})
-            current_file_progress = current_status.get("individual_files", file_progress)
-            
-            self._update_processing_status(
-                processing_id=processing_id,
-                status=status,
-                message=message,
-                progress=progress,
-                total_files=1,
-                files_completed=1 if status == "completed" else 0,
-                file_progress=current_file_progress
-            )
         
         # Process documents
         documents = await self.ingestion_manager.ingest_from_source(
@@ -384,6 +370,10 @@ class FlexibleGraphRAGBackend:
             processing_id=processing_id,
             status_callback=status_callback
         )
+        
+        # Store data source type for completion message
+        PROCESSING_STATUS[processing_id]["data_source"] = data_source
+        
         await self.system._process_documents_direct(documents, processing_id=processing_id, status_callback=status_callback)
     
     def _update_file_progress(self, processing_id: str, file_index: int, status: str = None, 
@@ -1024,20 +1014,6 @@ class FlexibleGraphRAGBackend:
                     
                     # Update data source progress
                     self._update_data_source_progress(processing_id, status, progress, "processing", message)
-                    
-                    # Update overall status
-                    current_status = PROCESSING_STATUS.get(processing_id, {})
-                    current_file_progress = current_status.get("individual_files", file_progress)
-                    
-                    self._update_processing_status(
-                        processing_id=processing_id,
-                        status=status,
-                        message=message,
-                        progress=progress,
-                        total_files=1,
-                        files_completed=1 if status == "completed" else 0,
-                        file_progress=current_file_progress
-                    )
                 
                 documents = await self.ingestion_manager.ingest_from_source(
                     source_type="web",
@@ -1190,25 +1166,69 @@ class FlexibleGraphRAGBackend:
                 await self.system._process_documents_direct(documents, processing_id=processing_id, status_callback=wikipedia_status_callback)
                 
             elif data_source == "s3":
-                s3_config = kwargs.get('s3_config', {})
+                # Initialize progress tracking for S3 source
+                s3_config = kwargs.get('s3_config')
+                if not s3_config:
+                    raise ValueError("S3 configuration is required for S3 data source")
+                
+                # Get bucket and prefix for display
                 bucket_name = s3_config.get('bucket_name', 'S3 Bucket')
                 prefix = s3_config.get('prefix', '')
                 
                 # Create display name with bucket and prefix
                 if prefix:
-                    display_name = f'S3: {bucket_name}/{prefix}'
+                    display_name = f's3://{bucket_name}/{prefix}'
                 else:
-                    display_name = f'S3: {bucket_name}'
-                    
-                await self._process_modular_data_source(
-                    processing_id=processing_id,
-                    data_source="s3",
-                    config_key="s3_config",
-                    display_name=display_name,
-                    connect_message="Connecting to Amazon S3...",
-                    process_message="Processing S3 documents...",
-                    **kwargs
+                    display_name = f's3://{bucket_name}'
+                
+                file_progress = self._initialize_data_source_progress(processing_id, "s3", display_name)
+                
+                self._update_processing_status(
+                    processing_id, 
+                    "processing", 
+                    "Connecting to Amazon S3...", 
+                    20,
+                    total_files=1,
+                    files_completed=0,
+                    file_progress=file_progress
                 )
+                
+                # Update data source progress
+                self._update_data_source_progress(processing_id, "processing", 20, "connecting", "Connecting to Amazon S3...")
+                
+                # Check for cancellation before connecting
+                if self._is_processing_cancelled(processing_id):
+                    return
+                    
+                self._update_processing_status(
+                    processing_id, 
+                    "processing", 
+                    "Processing S3 documents...", 
+                    60,
+                    total_files=1,
+                    files_completed=0,
+                    file_progress=file_progress
+                )
+                
+                # Update data source progress
+                self._update_data_source_progress(processing_id, "processing", 60, "loading", "Processing S3 documents...")
+                
+                # Create status callback that updates both overall and individual progress
+                def s3_status_callback(**cb_kwargs):
+                    status = cb_kwargs.get("status", "processing")
+                    progress = cb_kwargs.get("progress", 0)
+                    message = cb_kwargs.get("message", "")
+                    
+                    # Update data source progress (this internally calls _update_processing_status)
+                    self._update_data_source_progress(processing_id, status, progress, "processing", message)
+                
+                documents = await self.ingestion_manager.ingest_from_source(
+                    source_type="s3",
+                    config=s3_config,
+                    processing_id=processing_id,
+                    status_callback=s3_status_callback
+                )
+                await self.system._process_documents_direct(documents, processing_id=processing_id, status_callback=s3_status_callback)
                 
             elif data_source == "gcs":
                 gcs_config = kwargs.get('gcs_config', {})
