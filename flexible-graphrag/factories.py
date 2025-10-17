@@ -37,7 +37,11 @@ import os
 
 from config import LLMProvider, VectorDBType, GraphDBType, SearchDBType
 
+# Import Neptune Analytics wrapper from separate module
+from neptune_analytics_wrapper import NeptuneAnalyticsNoVectorWrapper
+
 logger = logging.getLogger(__name__)
+
 
 def get_embedding_dimension(llm_provider: LLMProvider, llm_config: Dict[str, Any]) -> int:
     """
@@ -653,29 +657,154 @@ class DatabaseFactory:
             )
         
         elif db_type == GraphDBType.NEPTUNE:
+            import boto3
+            from botocore.config import Config
+            from botocore import UNSIGNED
+            
             host = config.get("host")
             port = config.get("port", 8182)
+            
+            # AWS Credentials - support both explicit credentials and profile-based
+            access_key = config.get("access_key")
+            secret_key = config.get("secret_key")
+            region = config.get("region")
+            credentials_profile_name = config.get("credentials_profile_name")
+            
+            sign = config.get("sign", True)  # Default to True for SigV4 signing
+            use_https = config.get("use_https", True)  # Default to True for HTTPS
             
             if not host:
                 raise ValueError("Neptune host is required (format: <GRAPH NAME>.<CLUSTER ID>.<REGION>.neptune.amazonaws.com)")
             
             logger.info(f"Creating Neptune graph store - Host: {host}:{port}")
             
+            # Create boto3 client with explicit credentials if provided
+            client = None
+            if access_key and secret_key:
+                logger.info(f"Using explicit AWS credentials with region: {region}")
+                
+                # Create session with explicit credentials
+                session = boto3.Session(
+                    aws_access_key_id=access_key,
+                    aws_secret_access_key=secret_key,
+                    region_name=region
+                )
+                
+                # Create client parameters
+                client_params = {}
+                if region:
+                    client_params["region_name"] = region
+                
+                protocol = "https" if use_https else "http"
+                client_params["endpoint_url"] = f"{protocol}://{host}:{port}"
+                
+                # Create Neptune client
+                if sign:
+                    client = session.client("neptunedata", **client_params)
+                else:
+                    client = session.client(
+                        "neptunedata",
+                        **client_params,
+                        config=Config(signature_version=UNSIGNED),
+                    )
+            elif credentials_profile_name:
+                logger.info(f"Using AWS credentials profile: {credentials_profile_name}")
+            elif region:
+                logger.info(f"Using default AWS credentials with region: {region}")
+            else:
+                logger.info("Using default AWS credentials and region")
+            
             return NeptuneDatabasePropertyGraphStore(
                 host=host,
-                port=port
+                port=port,
+                client=client,  # Pass pre-configured client if we created one
+                credentials_profile_name=credentials_profile_name if not client else None,
+                region_name=region if not client else None,
+                sign=sign,
+                use_https=use_https
             )
         elif db_type == GraphDBType.NEPTUNE_ANALYTICS:
+            import boto3
+            from botocore.config import Config
+            
             graph_identifier = config.get("graph_identifier")
+            
+            # AWS Credentials - support both explicit credentials and profile-based
+            access_key = config.get("access_key")
+            secret_key = config.get("secret_key")
+            region = config.get("region")
+            credentials_profile_name = config.get("credentials_profile_name")
             
             if not graph_identifier:
                 raise ValueError("Neptune Analytics graph_identifier is required")
             
-            logger.info(f"Creating Neptune Analytics graph store - Graph ID: {graph_identifier}")
+            logger.info(f"Creating Neptune Analytics graph store - Graph ID: {graph_identifier}, Region: {region}")
+            # Debug logging (commented out to avoid exposing credentials in logs)
+            # logger.info(f"Neptune Analytics raw config received: {config}")
+            # logger.info(f"Neptune Analytics config keys: {list(config.keys())}")
+            # logger.info(f"Neptune Analytics: access_key present: {bool(access_key)}, secret_key present: {bool(secret_key)}")
             
-            return NeptuneAnalyticsPropertyGraphStore(
-                graph_identifier=graph_identifier
-            )
+            # WORKAROUND: Due to a bug in LlamaIndex Neptune Analytics client creation
+            # (line 143 in neptune.py: client = client instead of client = provided_client)
+            # we cannot pass a pre-configured client. Instead, we set environment variables
+            # and let Neptune Analytics create its own client.
+            
+            # IMPORTANT: Neptune Analytics has vector query limitations in LlamaIndex
+            # We disable vector operations and use it purely as a graph store
+            logger.warning("Neptune Analytics: Vector operations disabled due to LlamaIndex limitations. Using separate vector store is recommended.")
+            
+            if access_key and secret_key:
+                logger.info(f"Using explicit AWS credentials with region: {region}")
+                
+                # WORKAROUND for LlamaIndex bug: Set credentials as environment variables
+                # The bug at neptune.py line 143 prevents passing a client directly
+                # So we must set env vars for boto3.Session() to pick up
+                import os
+                os.environ['AWS_ACCESS_KEY_ID'] = access_key
+                os.environ['AWS_SECRET_ACCESS_KEY'] = secret_key
+                if region:
+                    os.environ['AWS_DEFAULT_REGION'] = region
+                
+                logger.info(f"Neptune Analytics: Set AWS credentials in environment for region: {region}")
+                # Debug logging (commented out to avoid exposing credentials)
+                # logger.info(f"Neptune Analytics: AWS_ACCESS_KEY_ID = {access_key[:10]}... (length: {len(access_key)})")
+                
+                try:
+                    # Don't pass client (bug prevents it from working)
+                    # Don't pass credentials_profile_name (let it be None to use env vars)
+                    graph_store = NeptuneAnalyticsPropertyGraphStore(
+                        graph_identifier=graph_identifier,
+                        region_name=region
+                    )
+                    logger.info("Neptune Analytics: PropertyGraphStore created successfully")
+                except Exception as e:
+                    logger.error(f"Neptune Analytics: Failed to create PropertyGraphStore: {e}")
+                    logger.error(f"Neptune Analytics: This may indicate boto3 cannot access environment variables")
+                    raise
+            elif credentials_profile_name:
+                logger.info(f"Using AWS credentials profile: {credentials_profile_name}")
+                graph_store = NeptuneAnalyticsPropertyGraphStore(
+                    graph_identifier=graph_identifier,
+                    credentials_profile_name=credentials_profile_name,
+                    region_name=region
+                )
+            else:
+                logger.info(f"Using default AWS credentials with region: {region}")
+                graph_store = NeptuneAnalyticsPropertyGraphStore(
+                    graph_identifier=graph_identifier,
+                    region_name=region
+                )
+            
+            wrapped_store = NeptuneAnalyticsNoVectorWrapper(graph_store)
+            wrapped_store.supports_vector_queries = False
+            
+            logger.info("Neptune Analytics: Vector queries disabled - use separate VECTOR_DB for embeddings")
+            logger.info(f"Neptune Analytics: Returning wrapper object of type: {type(wrapped_store)}")
+            logger.info(f"Neptune Analytics: Wrapper has upsert_nodes: {hasattr(wrapped_store, 'upsert_nodes')}")
+            logger.info(f"Neptune Analytics: Wrapper has vector_query: {hasattr(wrapped_store, 'vector_query')}")
+            logger.info(f"Neptune Analytics: Wrapper supports_vector_queries = {wrapped_store.supports_vector_queries}")
+            
+            return wrapped_store
         
         else:
             raise ValueError(f"Unsupported graph database: {db_type}")

@@ -9,6 +9,10 @@
 .env.production.local
 .env.*
 
+# Docker environment files
+docker/docker.env
+docker/neptune.env
+
 # Python
 __pycache__/
 *.py[cod]

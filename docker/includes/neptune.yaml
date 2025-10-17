@@ -3,7 +3,7 @@
 # Neptune is a fully managed graph database service by AWS.
 # It cannot be run locally via Docker as it's a cloud-only service.
 # 
-# To use Neptune with Flexible GraphRAG:
+# To use Neptune Database with Flexible GraphRAG:
 # 
 # 1. Create a Neptune cluster in AWS Console:
 #    - Go to Amazon Neptune in AWS Console
@@ -16,39 +16,65 @@
 # 
 # 3. Set environment variables:
 #    GRAPH_DB=neptune
-#    GRAPH_DB_CONFIG={"endpoint": "your-cluster.cluster-xyz.region.neptune.amazonaws.com", "port": 8182, "region": "us-east-1", "access_key": "your_access_key", "secret_key": "your_secret_key"}
+#    GRAPH_DB_CONFIG={"host": "your-cluster.cluster-xyz.region.neptune.amazonaws.com", "port": 8182, "region": "us-east-1", "access_key": "your_access_key", "secret_key": "your_secret_key"}
 # 
-# 4. Alternative: Use AWS credentials from environment
-#    AWS_ACCESS_KEY_ID=your_access_key
-#    AWS_SECRET_ACCESS_KEY=your_secret_key
-#    NEPTUNE_ENDPOINT=your-cluster.cluster-xyz.region.neptune.amazonaws.com
-#    NEPTUNE_REGION=us-east-1
+# To use Neptune Analytics with Flexible GraphRAG:
 # 
-# For local development, consider using Neo4j, MemGraph, or NebulaGraph instead.
+# 1. Create a Neptune Analytics graph in AWS Console:
+#    - Go to Amazon Neptune Analytics in AWS Console
+#    - Create a new graph
+#    - Note the graph identifier
+# 
+# 2. Set environment variables:
+#    GRAPH_DB=neptune_analytics
+#    GRAPH_DB_CONFIG={"graph_identifier": "g-1234567890", "region": "us-east-1", "access_key": "your_access_key", "secret_key": "your_secret_key"}
+#
+# Alternative: Use AWS credentials from environment/profile
+#    GRAPH_DB_CONFIG={"graph_identifier": "g-1234567890", "region": "us-east-1"}
 # 
 # Documentation: https://docs.aws.amazon.com/neptune/
 # Pricing: https://aws.amazon.com/neptune/pricing/
 
-# Graph-Explorer: Open-source Neptune dashboard (can be used with Neptune clusters)
+# To use the Graph-Explorer with Neptune:
+# http://localhost:3007/explorer
+
+# Graph-Explorer: Open-source Neptune dashboard
+# Can connect to both Neptune Database and Neptune Analytics from within the UI
+# 
+# IMPORTANT: Graph Explorer needs Neptune-specific AWS credentials.
+# Create docker/neptune.env with Neptune AWS credentials (separate from S3 credentials in main .env):
+#   AWS_ACCESS_KEY_ID=your_neptune_access_key
+#   AWS_SECRET_ACCESS_KEY=your_neptune_secret_key  
+#   AWS_DEFAULT_REGION=us-east-1
+
 services:
   graph-explorer:
     image: public.ecr.aws/neptune/graph-explorer:latest
     container_name: flexible-graphrag-graph-explorer
     environment:
-      # Configure connection to your Neptune cluster
-      - GRAPH_CONNECTION_URL=wss://your-neptune-cluster.cluster-xyz.region.neptune.amazonaws.com:8182/gremlin
-      - GRAPH_TYPE=gremlin
-      # Optional: Configure proxy endpoint if using Neptune with IAM
-      - PROXY_SERVER_HTTPS_CONNECTION=true
-      - USING_PROXY_SERVER=false
+      - GRAPH_TYPE=openCypher
+      - PROXY_SERVER_HTTPS_CONNECTION=false
+      - USING_PROXY_SERVER=true
+      - HOST=localhost
+      - GRAPH_EXP_HTTPS_CONNECTION=false
+      - IAM=true
     ports:
-      - "3007:80"     # Graph-Explorer web interface
-    restart: unless-stopped
-    # Note: This container can connect to Neptune clusters but requires:
-    # 1. Network connectivity to your Neptune cluster
-    # 2. Proper AWS credentials/IAM roles for authentication
-    # 3. Security group rules allowing connections from this container
+      - "3007:80" # Graph-Explorer web interface http://localhost:3007/explorer
+    #restart: unless-stopped
+    env_file:
+      - ../neptune.env # Loads Neptune-specific AWS credentials from docker/neptune.env
     
-# Alternative: Neptune Workbench (Jupyter-based, requires AWS setup)
-# Neptune Workbench cannot be containerized as it's a managed AWS service
+  # Note: Within Graph Explorer UI, you can add connections to:
+  # 1. Neptune Database: https://db-neptune-1-instance-1.cuzoyae2cvjh.us-east-1.neptune.amazonaws.com (SERVICE_TYPE=neptune-db)
+  # 2. Neptune Analytics: https://g-ygfrvjpta0.us-east-1.neptune-analytics.amazonaws.com (SERVICE_TYPE=neptune-analytics)
+  # 
+  # Requirements:
+  # 1. Network connectivity to your Neptune services
+  # 2. Proper AWS credentials in docker/.env file
+  # 3. Security group rules allowing connections from this container
+    
+# Neptune Notebooks  (Jupyter-based, requires AWS setup)
+# Neptune Notebooks  cannot be containerized as it's a managed AWS service using SageMaker
 # Access via: AWS Console > Neptune > Notebooks > Create notebook instance
+
+# G.V() https://gdotv.com/  commercial tool also supports Neptune

@@ -3,6 +3,27 @@
 All notable changes to this project will be documented in this file.
 
 
+## [2025-10-16] - Amazon Neptune, Neptune Analytics, Graph Explorer now working, .env + docker.env now no duplication
+
+### Added
+- Amazon Neptune and Amazon Neptune Analytics graph databases are now working with flexible graphrag
+- A local Graph Explorer https://github.com/aws/graph-explorer in a docker works and can be used to query and visualize with both Amazon Neptune and Amazon Neptune Analytics. This is in neptune.yaml
+- added docker-env-sample.txt to copy to docker.env
+- added neptune-env-sample.txt top copy to neptune.env to provide keys, region to graph explorer in neptune.yaml docker
+
+### Enhanced
+- Previously had to repeat all config in app-stack.yaml flexible-graphrag-backend environment: section, Now use env_file: and include standalone backend flexible-graphrag/.env and override with include of docker.env with just the configs that need urls with host.docker.internal instead of localhost inside docker
+- env-sample.txt used as a template for backend .env (and now included in app-stack.yaml for docker) was updated with configs for Amazon Neptune and Amazon Neptune Analytics
+- factories.py was updated to get working creation of property graph stores for Neptune and Neptune Analytics
+- neptune_analytics_wrapper.py has a wrapper class that works around some vector issues Neptune Analytics Property Graph Store and LlamaIndex have
+- hybrid_system disables doing vector embeddings with Neptune Analytics
+
+### Documentation
+- In docker dir, new DOCKER-ENV-SETUP.md document way to configure docker with the new flexible-graphrag/.env + docker.env, and neptune.eny
+- README.md that covers all dockers for the databases, backend/frontends was update to also have coverage of the new two part env config
+
+
+
 ## [2025-10-10] - S3 Data Source is now fully working and Docling processing added for S3 files
 
 ### Enhanced

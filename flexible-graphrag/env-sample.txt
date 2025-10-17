@@ -96,12 +96,23 @@ GRAPH_DB_CONFIG={"db_path": "./kuzu_db/database.kz", "use_structured_schema": fa
 #GRAPH_DB_CONFIG={"space_name": "flexible_graphrag", "address": "localhost", "port": 9669, "username": "root", "password": "nebula"}
 
 # Amazon Neptune (managed graph database service)
-#GRAPH_DB_CONFIG={"host": "your-graph-name.cluster-id.region.neptune.amazonaws.com", "port": 8182}
-#GRAPH_DB_CONFIG={"endpoint": "your-neptune-cluster.cluster-xyz.us-east-1.neptune.amazonaws.com", "port": 8182, "region": "us-east-1", "access_key": "your_access_key", "secret_key": "your_secret_key"}
+# With explicit AWS credentials:
+#GRAPH_DB_CONFIG={"host": "your-neptune-cluster.cluster-xyz.us-east-1.neptune.amazonaws.com", "port": 8182, "region": "us-east-1", "access_key": "your_access_key", "secret_key": "your_secret_key"}
+# With AWS credentials profile (alternative approach):
+#GRAPH_DB_CONFIG={"host": "your-neptune-cluster.cluster-xyz.us-east-1.neptune.amazonaws.com", "port": 8182, "region": "us-east-1", "credentials_profile_name": "my-aws-profile"}
 
 # Amazon Neptune Analytics (serverless graph analytics engine)
-#GRAPH_DB_CONFIG={"graph_identifier": "your-graph-identifier"}
-#GRAPH_DB_CONFIG={"graph_identifier": "your-graph-identifier", "region": "us-east-1"}
+# NOTE: Neptune Analytics has non-atomic vector index limitations
+# The system automatically sets embed_kg_nodes=False for Neptune Analytics to avoid vector conflicts
+# Use a separate VECTOR_DB for embeddings when using Neptune Analytics
+# With explicit AWS credentials:
+#GRAPH_DB_CONFIG={"graph_identifier": "g-1234567890", "region": "us-east-1", "access_key": "your_access_key", "secret_key": "your_secret_key"}
+# With AWS credentials profile (alternative approach):
+#GRAPH_DB_CONFIG={"graph_identifier": "g-1234567890", "region": "us-east-1", "credentials_profile_name": "my-aws-profile"}
+# Using default AWS credentials (from environment variables, IAM role, etc.):
+#GRAPH_DB_CONFIG={"graph_identifier": "g-1234567890", "region": "us-east-1"}
+# Note: Neptune Analytics requires a region to be specified
+# Recommended: Use Neptune Analytics for graph + separate VECTOR_DB for embeddings
 
 
 # ====================================================================

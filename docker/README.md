@@ -2,6 +2,84 @@
 
 This directory contains the Docker Compose configuration for Flexible GraphRAG.
 
+## Environment Configuration
+
+### Two-Layer Configuration System
+
+Flexible GraphRAG uses a two-layer environment configuration for Docker deployments:
+
+1. **Main Configuration** (`flexible-graphrag/.env`): Contains all your settings (LLM, databases, credentials)
+2. **Docker Overrides** (`docker/docker.env`): Overrides only network addresses for Docker service names
+
+This allows you to maintain a single configuration file for both standalone and Docker modes!
+
+### Setup Instructions
+
+**Step 1: Main Configuration (Required)**
+
+**Windows:**
+```cmd
+copy flexible-graphrag\env-sample.txt flexible-graphrag\.env
+REM Edit flexible-graphrag\.env with your settings (LLM provider, credentials, etc.)
+```
+
+**macOS/Linux:**
+```bash
+cp flexible-graphrag/env-sample.txt flexible-graphrag/.env
+# Edit flexible-graphrag/.env with your settings (LLM provider, credentials, etc.)
+```
+
+**Step 2: Docker Overrides (Required for Docker mode)**
+
+**Windows:**
+```cmd
+copy docker\docker-env-sample.txt docker\docker.env
+REM This file converts localhost addresses to Docker service names
+REM Usually no editing needed - just copy and use as-is!
+```
+
+**macOS/Linux:**
+```bash
+cp docker/docker-env-sample.txt docker/docker.env
+# This file converts localhost addresses to Docker service names
+# Usually no editing needed - just copy and use as-is!
+```
+
+**Step 3: Neptune Graph Explorer (Optional - only if using Neptune)**
+
+**Windows:**
+```cmd
+copy docker\neptune-env-sample.txt docker\neptune.env
+REM Edit docker\neptune.env with Neptune AWS credentials (if different from main .env)
+```
+
+**macOS/Linux:**
+```bash
+cp docker/neptune-env-sample.txt docker/neptune.env
+# Edit docker/neptune.env with Neptune AWS credentials (if different from main .env)
+```
+
+### How It Works
+
+**Configuration Loading Order:**
+1. `flexible-graphrag/.env` loads first (all your settings with localhost addresses)
+2. `docker/docker.env` loads second (overrides with Docker service names like `neo4j`, `qdrant`, `elasticsearch`)
+3. Later values override earlier values - only network addresses change!
+
+**Example:**
+- **Standalone mode**: Uses `localhost:7687` from `flexible-graphrag/.env`
+- **Docker mode**: Override changes it to `neo4j:7687` from `docker/docker.env`
+- **Everything else** (LLM provider, API keys, passwords) stays the same!
+
+### Credential Separation
+
+This approach allows different AWS credentials for different services:
+- **S3 Data Source**: Uses credentials from `flexible-graphrag/.env`
+- **Neptune Analytics**: Uses credentials from `flexible-graphrag/.env` 
+- **Graph Explorer**: Uses credentials from `docker/neptune.env`
+
+This is useful when you have different AWS accounts/regions for storage vs graph databases.
+
 ## Main Compose File
 
 | File | Purpose | Usage |

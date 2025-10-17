@@ -505,6 +505,13 @@ class HybridSearchSystem:
                 "use_async": False  # Temporarily disable async to fix multi-file event loop conflicts
             }
             
+            # CRITICAL: Neptune Analytics has non-atomic vector index limitations
+            # Disable vector embeddings for knowledge graph nodes to avoid vector operation conflicts
+            if hasattr(self.graph_store, '__class__') and 'NeptuneAnalytics' in str(self.graph_store.__class__):
+                graph_index_kwargs["embed_kg_nodes"] = False
+                logger.info("Neptune Analytics detected: Setting embed_kg_nodes=False to avoid vector index atomicity issues")
+                logger.info("Knowledge graph structure will be created without vector embeddings (use separate VECTOR_DB for embeddings)")
+            
             # This is the most time-consuming step - LLM calls for entity/relationship extraction
             graph_creation_start_time = time.time()
             logger.info(f"Starting PropertyGraphIndex.from_documents() - this will make LLM calls to extract entities and relationships from {len(documents)} documents")
@@ -1445,14 +1452,23 @@ class HybridSearchSystem:
                 logger.info(f"Starting PropertyGraphIndex.from_documents() - this will make LLM calls to extract entities and relationships from {len(documents)} documents")
                 logger.info(f"LLM model being used for knowledge graph extraction: {llm_model_name}")
                 
-                create_graph_index = functools.partial(
-                    PropertyGraphIndex.from_documents,
-                    documents=documents,
-                    llm=self.llm,
-                    embed_model=self.embed_model,
-                    kg_extractors=kg_extractors,
-                    storage_context=graph_storage_context
-                )
+                # Prepare kwargs for PropertyGraphIndex.from_documents
+                graph_kwargs = {
+                    "documents": documents,
+                    "llm": self.llm,
+                    "embed_model": self.embed_model,
+                    "kg_extractors": kg_extractors,
+                    "storage_context": graph_storage_context
+                }
+                
+                # CRITICAL: Neptune Analytics has non-atomic vector index limitations
+                # Disable vector embeddings for knowledge graph nodes to avoid vector operation conflicts
+                if hasattr(self.graph_store, '__class__') and 'NeptuneAnalytics' in str(self.graph_store.__class__):
+                    graph_kwargs["embed_kg_nodes"] = False
+                    logger.info("Neptune Analytics detected: Setting embed_kg_nodes=False to avoid vector index atomicity issues")
+                    logger.info("Knowledge graph structure will be created without vector embeddings (use separate VECTOR_DB for embeddings)")
+                
+                create_graph_index = functools.partial(PropertyGraphIndex.from_documents, **graph_kwargs)
                 self.graph_index = await loop.run_in_executor(None, create_graph_index)
                 
                 graph_creation_duration = time.time() - graph_creation_start_time

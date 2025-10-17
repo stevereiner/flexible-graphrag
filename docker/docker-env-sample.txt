@@ -1,0 +1,133 @@
+# Docker-specific environment overrides for Flexible GraphRAG
+# This file overrides localhost addresses with Docker service names
+# Copy this to docker/docker.env and customize as needed
+#
+# The main flexible-graphrag/.env file is loaded first, then this file
+# overrides only the Docker networking configuration
+
+# ====================================================================
+# DOCKER SERVICE NAME OVERRIDES
+# ====================================================================
+
+# Graph Database - Override with Docker service names
+# Neo4j (when using Docker Neo4j service)
+GRAPH_DB_CONFIG={"url": "bolt://host.docker.internal:7687", "username": "neo4j", "password": "password"}
+
+# Kuzu (when using Docker - still uses local file path mounted as volume)
+#GRAPH_DB_CONFIG={"db_path": "./kuzu_db/database.kz", "use_structured_schema": false, "use_vector_index": false}
+
+# FalkorDB (when using Docker service)
+#GRAPH_DB_CONFIG={"url": "falkor://host.docker.internal:6379"}
+
+# ArcadeDB (when using Docker service)
+#GRAPH_DB_CONFIG={"host": "host.docker.internal", "port": 2480, "username": "root", "password": "playwithdata", "database": "flexible_graphrag", "include_basic_schema": true}
+
+# MemGraph (when using Docker service)
+#GRAPH_DB_CONFIG={"url": "bolt://host.docker.internal:7688", "username": "", "password": "", "database": "memgraph"}
+
+# NebulaGraph (when using Docker service)
+#GRAPH_DB_CONFIG={"space": "flexible_graphrag", "overwrite": true, "address": "host.docker.internal", "port": 9669, "username": "root", "password": "nebula"}
+
+# Neptune/Neptune Analytics (AWS - credentials must be available in Docker container)
+# AWS credentials are configured in main .env file, but Docker needs them passed through
+# Option 1: Set AWS credentials as environment variables on your host, they'll pass through
+# Option 2: Uncomment and set them here (not recommended for security):
+#AWS_ACCESS_KEY_ID=your_access_key
+#AWS_SECRET_ACCESS_KEY=your_secret_key
+#AWS_DEFAULT_REGION=us-east-1
+
+# ====================================================================
+# Vector Database - Override with Docker service names
+# ====================================================================
+
+# Qdrant (when using Docker service)
+VECTOR_DB_CONFIG={"host": "host.docker.internal", "port": 6333, "collection_name": "hybrid_search_vector", "https": false}
+
+# Elasticsearch (when using Docker service)
+#VECTOR_DB_CONFIG={"url": "http://host.docker.internal:9200", "index_name": "hybrid_search_vector"}
+
+# OpenSearch (when using Docker service)
+#VECTOR_DB_CONFIG={"url": "http://host.docker.internal:9201", "index_name": "hybrid_search_vector"}
+
+# Neo4j as vector database (when using Docker service)
+#VECTOR_DB_CONFIG={"url": "bolt://host.docker.internal:7687", "username": "neo4j", "password": "password", "index_name": "hybrid_search_vector", "database": "neo4j"}
+
+# Chroma (when using Docker service)
+#VECTOR_DB_CONFIG={"host": "host.docker.internal", "port": 8001, "collection_name": "hybrid_search"}
+
+# Milvus (when using Docker service)
+#VECTOR_DB_CONFIG={"host": "host.docker.internal", "port": 19530, "collection_name": "hybrid_search", "username": "root", "password": "milvus"}
+
+# Weaviate (when using Docker service)
+#VECTOR_DB_CONFIG={"url": "http://host.docker.internal:8080", "index_name": "HybridSearch"}
+
+# PostgreSQL with pgvector (when using Docker service)
+#VECTOR_DB_CONFIG={"host": "host.docker.internal", "port": 5432, "database": "postgres", "username": "postgres", "password": "password", "table_name": "hybrid_search_vectors"}
+
+# LanceDB (uses local file path mounted as volume)
+#VECTOR_DB_CONFIG={"uri": "./lancedb", "table_name": "hybrid_search", "vector_column_name": "vector", "text_column_name": "text"}
+
+# Pinecone (managed service - no override needed, configured in main .env file)
+
+# ====================================================================
+# Search Database - Override with Docker service names
+# ====================================================================
+
+# Elasticsearch (when using Docker service)
+SEARCH_DB_CONFIG={"url": "http://host.docker.internal:9200", "index_name": "hybrid_search_fulltext"}
+
+# OpenSearch (when using Docker service)
+#SEARCH_DB_CONFIG={"url": "http://host.docker.internal:9201", "index_name": "hybrid_search_fulltext"}
+
+# ====================================================================
+# Content Sources - Override with Docker service names
+# ====================================================================
+
+# CMIS Repository (when using Alfresco Docker service)
+#CMIS_CONFIG={"url": "http://host.docker.internal:8080/alfresco/api/-default-/public/cmis/versions/1.1/atom", "username": "admin", "password": "admin", "repository_id": "-default-"}
+
+# Alfresco Repository (when using Alfresco Docker service)
+#ALFRESCO_CONFIG={"base_url": "http://host.docker.internal:8080/alfresco", "username": "admin", "password": "admin"}
+
+# ====================================================================
+# LLM Provider - Override with Docker service names
+# ====================================================================
+
+# Ollama (when running on host machine, accessed from Docker container)
+# Note: Ollama typically runs on the host, not in a container
+OLLAMA_BASE_URL=http://host.docker.internal:11434
+
+# If Ollama is running in a Docker container (uncommon):
+#OLLAMA_BASE_URL=http://ollama:11434
+
+# ====================================================================
+# Individual Database Connection URIs/URLs - Override for Docker
+# ====================================================================
+
+# Neo4j
+NEO4J_URI=bolt://host.docker.internal:7687
+
+# Elasticsearch
+ELASTICSEARCH_URL=http://host.docker.internal:9200
+
+# OpenSearch
+OPENSEARCH_URL=http://host.docker.internal:9201
+
+# Qdrant
+QDRANT_HOST=host.docker.internal
+
+# Weaviate
+WEAVIATE_URL=http://host.docker.internal:8081
+
+# ====================================================================
+# NOTES
+# ====================================================================
+# 1. This file uses host.docker.internal to access services running on your host machine
+#    from within Docker containers (consistent with original app-stack.yaml approach)
+# 2. Cloud services (Neptune, Neptune Analytics, Pinecone) don't need overrides - 
+#    they use internet endpoints configured in main flexible-graphrag/.env file
+# 3. File-based databases (Kuzu, LanceDB) use local paths with Docker volume mounts
+# 4. Copy this file to docker/docker.env before starting Docker services:
+#    Windows: copy docker\docker-env-sample.txt docker\docker.env
+#    macOS/Linux: cp docker/docker-env-sample.txt docker/docker.env
+

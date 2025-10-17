@@ -1,0 +1,16 @@
+# Neptune-specific AWS Credentials for Graph Explorer
+# Copy this file to docker/neptune.env and modify the values
+#
+# These credentials are separate from S3 credentials in flexible-graphrag/.env
+# because you may use different AWS accounts/regions for Neptune vs S3
+
+# Neptune AWS Credentials (for Graph Explorer)
+AWS_ACCESS_KEY_ID=your_neptune_access_key_here
+AWS_SECRET_ACCESS_KEY=your_neptune_secret_key_here
+AWS_DEFAULT_REGION=us-east-1
+
+# Notes:
+# - These credentials are used only by the Graph Explorer container
+# - Your main application uses Neptune credentials from flexible-graphrag/.env
+# - S3 data source credentials are also in flexible-graphrag/.env
+# - This separation allows different AWS accounts/regions for different services
