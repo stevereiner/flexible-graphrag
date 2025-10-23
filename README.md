@@ -1,3 +1,5 @@
+[![MseeP.ai Security Assessment Badge](https://mseep.net/pr/stevereiner-flexible-graphrag-badge.png)](https://mseep.ai/app/stevereiner-flexible-graphrag)
+
 # Flexible GraphRAG
 
 **Flexible GraphRAG** is a platform supporting document processing, knowledge graph auto-building, RAG and GraphRAG setup, hybrid search (fulltext, vector, graph) and AI Q&A query capabilities.
