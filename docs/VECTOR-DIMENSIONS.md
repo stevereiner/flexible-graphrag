@@ -41,14 +41,14 @@ When frequently switching between embedding models (OpenAI ↔ Ollama), choose d
 | **Database** | **Deletion Method** | **Difficulty** | **Dashboard** |
 |--------------|-------------------|----------------|---------------|
 | **Qdrant** ✅ | One-click collection deletion | ⭐ Easy | Web UI |
-| **Chroma** ✅ | Simple collection management | ⭐ Easy | Web UI |
 | **Milvus** ✅ | Professional drop operations | ⭐⭐ Moderate | Attu Dashboard |
 | **Weaviate** ✅ | Schema-based deletion | ⭐⭐ Moderate | Console |
+| **Chroma** ⚠️ | HTTP mode: API deletion, Local mode: File cleanup | ⭐⭐ Moderate | Swagger API (HTTP) |
 | **LanceDB** ⚠️ | File/table deletion | ⭐⭐ Moderate | Viewer + Files |
 | **PostgreSQL** ❌ | SQL commands required | ⭐⭐⭐ Advanced | pgAdmin |
 | **Pinecone** ⚠️ | Cloud console only | ⭐⭐ Moderate | Web Console |
 
-**💡 Recommendation:** Use **Qdrant** or **Chroma** for the easiest vector cleanup when switching embedding models.
+**💡 Recommendation:** Use **Qdrant** or **Milvus** for the easiest vector cleanup when switching embedding models.
 
 ### Qdrant (Recommended for Easy Deletion)
 
@@ -104,19 +104,56 @@ curl -X DELETE "http://localhost:9200/hybrid_search_vector"
 curl -X DELETE "http://localhost:9201/hybrid_search_vector"
 ```
 
-### Chroma (Easy Web UI Deletion)
+### Chroma (File System or HTTP API Cleanup)
 
-**Via Chroma Web UI (http://localhost:8001):**
-1. Open **Chroma Web UI** at `http://localhost:8001`
-2. Navigate to **Collections** section
-3. Find your collection (typically `hybrid_search`)
-4. Click **"Delete Collection"** button
-5. Confirm the deletion in the dialog
+Chroma supports two deployment modes with different cleanup approaches:
 
-**Alternative - Using Chroma API:**
+**Local Mode (PersistentClient) - File System Cleanup:**
 ```bash
-# Delete collection via API
-curl -X DELETE "http://localhost:3008/api/v1/collections/hybrid_search"
+# Delete Chroma directory (contains all vector data)
+rm -rf ./chroma_db
+
+# Or on Windows
+rmdir /s /q .\chroma_db
+
+# Or on Windows PowerShell
+Remove-Item -Path .\chroma_db -Recurse -Force
+
+# Verify cleanup
+ls -la  # Should not show chroma_db directory
+```
+
+**HTTP Mode (HttpClient) - Using curl or Swagger API:**
+```bash
+# List all collections
+curl "http://localhost:8001/api/v2/tenants/default_tenant/databases/default_database/collections"
+
+# Delete specific collection
+curl -X DELETE "http://localhost:8001/api/v2/tenants/default_tenant/databases/default_database/collections/hybrid_search"
+```
+
+Via Swagger UI (http://localhost:8001/docs):
+1. Find the **DELETE** endpoint for collections
+2. Enter tenant: `default_tenant`
+3. Enter database: `default_database`
+4. Enter collection: `hybrid_search`
+5. Execute
+
+**Alternative - Using Python API (for both modes):**
+```python
+import chromadb
+
+# For Local Mode (PersistentClient)
+client = chromadb.PersistentClient(path="./chroma_db")
+
+# For HTTP Mode (HttpClient)
+# client = chromadb.HttpClient(host="localhost", port=8001)
+
+# Delete collection
+client.delete_collection("hybrid_search")
+
+# Verify
+print(client.list_collections())  # Should not include hybrid_search
 ```
 
 ### Milvus (Professional Dashboard)

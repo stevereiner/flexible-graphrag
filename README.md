@@ -133,9 +133,10 @@ Current configuration supports (via LlamaIndex vector store integrations)
   - Dashboard: Kibana (http://localhost:5601) for index management and data visualization
 - **OpenSearch**: Can be used as vector database with separate vector configuration
   - Dashboard: OpenSearch Dashboards (http://localhost:5601) for cluster and index management
-- **Chroma**: Open-source vector database with local persistence
-  - Dashboard: Swagger UI (http://localhost:8001/docs/) for API testing and management
-  - Local file-based storage with collection management
+- **Chroma**: Open-source vector database with dual deployment modes
+  - Dashboard: Swagger UI (http://localhost:8001/docs/) for API testing and management (HTTP mode)
+  - **Local Mode**: File-based storage with no server needed (default)
+  - **HTTP Mode**: Server-based deployment for remote access
 - **Milvus**: Cloud-native, scalable vector database for similarity search
   - Dashboard: Attu (http://localhost:3003) for cluster and collection management
 - **Weaviate**: Vector search engine with semantic capabilities and data enrichment
@@ -280,9 +281,13 @@ To enable RAG-only mode, configure these environment variables in your `.env` fi
    VECTOR_DB=opensearch
    VECTOR_DB_CONFIG={"index_name": "vectors", "host": "localhost", "port": 9201}
    
-   # Option 5: Chroma (local persistence)
+   # Option 5: Chroma (local mode - default)
    VECTOR_DB=chroma
    VECTOR_DB_CONFIG={"persist_directory": "./chroma_db", "collection_name": "documents"}
+   
+   # Option 5b: Chroma (HTTP mode - server required)
+   VECTOR_DB=chroma
+   VECTOR_DB_CONFIG={"host": "localhost", "port": 8001, "collection_name": "documents"}
    
    # Option 6: Milvus (scalable)
    VECTOR_DB=milvus
@@ -292,9 +297,9 @@ To enable RAG-only mode, configure these environment variables in your `.env` fi
    VECTOR_DB=weaviate
    VECTOR_DB_CONFIG={"url": "http://localhost:8081", "class_name": "Documents"}
    
-   # Option 8: Pinecone (managed service)
+   # Option 8: Pinecone (managed serverless service)
    VECTOR_DB=pinecone
-   VECTOR_DB_CONFIG={"api_key": "your_api_key", "environment": "us-east1-gcp", "index_name": "documents"}
+   VECTOR_DB_CONFIG={"api_key": "your_api_key", "region": "us-east-1", "cloud": "aws", "index_name": "documents", "metric": "cosine"}
    
    # Option 9: PostgreSQL (with pgvector)
    VECTOR_DB=postgres

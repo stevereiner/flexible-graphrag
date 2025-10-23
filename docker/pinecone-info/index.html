@@ -70,9 +70,10 @@
             padding: 20px; 
             border-radius: 8px;
             font-family: 'Courier New', monospace;
-            font-size: 0.9em;
-            line-height: 1.6;
+            font-size: 0.85em;
+            line-height: 1.8;
             overflow-x: auto;
+            white-space: pre;
         }
         .note { 
             background: #fff3cd; 
@@ -109,38 +110,21 @@
         <div class="content">
             <div class="note">
                 <strong>📌 Important:</strong> Pinecone is a managed cloud service. Unlike other vector databases, 
-                there's no local container to run. Use the official dashboards below to manage your indexes.
+                there's no local container to run. Use the official dashboard below to manage your indexes.
             </div>
             
             <div class="card">
-                <h3>🎛️ Available Dashboards</h3>
+                <h3>🎛️ Official Dashboard</h3>
                 <a href="https://app.pinecone.io" target="_blank" class="btn">
-                    🏢 Official Pinecone Console
+                    🏢 Pinecone Console (Official)
                 </a>
-                <a href="https://pineconeui.vercel.app" target="_blank" class="btn secondary">
-                    🔧 Pinecone UI (Third-party)
-                </a>
+                <p style="margin-top: 15px; color: #666;">
+                    Click the button above to access the official Pinecone Console. Log in with your Pinecone account 
+                    to manage indexes, view metrics, and monitor your vector database.
+                </p>
                 <a href="https://docs.pinecone.io" target="_blank" class="btn secondary">
                     📚 Documentation
                 </a>
-            </div>
-            
-            <div class="feature-grid">
-                <div class="feature">
-                    <div class="feature-icon">🏢</div>
-                    <h4>Official Console</h4>
-                    <p>Full-featured dashboard with index management, monitoring, and analytics</p>
-                </div>
-                <div class="feature">
-                    <div class="feature-icon">🔧</div>
-                    <h4>Pinecone UI</h4>
-                    <p>Third-party query console with OpenAI integration for easier testing</p>
-                </div>
-                <div class="feature">
-                    <div class="feature-icon">📊</div>
-                    <h4>Datadog Integration</h4>
-                    <p>Advanced monitoring and alerting through Datadog platform</p>
-                </div>
             </div>
             
             <div class="card">
@@ -148,36 +132,45 @@
                 <div class="config-section">
 # Vector Database Configuration
 VECTOR_DB=pinecone
-VECTOR_DB_CONFIG={"api_key": "your_pinecone_api_key", "environment": "us-east1-gcp", "index_name": "hybrid-search", "namespace": "default"}
 
-# Alternative: Individual environment variables
-PINECONE_API_KEY=your_pinecone_api_key
-PINECONE_ENVIRONMENT=us-east1-gcp
-PINECONE_INDEX_NAME=hybrid-search
-PINECONE_NAMESPACE=default
-PINECONE_METRIC=cosine
+# Pinecone Configuration (dimension is auto-detected from embedding model)
+VECTOR_DB_CONFIG={"api_key": "your_pinecone_api_key", "region": "us-east-1", "cloud": "aws", "index_name": "hybrid-search", "metric": "cosine"}
+
+# Configuration Parameters:
+# - api_key: Your Pinecone API key from app.pinecone.io
+# - region: AWS region (e.g., "us-east-1", "us-west-2", "eu-west-1")
+# - cloud: Cloud provider ("aws", "gcp", or "azure")
+# - index_name: Name for your index (created automatically if doesn't exist)
+# - metric: Distance metric ("cosine", "euclidean", or "dotproduct")
+# - dimension: NOT needed - auto-detected from your embedding model
                 </div>
             </div>
             
             <div class="card">
                 <h3>🚀 Quick Start</h3>
                 <ol style="line-height: 1.8; margin-left: 20px;">
-                    <li>Sign up at <a href="https://app.pinecone.io" target="_blank">Pinecone Console</a></li>
-                    <li>Create a new index with your preferred dimensions</li>
-                    <li>Copy your API key and environment details</li>
-                    <li>Update your <code>.env</code> file with Pinecone configuration</li>
+                    <li>Sign up at <a href="https://pinecone.io" target="_blank">pinecone.io</a> (free starter plan available)</li>
+                    <li>Get your API key from the <a href="https://app.pinecone.io" target="_blank">Pinecone Console</a></li>
+                    <li>Note your region (e.g., us-east-1) and cloud provider (aws, gcp, or azure)</li>
+                    <li>Update your <code>.env</code> file with the configuration shown above</li>
+                    <li>The system will automatically create your index with the correct dimensions</li>
                     <li>Start using Flexible GraphRAG with Pinecone!</li>
-                    <li>Access this dashboard at <code>http://localhost:3004</code></li>
                 </ol>
+                <div class="note" style="margin-top: 20px;">
+                    <strong>💡 Note:</strong> You don't need to manually create an index. Flexible GraphRAG will 
+                    automatically create it with the correct embedding dimensions based on your LLM provider 
+                    (e.g., 1536 for OpenAI's text-embedding-3-small, 384 for Ollama's all-minilm).
+                </div>
             </div>
             
             <div class="card">
                 <h3>🔗 Useful Links</h3>
-                <a href="https://docs.pinecone.io/guides/get-started/quickstart" target="_blank" class="btn secondary">Quickstart Guide</a>
-                <a href="https://docs.pinecone.io/integrations/datadog" target="_blank" class="btn secondary">Datadog Integration</a>
+                <a href="https://docs.pinecone.io/guides/get-started/overview" target="_blank" class="btn secondary">Getting Started Guide</a>
+                <a href="https://docs.pinecone.io/reference/api/introduction" target="_blank" class="btn secondary">API Reference</a>
                 <a href="https://community.pinecone.io" target="_blank" class="btn secondary">Community Forum</a>
             </div>
         </div>
     </div>
 </body>
 </html>
+

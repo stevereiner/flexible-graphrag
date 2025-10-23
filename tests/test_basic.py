@@ -330,20 +330,37 @@ def test_neptune_analytics_factory_validation():
         assert "Neptune Analytics graph_identifier is required" in str(e)
 
 def test_chroma_factory():
-    """Test Chroma vector store factory creation"""
+    """Test Chroma vector store factory creation (both local and HTTP modes)"""
     from config import VectorDBType
     from factories import DatabaseFactory
     
     # Test that Chroma enum exists
     assert VectorDBType.CHROMA == "chroma"
     
-    # Test factory method exists and handles Chroma type
+    # Test factory method with local mode (PersistentClient)
     try:
-        config = {
+        config_local = {
             "persist_directory": "./test_chroma_db",
             "collection_name": "test_collection"
         }
-        DatabaseFactory.create_vector_store(VectorDBType.CHROMA, config)
+        DatabaseFactory.create_vector_store(VectorDBType.CHROMA, config_local)
+    except ValueError as e:
+        if "Unsupported vector database" in str(e):
+            raise AssertionError("Chroma should be supported by factory")
+        # Other errors (like import errors) are expected without chromadb installed
+        pass
+    except Exception:
+        # Import or other errors are expected without chromadb package
+        pass
+    
+    # Test factory method with HTTP mode (HttpClient)
+    try:
+        config_http = {
+            "host": "localhost",
+            "port": 8001,
+            "collection_name": "test_collection"
+        }
+        DatabaseFactory.create_vector_store(VectorDBType.CHROMA, config_http)
     except ValueError as e:
         if "Unsupported vector database" in str(e):
             raise AssertionError("Chroma should be supported by factory")
@@ -415,9 +432,10 @@ def test_pinecone_factory():
     try:
         config = {
             "api_key": "test-api-key",
-            "environment": "us-east1-gcp",
+            "region": "us-east-1",
+            "cloud": "aws",
             "index_name": "test-index",
-            "dim": 1536
+            "metric": "cosine"
         }
         DatabaseFactory.create_vector_store(VectorDBType.PINECONE, config)
     except ValueError as e:

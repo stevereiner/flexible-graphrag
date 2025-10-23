@@ -20,10 +20,18 @@ This document describes the comprehensive vector database support in Flexible Gr
 
 ## Configuration Examples
 
-### Chroma (Local Persistence)
+### Chroma (Local or HTTP Mode)
+
+Local mode (file-based storage):
 ```bash
 VECTOR_DB=chroma
 VECTOR_DB_CONFIG={"persist_directory": "./chroma_db", "collection_name": "hybrid_search"}
+```
+
+HTTP mode (connect to remote ChromaDB server):
+```bash
+VECTOR_DB=chroma
+VECTOR_DB_CONFIG={"host": "localhost", "port": 8001, "collection_name": "hybrid_search"}
 ```
 
 ### Milvus (Scalable)
@@ -38,10 +46,10 @@ VECTOR_DB=weaviate
 VECTOR_DB_CONFIG={"url": "http://localhost:8080", "class_name": "HybridSearch", "api_key": "your_api_key"}
 ```
 
-### Pinecone (Managed Service)
+### Pinecone (Managed Serverless Service)
 ```bash
 VECTOR_DB=pinecone
-VECTOR_DB_CONFIG={"api_key": "your_pinecone_api_key", "environment": "us-east1-gcp", "index_name": "hybrid-search", "namespace": "default"}
+VECTOR_DB_CONFIG={"api_key": "your_pinecone_api_key", "region": "us-east-1", "cloud": "aws", "index_name": "hybrid-search", "metric": "cosine"}
 ```
 
 ### PostgreSQL (with pgvector)
@@ -78,10 +86,13 @@ include:
 ## Database-Specific Features
 
 ### Chroma
-- **Type**: Local embedded database
-- **Strengths**: Simple setup, local persistence, good for development
-- **Dashboard**: File-based storage with Python API
-- **Port**: 8001 (when using server mode)
+- **Type**: Local embedded or remote HTTP database
+- **Strengths**: Simple setup, dual deployment modes (local/remote), good for development and production
+- **Dashboard**: Swagger API at http://localhost:8001/docs (HTTP mode only)
+- **Port**: 8001 (HTTP mode with server)
+- **Modes**: 
+  - Local: PersistentClient with file-based storage (default: `./chroma_db`)
+  - HTTP: HttpClient connecting to remote ChromaDB server
 
 ### Milvus
 - **Type**: Distributed vector database
@@ -143,24 +154,34 @@ Basic factory tests are included in `tests/test_basic.py`:
 
 ### Vector Dimension Compatibility
 **CRITICAL**: When switching between vector databases, ensure you clean up existing indexes due to embedding dimension differences:
-- **OpenAI**: 1536 dimensions (text-embedding-3-small)
-- **Ollama**: 1024 dimensions (mxbai-embed-large)
+- **OpenAI**: 1536 dimensions (text-embedding-3-small), 3072 dimensions (text-embedding-3-large)
+- **Ollama**: 384 dimensions (all-minilm, default), 768 dimensions (nomic-embed-text), 1024 dimensions (mxbai-embed-large)
 
 See [VECTOR-DIMENSIONS.md](VECTOR-DIMENSIONS.md) for cleanup instructions.
 
 ## Dependencies
 
-The following packages are automatically installed:
+The following packages are automatically installed via `requirements.txt`:
+
+**LlamaIndex Vector Store Integrations** (10 databases):
+- `llama-index-vector-stores-neo4jvector`
+- `llama-index-vector-stores-qdrant`
+- `llama-index-vector-stores-elasticsearch`
+- `llama-index-vector-stores-opensearch`
 - `llama-index-vector-stores-chroma`
 - `llama-index-vector-stores-milvus`
 - `llama-index-vector-stores-weaviate`
 - `llama-index-vector-stores-pinecone`
 - `llama-index-vector-stores-postgres`
 - `llama-index-vector-stores-lancedb`
+
+**Vector Database Client Libraries**:
+- `qdrant-client`
 - `chromadb`
 - `pymilvus`
 - `weaviate-client`
 - `pinecone-client`
+- `pinecone` (Pinecone Python SDK)
 - `psycopg2-binary`
 - `lancedb`
 

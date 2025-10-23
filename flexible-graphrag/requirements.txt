@@ -67,6 +67,8 @@ pinecone-client
 psycopg2-binary
 lancedb
 
+pinecone
+
 # Data Source LlamaIndex Reader dependencies
 llama-index-readers-web
 llama-index-readers-wikipedia

@@ -2,6 +2,37 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2025-10-22] - All 10 vector databases working: Pinecone, Weaviate working now, Chroma now supports both http, embedded
+
+### Added
+- **Added Chroma HTTP mode**
+  - In `factories.py` create_vector_store now also supports chroma http mode in addition to local embedded, and uses what is in vector_db_config to determine which one to setup
+  - In `env-sample.txt` has added example for http mode chroma
+  - `test_basic.py` has added basic instantiation test for chroma http mode
+
+### Changed
+**Pinecone config parameters changed, working now**
+  -In `factories.py` create_vector_store now sets up pinecone with a different set of config values
+(now cloud, region, metric  instead of environment, namespace). 
+  - In `pinecone.yaml`, comments changed to reflect new config paramters, only mention official dashboard, and simpler startup for our pinecone-info datashboard
+  - In `env-sample.txt` pinecone config sample updated to use new config parameters (now cloud, region, metric  instead of environment, namespace).
+  - In `docker/pinecone-info/index.html` this information dashboard was updated to show the
+new config setup parameters, just point to the official dashboard, and an unneeded section was removed 
+  - In `requirements.txt` pinecone package added as a requirement
+  - test_basic.py has pinecone test updated to use new config parameters
+
+**Weaviate now working**
+  - In `weaviate.yaml`, weaviate was changed to get not have errors and work: the image was changed
+to be :latest and not an older version, and having the gRPC port added back in by taking the commnent off it.
+
+### Documentation
+- `README.md` updated with info on Chroma HTTP mode in addition to local embedded mode,
+updated with different vector_db_config parameters that pinecone support needs
+- `docs/chroma-deployment-modes.md` added covering setup of the local embedded and http based version of chroma 
+(docker chroma.yaml sets local with its data local or in external server) use of rest api to manage the http version 
+- `docs/default-usernames-passwords.md`, `docs/vector-database-integration.md`, and `docs/vector-dimensions.md` updated
+with pinecone changes, and added http mode chroma
+
 
 ## [2025-10-16] - Amazon Neptune, Neptune Analytics, Graph Explorer now working, .env + docker.env now no duplication
 

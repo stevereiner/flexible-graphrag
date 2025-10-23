@@ -160,7 +160,10 @@ VECTOR_DB_CONFIG={"host": "localhost", "port": 6333, "collection_name": "hybrid_
 #VECTOR_DB_CONFIG={"url": "bolt://localhost:7687", "username": "neo4j", "password": "password", "index_name": "hybrid_search_vector", "database": "neo4j"}
 
 # Chroma (local vector database with persistence)
+# Local mode (file-based storage):
 #VECTOR_DB_CONFIG={"persist_directory": "./chroma_db", "collection_name": "hybrid_search"}
+# HTTP mode (connect to remote ChromaDB server):
+#VECTOR_DB_CONFIG={"host": "localhost", "port": 8001, "collection_name": "hybrid_search"}
 
 # Milvus (scalable vector database)
 #VECTOR_DB_CONFIG={"host": "localhost", "port": 19530, "collection_name": "hybrid_search", "username": "root", "password": "milvus"}
@@ -171,8 +174,10 @@ VECTOR_DB_CONFIG={"host": "localhost", "port": 6333, "collection_name": "hybrid_
 # For authenticated instance (with API key):
 #VECTOR_DB_CONFIG={"url": "http://localhost:8081", "index_name": "HybridSearch", "api_key": "your_weaviate_api_key"}
 
-# Pinecone (managed vector database service)
-#VECTOR_DB_CONFIG={"api_key": "your_pinecone_api_key", "environment": "us-east1-gcp", "index_name": "hybrid-search", "namespace": "default"}
+# Pinecone (managed serverless vector database service)
+# Sign up at https://app.pinecone.io (free starter plan available)
+# Note: dimension is auto-detected from your embedding model, don't include it in config
+#VECTOR_DB_CONFIG={"api_key": "your_pinecone_api_key", "region": "us-east-1", "cloud": "aws", "index_name": "hybrid-search", "metric": "cosine"}
 
 # PostgreSQL with pgvector extension
 #VECTOR_DB_CONFIG={"host": "localhost", "port": 5433, "database": "postgres", "username": "postgres", "password": "password", "table_name": "hybrid_search_vectors"}

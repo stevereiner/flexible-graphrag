@@ -392,7 +392,7 @@ VECTOR_DB_CONFIG='{"host": "localhost", "port": 5433, "database": "flexible_grap
 
 # Pinecone (cloud service, API key required)
 VECTOR_DB=pinecone
-VECTOR_DB_CONFIG='{"api_key": "your_api_key", "environment": "us-east1-gcp", "index_name": "hybrid-search"}'
+VECTOR_DB_CONFIG='{"api_key": "your_api_key", "region": "us-east-1", "cloud": "aws", "index_name": "hybrid-search", "metric": "cosine"}'
 ```
 
 ### 🔍 **Search Engine Configurations:**
@@ -505,12 +505,16 @@ CMIS_PASSWORD=admin
 - **Container**: `flexible-graphrag-qdrant`
 
 ### Chroma Vector Database
-- **API URL**: http://localhost:8001/
+- **API URL**: http://localhost:8001/ (HTTP mode only)
+- **Swagger UI**: http://localhost:8001/docs (HTTP mode only)
 - **Web UI**: *(API only - no web interface)*
 - **Username**: *(no authentication)*
 - **Password**: *(no authentication)*
+- **Deployment Modes**:
+  - **Local Mode** (PersistentClient): File-based storage, no server needed
+  - **HTTP Mode** (HttpClient): Server required, accessible via API/Swagger
 - **Features**: AI-native open-source embedding database
-- **Container**: `flexible-graphrag-chroma`
+- **Container**: `flexible-graphrag-chroma` (for HTTP mode)
 
 ### Milvus Vector Database
 - **Attu Dashboard**: http://localhost:3003/

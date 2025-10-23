@@ -278,13 +278,22 @@ class DatabaseFactory:
             from llama_index.vector_stores.chroma import ChromaVectorStore
             import chromadb
             
-            # Create Chroma client
-            persist_directory = config.get("persist_directory", "./chroma_db")
             collection_name = config.get("collection_name", "hybrid_search")
-            logger.info(f"Creating Chroma vector store - Collection: {collection_name}, Persist dir: {persist_directory}, Embed dim: {embed_dim}")
             
-            # Initialize Chroma client
-            chroma_client = chromadb.PersistentClient(path=persist_directory)
+            # Check if HTTP client configuration is provided
+            host = config.get("host")
+            port = config.get("port")
+            
+            if host and port:
+                # HTTP Client mode - connect to remote ChromaDB server
+                logger.info(f"Creating Chroma vector store (HTTP) - Host: {host}:{port}, Collection: {collection_name}, Embed dim: {embed_dim}")
+                chroma_client = chromadb.HttpClient(host=host, port=port)
+            else:
+                # Persistent Client mode - local file-based storage (default)
+                persist_directory = config.get("persist_directory", "./chroma_db")
+                logger.info(f"Creating Chroma vector store (Local) - Collection: {collection_name}, Persist dir: {persist_directory}, Embed dim: {embed_dim}")
+                chroma_client = chromadb.PersistentClient(path=persist_directory)
+            
             chroma_collection = chroma_client.get_or_create_collection(collection_name)
             
             return ChromaVectorStore(chroma_collection=chroma_collection)
@@ -361,28 +370,36 @@ class DatabaseFactory:
         
         elif db_type == VectorDBType.PINECONE:
             from llama_index.vector_stores.pinecone import PineconeVectorStore
-            import pinecone
+            from pinecone import Pinecone, ServerlessSpec
             
             api_key = config.get("api_key")
-            environment = config.get("environment")
+            region = config.get("region", "us-east-1")
+            cloud = config.get("cloud", "aws")
             index_name = config.get("index_name", "hybrid-search")
-            logger.info(f"Creating Pinecone vector store - Index: {index_name}, Environment: {environment}, Embed dim: {embed_dim}")
+            metric = config.get("metric", "cosine")
+            
+            logger.info(f"Creating Pinecone vector store - Index: {index_name}, Cloud: {cloud}, Region: {region}, Metric: {metric}, Embed dim: {embed_dim}")
             
             if not api_key:
                 raise ValueError("Pinecone API key is required")
             
-            # Initialize Pinecone
-            pinecone.init(api_key=api_key, environment=environment)
+            # Initialize Pinecone client
+            pc = Pinecone(api_key=api_key)
             
             # Create or get index
-            if index_name not in pinecone.list_indexes():
-                pinecone.create_index(
+            existing_indexes = [index.name for index in pc.list_indexes()]
+            if index_name not in existing_indexes:
+                logger.info(f"Creating new Pinecone index: {index_name} with dimension: {embed_dim}")
+                pc.create_index(
                     name=index_name,
-                    dimension=embed_dim,
-                    metric=config.get("metric", "cosine")
+                    dimension=embed_dim,  # Auto-detected from embedding model
+                    metric=metric,
+                    spec=ServerlessSpec(cloud=cloud, region=region)
                 )
+            else:
+                logger.info(f"Using existing Pinecone index: {index_name}")
             
-            pinecone_index = pinecone.Index(index_name)
+            pinecone_index = pc.Index(index_name)
             
             return PineconeVectorStore(
                 pinecone_index=pinecone_index,
