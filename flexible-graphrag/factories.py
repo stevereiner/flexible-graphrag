@@ -586,13 +586,32 @@ class DatabaseFactory:
         
         elif db_type == GraphDBType.FALKORDB:
             url = config.get("url", "falkor://localhost:6379")
+            database = config.get("database", "falkor")
             logger.info(f"Creating FalkorDB graph store - URL: {url}")
+
             
-            return FalkorDBPropertyGraphStore(
+            # Use standard FalkorDB store (indexes are the key optimization)
+            graph_store = FalkorDBPropertyGraphStore(
                 url=url,
-                username=config.get("username"),
-                password=config.get("password")
+                database=database,
+                refresh_schema=False,  # Disable expensive schema refresh on init
+                sanitize_query_output=True
             )
+            
+            # Create indexes for better performance
+            try:
+                logger.info("Creating FalkorDB indexes for optimization...")
+                # Index on entity names for faster lookups
+                graph_store.client.query("CREATE INDEX FOR (e:__Entity__) ON (e.name)")
+                # Index on entity IDs
+                graph_store.client.query("CREATE INDEX FOR (e:__Entity__) ON (e.id)")
+                # Index on chunks
+                graph_store.client.query("CREATE INDEX FOR (c:Chunk) ON (c.id)")
+                logger.info("FalkorDB indexes created successfully")
+            except Exception as e:
+                logger.warning(f"Index creation failed (may already exist): {e}")
+            
+            return graph_store
         
         elif db_type == GraphDBType.ARCADEDB:
             host = config.get("host", "localhost")
