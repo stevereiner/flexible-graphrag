@@ -148,7 +148,6 @@ class FileSystemSource(BaseDataSource):
         """
         Get documents from filesystem paths with progress tracking.
         """
-        from document_processor import DocumentProcessor
         import asyncio
         
         try:
@@ -166,8 +165,8 @@ class FileSystemSource(BaseDataSource):
             if not files:
                 return []
             
-            # Process files using DocumentProcessor
-            doc_processor = DocumentProcessor()
+            # Process files using DocumentProcessor with configured parser type
+            doc_processor = self._get_document_processor()
             file_paths = [str(f) for f in files]
             
             # Process documents with progress updates
@@ -198,7 +197,8 @@ class FileSystemSource(BaseDataSource):
                     logger.error(f"Error processing filesystem file {file_path}: {str(e)}")
                     continue
             
-            return documents
+            logger.info(f"FileSystemSource processed {len(file_paths)} files ({len(documents)} chunks)")
+            return (len(file_paths), documents)  # Return tuple: (file_count, documents)
             
         except Exception as e:
             logger.error(f"Error getting filesystem documents with progress: {str(e)}")

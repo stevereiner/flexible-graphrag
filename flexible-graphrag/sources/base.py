@@ -18,6 +18,23 @@ class BaseDataSource(ABC):
         self.config = config
         self.logger = logging.getLogger(self.__class__.__name__)
     
+    def _get_document_processor(self):
+        """
+        Get a DocumentProcessor instance configured with the correct parser type.
+        This centralizes parser type configuration for all data sources.
+        
+        Returns:
+            DocumentProcessor: Initialized document processor
+        """
+        from document_processor import DocumentProcessor, get_parser_type_from_env
+        from config import Settings
+        
+        parser_type = get_parser_type_from_env()
+        
+        # Pass Settings instance to DocumentProcessor for LlamaParse API key access
+        config = Settings()
+        return DocumentProcessor(config=config, parser_type=parser_type)
+    
     @abstractmethod
     def get_documents(self) -> List[Document]:
         """
@@ -28,7 +45,7 @@ class BaseDataSource(ABC):
         """
         pass
     
-    async def get_documents_with_progress(self, progress_callback=None) -> List[Document]:
+    async def get_documents_with_progress(self, progress_callback=None):
         """
         Retrieve documents from the data source with progress tracking.
         
@@ -37,11 +54,17 @@ class BaseDataSource(ABC):
                               Should accept (current, total, message, current_file)
         
         Returns:
-            List[Document]: List of LlamaIndex Document objects
+            tuple: (file_count, documents) where:
+                   - file_count: Number of original files/sources processed
+                   - documents: List[Document] - LlamaIndex Document objects (may be chunks)
+                   
+        Note: file_count represents original files, while len(documents) may be higher
+              due to chunking during processing (especially with LlamaParse).
         """
-        # Default implementation just calls get_documents
-        # Subclasses can override this for detailed progress tracking
-        return self.get_documents()
+        # Default implementation just calls get_documents and returns (1, documents)
+        # Subclasses should override to track actual file counts
+        documents = self.get_documents()
+        return (len(documents), documents)  # Assume 1 doc = 1 file for simple sources
     
     @abstractmethod
     def validate_config(self) -> bool:

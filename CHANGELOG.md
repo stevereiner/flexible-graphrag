@@ -2,6 +2,36 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2025-11-10] - Azure Blob Storage data source now also fully working
+
+### Fixed
+- **Azure Blob Storage temporary file deletion** - Applied same PassthroughExtractor immediate processing fix as Box and Google Drive, preventing "File does not exist" errors when AzStorageBlobReader cleanup deletes temp files before DocumentProcessor can access them
+
+## [2025-11-08] - LlamaParse added as an additional configurable doc processing choice beyond Docling. Box, Google Drive, GCS data sources now fully working, and the custom configured DocProcessor called from a Passthrough Extractor allows the LlamaIndex Readers to be fully leveraged
+
+### Fixed
+- **LlamaParse parse_page_without_llm mode error** - Changed result_type to "text" for parse_page_without_llm mode (was hardcoded "markdown" causing 404 errors), added conditional result_type logic in document_processor.py
+- **Box, Google Drive, and Azure Blob temporary file deletion** - Modified PassthroughExtractor to accept doc_processor parameter and process files immediately while they exist in temp directory, preventing "File does not exist" errors when LlamaIndex readers cleanup temp directories after load_data() returns
+- **GCS permissions and configuration** - Fixed by granting "Storage Object Viewer" role (Storage Legacy Bucket Reader was insufficient), removed redundant project_id field (already in service account JSON)
+- **UI progress indicators for Box/S3** - Fixed React/Vue progress bars by stripping type field from enterpriseConfig/cloudConfig before sending to backend, added fallback for completed files in getFileProgressData
+- **S3 region_name configuration** - Changed from hardcoded "us-east-2" to None with fallback to "us-east-1" standard AWS region, fixed None/"None" string handling
+- **'NoneType' object is not callable error** - Added safety checks in _process_with_llamaparse for check_cancellation parameter (S3/cloud sources don't pass it)
+
+### Enhanced
+- **File count vs chunk count tracking** - Updated BaseDataSource.get_documents_with_progress() to return tuple (file_count, documents) instead of just List[Document], all 13 data sources return proper file counts, IngestionManager stores file_count/chunk_count in PROCESSING_STATUS when they differ, hybrid_system.py completion logic uses stored file_count in both code paths (ingest_documents and _process_documents_direct)
+- **LlamaParse filename display in LlamaCloud** - Changed from memory-intensive BytesIO approach to efficient temp file creation with original names at download time, updated process_documents_from_metadata() to use original filename directly, updated Alfresco/CMIS _download_document() to use original filenames
+- **Box authentication modes** - Implemented 4-mode authentication UI across all frontends: developer token, CCG with user_id, CCG with enterprise_id, CCG with both, uses BoxClient with BoxDeveloperTokenAuth/BoxCCGAuth and CCGConfig
+- **GCS non-recursive file listing** - Added recursive=False to GCSReader initialization to prevent subdirectory traversal, allows prefix-based filtering without recursion
+- **Parser type configuration** - Created BaseDataSource._get_document_processor() centralized method ensuring consistent parser_type and Settings across all data sources
+
+### Added
+- **GCS UI improvements** - Removed unused folder_name field from all 3 frontends, standardized field ordering (Bucket Name, Prefix, Credentials) across React/Vue/Angular
+- **LlamaParse configuration documentation** - Updated env-sample.txt with mode-specific output format clarification (text for parse_page_without_llm, markdown for with_llm and with_agent modes)
+
+### Dependencies
+- **llama-index-readers-file** - Added to prevent warnings in Box/Google Drive PassthroughExtractor
+- **box-sdk-gen** - Added for Box CCG authentication (BoxClient, BoxCCGAuth, CCGConfig)
+
 ## [2025-10-22] - All 10 vector databases working: Pinecone, Weaviate working now, Chroma now supports both http, embedded
 
 ### Added

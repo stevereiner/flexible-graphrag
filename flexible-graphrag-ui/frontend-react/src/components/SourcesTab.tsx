@@ -44,7 +44,6 @@ interface SourcesTabProps {
   s3AccessKey: string;
   s3SecretKey: string;
   gcsBucketName: string;
-  gcsProjectId: string;
   gcsCredentials: string;
   azureBlobConnectionString: string;
   azureBlobContainer: string;
@@ -60,6 +59,8 @@ interface SourcesTabProps {
   boxClientId: string;
   boxClientSecret: string;
   boxDeveloperToken: string;
+  boxUserId: string;
+  boxEnterpriseId: string;
   googleDriveCredentials: string;
   onDataSourceChange: (dataSource: string) => void;
   onSelectedFilesChange: (files: File[]) => void;
@@ -78,7 +79,6 @@ interface SourcesTabProps {
   onS3AccessKeyChange: (key: string) => void;
   onS3SecretKeyChange: (key: string) => void;
   onGcsBucketNameChange: (name: string) => void;
-  onGcsProjectIdChange: (id: string) => void;
   onGcsCredentialsChange: (creds: string) => void;
   onAzureBlobConnectionStringChange: (conn: string) => void;
   onAzureBlobContainerChange: (container: string) => void;
@@ -94,6 +94,8 @@ interface SourcesTabProps {
   onBoxClientIdChange: (id: string) => void;
   onBoxClientSecretChange: (secret: string) => void;
   onBoxDeveloperTokenChange: (token: string) => void;
+  onBoxUserIdChange: (userId: string) => void;
+  onBoxEnterpriseIdChange: (enterpriseId: string) => void;
   onGoogleDriveCredentialsChange: (creds: string) => void;
   onConfigureProcessing: () => void;
   onSourcesConfigured: (data: {
@@ -127,7 +129,6 @@ export const SourcesTab: React.FC<SourcesTabProps> = ({
   s3AccessKey,
   s3SecretKey,
   gcsBucketName,
-  gcsProjectId,
   gcsCredentials,
   azureBlobConnectionString,
   azureBlobContainer,
@@ -143,6 +144,8 @@ export const SourcesTab: React.FC<SourcesTabProps> = ({
   boxClientId,
   boxClientSecret,
   boxDeveloperToken,
+  boxUserId,
+  boxEnterpriseId,
   googleDriveCredentials,
   onDataSourceChange,
   onSelectedFilesChange,
@@ -177,6 +180,8 @@ export const SourcesTab: React.FC<SourcesTabProps> = ({
   onBoxClientIdChange,
   onBoxClientSecretChange,
   onBoxDeveloperTokenChange,
+  onBoxUserIdChange,
+  onBoxEnterpriseIdChange,
   onGoogleDriveCredentialsChange,
   onConfigureProcessing, 
   onSourcesConfigured 
@@ -322,10 +327,8 @@ export const SourcesTab: React.FC<SourcesTabProps> = ({
           <GCSSourceForm
             currentTheme={currentTheme}
             bucketName={gcsBucketName}
-            projectId={gcsProjectId}
             credentials={gcsCredentials}
             onBucketNameChange={onGcsBucketNameChange}
-            onProjectIdChange={onGcsProjectIdChange}
             onCredentialsChange={onGcsCredentialsChange}
             onConfigurationChange={handleConfigurationChange}
             onValidationChange={handleValidationChange}
@@ -392,9 +395,13 @@ export const SourcesTab: React.FC<SourcesTabProps> = ({
             clientId={boxClientId}
             clientSecret={boxClientSecret}
             developerToken={boxDeveloperToken}
+            userId={boxUserId}
+            enterpriseId={boxEnterpriseId}
             onClientIdChange={onBoxClientIdChange}
             onClientSecretChange={onBoxClientSecretChange}
             onDeveloperTokenChange={onBoxDeveloperTokenChange}
+            onUserIdChange={onBoxUserIdChange}
+            onEnterpriseIdChange={onBoxEnterpriseIdChange}
             onConfigurationChange={handleConfigurationChange}
             onValidationChange={handleValidationChange}
           />

@@ -4,38 +4,31 @@ import { BaseSourceForm, BaseSourceFormProps } from './BaseSourceForm';
 
 interface GCSSourceFormProps extends BaseSourceFormProps {
   bucketName: string;
-  projectId: string;
   credentials: string;
   onBucketNameChange: (bucketName: string) => void;
-  onProjectIdChange: (projectId: string) => void;
   onCredentialsChange: (credentials: string) => void;
 }
 
 export const GCSSourceForm: React.FC<GCSSourceFormProps> = ({
   currentTheme,
   bucketName,
-  projectId,
   credentials,
   onBucketNameChange,
-  onProjectIdChange,
   onCredentialsChange,
   onConfigurationChange,
   onValidationChange,
 }) => {
   const [prefix, setPrefix] = useState('');
-  const [folderName, setFolderName] = useState('');
 
   const isValid = useMemo(() => {
-    return bucketName.trim() !== '' && projectId.trim() !== '' && credentials.trim() !== '';
-  }, [bucketName, projectId, credentials]);
+    return bucketName.trim() !== '' && credentials.trim() !== '';
+  }, [bucketName, credentials]);
 
   const config = useMemo(() => ({
     bucket_name: bucketName,
-    project_id: projectId,
     credentials: credentials,
-    prefix: prefix || undefined,
-    folder_name: folderName || undefined
-  }), [bucketName, projectId, credentials, prefix, folderName]);
+    prefix: prefix || undefined
+  }), [bucketName, credentials, prefix]);
 
   useEffect(() => {
     onValidationChange(isValid);
@@ -47,16 +40,6 @@ export const GCSSourceForm: React.FC<GCSSourceFormProps> = ({
       title="Google Cloud Storage"
       description="Connect to Google Cloud Storage buckets"
     >
-      <TextField
-        fullWidth
-        label="Project ID"
-        variant="outlined"
-        value={projectId}
-        onChange={(e) => onProjectIdChange(e.target.value)}
-        size="small"
-        sx={{ mb: 2 }}
-        placeholder="my-gcp-project"
-      />
       <TextField
         fullWidth
         label="Bucket Name"
@@ -75,19 +58,8 @@ export const GCSSourceForm: React.FC<GCSSourceFormProps> = ({
         onChange={(e) => setPrefix(e.target.value)}
         size="small"
         sx={{ mb: 2 }}
-        placeholder="documents/reports/"
-        helperText="Optional: folder path prefix within bucket"
-      />
-      <TextField
-        fullWidth
-        label="Folder Name (Optional)"
-        variant="outlined"
-        value={folderName}
-        onChange={(e) => setFolderName(e.target.value)}
-        size="small"
-        sx={{ mb: 2 }}
-        placeholder="my-folder"
-        helperText="Optional: specific folder name within bucket"
+        placeholder="sample-docs/"
+        helperText="Optional: folder path prefix (e.g., 'sample-docs/' for a specific folder)"
       />
       <TextField
         fullWidth

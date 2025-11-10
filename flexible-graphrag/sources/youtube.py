@@ -183,7 +183,7 @@ class YouTubeSource(BaseDataSource):
             logger.error(f"Error loading YouTube transcript for video '{self.video_id}': {str(e)}")
             raise
     
-    async def get_documents_with_progress(self, progress_callback=None) -> List[Document]:
+    async def get_documents_with_progress(self, progress_callback=None):
         """
         Retrieve documents from YouTube video transcript with progress tracking.
         
@@ -191,7 +191,7 @@ class YouTubeSource(BaseDataSource):
             progress_callback: Callback function for progress updates
         
         Returns:
-            List[Document]: List of LlamaIndex Document objects
+            tuple: (1, documents) - Always 1 video, multiple time-based chunk documents
         """
         try:
             logger.info(f"Loading YouTube transcript for video ID: {self.video_id} with progress tracking")
@@ -212,7 +212,7 @@ class YouTubeSource(BaseDataSource):
                 progress_callback(3, 3, f"Processed {len(documents)} transcript chunks", self.url)
             
             logger.info(f"YouTubeSource loaded {len(documents)} transcript chunks from: {self.url}")
-            return documents
+            return (1, documents)  # Return tuple: (1 video, N chunks)
             
         except Exception as e:
             logger.error(f"Error loading YouTube transcript for video '{self.video_id}': {str(e)}")

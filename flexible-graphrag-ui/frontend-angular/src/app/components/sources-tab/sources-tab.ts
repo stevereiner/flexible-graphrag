@@ -39,7 +39,6 @@ export class SourcesTabComponent {
   s3AccessKey = '';
   s3SecretKey = '';
   gcsBucketName = '';
-  gcsProjectId = '';
   gcsCredentials = '';
   azureBlobConnectionString = '';
   azureBlobContainer = '';
@@ -56,6 +55,8 @@ export class SourcesTabComponent {
   boxClientId = '';
   boxClientSecret = '';
   boxDeveloperToken = '';
+  boxUserId = '';
+  boxEnterpriseId = '';
   googleDriveCredentials = '';
 
   // Computed properties

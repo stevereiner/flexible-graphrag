@@ -58,10 +58,18 @@ class LLMProvider(str, Enum):
     AZURE_OPENAI = "azure_openai"
     ANTHROPIC = "anthropic"
 
+class DocumentParser(str, Enum):
+    DOCLING = "docling"
+    LLAMAPARSE = "llamaparse"
+
 class Settings(BaseSettings):
     # Data source configuration
     data_source: DataSourceType = DataSourceType.FILESYSTEM
     source_paths: Optional[List[str]] = Field(None, description="Files or folders; CMIS/Alfresco config in env")
+    
+    # Document parser configuration
+    document_parser: DocumentParser = DocumentParser.DOCLING
+    llamaparse_api_key: Optional[str] = Field(None, description="LlamaParse API key (from env LLAMAPARSE_API_KEY if not set)")
     
     # Sample text configuration
     sample_text: str = Field(
@@ -151,6 +159,10 @@ an aristocratic family that rules the planet Caladan, the rainy planet, since 10
     # Environment-based defaults
     def __init__(self, **data):
         super().__init__(**data)
+        
+        # Set LlamaParse API key from environment if not provided
+        if not self.llamaparse_api_key:
+            self.llamaparse_api_key = os.getenv("LLAMAPARSE_API_KEY")
         
         # Set default LLM config based on provider if not provided
         if not self.llm_config:

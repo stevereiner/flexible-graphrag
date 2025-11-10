@@ -134,7 +134,6 @@ const App: React.FC = () => {
   const [s3AccessKey, setS3AccessKey] = useState<string>('');
   const [s3SecretKey, setS3SecretKey] = useState<string>('');
   const [gcsBucketName, setGcsBucketName] = useState<string>('');
-  const [gcsProjectId, setGcsProjectId] = useState<string>('');
   const [gcsCredentials, setGcsCredentials] = useState<string>('');
   const [azureBlobConnectionString, setAzureBlobConnectionString] = useState<string>('');
   const [azureBlobContainer, setAzureBlobContainer] = useState<string>('');
@@ -151,6 +150,8 @@ const App: React.FC = () => {
   const [boxClientId, setBoxClientId] = useState<string>('');
   const [boxClientSecret, setBoxClientSecret] = useState<string>('');
   const [boxDeveloperToken, setBoxDeveloperToken] = useState<string>('');
+  const [boxUserId, setBoxUserId] = useState<string>('');
+  const [boxEnterpriseId, setBoxEnterpriseId] = useState<string>('');
   const [googleDriveCredentials, setGoogleDriveCredentials] = useState<string>('');
 
   // PERSISTENT STATE - New Data Source Configs
@@ -442,7 +443,6 @@ const App: React.FC = () => {
                 s3AccessKey={s3AccessKey}
                 s3SecretKey={s3SecretKey}
                 gcsBucketName={gcsBucketName}
-                gcsProjectId={gcsProjectId}
                 gcsCredentials={gcsCredentials}
                 azureBlobConnectionString={azureBlobConnectionString}
                 azureBlobContainer={azureBlobContainer}
@@ -458,6 +458,8 @@ const App: React.FC = () => {
                 boxClientId={boxClientId}
                 boxClientSecret={boxClientSecret}
                 boxDeveloperToken={boxDeveloperToken}
+                boxUserId={boxUserId}
+                boxEnterpriseId={boxEnterpriseId}
                 googleDriveCredentials={googleDriveCredentials}
                 onDataSourceChange={handleDataSourceChange}
                 onSelectedFilesChange={setSelectedFiles}
@@ -476,7 +478,6 @@ const App: React.FC = () => {
                 onS3AccessKeyChange={setS3AccessKey}
                 onS3SecretKeyChange={setS3SecretKey}
                 onGcsBucketNameChange={setGcsBucketName}
-                onGcsProjectIdChange={setGcsProjectId}
                 onGcsCredentialsChange={setGcsCredentials}
                 onAzureBlobConnectionStringChange={setAzureBlobConnectionString}
                 onAzureBlobContainerChange={setAzureBlobContainer}
@@ -492,6 +493,8 @@ const App: React.FC = () => {
                 onBoxClientIdChange={setBoxClientId}
                 onBoxClientSecretChange={setBoxClientSecret}
                 onBoxDeveloperTokenChange={setBoxDeveloperToken}
+                onBoxUserIdChange={setBoxUserId}
+                onBoxEnterpriseIdChange={setBoxEnterpriseId}
                 onGoogleDriveCredentialsChange={setGoogleDriveCredentials}
                 onConfigureProcessing={handleConfigureProcessing}
                 onSourcesConfigured={handleSourcesConfigured}

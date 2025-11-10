@@ -116,14 +116,12 @@ class S3Config(BaseModel):
     aws_access_key_id: Optional[str] = None
     aws_secret_access_key: Optional[str] = None
     aws_session_token: Optional[str] = None
-    region_name: Optional[str] = "us-east-1"
+    region_name: Optional[str] = None  # Will use S3_REGION_NAME env var or S3Source default
 
 class GCSConfig(BaseModel):
     bucket_name: str
-    project_id: str
     credentials: str
     prefix: Optional[str] = None
-    folder_name: Optional[str] = None
 
 class AzureBlobConfig(BaseModel):
     container_name: str
@@ -152,10 +150,12 @@ class SharePointConfig(BaseModel):
     folder_id: Optional[str] = None  # Changed from document_library to folder_id
 
 class BoxConfig(BaseModel):
-    folder_id: Optional[str] = None
+    folder_id: Optional[str] = None  # UI sends this - will be mapped to box_folder_id
     client_id: Optional[str] = None
     client_secret: Optional[str] = None
-    developer_token: Optional[str] = None
+    developer_token: Optional[str] = None  # UI sends this - will be mapped to access_token
+    enterprise_id: Optional[str] = None  # For enterprise accounts with CCG
+    user_id: Optional[str] = None  # For user-specific access with CCG
     box_folder_id: Optional[str] = "0"
     box_file_ids: Optional[List[str]] = []
     access_token: Optional[str] = None
@@ -245,7 +245,15 @@ async def ingest(request: IngestRequest):
         if request.sharepoint_config:
             kwargs['sharepoint_config'] = request.sharepoint_config.dict()
         if request.box_config:
-            kwargs['box_config'] = request.box_config.dict()
+            box_dict = request.box_config.dict()
+            # Map UI parameter names to BoxSource expected names
+            if 'folder_id' in box_dict and box_dict['folder_id']:
+                box_dict['box_folder_id'] = box_dict['folder_id']
+                del box_dict['folder_id']  # Remove the UI parameter name
+            if 'developer_token' in box_dict and box_dict['developer_token']:
+                box_dict['access_token'] = box_dict['developer_token']
+                del box_dict['developer_token']  # Remove the UI parameter name
+            kwargs['box_config'] = box_dict
         if request.google_drive_config:
             kwargs['google_drive_config'] = request.google_drive_config.dict()
         

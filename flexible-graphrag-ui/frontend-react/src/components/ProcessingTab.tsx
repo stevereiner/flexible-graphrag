@@ -294,6 +294,15 @@ export const ProcessingTab: React.FC<ProcessingTabProps> = ({
       console.log('✅ Progress match for', filename, ':', match ? `Found (${match.progress}% - ${match.phase})` : 'NOT FOUND');
     }
     
+    // If no match found but processing is completed, return completed status
+    if (!match && !isProcessing && processingProgress === 100) {
+      return {
+        status: 'completed',
+        progress: 100,
+        phase: 'completed'
+      };
+    }
+    
     return match;
   };
 
@@ -451,24 +460,26 @@ export const ProcessingTab: React.FC<ProcessingTabProps> = ({
         console.log('YouTube config:', youtubeConfig);
         request.youtube_config = youtubeConfig;
       } else if (['s3', 'gcs', 'azure_blob'].includes(configuredDataSource)) {
-        // Cloud storage sources
+        // Cloud storage sources - strip the 'type' field before sending
+        const { type, ...cleanConfig } = cloudConfig || {};
         if (configuredDataSource === 's3') {
-          request.s3_config = cloudConfig;
+          request.s3_config = cleanConfig;
         } else if (configuredDataSource === 'gcs') {
-          request.gcs_config = cloudConfig;
+          request.gcs_config = cleanConfig;
         } else if (configuredDataSource === 'azure_blob') {
-          request.azure_blob_config = cloudConfig;
+          request.azure_blob_config = cleanConfig;
         }
       } else if (['onedrive', 'sharepoint', 'box', 'google_drive'].includes(configuredDataSource)) {
-        // Enterprise sources
+        // Enterprise sources - strip the 'type' field before sending
+        const { type, ...cleanConfig } = enterpriseConfig || {};
         if (configuredDataSource === 'onedrive') {
-          request.onedrive_config = enterpriseConfig;
+          request.onedrive_config = cleanConfig;
         } else if (configuredDataSource === 'sharepoint') {
-          request.sharepoint_config = enterpriseConfig;
+          request.sharepoint_config = cleanConfig;
         } else if (configuredDataSource === 'box') {
-          request.box_config = enterpriseConfig;
+          request.box_config = cleanConfig;
         } else if (configuredDataSource === 'google_drive') {
-          request.google_drive_config = enterpriseConfig;
+          request.google_drive_config = cleanConfig;
         }
       }
 

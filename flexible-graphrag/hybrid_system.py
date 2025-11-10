@@ -116,7 +116,13 @@ class HybridSearchSystem:
     
     def __init__(self, config: AppSettings):
         self.config = config
-        self.document_processor = DocumentProcessor(config)
+        # Initialize DocumentProcessor with configured parser type
+        # Handle both Enum and string values
+        if hasattr(config, 'document_parser'):
+            parser_type = config.document_parser.value if hasattr(config.document_parser, 'value') else str(config.document_parser)
+        else:
+            parser_type = "docling"
+        self.document_processor = DocumentProcessor(config, parser_type=parser_type)
         
         # Log schema configuration
         active_schema = config.get_active_schema()
@@ -557,10 +563,28 @@ class HybridSearchSystem:
         # Notify completion via status callback - this will trigger the UI completion status
         if status_callback:
             # Generate proper completion message based on enabled features
-            # For YouTube, show 1 video instead of chunk count
+            # Check if we have file_count stored (for sources that create chunks)
             from backend import PROCESSING_STATUS
             data_source = PROCESSING_STATUS.get(processing_id, {}).get("data_source", "")
-            doc_count = 1 if data_source == "youtube" else len(documents)
+            file_count = PROCESSING_STATUS.get(processing_id, {}).get("file_count")
+            chunk_count = PROCESSING_STATUS.get(processing_id, {}).get("chunk_count")
+            
+            # Debug logging
+            logger.info(f"Completion message logic - data_source: '{data_source}', file_count: {file_count}, chunk_count: {chunk_count}, len(documents): {len(documents)}")
+            
+            # Determine document count for completion message
+            if data_source == "youtube":
+                # YouTube: always show "1 video"
+                doc_count = 1
+                logger.info(f"Using YouTube special case: doc_count = 1")
+            elif file_count and chunk_count and file_count != chunk_count:
+                # Sources that create chunks: show file count instead of chunk count
+                doc_count = file_count
+                logger.info(f"Using file_count from stored metadata: doc_count = {file_count}")
+            else:
+                # Legacy or 1:1 file-to-doc ratio: use document count
+                doc_count = len(documents)
+                logger.info(f"Using legacy document count: doc_count = {len(documents)}")
             
             completion_message = self._generate_completion_message(doc_count)
             status_callback(
@@ -1500,10 +1524,28 @@ class HybridSearchSystem:
         # Notify completion via status callback - this will trigger the UI completion status
         if status_callback:
             # Generate proper completion message based on enabled features
-            # For YouTube, show 1 video instead of chunk count
+            # Check if we have file_count stored (for sources that create chunks)
             from backend import PROCESSING_STATUS
             data_source = PROCESSING_STATUS.get(processing_id, {}).get("data_source", "")
-            doc_count = 1 if data_source == "youtube" else len(documents)
+            file_count = PROCESSING_STATUS.get(processing_id, {}).get("file_count")
+            chunk_count = PROCESSING_STATUS.get(processing_id, {}).get("chunk_count")
+            
+            # Debug logging
+            logger.info(f"Completion message logic (_process_documents_direct) - data_source: '{data_source}', file_count: {file_count}, chunk_count: {chunk_count}, len(documents): {len(documents)}")
+            
+            # Determine document count for completion message
+            if data_source == "youtube":
+                # YouTube: always show "1 video"
+                doc_count = 1
+                logger.info(f"Using YouTube special case: doc_count = 1")
+            elif file_count and chunk_count and file_count != chunk_count:
+                # Sources that create chunks: show file count instead of chunk count
+                doc_count = file_count
+                logger.info(f"Using file_count from stored metadata: doc_count = {file_count}")
+            else:
+                # Legacy or 1:1 file-to-doc ratio: use document count
+                doc_count = len(documents)
+                logger.info(f"Using legacy document count: doc_count = {len(documents)}")
             
             completion_message = self._generate_completion_message(doc_count)
             status_callback(

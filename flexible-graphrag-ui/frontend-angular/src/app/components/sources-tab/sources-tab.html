@@ -95,7 +95,6 @@
     <app-gcs-source-form 
       *ngIf="dataSource === 'gcs'"
       [(bucketName)]="gcsBucketName"
-      [(projectId)]="gcsProjectId"
       [(credentials)]="gcsCredentials"
       (configurationChange)="onConfigurationChange($event)"
       (validationChange)="onValidationChange($event)">
@@ -138,6 +137,8 @@
       [(clientId)]="boxClientId"
       [(clientSecret)]="boxClientSecret"
       [(developerToken)]="boxDeveloperToken"
+      [(userId)]="boxUserId"
+      [(enterpriseId)]="boxEnterpriseId"
       (configurationChange)="onConfigurationChange($event)"
       (validationChange)="onValidationChange($event)">
     </app-box-source-form>

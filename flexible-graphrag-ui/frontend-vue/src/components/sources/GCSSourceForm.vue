@@ -16,15 +16,13 @@
     />
     
     <v-text-field
-      :model-value="projectId"
-      @update:model-value="handleProjectIdChange"
-      label="Project ID *"
+      v-model="prefix"
+      label="Prefix (Optional)"
       variant="outlined"
       class="mb-2"
-      placeholder="my-gcp-project"
-      hint="Google Cloud project ID (required)"
+      placeholder="sample-docs/"
+      hint="Optional: folder path prefix (e.g., 'sample-docs/' for a specific folder)"
       persistent-hint
-      required
     />
     
     <v-textarea
@@ -38,26 +36,6 @@
       persistent-hint
       rows="4"
       required
-    />
-    
-    <v-text-field
-      v-model="prefix"
-      label="Prefix (Optional)"
-      variant="outlined"
-      class="mb-2"
-      placeholder="documents/reports/"
-      hint="Optional: folder path prefix within bucket"
-      persistent-hint
-    />
-    
-    <v-text-field
-      v-model="folderName"
-      label="Folder Name (Optional)"
-      variant="outlined"
-      class="mb-2"
-      placeholder="my-folder"
-      hint="Optional: specific folder name"
-      persistent-hint
     />
   </BaseSourceForm>
 </template>
@@ -76,35 +54,27 @@ export default defineComponent({
       type: String,
       default: ''
     },
-    projectId: {
-      type: String,
-      default: ''
-    },
     credentials: {
       type: String,
       default: ''
     }
   },
   emits: [
-    'update:bucketName', 'update:projectId', 'update:credentials', 
+    'update:bucketName', 'update:credentials', 
     'configuration-change', 'validation-change'
   ],
   setup(props, { emit }) {
     const prefix = ref('');
-    const folderName = ref('');
 
     const isValid = computed(() => {
       return props.bucketName.trim() !== '' && 
-             props.projectId.trim() !== '' && 
              props.credentials.trim() !== '';
     });
 
     const config = computed(() => ({
       bucket_name: props.bucketName,
-      project_id: props.projectId,
       credentials: props.credentials,
-      prefix: prefix.value || undefined,
-      folder_name: folderName.value || undefined
+      prefix: prefix.value || undefined
     }));
 
     // Emit validation and configuration changes
@@ -117,19 +87,13 @@ export default defineComponent({
       emit('update:bucketName', value);
     };
 
-    const handleProjectIdChange = (value: string) => {
-      emit('update:projectId', value);
-    };
-
     const handleCredentialsChange = (value: string) => {
       emit('update:credentials', value);
     };
 
     return {
       prefix,
-      folderName,
       handleBucketNameChange,
-      handleProjectIdChange,
       handleCredentialsChange,
     };
   },

@@ -1,193 +1,220 @@
 """
-Azure Blob Storage data source for Flexible GraphRAG using LlamaIndex AzStorageBlobReader.
+Azure Blob Storage data source for Flexible GraphRAG.
+Uses AzStorageBlobReader with passthrough extractor to download files, then DocumentProcessor for parsing.
 """
 
 from typing import List, Dict, Any, Optional
 import logging
+import os
 from llama_index.core import Document
 
 from .base import BaseDataSource
+from .passthrough_extractor import PassthroughExtractor
 
 logger = logging.getLogger(__name__)
 
 
 class AzureBlobSource(BaseDataSource):
-    """Data source for Azure Blob Storage using LlamaIndex AzStorageBlobReader"""
+    """Data source for Azure Blob Storage - uses AzStorageBlobReader with passthrough + DocumentProcessor"""
     
     def __init__(self, config: Dict[str, Any]):
         super().__init__(config)
+        
+        # Get configuration
         self.container_name = config.get("container_name", "")
         self.account_url = config.get("account_url", "")
-        self.blob = config.get("blob", "")  # Optional: specific blob name/prefix (renamed to match LlamaCloud)
+        self.blob_name = config.get("blob", "") or config.get("blob_name", "")  # Specific blob or prefix
         self.prefix = config.get("prefix", "")  # Optional: folder prefix
         self.account_name = config.get("account_name", "")
         self.account_key = config.get("account_key", "")
+        self.connection_string = config.get("connection_string", "")
         
-        # Import LlamaIndex Azure Blob reader
-        try:
-            from llama_index.readers.azstorage_blob import AzStorageBlobReader
-            
-            # Initialize AzStorageBlobReader using Method 1 (Account Key Authentication)
-            # Following LlamaCloud pattern: container_name, account_url, blob, prefix, account_name, account_key
-            self.reader = AzStorageBlobReader(
-                container_name=self.container_name,
-                account_url=self.account_url,
-                blob_name=self.blob or None,  # Use blob parameter, fallback to None if empty
-                prefix=self.prefix or None,   # Use prefix parameter
-                account_name=self.account_name,
-                account_key=self.account_key
-            )
-            
-            logger.info(f"AzureBlobSource initialized for container: {self.container_name}")
-        except ImportError as e:
-            logger.error(f"Failed to import AzStorageBlobReader: {e}")
-            raise ImportError("Please install llama-index-readers-azstorage-blob: pip install llama-index-readers-azstorage-blob")
+        logger.info(f"AzureBlobSource initialized for container: {self.container_name}")
     
     def validate_config(self) -> bool:
-        """Validate the Azure Blob Storage source configuration for Method 1 (Account Key Authentication)."""
+        """Validate the Azure Blob Storage source configuration."""
         if not self.container_name:
             logger.error("No container_name specified for Azure Blob Storage source")
             return False
         
-        if not self.account_url:
-            logger.error("No account_url specified for Azure Blob Storage source")
-            return False
+        # Need either connection_string OR (account_url/account_name + account_key)
+        has_connection_string = bool(self.connection_string)
+        has_account_key_auth = bool(self.account_url and self.account_name and self.account_key)
         
-        if not self.account_name:
-            logger.error("No account_name specified for Azure Blob Storage source")
-            return False
-            
-        if not self.account_key:
-            logger.error("No account_key specified for Azure Blob Storage source")
+        if not has_connection_string and not has_account_key_auth:
+            logger.error("Azure Blob Storage requires either connection_string or (account_url + account_name + account_key)")
             return False
         
         return True
     
-    def get_documents(self) -> List[Document]:
-        """
-        Retrieve documents from Azure Blob Storage.
+    def _create_azure_blob_reader(self, progress_callback=None):
+        """Create AzStorageBlobReader with passthrough extractors"""
+        try:
+            from llama_index.readers.azstorage_blob import AzStorageBlobReader
+        except ImportError:
+            logger.error("Failed to import AzStorageBlobReader")
+            raise ImportError("Please install llama-index-readers-azstorage-blob: pip install llama-index-readers-azstorage-blob")
         
-        Returns:
-            List[Document]: List of LlamaIndex Document objects
-        """
+        # Create passthrough extractor with progress tracking
+        passthrough = PassthroughExtractor(progress_callback=progress_callback)
+        
+        # Map all supported file types to passthrough extractor
+        file_extractor = {
+            ".pdf": passthrough,
+            ".docx": passthrough,
+            ".pptx": passthrough,
+            ".xlsx": passthrough,
+            ".doc": passthrough,
+            ".ppt": passthrough,
+            ".xls": passthrough,
+            ".txt": passthrough,
+            ".md": passthrough,
+            ".html": passthrough,
+            ".csv": passthrough,
+            ".png": passthrough,
+            ".jpg": passthrough,
+            ".jpeg": passthrough,
+        }
+        
+        # Initialize AzStorageBlobReader with credentials and passthrough extractors
+        reader_kwargs = {
+            "container_name": self.container_name,
+            "file_extractor": file_extractor,
+        }
+        
+        # Add authentication
+        if self.connection_string:
+            reader_kwargs["connection_string"] = self.connection_string
+        elif self.account_url and self.account_key:
+            reader_kwargs["account_url"] = self.account_url
+            reader_kwargs["credential"] = self.account_key
+        
+        # Add blob name or prefix if specified
+        if self.blob_name:
+            reader_kwargs["blob"] = self.blob_name
+        elif self.prefix:
+            reader_kwargs["prefix"] = self.prefix
+        
+        reader = AzStorageBlobReader(**reader_kwargs)
+        
+        return reader, passthrough
+    
+    def get_documents(self) -> List[Document]:
+        """Load files via AzStorageBlobReader (with passthrough), then process with DocumentProcessor"""
         try:
             logger.info(f"Loading documents from Azure Blob Storage container: {self.container_name}")
-            if self.blob_name:
-                logger.info(f"Using blob name/prefix: {self.blob_name}")
             
-            # Use AzStorageBlobReader to load documents
-            documents = self.reader.load_data()
+            # Create reader
+            reader, _ = self._create_azure_blob_reader()
             
-            # Add source metadata
+            # Use AzStorageBlobReader to discover and capture files (returns placeholder Documents)
+            placeholder_docs = reader.load_data()
+            
+            if not placeholder_docs:
+                logger.warning("No files found in Azure Blob Storage container")
+                return []
+            
+            logger.info(f"Found {len(placeholder_docs)} files in Azure Blob Storage")
+            
+            # Process with DocumentProcessor (downloads from Azure and parses)
+            doc_processor = self._get_document_processor()
+            
+            import asyncio
+            documents = asyncio.run(doc_processor.process_documents_from_metadata(placeholder_docs))
+            
+            # Add Azure Blob Storage metadata
             for doc in documents:
                 doc.metadata.update({
                     "source": "azure_blob",
                     "container_name": self.container_name,
-                    "blob_name": self.blob_name,
                     "account_name": self.account_name,
                     "source_type": "azure_blob_object"
                 })
             
-            logger.info(f"AzureBlobSource loaded {len(documents)} documents from container: {self.container_name}")
+            logger.info(f"AzureBlobSource processed {len(documents)} documents from {len(placeholder_docs)} placeholders")
             return documents
             
         except Exception as e:
             logger.error(f"Error loading documents from Azure Blob Storage container '{self.container_name}': {str(e)}")
             raise
     
-    def get_documents_with_progress(self, progress_callback=None) -> List[Document]:
+    async def get_documents_with_progress(self, progress_callback=None) -> List[Document]:
         """
         Retrieve documents from Azure Blob Storage with detailed progress tracking.
+        PassthroughExtractor processes files immediately as AzStorageBlobReader downloads them.
         
         Args:
             progress_callback: Callback function for progress updates
         
         Returns:
-            List[Document]: List of LlamaIndex Document objects
+            Tuple[int, List[Document]]: (file_count, list of processed Document objects)
         """
         try:
-            logger.info(f"Loading documents from Azure Blob Storage container: {self.container_name} with progress tracking")
-            if self.blob_name:
-                logger.info(f"Using blob name/prefix: {self.blob_name}")
+            from llama_index.readers.azstorage_blob import AzStorageBlobReader
             
-            # First, try to get blob list for progress tracking
+            logger.info(f"Loading documents from Azure Blob Storage container '{self.container_name}' with progress tracking")
+            
             if progress_callback:
-                progress_callback(0, 1, "Scanning Azure Blob Storage for files...")
+                progress_callback(0, 1, f"Connecting to Azure Blob Storage container: {self.container_name}")
             
-            try:
-                # Try to get blob listing using azure-storage-blob directly for progress
-                from azure.storage.blob import BlobServiceClient
-                from azure.core.exceptions import AzureError
-                
-                # Create blob service client with same credentials as reader
-                if self.connection_string:
-                    blob_service_client = BlobServiceClient.from_connection_string(self.connection_string)
-                elif self.account_name and self.account_key:
-                    blob_service_client = BlobServiceClient(
-                        account_url=f"https://{self.account_name}.blob.core.windows.net",
-                        credential=self.account_key
-                    )
-                else:
-                    # Use default credentials (managed identity, etc.)
-                    blob_service_client = BlobServiceClient(
-                        account_url=f"https://{self.account_name}.blob.core.windows.net"
-                    )
-                
-                container_client = blob_service_client.get_container_client(self.container_name)
-                
-                # List blobs to get file count
-                name_starts_with = self.blob_name if self.blob_name else None
-                blob_list = container_client.list_blobs(name_starts_with=name_starts_with)
-                
-                file_list = []
-                for blob in blob_list:
-                    # Filter for supported file types
-                    if any(blob.name.lower().endswith(ext) for ext in ['.pdf', '.txt', '.docx', '.doc', '.pptx', '.ppt', '.xlsx', '.xls', '.md', '.html', '.csv']):
-                        file_list.append({
-                            'name': blob.name,
-                            'size': blob.size,
-                            'last_modified': blob.last_modified
-                        })
-                
-                total_files = len(file_list)
-                logger.info(f"Found {total_files} supported files in Azure Blob Storage container")
-                
-                if progress_callback:
-                    progress_callback(0, total_files, f"Found {total_files} files, starting download...")
-                
-                # Use AzStorageBlobReader to load documents (it handles the actual downloading)
-                documents = self.reader.load_data()
-                
-                # Simulate progress during processing
-                if progress_callback and total_files > 0:
-                    for i, doc in enumerate(documents, 1):
-                        # Try to extract filename from document metadata
-                        filename = doc.metadata.get('file_name', doc.metadata.get('source', f'document_{i}'))
-                        progress_callback(i, len(documents), f"Processing document", filename)
-                
-            except (ImportError, AzureError) as e:
-                logger.warning(f"Could not get detailed Azure Blob Storage file listing: {e}. Using fallback progress.")
-                # Fallback to simple progress
-                if progress_callback:
-                    progress_callback(0, 1, "Loading Azure Blob Storage documents...")
-                
-                documents = self.reader.load_data()
-                
-                if progress_callback:
-                    progress_callback(1, 1, f"Loaded {len(documents)} documents")
+            # Get DocumentProcessor for immediate processing
+            doc_processor = self._get_document_processor()
             
-            # Add source metadata
+            # Create PassthroughExtractor with BOTH progress callback AND doc_processor
+            # This allows PassthroughExtractor to process files immediately as they're downloaded
+            extractor = PassthroughExtractor(
+                progress_callback=progress_callback,
+                doc_processor=doc_processor  # Process files immediately!
+            )
+            
+            # Define file extractor mapping once
+            file_extractor = {
+                ".pdf": extractor, ".docx": extractor, ".pptx": extractor,
+                ".xlsx": extractor, ".doc": extractor, ".ppt": extractor,
+                ".xls": extractor, ".txt": extractor, ".md": extractor,
+                ".html": extractor, ".csv": extractor, ".png": extractor,
+                ".jpg": extractor, ".jpeg": extractor
+            }
+            
+            # Initialize AzStorageBlobReader with credentials and PassthroughExtractor
+            reader_kwargs = {
+                "container_name": self.container_name,
+                "file_extractor": file_extractor,
+            }
+            
+            # Add authentication
+            if self.connection_string:
+                logger.info("Using Azure Blob Storage connection string authentication")
+                reader_kwargs["connection_string"] = self.connection_string
+            elif self.account_url and self.account_key:
+                logger.info(f"Using Azure Blob Storage account key authentication for account: {self.account_name}")
+                reader_kwargs["account_url"] = self.account_url
+                reader_kwargs["credential"] = self.account_key
+            
+            # Add blob name or prefix if specified
+            if self.blob_name:
+                reader_kwargs["blob"] = self.blob_name
+            elif self.prefix:
+                reader_kwargs["prefix"] = self.prefix
+            
+            reader = AzStorageBlobReader(**reader_kwargs)
+            
+            # Use AzStorageBlobReader to load and process documents
+            # PassthroughExtractor will process each file immediately and return processed docs
+            documents = reader.load_data()
+            logger.info(f"Loaded and processed {len(documents)} Azure Blob files from container: {self.container_name}")
+            
+            # Add Azure Blob Storage metadata to processed documents
             for doc in documents:
                 doc.metadata.update({
                     "source": "azure_blob",
                     "container_name": self.container_name,
-                    "blob_name": self.blob_name,
                     "account_name": self.account_name,
                     "source_type": "azure_blob_object"
                 })
             
-            logger.info(f"AzureBlobSource loaded {len(documents)} documents from container: {self.container_name}")
-            return documents
+            logger.info(f"AzureBlobSource processed {len(documents)} documents from Azure Blob Storage")
+            return (len(documents), documents)  # Return tuple: (file_count, documents)
             
         except Exception as e:
             logger.error(f"Error loading documents from Azure Blob Storage container '{self.container_name}': {str(e)}")

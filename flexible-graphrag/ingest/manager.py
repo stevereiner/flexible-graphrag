@@ -73,17 +73,25 @@ class IngestionManager:
             
             # Pass progress callback to source if it supports it
             if hasattr(source, 'get_documents_with_progress'):
-                documents = await source.get_documents_with_progress(progress_wrapper)
+                result = await source.get_documents_with_progress(progress_wrapper)
+                # Handle tuple return (file_count, documents) or legacy list return
+                if isinstance(result, tuple) and len(result) == 2:
+                    file_count, documents = result
+                else:
+                    # Legacy sources returning just documents list
+                    documents = result
+                    file_count = len(documents)  # Assume 1:1 for legacy
             else:
                 # Fallback for sources without progress support
                 documents = await loop.run_in_executor(None, source.get_documents)
+                file_count = len(documents)  # Assume 1:1 for simple sources
                 
                 # Simulate progress for sources without built-in progress
                 if status_callback:
                     status_callback(
                         processing_id=processing_id,
                         status="processing",
-                        message=f"Processing {len(documents)} documents from {source_type}...",
+                        message=f"Processing {file_count} documents from {source_type}...",
                         progress=70
                     )
             
@@ -93,7 +101,11 @@ class IngestionManager:
                 if source_type == "youtube":
                     doc_count_message = f"Successfully loaded 1 video transcript from {source_type} ({len(documents)} time-based chunks)"
                 else:
-                    doc_count_message = f"Successfully loaded {len(documents)} documents from {source_type}"
+                    # Use file_count for message, show chunk count if different
+                    if file_count != len(documents):
+                        doc_count_message = f"Successfully loaded {file_count} file(s) from {source_type} ({len(documents)} chunks)"
+                    else:
+                        doc_count_message = f"Successfully loaded {file_count} document(s) from {source_type}"
                 
                 status_callback(
                     processing_id=processing_id,
@@ -102,7 +114,15 @@ class IngestionManager:
                     progress=90
                 )
             
-            logger.info(f"Successfully ingested {len(documents)} documents from {source_type}")
+            # Store file_count in backend PROCESSING_STATUS for later use in completion message
+            # Store whenever file_count differs from chunk count
+            if processing_id and file_count != len(documents):
+                from backend import PROCESSING_STATUS
+                if processing_id in PROCESSING_STATUS:
+                    PROCESSING_STATUS[processing_id]["file_count"] = file_count
+                    PROCESSING_STATUS[processing_id]["chunk_count"] = len(documents)
+            
+            logger.info(f"Successfully ingested {file_count} files ({len(documents)} chunks) from {source_type}")
             return documents
             
         except Exception as e:

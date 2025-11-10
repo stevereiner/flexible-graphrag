@@ -98,7 +98,7 @@ class WebSource(BaseDataSource):
                 })
             
             logger.info(f"WebSource loaded {len(documents)} documents from: {self.url}")
-            return documents
+            return (1, documents)  # Return tuple: (1 web page, documents which may be chunks)
             
         except Exception as e:
             logger.error(f"Error loading web page '{self.url}': {str(e)}")

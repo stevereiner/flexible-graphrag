@@ -568,6 +568,16 @@ export default defineComponent({
       if (isProcessing.value) {
         console.log('❌ No match found for:', filename);
       }
+      
+      // If no match found but processing is completed, return completed status
+      if (!match && !isProcessing.value && processingProgress.value === 100) {
+        return {
+          status: 'completed',
+          progress: 100,
+          phase: 'completed'
+        };
+      }
+      
       return match;
     };
 
@@ -836,24 +846,26 @@ export default defineComponent({
         } else if (props.configuredDataSource === 'youtube') {
           request.youtube_config = props.configuredYoutubeConfig;
         } else if (['s3', 'gcs', 'azure_blob'].includes(props.configuredDataSource)) {
-          // Cloud storage sources - send specific config names like React
+          // Cloud storage sources - strip the 'type' field before sending
+          const { type, ...cleanConfig } = props.configuredCloudConfig || {};
           if (props.configuredDataSource === 's3') {
-            request.s3_config = props.configuredCloudConfig;
+            request.s3_config = cleanConfig;
           } else if (props.configuredDataSource === 'gcs') {
-            request.gcs_config = props.configuredCloudConfig;
+            request.gcs_config = cleanConfig;
           } else if (props.configuredDataSource === 'azure_blob') {
-            request.azure_blob_config = props.configuredCloudConfig;
+            request.azure_blob_config = cleanConfig;
           }
         } else if (['onedrive', 'sharepoint', 'box', 'google_drive'].includes(props.configuredDataSource)) {
-          // Enterprise sources - send specific config names like React
+          // Enterprise sources - strip the 'type' field before sending
+          const { type, ...cleanConfig } = props.configuredEnterpriseConfig || {};
           if (props.configuredDataSource === 'onedrive') {
-            request.onedrive_config = props.configuredEnterpriseConfig;
+            request.onedrive_config = cleanConfig;
           } else if (props.configuredDataSource === 'sharepoint') {
-            request.sharepoint_config = props.configuredEnterpriseConfig;
+            request.sharepoint_config = cleanConfig;
           } else if (props.configuredDataSource === 'box') {
-            request.box_config = props.configuredEnterpriseConfig;
+            request.box_config = cleanConfig;
           } else if (props.configuredDataSource === 'google_drive') {
-            request.google_drive_config = props.configuredEnterpriseConfig;
+            request.google_drive_config = cleanConfig;
           }
         }
 

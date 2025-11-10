@@ -354,7 +354,7 @@ class WikipediaSource(BaseDataSource):
         logger.info(f"Returning {len(limited_docs)} Wikipedia documents (strategy: {strategy})")
         return limited_docs
     
-    async def get_documents_with_progress(self, progress_callback=None) -> List[Document]:
+    async def get_documents_with_progress(self, progress_callback=None) -> tuple[int, List[Document]]:
         """
         Retrieve documents from Wikipedia with progress tracking.
         
@@ -362,7 +362,7 @@ class WikipediaSource(BaseDataSource):
             progress_callback: Callback function for progress updates
         
         Returns:
-            List[Document]: List of LlamaIndex Document objects
+            tuple[int, List[Document]]: (file_count, list of LlamaIndex Document objects)
         """
         try:
             logger.info(f"Loading Wikipedia articles for query: {self.query} with progress tracking")
@@ -380,8 +380,9 @@ class WikipediaSource(BaseDataSource):
                     title = doc.metadata.get('title', f'Article {i}')
                     progress_callback(i, len(documents), f"Processing Wikipedia article", title)
             
-            logger.info(f"WikipediaSource loaded {len(documents)} documents for query: {self.query}")
-            return documents
+            logger.info(f"WikipediaSource loaded {len(documents)} documents (chunks) for query: {self.query}")
+            # Return tuple: (file_count=1 for single article, documents list)
+            return (1, documents)
             
         except Exception as e:
             logger.error(f"Error loading Wikipedia article for query '{self.query}': {str(e)}")

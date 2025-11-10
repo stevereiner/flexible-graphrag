@@ -170,7 +170,6 @@ class AlfrescoSource(BaseDataSource):
         """
         import tempfile
         import os
-        from document_processor import DocumentProcessor
         
         try:
             if progress_callback:
@@ -192,8 +191,8 @@ class AlfrescoSource(BaseDataSource):
             temp_dir = tempfile.mkdtemp(prefix="alfresco_download_")
             
             try:
-                # Initialize document processor
-                doc_processor = DocumentProcessor()
+                # Initialize document processor with configured parser type
+                doc_processor = self._get_document_processor()
                 
                 # Process each file with progress updates
                 for i, file_info in enumerate(files):
@@ -246,7 +245,8 @@ class AlfrescoSource(BaseDataSource):
                 except Exception as e:
                     logger.warning(f"Failed to clean up temporary directory {temp_dir}: {str(e)}")
             
-            return documents
+            logger.info(f"AlfrescoSource processed {len(files)} files ({len(documents)} chunks)")
+            return (len(files), documents)  # Return tuple: (file_count, documents)
             
         except Exception as e:
             logger.error(f"Error getting Alfresco documents with progress: {str(e)}")
@@ -258,7 +258,6 @@ class AlfrescoSource(BaseDataSource):
         """
         import tempfile
         import os
-        from document_processor import DocumentProcessor
         
         files = self.list_files()
         documents = []
@@ -267,8 +266,8 @@ class AlfrescoSource(BaseDataSource):
         temp_dir = tempfile.mkdtemp(prefix="alfresco_download_")
         
         try:
-            # Initialize document processor
-            doc_processor = DocumentProcessor()
+            # Initialize document processor with configured parser type
+            doc_processor = self._get_document_processor()
             
             for file_info in files:
                 try:
@@ -331,13 +330,10 @@ class AlfrescoSource(BaseDataSource):
             elif 'markdown' in document['content_type'].lower():
                 file_ext = '.md'
             
-            # Create temporary file
-            temp_file = tempfile.NamedTemporaryFile(
-                suffix=file_ext,
-                prefix=f"alfresco_{node_id}_",
-                dir=temp_dir,
-                delete=False
-            )
+            # Create temporary file with original filename for LlamaParse display
+            # Use original filename so it appears correctly in LlamaCloud
+            temp_file_path = os.path.join(temp_dir, filename)
+            temp_file = open(temp_file_path, 'wb')
             
             # Try python-alfresco-api first if available
             content_downloaded = False
@@ -364,11 +360,11 @@ class AlfrescoSource(BaseDataSource):
             if content_downloaded:
                 temp_file.flush()
                 temp_file.close()
-                logger.info(f"Downloaded Alfresco document {filename} to {temp_file.name}")
-                return temp_file.name
+                logger.info(f"Downloaded Alfresco document {filename} to {temp_file_path}")
+                return temp_file_path
             else:
                 temp_file.close()
-                os.unlink(temp_file.name)
+                os.unlink(temp_file_path)
                 raise ValueError(f"No content available for document: {filename}")
                 
         except Exception as e:

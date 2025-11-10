@@ -4,17 +4,94 @@
 DATA_SOURCE=filesystem
 SOURCE_PATHS=["./sample-docs/cmispress.txt"]
 
+# Document Parser Configuration
+# DOCUMENT_PARSER can be "docling" (default, open-source) or "llamaparse" (cloud-based, requires API key)
+# Docling: Free, open-source, runs locally, good for most document types
+# LlamaParse: Cloud-based parsing service from LlamaIndex, advanced multimodal parsing, requires API key
+DOCUMENT_PARSER=docling
+
+# LlamaParse API Key (only needed if DOCUMENT_PARSER=llamaparse)
+# Get your API key from https://cloud.llamaindex.ai/  bottom left "API Keys", then "Generate New Key"
+# LlamaParse offers high-quality document parsing of complex documents
+#LLAMAPARSE_API_KEY=llx-your-api-key-here
+
+# LlamaParse Mode Configuration (only used if DOCUMENT_PARSER=llamaparse)
+# Options:
+#   "parse_page_without_llm" - 1 credit/page (cheapest, simple, text-only output, no markdown)
+#   "parse_page_with_llm" - 3 credits/page (good balance, uses LLM, markdown output) - DEFAULT
+#   "parse_page_with_agent" - 10-90 credits/page (best quality, markdown output, requires LLAMAPARSE_AGENT_MODEL)
+#LLAMAPARSE_MODE=parse_page_with_llm
+
+# LlamaParse Agent Model (only used if LLAMAPARSE_MODE=parse_page_with_agent)
+# Available models from LlamaCloud (costs vary by model):
+#   "openai-gpt-4-1-mini" - 10 credits/page (recommended balance)
+#   Other models available - check LlamaCloud for full list / credit cost
+#LLAMAPARSE_AGENT_MODEL=openai-gpt-4-1-mini
+
 # Example configurations for different data sources:
 # WEB_CONFIG={"url": "https://example.com/page"}
 # WIKIPEDIA_CONFIG={"query": "artificial intelligence", "language": "en", "max_docs": 1}
 # YOUTUBE_CONFIG={"url": "https://www.youtube.com/watch?v=VIDEO_ID", "chunk_size_seconds": 60}
-# S3_CONFIG={"bucket": "my-bucket", "key": "documents/", "region_name": "us-east-1"}
-# GCS_CONFIG={"bucket": "my-bucket", "key": "documents/", "project_id": "my-project"}
-# AZURE_BLOB_CONFIG={"container_name": "documents", "account_name": "myaccount"}
-# ONEDRIVE_CONFIG={"client_id": "your-client-id", "client_secret": "your-secret", "tenant_id": "your-tenant"}
-# SHAREPOINT_CONFIG={"client_id": "your-client-id", "client_secret": "your-secret", "tenant_id": "your-tenant", "sharepoint_site_name": "your-site"}
-# BOX_CONFIG={"access_token": "your-access-token", "box_folder_id": "0"}
-# GOOGLE_DRIVE_CONFIG={"folder_id": "your-folder-id", "credentials_path": "path/to/credentials.json"}
+
+# Amazon S3 Configuration
+# S3_CONFIG={"bucket_name": "my-bucket", "access_key": "AKIAIOSFODNN7EXAMPLE", "secret_key": "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY", "region_name": "us-east-1", "prefix": "documents/"}
+# Alternative format using "bucket" (S3Reader compatible):
+# S3_CONFIG={"bucket": "my-bucket", "access_key": "AKIAIOSFODNN7EXAMPLE", "secret_key": "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY", "region_name": "us-east-1", "prefix": "documents/"}
+# Required: bucket_name (or bucket), access_key, secret_key
+# Optional: region_name (if not specified, falls back to S3_REGION_NAME env var or default "us-east-1"), prefix (folder path within bucket)
+# Note: S3_CONFIG takes precedence over individual S3_* environment variables (see section 5 below)
+
+# Google Cloud Storage Configuration
+# GCS_CONFIG={"bucket_name": "my-bucket", "project_id": "my-project-123", "credentials": "{\"type\":\"service_account\",\"project_id\":\"my-project\",...}", "prefix": "documents/"}
+# Required: bucket_name, project_id, credentials (service account JSON as string)
+# Optional: prefix (folder path), folder_name, service_account_key_path (alternative to credentials string)
+# Note: credentials should be JSON service account key from GCP Console as a string
+
+# Azure Blob Storage Configuration
+# AZURE_BLOB_CONFIG={"container_name": "documents", "account_url": "https://myaccount.blob.core.windows.net", "account_name": "myaccount", "account_key": "base64key==", "prefix": "folder/"}
+# Required: container_name, account_url, account_name, account_key
+# Optional: blob (specific blob name), prefix (folder path), connection_string (alternative to account_key)
+
+# Microsoft OneDrive Configuration
+# ONEDRIVE_CONFIG={"user_principal_name": "user@domain.com", "client_id": "12345678-1234-1234-1234-123456789abc", "client_secret": "your-secret", "tenant_id": "87654321-4321-4321-4321-cba987654321", "folder_path": "/Documents", "folder_id": "01234567890ABCDEF"}
+# Required: user_principal_name, client_id, client_secret, tenant_id
+# Optional: folder_path (default: /), folder_id, file_ids (list of specific file IDs)
+# Note: Requires Azure AD app registration with Microsoft Graph API permissions
+
+# Microsoft SharePoint Configuration
+# SHAREPOINT_CONFIG={"client_id": "12345678-1234-1234-1234-123456789abc", "client_secret": "your-secret", "tenant_id": "87654321-4321-4321-4321-cba987654321", "site_name": "MySite", "folder_path": "/Shared Documents", "folder_id": "library-id"}
+# Required: client_id, client_secret, tenant_id, site_name
+# Optional: site_id (for Sites.Selected permission), folder_path (default: /), folder_id, file_ids
+# Note: site_name is the SharePoint site name, not full URL
+
+# Box Configuration
+# Box supports two authentication methods:
+# 
+# 1. Developer Token (simplest for testing, expires in 60 minutes):
+#    BOX_CONFIG={"folder_id": "348947552674", "developer_token": "your_developer_token"}
+#    Required: developer_token (or access_token)
+#    Optional: folder_id (default: "0" for root folder)
+#    Note: Get developer token from Box Developer Console (https://app.box.com/developers/console)
+#
+# 2. Client Credentials Grant (CCG) - Production OAuth (long-lived credentials):
+#    a) Non-enterprise user account:
+#       BOX_CONFIG={"folder_id": "0", "client_id": "abc123", "client_secret": "xyz789", "user_id": "12345678"}
+#    
+#    b) Enterprise-wide access:
+#       BOX_CONFIG={"folder_id": "0", "client_id": "abc123", "client_secret": "xyz789", "enterprise_id": "987654321"}
+#    
+#    c) Enterprise + specific user:
+#       BOX_CONFIG={"folder_id": "0", "client_id": "abc123", "client_secret": "xyz789", "enterprise_id": "987654321", "user_id": "12345678"}
+#    
+#    CCG Required: client_id, client_secret, AND at least one of (user_id OR enterprise_id)
+#    CCG Optional: folder_id (default: "0" for root), box_file_ids (list of specific file IDs)
+#    Note: Requires Box app with CCG enabled in Box Developer Console
+
+# Google Drive Configuration
+# GOOGLE_DRIVE_CONFIG={"credentials": "{\"type\":\"service_account\",\"project_id\":\"my-project\",...}", "folder_id": "1A2B3C4D5E6F7G8H9I0J", "file_ids": ["file1-id", "file2-id"], "query": "name contains 'report'"}
+# Required: Either credentials (service account JSON string) OR credentials_path OR token_path
+# Optional: folder_id, file_ids (specific files), query (search query), credentials_path, token_path
+# Note: credentials should be service account JSON key or OAuth credentials file path
 
 # Sample Text for Testing (optional - overrides default Dune text)
 # SAMPLE_TEXT="Luke Skywalker is a Jedi Knight from Tatooine. His father is Darth Vader, formerly known as Anakin Skywalker."
@@ -259,14 +336,14 @@ ALFRESCO_USERNAME=admin
 ALFRESCO_PASSWORD=admin
 
 # Amazon S3 Configuration (if using S3)
-# Note: These values can be configured in UI or set here as defaults
-# UI values take precedence over these environment variables
-# S3_REGION_NAME=us-east-2           # AWS region for S3 bucket (default: us-east-2)
-# S3_BUCKET_NAME=my-bucket           # Default bucket name (used if not specified in UI)
+# Note: These values serve as defaults/fallbacks when S3_CONFIG is not provided or incomplete
+# S3_CONFIG (in section above) takes precedence, these are used as fallbacks
+# S3_REGION_NAME=us-east-1           # AWS region for S3 bucket (default: us-east-1 if not in S3_CONFIG)
+# S3_BUCKET_NAME=my-bucket           # Default bucket name (used if not specified in S3_CONFIG)
 # S3_PREFIX=documents/               # Default prefix/path within bucket
 # S3_PREFIX=""                       # Or leave empty for whole bucket (top level)
-# S3_ACCESS_KEY=myaccesskeyid        # AWS access key ID (used if not specified in UI)
-# S3_SECRET_KEY=mysecretaccesskey    # AWS secret access key (used if not specified in UI)
+# S3_ACCESS_KEY=myaccesskeyid        # AWS access key ID (used if not specified in S3_CONFIG)
+# S3_SECRET_KEY=mysecretaccesskey    # AWS secret access key (used if not specified in S3_CONFIG)
 
 # ====================================================================
 # DATABASE CONNECTION DETAILS (Individual Configs)

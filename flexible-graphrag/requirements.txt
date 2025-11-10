@@ -10,6 +10,7 @@ wikipedia
 cmislib
 python-alfresco-api==1.1.1
 docling
+llama-parse
 neo4j
 numpy
 rapidfuzz
@@ -75,14 +76,22 @@ llama-index-readers-wikipedia
 wikipedia 
 llama-index-readers-youtube-transcript
 youtube_transcript_api
-# llama-index-readers-s3  # Not used: S3Reader has path type issues with DoclingReader
-# llama-index-readers-docling  # Not used: DoclingReader incompatible with S3Reader's PurePosixPath
-s3fs  # S3 filesystem interface for file access (used for manual download + DocumentProcessor+Docling)
-boto3  # AWS SDK (used by s3fs)
-llama-index-readers-gcs
-llama-index-readers-azstorage-blob
-llama-index-readers-microsoft-onedrive
-llama-index-readers-microsoft-sharepoint
-llama-index-readers-box
-llama-index-readers-google
+llama-index-readers-s3  # S3Reader with PassthroughExtractor for download + DocumentProcessor for parsing
+llama-index-readers-gcs  # GCSReader with PassthroughExtractor (implemented)
+llama-index-readers-google  # GoogleDriveReader with PassthroughExtractor (implemented)
+llama-index-readers-azstorage-blob  # AzStorageBlobReader with PassthroughExtractor (implemented)
+llama-index-readers-microsoft-onedrive  # OneDriveReader with PassthroughExtractor (TODO: implement like S3)
+llama-index-readers-microsoft-sharepoint  # SharePointReader with PassthroughExtractor (TODO: implement like S3)
+llama-index-readers-box  # BoxReader with PassthroughExtractor (implemented with CCGConfig)
+llama-index-readers-file  # File readers for SimpleDirectoryReader (prevents warnings)
+box-sdk-gen  # Box SDK for CCG authentication (required by llama-index-readers-box)
+# llama-index-readers-docling  # Not used: Using DocumentProcessor with Docling/LlamaParse instead
+s3fs  # S3 filesystem interface (used by S3Reader)
+boto3  # AWS SDK (used by S3Reader for file counting)
+# Cloud SDK dependencies (used by readers for authentication and file access)
+google-cloud-storage  # GCS SDK (used by GCSReader)
+google-api-python-client  # Google Drive API (used by GoogleDriveReader)
+google-auth-httplib2
+google-auth-oauthlib
+azure-storage-blob  # Azure SDK (used by AzStorageBlobReader)
 

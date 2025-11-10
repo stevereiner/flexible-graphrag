@@ -1,21 +1,26 @@
 """
-Google Drive data source for Flexible GraphRAG using LlamaIndex GoogleDriveReader.
+Google Drive data source for Flexible GraphRAG.
+Uses GoogleDriveReader with passthrough extractor to download files, then DocumentProcessor for parsing.
 """
 
 from typing import List, Dict, Any, Optional
 import logging
+import os
 from llama_index.core import Document
 
 from .base import BaseDataSource
+from .passthrough_extractor import PassthroughExtractor
 
 logger = logging.getLogger(__name__)
 
 
 class GoogleDriveSource(BaseDataSource):
-    """Data source for Google Drive using LlamaIndex GoogleDriveReader"""
+    """Data source for Google Drive - uses GoogleDriveReader with passthrough + DocumentProcessor"""
     
     def __init__(self, config: Dict[str, Any]):
         super().__init__(config)
+        
+        # Get configuration
         self.folder_id = config.get("folder_id", "")  # Optional: specific folder ID
         self.file_ids = config.get("file_ids", [])  # Optional: specific file IDs
         self.query = config.get("query", "")  # Optional: search query
@@ -38,31 +43,7 @@ class GoogleDriveSource(BaseDataSource):
         self.credentials_path = config.get("credentials_path", "")
         self.token_path = config.get("token_path", "")
         
-        # Import LlamaIndex Google Drive reader
-        try:
-            from llama_index.readers.google import GoogleDriveReader
-            
-            # Initialize GoogleDriveReader with proper authentication
-            if self.service_account_key:
-                # Use service account key (preferred method from LlamaIndex docs)
-                self.reader = GoogleDriveReader(service_account_key=self.service_account_key)
-                logger.info("GoogleDriveReader initialized with service account key")
-            elif self.credentials_path:
-                # Use credentials file path
-                self.reader = GoogleDriveReader(
-                    credentials_path=self.credentials_path,
-                    token_path=self.token_path
-                )
-                logger.info("GoogleDriveReader initialized with credentials file")
-            else:
-                # This will fail with the error we saw - no authentication provided
-                logger.error("No authentication method provided for Google Drive")
-                raise ValueError("Must specify service account credentials, credentials_path, or other authentication method")
-            
-            logger.info("GoogleDriveSource initialized successfully")
-        except ImportError as e:
-            logger.error(f"Failed to import GoogleDriveReader: {e}")
-            raise ImportError("Please install llama-index-readers-google-drive: pip install llama-index-readers-google-drive")
+        logger.info("GoogleDriveSource initialized successfully")
     
     def validate_config(self) -> bool:
         """Validate the Google Drive source configuration."""
@@ -76,30 +57,89 @@ class GoogleDriveSource(BaseDataSource):
         
         return True
     
-    def get_documents(self) -> List[Document]:
-        """
-        Retrieve documents from Google Drive.
-        
-        Returns:
-            List[Document]: List of LlamaIndex Document objects
-        """
+    def _create_google_drive_reader(self, progress_callback=None):
+        """Create GoogleDriveReader with passthrough extractors"""
         try:
-            documents = []
+            from llama_index.readers.google import GoogleDriveReader
+        except ImportError:
+            logger.error("Failed to import GoogleDriveReader")
+            raise ImportError("Please install llama-index-readers-google: pip install llama-index-readers-google")
+        
+        # Create passthrough extractor with progress tracking
+        passthrough = PassthroughExtractor(progress_callback=progress_callback)
+        
+        # Map all supported file types to passthrough extractor
+        file_extractor = {
+            ".pdf": passthrough,
+            ".docx": passthrough,
+            ".pptx": passthrough,
+            ".xlsx": passthrough,
+            ".doc": passthrough,
+            ".ppt": passthrough,
+            ".xls": passthrough,
+            ".txt": passthrough,
+            ".md": passthrough,
+            ".html": passthrough,
+            ".csv": passthrough,
+            ".png": passthrough,
+            ".jpg": passthrough,
+            ".jpeg": passthrough,
+        }
+        
+        # Initialize GoogleDriveReader with credentials and passthrough extractors
+        reader_kwargs = {
+            "file_extractor": file_extractor,
+        }
+        
+        if self.service_account_key:
+            # Pass service account key as dict
+            reader_kwargs["service_account_key"] = self.service_account_key
+        elif self.credentials_path:
+            reader_kwargs["credentials_path"] = self.credentials_path
+        
+        if self.token_path:
+            reader_kwargs["token_path"] = self.token_path
+        
+        reader = GoogleDriveReader(**reader_kwargs)
+        
+        return reader, passthrough
+    
+    def get_documents(self) -> List[Document]:
+        """Load files via GoogleDriveReader (with passthrough), then process with DocumentProcessor"""
+        from document_processor import DocumentProcessor, get_parser_type_from_env
+        
+        try:
+            logger.info("Loading documents from Google Drive")
             
+            # Create reader
+            reader, _ = self._create_google_drive_reader()
+            
+            # Build load_data arguments based on configuration
+            load_kwargs = {}
+            if self.folder_id:
+                load_kwargs["folder_id"] = self.folder_id
             if self.file_ids:
-                # Load specific files by ID
-                logger.info(f"Loading {len(self.file_ids)} specific files by ID from Google Drive")
-                documents = self.reader.load_data(file_ids=self.file_ids)
-            elif self.folder_id:
-                # Load all files from folder
-                logger.info(f"Loading documents from Google Drive folder ID: {self.folder_id}")
-                documents = self.reader.load_data(folder_id=self.folder_id)
-            elif self.query:
-                # Search for files using query
-                logger.info(f"Searching Google Drive with query: {self.query}")
-                documents = self.reader.load_data(query=self.query)
+                load_kwargs["file_ids"] = self.file_ids
+            if self.query:
+                load_kwargs["query"] = self.query
             
-            # Add source metadata
+            # Use GoogleDriveReader to discover and capture files (returns placeholder Documents)
+            placeholder_docs = reader.load_data(**load_kwargs)
+            
+            if not placeholder_docs:
+                logger.warning("No files found in Google Drive")
+                return []
+            
+            logger.info(f"Found {len(placeholder_docs)} files in Google Drive")
+            
+            # Process with DocumentProcessor (downloads from Google Drive and parses)
+            parser_type = get_parser_type_from_env()
+            doc_processor = DocumentProcessor(parser_type=parser_type)
+            
+            import asyncio
+            documents = asyncio.run(doc_processor.process_documents_from_metadata(placeholder_docs))
+            
+            # Add Google Drive metadata
             for doc in documents:
                 doc.metadata.update({
                     "source": "google_drive",
@@ -108,7 +148,7 @@ class GoogleDriveSource(BaseDataSource):
                     "source_type": "google_drive_file"
                 })
             
-            logger.info(f"GoogleDriveSource loaded {len(documents)} documents from Google Drive")
+            logger.info(f"GoogleDriveSource processed {len(documents)} documents from {len(placeholder_docs)} placeholders")
             return documents
             
         except Exception as e:
@@ -125,41 +165,91 @@ class GoogleDriveSource(BaseDataSource):
         Returns:
             List[Document]: List of LlamaIndex Document objects
         """
+        from document_processor import DocumentProcessor, get_parser_type_from_env
+        
         try:
-            logger.info(f"Loading documents from Google Drive with progress tracking")
-            
             if progress_callback:
-                progress_callback(0, 1, "Connecting to Google Drive...")
+                progress_callback(
+                    current=0,
+                    total=1,
+                    message="Connecting to Google Drive...",
+                    current_file=""
+                )
             
-            # Use GoogleDriveReader to load documents
+            logger.info("Loading documents from Google Drive with progress tracking")
+            
+            # Get DocumentProcessor for immediate processing
+            parser_type = get_parser_type_from_env()
+            doc_processor = DocumentProcessor(parser_type=parser_type)
+            
+            # Create passthrough extractor with BOTH progress callback AND doc_processor
+            # This allows PassthroughExtractor to process files immediately as they're downloaded
+            passthrough = PassthroughExtractor(
+                progress_callback=progress_callback,
+                doc_processor=doc_processor  # Process files immediately!
+            )
+            
+            # Map all supported file types to passthrough extractor
+            file_extractor = {
+                ".pdf": passthrough,
+                ".docx": passthrough,
+                ".pptx": passthrough,
+                ".xlsx": passthrough,
+                ".doc": passthrough,
+                ".ppt": passthrough,
+                ".xls": passthrough,
+                ".txt": passthrough,
+                ".md": passthrough,
+                ".html": passthrough,
+                ".csv": passthrough,
+                ".png": passthrough,
+                ".jpg": passthrough,
+                ".jpeg": passthrough,
+            }
+            
+            # Initialize GoogleDriveReader with credentials and passthrough extractors
+            try:
+                from llama_index.readers.google import GoogleDriveReader
+            except ImportError:
+                logger.error("Failed to import GoogleDriveReader")
+                raise ImportError("Please install llama-index-readers-google: pip install llama-index-readers-google")
+            
+            reader_kwargs = {
+                "file_extractor": file_extractor,
+            }
+            
+            if self.service_account_key:
+                # Pass service account key as dict
+                reader_kwargs["service_account_key"] = self.service_account_key
+            elif self.credentials_path:
+                reader_kwargs["credentials_path"] = self.credentials_path
+            
+            if self.token_path:
+                reader_kwargs["token_path"] = self.token_path
+            
+            reader = GoogleDriveReader(**reader_kwargs)
+            
+            # Build load_data arguments based on configuration
+            load_kwargs = {}
+            if self.folder_id:
+                load_kwargs["folder_id"] = self.folder_id
             if self.file_ids:
-                # Loading specific files by ID
-                documents = self.reader.load_data(file_ids=self.file_ids)
-                
-                if progress_callback:
-                    for i, doc in enumerate(documents, 1):
-                        filename = doc.metadata.get('file_name', f'file_{i}')
-                        progress_callback(i, len(documents), f"Processing Google Drive file", filename)
-            elif self.folder_id:
-                # Loading from specific folder
-                documents = self.reader.load_data(folder_id=self.folder_id)
-                
-                if progress_callback:
-                    progress_callback(1, 1, f"Processing Google Drive folder: {self.folder_id}")
-            elif self.query:
-                # Loading based on search query
-                documents = self.reader.load_data(query=self.query)
-                
-                if progress_callback:
-                    progress_callback(1, 1, f"Processing Google Drive search: {self.query}")
-            else:
-                # Loading from root folder
-                documents = self.reader.load_data()
-                
-                if progress_callback:
-                    progress_callback(1, 1, "Processing Google Drive root folder")
+                load_kwargs["file_ids"] = self.file_ids
+            if self.query:
+                load_kwargs["query"] = self.query
             
-            # Add source metadata
+            # Use GoogleDriveReader to load and process documents
+            # PassthroughExtractor will process each file immediately and return processed docs
+            documents = reader.load_data(**load_kwargs)
+            
+            if not documents:
+                if progress_callback:
+                    progress_callback(1, 1, "No documents found in Google Drive", "")
+                return []
+            
+            logger.info(f"Found {len(documents)} files in Google Drive")
+            
+            # Add Google Drive metadata to processed documents
             for doc in documents:
                 doc.metadata.update({
                     "source": "google_drive",
@@ -168,8 +258,21 @@ class GoogleDriveSource(BaseDataSource):
                     "source_type": "google_drive_file"
                 })
             
-            logger.info(f"GoogleDriveSource loaded {len(documents)} documents from Google Drive")
-            return documents
+            if progress_callback:
+                gdrive_display = "Google Drive"
+                if self.folder_id:
+                    gdrive_display += f" (folder)"
+                elif self.query:
+                    gdrive_display += f" (search)"
+                progress_callback(
+                    current=len(documents),
+                    total=len(documents),
+                    message=f"Completed processing {len(documents)} files",
+                    current_file=gdrive_display
+                )
+            
+            logger.info(f"GoogleDriveSource processed {len(documents)} files")
+            return (len(documents), documents)  # Return tuple: (file_count, documents)
             
         except Exception as e:
             logger.error(f"Error loading documents from Google Drive: {str(e)}")

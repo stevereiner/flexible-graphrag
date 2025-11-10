@@ -108,7 +108,6 @@ export default defineComponent({
     const s3AccessKey = ref('');
     const s3SecretKey = ref('');
     const gcsBucketName = ref('');
-    const gcsProjectId = ref('');
     const gcsCredentials = ref('');
     const azureBlobConnectionString = ref('');
     const azureBlobContainer = ref('');
@@ -128,6 +127,8 @@ export default defineComponent({
     const boxClientId = ref('');
     const boxClientSecret = ref('');
     const boxDeveloperToken = ref('');
+    const boxUserId = ref('');
+    const boxEnterpriseId = ref('');
     const googleDriveCredentials = ref('');
 
     // Computed
@@ -214,10 +215,8 @@ export default defineComponent({
           return {
             ...baseProps,
             bucketName: gcsBucketName.value,
-            projectId: gcsProjectId.value,
             credentials: gcsCredentials.value,
             'onUpdate:bucketName': (value: string) => { gcsBucketName.value = value; },
-            'onUpdate:projectId': (value: string) => { gcsProjectId.value = value; },
             'onUpdate:credentials': (value: string) => { gcsCredentials.value = value; }
           };
         case 'azure_blob':
@@ -264,9 +263,13 @@ export default defineComponent({
             clientId: boxClientId.value,
             clientSecret: boxClientSecret.value,
             developerToken: boxDeveloperToken.value,
+            userId: boxUserId.value,
+            enterpriseId: boxEnterpriseId.value,
             'onUpdate:clientId': (value: string) => { boxClientId.value = value; },
             'onUpdate:clientSecret': (value: string) => { boxClientSecret.value = value; },
-            'onUpdate:developerToken': (value: string) => { boxDeveloperToken.value = value; }
+            'onUpdate:developerToken': (value: string) => { boxDeveloperToken.value = value; },
+            'onUpdate:userId': (value: string) => { boxUserId.value = value; },
+            'onUpdate:enterpriseId': (value: string) => { boxEnterpriseId.value = value; }
           };
         case 'google_drive':
           return {
