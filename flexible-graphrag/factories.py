@@ -587,7 +587,7 @@ class DatabaseFactory:
         elif db_type == GraphDBType.FALKORDB:
             url = config.get("url", "falkor://localhost:6379")
             database = config.get("database", "falkor")
-            logger.info(f"Creating FalkorDB graph store - URL: {url}")
+            logger.info(f"Creating FalkorDB graph store - URL: {url} database: {database}")
 
             
             # Use standard FalkorDB store (indexes are the key optimization)

@@ -1500,7 +1500,12 @@ class HybridSearchSystem:
                 logger.info(f"Knowledge graph extraction finished - entities and relationships stored in {graph_store_type}")
             else:
                 # Add to existing graph index
+                graph_update_start_time = time.time()
+                logger.info(f"Adding {len(nodes)} nodes to existing graph index...")
                 self.graph_index.insert_nodes(nodes)
+                graph_creation_duration = time.time() - graph_update_start_time
+                logger.info(f"Graph index update completed in {graph_creation_duration:.2f}s")
+                logger.info(f"Knowledge graph updated - new entities and relationships added to {graph_store_type}")
         else:
             logger.info("Knowledge graph extraction disabled - skipping graph index creation")
         

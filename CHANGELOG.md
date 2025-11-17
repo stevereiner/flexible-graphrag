@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+
+## [2025-11-16] - Fix timing logging for graph phase, fix falkordb config setup, fix over-write of neo4j config in env-sample.txt
+
+### Fixed
+- In hybrid_system.py, fixed to update graph update start time before graph index insert nodes,
+and update the graph creation duration after. This fixed on a second run, to have correct non 0 graph phase sub time (total time for all phases was correct without this).
+- In env-sample.txt, for falkordb GRAPH_DB_CONFIG, have database name instead of user, password
+and in docker-env-sample.txt added example of falkordb config with database name
+- In env-sample.txt, commented out Kuzu GRAPH_DB_CONFIG, that was over-writing the default GRAPH_DB_CONFIG for Neo4j
+- in factories.py for falkordb, log database name in addition to url
+
+
 ## [2025-11-10] - Azure Blob Storage data source now also fully working
 
 ### Fixed

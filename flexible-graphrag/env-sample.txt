@@ -142,12 +142,11 @@ GRAPH_DB_CONFIG={"url": "bolt://localhost:7687", "username": "neo4j", "password"
 # Kuzu (database file will be created as ./kuzu_db/database.kz)
 # use_structured_schema: false (default) - enables initial entity types and schema (not generic entity type schema)
 # use_vector_index: false (default) - enables Kuzu's built-in vector capabilities use internally
-GRAPH_DB_CONFIG={"db_path": "./kuzu_db/database.kz", "use_structured_schema": false, "use_vector_index": false}
+#GRAPH_DB_CONFIG={"db_path": "./kuzu_db/database.kz", "use_structured_schema": false, "use_vector_index": false}
 
 # FalkorDB
 #GRAPH_DB_CONFIG={"url": "falkor://localhost:6379"}
-# With authentication:
-#GRAPH_DB_CONFIG={"url": "falkor://localhost:6379", "username": "user", "password": "pass"}
+#GRAPH_DB_CONFIG={"url": "falkor://localhost:6379", "database": "falkor"}
 
 # ArcadeDB (multi-model database with graph capabilities)
 # include_basic_schema: True (default) - initial types: PERSON, ORGANIZATION, LOCATION, PLACE + Entity, TextChunk, MENTIONS

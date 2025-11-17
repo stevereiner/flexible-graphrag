@@ -18,6 +18,7 @@ GRAPH_DB_CONFIG={"url": "bolt://host.docker.internal:7687", "username": "neo4j",
 
 # FalkorDB (when using Docker service)
 #GRAPH_DB_CONFIG={"url": "falkor://host.docker.internal:6379"}
+#GRAPH_DB_CONFIG={"url": "falkor://host.docker.internal:6379", "database": "falkor"}
 
 # ArcadeDB (when using Docker service)
 #GRAPH_DB_CONFIG={"host": "host.docker.internal", "port": 2480, "username": "root", "password": "playwithdata", "database": "flexible_graphrag", "include_basic_schema": true}
