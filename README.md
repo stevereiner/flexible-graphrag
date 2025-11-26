@@ -189,24 +189,36 @@ Flexible GraphRAG uses three types of databases for its hybrid search capabiliti
 
 - **BM25 (Built-in)**: Local file-based BM25 full-text search with TF-IDF ranking
   - Dashboard: None (file-based)
-  - Configuration: `SEARCH_DB=bm25`
-  - Config parameters: `{"persist_dir": "./bm25_index"}`
+  - Configuration:
+    ```bash
+    SEARCH_DB=bm25
+    SEARCH_DB_CONFIG={"persist_dir": "./bm25_index"}
+    ```
   - Ideal for: Development, small datasets, simple deployments
 
 - **Elasticsearch**: Enterprise search engine with advanced analyzers, faceted search, and real-time analytics
   - Dashboard: Kibana (http://localhost:5601) for search analytics, index management, and query debugging
-  - Configuration: `SEARCH_DB=elasticsearch`
-  - Config parameters: `{"hosts": ["http://localhost:9200"], "index_name": "hybrid_search"}`
+  - Configuration:
+    ```bash
+    SEARCH_DB=elasticsearch
+    SEARCH_DB_CONFIG={"hosts": ["http://localhost:9200"], "index_name": "hybrid_search"}
+    ```
   - Ideal for: Production workloads requiring sophisticated text processing
 
 - **OpenSearch**: AWS-led open-source fork with native hybrid scoring (vector + BM25) and k-NN algorithms
   - Dashboard: OpenSearch Dashboards (http://localhost:5601) for cluster monitoring and search pipeline management
-  - Configuration: `SEARCH_DB=opensearch`
-  - Config parameters: `{"hosts": ["http://localhost:9201"], "index_name": "hybrid_search"}`
+  - Configuration:
+    ```bash
+    SEARCH_DB=opensearch
+    SEARCH_DB_CONFIG={"hosts": ["http://localhost:9201"], "index_name": "hybrid_search"}
+    ```
   - Ideal for: Cost-effective alternative with strong community support
 
 - **None**: Disable full-text search (vector search only)
-  - Configuration: `SEARCH_DB=none`
+  - Configuration:
+    ```bash
+    SEARCH_DB=none
+    ```
 
 ### Vector Databases (Semantic Search)
 
@@ -226,55 +238,89 @@ Flexible GraphRAG uses three types of databases for its hybrid search capabiliti
 
 - **Neo4j**: Can be used as vector database with separate vector configuration
   - Dashboard: Neo4j Browser (http://localhost:7474) for Cypher queries and graph visualization
-  - Configuration: `VECTOR_DB=neo4j`
-  - Config parameters: `{"uri": "bolt://localhost:7687", "username": "neo4j", "password": "your_password", "index_name": "hybrid_search_vector"}`
+  - Configuration:
+    ```bash
+    VECTOR_DB=neo4j
+    VECTOR_DB_CONFIG={"uri": "bolt://localhost:7687", "username": "neo4j", "password": "your_password", "index_name": "hybrid_search_vector"}
+    ```
 
 - **Qdrant**: Dedicated vector database with advanced filtering
   - Dashboard: Qdrant Web UI (http://localhost:6333/dashboard) for collection management
-  - Configuration: `VECTOR_DB=qdrant`
-  - Config parameters: `{"host": "localhost", "port": 6333, "collection_name": "hybrid_search"}`
+  - Configuration:
+    ```bash
+    VECTOR_DB=qdrant
+    VECTOR_DB_CONFIG={"host": "localhost", "port": 6333, "collection_name": "hybrid_search"}
+    ```
 
 - **Elasticsearch**: Can be used as vector database with separate vector configuration
   - Dashboard: Kibana (http://localhost:5601) for index management and data visualization
-  - Configuration: `VECTOR_DB=elasticsearch`
-  - Config parameters: `{"hosts": ["http://localhost:9200"], "index_name": "hybrid_search_vectors"}`
+  - Configuration:
+    ```bash
+    VECTOR_DB=elasticsearch
+    VECTOR_DB_CONFIG={"hosts": ["http://localhost:9200"], "index_name": "hybrid_search_vectors"}
+    ```
 
 - **OpenSearch**: Can be used as vector database with separate vector configuration
   - Dashboard: OpenSearch Dashboards (http://localhost:5601) for cluster and index management
-  - Configuration: `VECTOR_DB=opensearch`
-  - Config parameters: `{"hosts": ["http://localhost:9201"], "index_name": "hybrid_search_vectors"}`
+  - Configuration:
+    ```bash
+    VECTOR_DB=opensearch
+    VECTOR_DB_CONFIG={"hosts": ["http://localhost:9201"], "index_name": "hybrid_search_vectors"}
+    ```
 
 - **Chroma**: Open-source vector database with dual deployment modes
   - Dashboard: Swagger UI (http://localhost:8001/docs/) for API testing and management (HTTP mode)
-  - Configuration: `VECTOR_DB=chroma`
-  - **Local Mode** config: `{"persist_directory": "./chroma_db", "collection_name": "hybrid_search"}`
-  - **HTTP Mode** config: `{"host": "localhost", "port": 8001, "collection_name": "hybrid_search"}`
+  - Configuration (Local Mode):
+    ```bash
+    VECTOR_DB=chroma
+    VECTOR_DB_CONFIG={"persist_directory": "./chroma_db", "collection_name": "hybrid_search"}
+    ```
+  - Configuration (HTTP Mode):
+    ```bash
+    VECTOR_DB=chroma
+    VECTOR_DB_CONFIG={"host": "localhost", "port": 8001, "collection_name": "hybrid_search"}
+    ```
 
 - **Milvus**: Cloud-native, scalable vector database for similarity search
   - Dashboard: Attu (http://localhost:3003) for cluster and collection management
-  - Configuration: `VECTOR_DB=milvus`
-  - Config parameters: `{"uri": "http://localhost:19530", "collection_name": "hybrid_search"}`
+  - Configuration:
+    ```bash
+    VECTOR_DB=milvus
+    VECTOR_DB_CONFIG={"uri": "http://localhost:19530", "collection_name": "hybrid_search"}
+    ```
 
 - **Weaviate**: Vector search engine with semantic capabilities and data enrichment
   - Dashboard: Weaviate Console (http://localhost:8081/console) for schema and data management
-  - Configuration: `VECTOR_DB=weaviate`
-  - Config parameters: `{"url": "http://localhost:8081", "index_name": "HybridSearch"}`
+  - Configuration:
+    ```bash
+    VECTOR_DB=weaviate
+    VECTOR_DB_CONFIG={"url": "http://localhost:8081", "index_name": "HybridSearch"}
+    ```
 
 - **Pinecone**: Managed vector database service optimized for real-time applications
   - Dashboard: Pinecone Console (web-based) for index and namespace management
   - Local Info Dashboard: http://localhost:3004 (when using Docker)
-  - Configuration: `VECTOR_DB=pinecone`
-  - Config parameters: `{"api_key": "your_api_key", "region": "us-east-1", "cloud": "aws", "index_name": "hybrid-search"}`
+  - Configuration:
+    ```bash
+    VECTOR_DB=pinecone
+    VECTOR_DB_CONFIG={"api_key": "your_api_key", "region": "us-east-1", "cloud": "aws", "index_name": "hybrid-search"}
+    ```
 
 - **PostgreSQL**: Traditional database with pgvector extension for vector similarity search
   - Dashboard: pgAdmin (http://localhost:5050) for database management, vector queries, and similarity searches
-  - Configuration: `VECTOR_DB=postgres`
-  - Config parameters: `{"host": "localhost", "port": 5433, "database": "postgres", "username": "postgres", "password": "your_password"}`
+  - Configuration:
+    ```bash
+    VECTOR_DB=postgres
+    VECTOR_DB_CONFIG={"host": "localhost", "port": 5433, "database": "postgres", "username": "postgres", "password": "your_password"}
+    ```
 
 - **LanceDB**: Modern, lightweight vector database designed for high-performance ML applications
   - Dashboard: LanceDB Viewer (http://localhost:3005) for CRUD operations and data management
-  - Configuration: `VECTOR_DB=lancedb`
-  - Config parameters: `{"uri": "./lancedb", "table_name": "hybrid_search"}`
+  - Configuration:
+    ```bash
+    VECTOR_DB=lancedb
+    VECTOR_DB_CONFIG={"uri": "./lancedb", "table_name": "hybrid_search"}
+    ```
 
 #### RAG without GraphRAG
 
@@ -298,46 +344,74 @@ ENABLE_KNOWLEDGE_GRAPH=false
 
 - **Neo4j Property Graph**: Primary knowledge graph storage with Cypher querying
   - Dashboard: Neo4j Browser (http://localhost:7474) for graph exploration and query execution
-  - Configuration: `GRAPH_DB=neo4j`
-  - Config parameters: `{"uri": "bolt://localhost:7687", "username": "neo4j", "password": "your_password"}`
+  - Configuration:
+    ```bash
+    GRAPH_DB=neo4j
+    GRAPH_DB_CONFIG={"uri": "bolt://localhost:7687", "username": "neo4j", "password": "your_password"}
+    ```
 
 - **Kuzu**: Embedded graph database built for query speed and scalability, optimized for handling complex analytical workloads on very large graph databases. Supports the property graph data model and the Cypher query language
   - Dashboard: Kuzu Explorer (http://localhost:8002) for graph visualization and Cypher queries
-  - Configuration: `GRAPH_DB=kuzu`
-  - Config parameters: `{"db_path": "./kuzu_db", "use_structured_schema": true, "use_vector_index": true}`
+  - Configuration:
+    ```bash
+    GRAPH_DB=kuzu
+    GRAPH_DB_CONFIG={"db_path": "./kuzu_db", "use_structured_schema": true, "use_vector_index": true}
+    ```
 
 - **FalkorDB**: "A super fast Graph Database uses GraphBLAS under the hood for its sparse adjacency matrix graph representation. Our goal is to provide the best Knowledge Graph for LLM (GraphRAG)."
   - Dashboard: FalkorDB Browser (http://localhost:3001) (Was moved from 3000 used by the flexible-graphrag Vue frontend)
-  - Configuration: `GRAPH_DB=falkordb`
-  - Config parameters: `{"url": "falkor://localhost:6379", "database": "falkor"}`
+  - Configuration:
+    ```bash
+    GRAPH_DB=falkordb
+    GRAPH_DB_CONFIG={"url": "falkor://localhost:6379", "database": "falkor"}
+    ```
 
 - **ArcadeDB**: Multi-model database supporting graph, document, key-value, and search capabilities with SQL and Cypher query support
   - Dashboard: ArcadeDB Studio (http://localhost:2480) for graph visualization, SQL/Cypher queries, and database management
-  - Configuration: `GRAPH_DB=arcadedb`
-  - Config parameters: `{"host": "localhost", "port": 2480, "username": "root", "password": "password", "database": "flexible_graphrag", "query_language": "sql"}`
+  - Configuration:
+    ```bash
+    GRAPH_DB=arcadedb
+    GRAPH_DB_CONFIG={"host": "localhost", "port": 2480, "username": "root", "password": "password", "database": "flexible_graphrag", "query_language": "sql"}
+    ```
 
 - **MemGraph**: Real-time graph database with native support for streaming data and advanced graph algorithms
   - Dashboard: MemGraph Lab (http://localhost:3002) for graph visualization and Cypher queries
-  - Configuration: `GRAPH_DB=memgraph`
-  - Config parameters: `{"url": "bolt://localhost:7687", "username": "", "password": ""}`
+  - Configuration:
+    ```bash
+    GRAPH_DB=memgraph
+    GRAPH_DB_CONFIG={"url": "bolt://localhost:7687", "username": "", "password": ""}
+    ```
 
 - **NebulaGraph**: Distributed graph database designed for large-scale data with horizontal scalability
   - Dashboard: NebulaGraph Studio (http://localhost:7001) for graph exploration and nGQL queries
-  - Configuration: `GRAPH_DB=nebula`
-  - Config parameters: `{"space": "flexible_graphrag", "host": "localhost", "port": 9669, "username": "root", "password": "nebula"}`
+  - Configuration:
+    ```bash
+    GRAPH_DB=nebula
+    GRAPH_DB_CONFIG={"space": "flexible_graphrag", "host": "localhost", "port": 9669, "username": "root", "password": "nebula"}
+    ```
 
 - **Amazon Neptune**: Fully managed graph database service supporting both property graph and RDF models
   - Dashboard: Graph-Explorer (http://localhost:3007) for visual graph exploration, or Neptune Workbench (AWS Console) for Jupyter-based queries
-  - Configuration: `GRAPH_DB=neptune`
-  - Config parameters: `{"host": "your-cluster.region.neptune.amazonaws.com", "port": 8182}`
+  - Configuration:
+    ```bash
+    GRAPH_DB=neptune
+    GRAPH_DB_CONFIG={"host": "your-cluster.region.neptune.amazonaws.com", "port": 8182}
+    ```
 
 - **Amazon Neptune Analytics**: Serverless graph analytics engine for large-scale graph analysis with openCypher support
   - Dashboard: Graph-Explorer (http://localhost:3007) or Neptune Workbench (AWS Console)
-  - Configuration: `GRAPH_DB=neptune_analytics`
-  - Config parameters: `{"graph_identifier": "g-xxxxx", "region": "us-east-1"}`
+  - Configuration:
+    ```bash
+    GRAPH_DB=neptune_analytics
+    GRAPH_DB_CONFIG={"graph_identifier": "g-xxxxx", "region": "us-east-1"}
+    ```
 
 - **None**: Disable knowledge graph extraction for RAG-only mode
-  - Configuration: `GRAPH_DB=none` and `ENABLE_KNOWLEDGE_GRAPH=false`
+  - Configuration:
+    ```bash
+    GRAPH_DB=none
+    ENABLE_KNOWLEDGE_GRAPH=false
+    ```
   - Use when you want vector + full-text search without graph traversal
 
 ## LLM Configuration
