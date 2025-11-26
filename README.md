@@ -13,13 +13,13 @@
 
 ## What It Is
 
-A configurable hybrid search system that optionally combines vector similarity search, full-text search, and knowledge graph GraphRAG on document processed from multiple data sources (filesystem, Alfresco, CMIS, etc.). Built with LlamaIndex which provides abstractions for allowing multiple vector, search graph databases, LLMs to be supported. It has both a FastAPI backend with REST endpoints and a Model Context Protocol (MCP) server for MCP clients like Claude Desktop, etc. Also has simple Angular, React, and Vue UI clients (which use the REST APIs of the FastAPI backend) for using interacting with the system.
+A configurable hybrid search system that optionally combines vector similarity search, full-text search, and knowledge graph GraphRAG on documents processed from multiple data sources (file upload, cloud storage, enterprise repositories, web sources). Built with LlamaIndex which provides abstractions for allowing multiple vector, search graph databases, LLMs to be supported. Documents are parsed using either Docling (default) or LlamaParse (cloud API). It has both a FastAPI backend with REST endpoints and a Model Context Protocol (MCP) server for MCP clients like Claude Desktop, etc. Also has simple Angular, React, and Vue UI clients (which use the REST APIs of the FastAPI backend) for interacting with the system.
 
 
 - **Hybrid Search**: Combines vector embeddings, BM25 full-text search, and graph traversal for comprehensive document retrieval
 - **Knowledge Graph GraphRAG**: Extracts entities and relationships from documents to create graphs in graph databases for graph-based reasoning  
 - **Configurable Architecture**: LlamaIndex provides abstractions for vector databases, graph databases, search engines, and LLM providers
-- **Multi-Source Ingestion**: Processes documents from filesystems, CMIS repositories, and Alfresco systems
+- **Multi-Source Ingestion**: Processes documents from 13 data sources (file upload, cloud storage, enterprise repositories, web sources) with Docling or LlamaParse document parsing
 - **FastAPI Server with REST API**: FastAPI server with REST API for document ingesting, hybrid search, and AI Q&A query
 - **MCP Server**: MCP server that provides MCP Clients like Claude Desktop, etc. tools for document and text ingesting, hybrid search and AI Q&A query.
 - **UI Clients**: Angular, React, and Vue UI clients support choosing the data source (filesystem, Alfresco, CMIS, etc.), ingesting documents, performing hybrid searches and AI Q&A Queries.
@@ -309,7 +309,7 @@ ENABLE_KNOWLEDGE_GRAPH=false
 - **FalkorDB**: "A super fast Graph Database uses GraphBLAS under the hood for its sparse adjacency matrix graph representation. Our goal is to provide the best Knowledge Graph for LLM (GraphRAG)."
   - Dashboard: FalkorDB Browser (http://localhost:3001) (Was moved from 3000 used by the flexible-graphrag Vue frontend)
   - Configuration: `GRAPH_DB=falkordb`
-  - Config parameters: `{"host": "localhost", "port": 6379, "username": "default", "password": ""}`
+  - Config parameters: `{"url": "falkor://localhost:6379", "database": "falkor"}`
 
 - **ArcadeDB**: Multi-model database supporting graph, document, key-value, and search capabilities with SQL and Cypher query support
   - Dashboard: ArcadeDB Studio (http://localhost:2480) for graph visualization, SQL/Cypher queries, and database management
