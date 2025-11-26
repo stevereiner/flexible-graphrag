@@ -2,6 +2,31 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2025-11-26] - Documentation overhaul and MCP server cleanup
+
+### Enhanced
+- **Documentation restructuring** - Created dedicated documentation files for better organization:
+  - `docs/ARCHITECTURE.md` - Complete system architecture and component relationships
+  - `docs/DEPLOYMENT-CONFIGURATIONS.md` - Standalone, hybrid, and full Docker deployment guides
+  - `docs/OLLAMA-CONFIGURATION.md` - Comprehensive Ollama setup and optimization instructions
+  - `docs/PERFORMANCE.md` - Performance benchmarks and optimization guides (moved from README.md)
+- **README.md improvements** - Added comprehensive coverage of all 13 data sources with visual screenshot, detailed document processing options (Docling vs LlamaParse), complete database configuration for search/vector/graph databases with parameters and dashboards, chat interface showcase with Neo4j graph visualization
+- **Database configuration documentation** - Expanded database sections in README.md to include detailed configuration parameters, dashboard URLs, and ideal use cases for all search databases (BM25, Elasticsearch, OpenSearch, None), all vector databases (10 options), and all graph databases (9 options plus None)
+
+### Fixed
+- **MCP server cleanup** - Removed unused `fastmcp-server.py` and `requirements.txt` from flexible-graphrag-mcp directory, keeping only HTTP-based `main.py` that uses REST API calls to backend
+
+### Added
+- **Visual documentation assets** - Added `screen-shots/react/chat-webpage.png` and `screen-shots/react/data-sources-1.jpeg` for README.md visual improvements
+- **LLM configuration section** - Added dedicated LLM Configuration section in README.md with details for OpenAI, Ollama, Azure OpenAI, Anthropic, and Google Gemini providers including required/optional parameters
+
+### Documentation
+- `README.md` - Major reorganization with data sources showcase, document processing options, comprehensive database configurations, 
+- `docs/ARCHITECTURE.md` - New comprehensive architecture documentation
+- `docs/DEPLOYMENT-CONFIGURATIONS.md` - New deployment guide for all three modes
+- `docs/OLLAMA-CONFIGURATION.md` - New Ollama-specific configuration guide
+- `docs/PERFORMANCE.md` - Performance information consolidated from README.md
+
 
 ## [2025-11-16] - Fix timing logging for graph phase, fix falkordb config setup, fix over-write of neo4j config in env-sample.txt
 

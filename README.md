@@ -2,6 +2,15 @@
 
 **Flexible GraphRAG** is a platform supporting document processing, knowledge graph auto-building, RAG and GraphRAG setup, hybrid search (fulltext, vector, graph) and AI Q&A query capabilities.
 
+<p align="center">
+  <a href="./screen-shots/react/chat-webpage.png">
+    <img src="./screen-shots/react/chat-webpage.png" alt="Flexible GraphRAG AI chat tab with a web pages data source generated graph displayed in Neo4j" width="700">
+  </a>
+</p>
+
+<p align="center"><em>Flexible GraphRAG AI chat tab with a web pages data source generated graph displayed in Neo4j</em></p>
+
+
 ## What It Is
 
 A configurable hybrid search system that optionally combines vector similarity search, full-text search, and knowledge graph GraphRAG on document processed from multiple data sources (filesystem, Alfresco, CMIS, etc.). Built with LlamaIndex which provides abstractions for allowing multiple vector, search graph databases, LLMs to be supported. It has both a FastAPI backend with REST endpoints and a Model Context Protocol (MCP) server for MCP clients like Claude Desktop, etc. Also has simple Angular, React, and Vue UI clients (which use the REST APIs of the FastAPI backend) for using interacting with the system.
@@ -87,6 +96,65 @@ A configurable hybrid search system that optionally combines vector similarity s
 - **NGINX Reverse Proxy**: Unified access to all services with proper routing
 - **Database Dashboards**: Integrated web interfaces for Kibana (Elasticsearch), OpenSearch Dashboards, Neo4j Browser, and Kuzu Explorer
 
+## Data Sources
+
+Flexible GraphRAG supports **13 different data sources** for ingesting documents into your knowledge base:
+
+<p align="center">
+  <a href="./screen-shots/react/data-sources-1.jpeg">
+    <img src="./screen-shots/react/data-sources-1.jpeg" alt="Data Sources" width="700">
+  </a>
+</p>
+
+### File & Upload Sources
+1. **File Upload** - Direct file upload through web interface with drag & drop support
+
+
+### Cloud Storage Sources
+2. **Amazon S3** - AWS S3 bucket integration
+3. **Google Cloud Storage (GCS)** - Google Cloud storage buckets
+4. **Azure Blob Storage** - Microsoft Azure blob containers
+5. **OneDrive** - Microsoft OneDrive personal/business storage
+6. **SharePoint** - Microsoft SharePoint document libraries
+7. **Box** - Box.com cloud storage
+8. **Google Drive** - Google Drive file storage
+
+### Enterprise Repository Sources
+9. **CMIS (Content Management Interoperability Services)** - Industry-standard content repository interface
+10. **Alfresco** - Alfresco ECM/content repository
+
+### Web Sources
+11. **Web Pages** - Extract content from web URLs
+12. **Wikipedia** - Ingest Wikipedia articles by title or URL
+13. **YouTube** - Process YouTube video transcripts
+
+Each data source includes:
+- **Configuration Forms**: Easy-to-use interfaces for credentials and settings
+- **Progress Tracking**: Real-time per-file progress indicators
+- **Flexible Authentication**: Support for various auth methods (API keys, OAuth, service accounts)
+
+### Document Processing Options
+
+All data sources support two document parser options:
+
+**Docling (Default)**:
+- Open-source, local processing
+- Free with no API costs
+- Built-in OCR for images and scanned documents
+- Configured via: `DOCUMENT_PARSER=docling`
+
+**LlamaParse**:
+- Cloud-based API service with advanced AI
+- Multimodal parsing with Claude Sonnet 3.5
+- Three modes available:
+  - `parse_page_without_llm` - 1 credit/page
+  - `parse_page_with_llm` - 3 credits/page (default)
+  - `parse_page_with_agent` - 10-90 credits/page
+- Configured via: `DOCUMENT_PARSER=llamaparse` + `LLAMAPARSE_API_KEY`
+- Get your API key from [LlamaCloud](https://cloud.llamaindex.ai/)
+
+Both parsers support PDF, Office documents (DOCX, XLSX, PPTX), images, HTML, and more with intelligent format detection.
+
 ## Supported File Formats
 
 The system processes **15+ document formats** through intelligent routing between Docling (advanced processing) and direct text handling:
@@ -111,9 +179,40 @@ The system processes **15+ document formats** through intelligent routing betwee
 - **Format Detection**: Automatic routing based on file extension and content analysis
 - **Fallback Handling**: Graceful degradation for unsupported formats
 
-## Vector, Graph, and Search Databases & LLM Configuration
+## Database Configuration
 
-### ⚠️ Vector Dimension Compatibility
+Flexible GraphRAG uses three types of databases for its hybrid search capabilities. Each can be configured independently via environment variables.
+
+### Search Databases (Full-Text Search)
+
+**Configuration**: Set via `SEARCH_DB` and `SEARCH_DB_CONFIG` environment variables
+
+- **BM25 (Built-in)**: Local file-based BM25 full-text search with TF-IDF ranking
+  - Dashboard: None (file-based)
+  - Configuration: `SEARCH_DB=bm25`
+  - Config parameters: `{"persist_dir": "./bm25_index"}`
+  - Ideal for: Development, small datasets, simple deployments
+
+- **Elasticsearch**: Enterprise search engine with advanced analyzers, faceted search, and real-time analytics
+  - Dashboard: Kibana (http://localhost:5601) for search analytics, index management, and query debugging
+  - Configuration: `SEARCH_DB=elasticsearch`
+  - Config parameters: `{"hosts": ["http://localhost:9200"], "index_name": "hybrid_search"}`
+  - Ideal for: Production workloads requiring sophisticated text processing
+
+- **OpenSearch**: AWS-led open-source fork with native hybrid scoring (vector + BM25) and k-NN algorithms
+  - Dashboard: OpenSearch Dashboards (http://localhost:5601) for cluster monitoring and search pipeline management
+  - Configuration: `SEARCH_DB=opensearch`
+  - Config parameters: `{"hosts": ["http://localhost:9201"], "index_name": "hybrid_search"}`
+  - Ideal for: Cost-effective alternative with strong community support
+
+- **None**: Disable full-text search (vector search only)
+  - Configuration: `SEARCH_DB=none`
+
+### Vector Databases (Semantic Search)
+
+**Configuration**: Set via `VECTOR_DB` and `VECTOR_DB_CONFIG` environment variables
+
+#### ⚠️ Vector Dimension Compatibility
 
 **CRITICAL**: When switching between different embedding models (e.g., OpenAI ↔ Ollama), you **MUST delete existing vector indexes** due to dimension incompatibility:
 
@@ -123,198 +222,175 @@ The system processes **15+ document formats** through intelligent routing betwee
 
 **See [VECTOR-DIMENSIONS.md](VECTOR-DIMENSIONS.md) for detailed cleanup instructions for each database.**
 
-### Vector Databases 
-Current configuration supports (via LlamaIndex vector store integrations)
+#### Supported Vector Databases
+
 - **Neo4j**: Can be used as vector database with separate vector configuration
   - Dashboard: Neo4j Browser (http://localhost:7474) for Cypher queries and graph visualization
+  - Configuration: `VECTOR_DB=neo4j`
+  - Config parameters: `{"uri": "bolt://localhost:7687", "username": "neo4j", "password": "your_password", "index_name": "hybrid_search_vector"}`
+
 - **Qdrant**: Dedicated vector database with advanced filtering
   - Dashboard: Qdrant Web UI (http://localhost:6333/dashboard) for collection management
+  - Configuration: `VECTOR_DB=qdrant`
+  - Config parameters: `{"host": "localhost", "port": 6333, "collection_name": "hybrid_search"}`
+
 - **Elasticsearch**: Can be used as vector database with separate vector configuration
   - Dashboard: Kibana (http://localhost:5601) for index management and data visualization
+  - Configuration: `VECTOR_DB=elasticsearch`
+  - Config parameters: `{"hosts": ["http://localhost:9200"], "index_name": "hybrid_search_vectors"}`
+
 - **OpenSearch**: Can be used as vector database with separate vector configuration
   - Dashboard: OpenSearch Dashboards (http://localhost:5601) for cluster and index management
+  - Configuration: `VECTOR_DB=opensearch`
+  - Config parameters: `{"hosts": ["http://localhost:9201"], "index_name": "hybrid_search_vectors"}`
+
 - **Chroma**: Open-source vector database with dual deployment modes
   - Dashboard: Swagger UI (http://localhost:8001/docs/) for API testing and management (HTTP mode)
-  - **Local Mode**: File-based storage with no server needed (default)
-  - **HTTP Mode**: Server-based deployment for remote access
+  - Configuration: `VECTOR_DB=chroma`
+  - **Local Mode** config: `{"persist_directory": "./chroma_db", "collection_name": "hybrid_search"}`
+  - **HTTP Mode** config: `{"host": "localhost", "port": 8001, "collection_name": "hybrid_search"}`
+
 - **Milvus**: Cloud-native, scalable vector database for similarity search
   - Dashboard: Attu (http://localhost:3003) for cluster and collection management
+  - Configuration: `VECTOR_DB=milvus`
+  - Config parameters: `{"uri": "http://localhost:19530", "collection_name": "hybrid_search"}`
+
 - **Weaviate**: Vector search engine with semantic capabilities and data enrichment
   - Dashboard: Weaviate Console (http://localhost:8081/console) for schema and data management
+  - Configuration: `VECTOR_DB=weaviate`
+  - Config parameters: `{"url": "http://localhost:8081", "index_name": "HybridSearch"}`
+
 - **Pinecone**: Managed vector database service optimized for real-time applications
   - Dashboard: Pinecone Console (web-based) for index and namespace management
   - Local Info Dashboard: http://localhost:3004 (when using Docker)
+  - Configuration: `VECTOR_DB=pinecone`
+  - Config parameters: `{"api_key": "your_api_key", "region": "us-east-1", "cloud": "aws", "index_name": "hybrid-search"}`
+
 - **PostgreSQL**: Traditional database with pgvector extension for vector similarity search
   - Dashboard: pgAdmin (http://localhost:5050) for database management, vector queries, and similarity searches
+  - Configuration: `VECTOR_DB=postgres`
+  - Config parameters: `{"host": "localhost", "port": 5433, "database": "postgres", "username": "postgres", "password": "your_password"}`
+
 - **LanceDB**: Modern, lightweight vector database designed for high-performance ML applications
   - Dashboard: LanceDB Viewer (http://localhost:3005) for CRUD operations and data management
-  - Local file-based storage with Python API for management
+  - Configuration: `VECTOR_DB=lancedb`
+  - Config parameters: `{"uri": "./lancedb", "table_name": "hybrid_search"}`
 
-### Graph Databases  
-Current configuration supports (via LlamaIndex abstractions, can be extended to cover others that LlamaIndex supports):
+#### RAG without GraphRAG
+
+For simpler deployments without knowledge graph extraction, configure:
+```bash
+VECTOR_DB=qdrant  # Any vector store
+SEARCH_DB=elasticsearch  # Any search engine
+GRAPH_DB=none
+ENABLE_KNOWLEDGE_GRAPH=false
+```
+
+**Results**:
+- Vector similarity search (semantic)
+- Full-text search (keyword-based)
+- No graph traversal
+- Faster processing (no graph extraction)
+
+### Graph Databases (Knowledge Graph / GraphRAG)
+
+**Configuration**: Set via `GRAPH_DB` and `GRAPH_DB_CONFIG` environment variables
+
 - **Neo4j Property Graph**: Primary knowledge graph storage with Cypher querying
   - Dashboard: Neo4j Browser (http://localhost:7474) for graph exploration and query execution
+  - Configuration: `GRAPH_DB=neo4j`
+  - Config parameters: `{"uri": "bolt://localhost:7687", "username": "neo4j", "password": "your_password"}`
+
 - **Kuzu**: Embedded graph database built for query speed and scalability, optimized for handling complex analytical workloads on very large graph databases. Supports the property graph data model and the Cypher query language
   - Dashboard: Kuzu Explorer (http://localhost:8002) for graph visualization and Cypher queries
+  - Configuration: `GRAPH_DB=kuzu`
+  - Config parameters: `{"db_path": "./kuzu_db", "use_structured_schema": true, "use_vector_index": true}`
+
 - **FalkorDB**: "A super fast Graph Database uses GraphBLAS under the hood for its sparse adjacency matrix graph representation. Our goal is to provide the best Knowledge Graph for LLM (GraphRAG)."
   - Dashboard: FalkorDB Browser (http://localhost:3001) (Was moved from 3000 used by the flexible-graphrag Vue frontend)
+  - Configuration: `GRAPH_DB=falkordb`
+  - Config parameters: `{"host": "localhost", "port": 6379, "username": "default", "password": ""}`
+
 - **ArcadeDB**: Multi-model database supporting graph, document, key-value, and search capabilities with SQL and Cypher query support
   - Dashboard: ArcadeDB Studio (http://localhost:2480) for graph visualization, SQL/Cypher queries, and database management
+  - Configuration: `GRAPH_DB=arcadedb`
+  - Config parameters: `{"host": "localhost", "port": 2480, "username": "root", "password": "password", "database": "flexible_graphrag", "query_language": "sql"}`
+
 - **MemGraph**: Real-time graph database with native support for streaming data and advanced graph algorithms
   - Dashboard: MemGraph Lab (http://localhost:3002) for graph visualization and Cypher queries
+  - Configuration: `GRAPH_DB=memgraph`
+  - Config parameters: `{"url": "bolt://localhost:7687", "username": "", "password": ""}`
+
 - **NebulaGraph**: Distributed graph database designed for large-scale data with horizontal scalability
   - Dashboard: NebulaGraph Studio (http://localhost:7001) for graph exploration and nGQL queries
+  - Configuration: `GRAPH_DB=nebula`
+  - Config parameters: `{"space": "flexible_graphrag", "host": "localhost", "port": 9669, "username": "root", "password": "nebula"}`
+
 - **Amazon Neptune**: Fully managed graph database service supporting both property graph and RDF models
   - Dashboard: Graph-Explorer (http://localhost:3007) for visual graph exploration, or Neptune Workbench (AWS Console) for Jupyter-based queries
+  - Configuration: `GRAPH_DB=neptune`
+  - Config parameters: `{"host": "your-cluster.region.neptune.amazonaws.com", "port": 8182}`
+
 - **Amazon Neptune Analytics**: Serverless graph analytics engine for large-scale graph analysis with openCypher support
   - Dashboard: Graph-Explorer (http://localhost:3007) or Neptune Workbench (AWS Console)
+  - Configuration: `GRAPH_DB=neptune_analytics`
+  - Config parameters: `{"graph_identifier": "g-xxxxx", "region": "us-east-1"}`
 
-### Search Databases (Engines)
-- **BM25 (Built-in)**: Local file-based BM25 full-text search with TF-IDF ranking. Ideal for development, small datasets, or scenarios when don't need all the features and administration and monitoring support.
-- **Elasticsearch**: Enterprise search engine with vector similarity, BM25 text search, advanced analyzers, faceted search, and real-time analytics. Ideal for production workloads requiring sophisticated text processing and search relevance tuning
-  - Dashboard: Kibana (http://localhost:5601) for search analytics, index management, and query debugging
-- **OpenSearch**: AWS-led open-source fork of Elasticsearch with native vector search, hybrid scoring (vector + BM25), k-NN algorithms, and built-in machine learning features. Offers cost-effective alternative with strong community support and seamless hybrid search capabilities
-  - Dashboard: OpenSearch Dashboards (http://localhost:5601) for cluster monitoring and search pipeline management
+- **None**: Disable knowledge graph extraction for RAG-only mode
+  - Configuration: `GRAPH_DB=none` and `ENABLE_KNOWLEDGE_GRAPH=false`
+  - Use when you want vector + full-text search without graph traversal
+
+## LLM Configuration
+
+**Configuration**: Set via `LLM_PROVIDER` and provider-specific environment variables
 
 ### LLM Providers
-- **OpenAI**: GPT models with configurable endpoints
-- **Ollama**: Local LLM deployment for privacy and control
-- **Azure OpenAI**: Enterprise OpenAI integration
-- **Anthropic**: Claude models for complex reasoning
-- **Google Gemini**: Google's latest language models
 
-#### LLM Performance Recommendations
+- **OpenAI**: GPT models with configurable endpoints
+  - Configuration: `LLM_PROVIDER=openai`
+  - Required: `OPENAI_API_KEY`
+  - Optional: `OPENAI_MODEL` (default: gpt-4o-mini), `OPENAI_EMBEDDING_MODEL` (default: text-embedding-3-small)
+
+- **Ollama**: Local LLM deployment for privacy and control
+  - Configuration: `LLM_PROVIDER=ollama`
+  - Required: `OLLAMA_BASE_URL` (default: http://localhost:11434)
+  - Optional: `OLLAMA_MODEL` (default: llama3.2:latest), `OLLAMA_EMBEDDING_MODEL` (default: all-minilm)
+
+- **Azure OpenAI**: Enterprise OpenAI integration
+  - Configuration: `LLM_PROVIDER=azure`
+  - Required: `AZURE_OPENAI_ENDPOINT`, `AZURE_OPENAI_API_KEY`, `AZURE_OPENAI_DEPLOYMENT`, `AZURE_OPENAI_EMBEDDING_DEPLOYMENT`
+  - Optional: `AZURE_OPENAI_API_VERSION` (default: 2024-02-15-preview)
+
+- **Anthropic**: Claude models for complex reasoning
+  - Configuration: `LLM_PROVIDER=anthropic`
+  - Required: `ANTHROPIC_API_KEY`
+  - Optional: `ANTHROPIC_MODEL` (default: claude-3-sonnet-20240229)
+
+- **Google Gemini**: Google's latest language models
+  - Configuration: `LLM_PROVIDER=gemini`
+  - Required: `GOOGLE_API_KEY`
+  - Optional: `GEMINI_MODEL` (default: gemini-pro)
+
+### LLM Performance Recommendations
 
 **General Performance with LlamaIndex: OpenAI vs Ollama**
 
 Based on testing with OpenAI GPT-4o-mini and Ollama models (llama3.1:8b, llama3.2:latest, gpt-oss:20b), **OpenAI consistently outperforms Ollama models** in LlamaIndex operations.
 
+### Ollama Configuration
 
-#### Ollama Environment Configuration
+When using Ollama as your LLM provider, you must configure system-wide environment variables before starting the Ollama service. These settings optimize performance and enable parallel processing.
 
-When using Ollama (not OpenAI), configure these system environment variables **before starting the Ollama service** to optimize performance with limited resources and enable parallel processing:
+**Key requirements**:
+- Configure environment variables **system-wide** (not in Flexible GraphRAG `.env` file)
+- `OLLAMA_NUM_PARALLEL=4` is **critical** for parallel document processing
+- Always restart Ollama service after changing environment variables
 
-```bash
-# Context length for model processing
-OLLAMA_CONTEXT_LENGTH=8192
-
-1. You can go down to 4096 with limited resources, or can go higher for improved speed and extraction quality say to 16384.
-2. The full 128k possible context window for llama3.2:3b of 16.4GB of RAM for the key-value (KV) cache alone, in addition to the ~3GB needed for the model weights. The 128K token context window means the model can process and maintain awareness of approximately 96,240 words of text in a single interaction. 
-By default, most inference engines (like llama.cpp, transformers, Ollama, etc.) will attempt to store both model weights and the KV cache in GPU VRAM if sufficient capacity exists, as this is fastest for inference. If the GPU does not have enough VRAM, or if specifically configured, the KV cache can be kept in system RAM (regular RAM), potentially with a significant speed penalty.
-
-# Debug logging (1 for debug, 0 to disable)
-# Log location on Windows: C:\Users\<username>\AppData\Local\Ollama\server.log
-# Useful for checking GPU memory availability and CPU fallback behavior
-OLLAMA_DEBUG=1
-
-# Keep models loaded in memory for faster subsequent requests
-OLLAMA_KEEP_ALIVE=30m
-
-# Maximum number of models to keep loaded simultaneously (0 for no limit)
-OLLAMA_MAX_LOADED_MODELS=4
-
-# Model storage directory (usually set automatically)
-# Windows example: C:\Users\<username>\.ollama\models
-OLLAMA_MODELS=C:\Users\<username>\.ollama\models
-
-# CRITICAL: Number of parallel requests Ollama can handle
-# Required for Flexible GraphRAG parallel file processing to avoid errors
-OLLAMA_NUM_PARALLEL=4
-```
-
-**Important Notes:**
-- Set these environment variables **system-wide** before starting Ollama, not in the Flexible GraphRAG `.env` file
-- `OLLAMA_NUM_PARALLEL=4` is **critical** - prevents processing errors during parallel document ingestion
-- `OLLAMA_DEBUG=1` helps identify GPU memory issues that force CPU processing
-- Restart Ollama service after changing environment variables
-
-#### Performance Benchmarks
-
-**6-Document Ingestion Performance (OpenAI gpt-4o-mini)**
-
-| Graph Database | Ingestion Time | Search Time | Q&A Time |
-|----------------|----------------|-------------|----------|
-| Neo4j | 11.31s | 0.912s | 2.796s |
-| Kuzu | 15.72s | 1.240s | 2.187s |
-| FalkorDB | 21.74s | 1.199s | 2.133s |
-
-For complete performance results including 2-doc and 4-doc tests, Ollama comparisons, and detailed breakdowns, see [docs/PERFORMANCE.md](docs/PERFORMANCE.md). 
-
-### RAG without GraphRAG
-
-The system can be configured for **RAG (Retrieval-Augmented Generation) without also GraphRAG** This simpler deployment also only do setting up vectors for RAG. It will skip setup for GraphRAG: no auto-building Graphs / Knowledge Graphs in a Graph Database. The processing time will be faster. You can still do Hybrid Search (full text search + vectors for RAG). You can also still do AI Q&A Queries or Chats.  
-
-#### Configuration Steps
-
-To enable RAG-only mode, configure these environment variables in your `.env` file:
-
-1. **Configure Search Database** (choose one):
-   ```bash
-   # Option 1: Elasticsearch
-   SEARCH_DB=elasticsearch
-   SEARCH_DB_CONFIG={"index_name": "documents", "host": "localhost", "port": 9200}
-   
-   # Option 2: OpenSearch  
-   SEARCH_DB=opensearch
-   SEARCH_DB_CONFIG={"index_name": "documents", "host": "localhost", "port": 9201}
-   
-   # Option 3: Built-in BM25
-   SEARCH_DB=bm25
-   SEARCH_DB_CONFIG={"persist_dir": "./bm25_index"}
-   ```
-
-2. **Configure Vector Database** (choose one):
-   ```bash
-   # Option 1: Neo4j (configure separately for vector use)
-   VECTOR_DB=neo4j
-   VECTOR_DB_CONFIG={"uri": "bolt://localhost:7687", "username": "neo4j", "password": "password"}
-   
-   # Option 2: Qdrant
-   VECTOR_DB=qdrant  
-   VECTOR_DB_CONFIG={"host": "localhost", "port": 6333, "collection_name": "documents"}
-   
-   # Option 3: Elasticsearch (configure separately for vector use)
-   VECTOR_DB=elasticsearch
-   VECTOR_DB_CONFIG={"index_name": "vectors", "host": "localhost", "port": 9200}
-   
-   # Option 4: OpenSearch (configure separately for vector use)
-   VECTOR_DB=opensearch
-   VECTOR_DB_CONFIG={"index_name": "vectors", "host": "localhost", "port": 9201}
-   
-   # Option 5: Chroma (local mode - default)
-   VECTOR_DB=chroma
-   VECTOR_DB_CONFIG={"persist_directory": "./chroma_db", "collection_name": "documents"}
-   
-   # Option 5b: Chroma (HTTP mode - server required)
-   VECTOR_DB=chroma
-   VECTOR_DB_CONFIG={"host": "localhost", "port": 8001, "collection_name": "documents"}
-   
-   # Option 6: Milvus (scalable)
-   VECTOR_DB=milvus
-   VECTOR_DB_CONFIG={"host": "localhost", "port": 19530, "collection_name": "documents"}
-   
-   # Option 7: Weaviate (semantic search)
-   VECTOR_DB=weaviate
-   VECTOR_DB_CONFIG={"url": "http://localhost:8081", "class_name": "Documents"}
-   
-   # Option 8: Pinecone (managed serverless service)
-   VECTOR_DB=pinecone
-   VECTOR_DB_CONFIG={"api_key": "your_api_key", "region": "us-east-1", "cloud": "aws", "index_name": "documents", "metric": "cosine"}
-   
-   # Option 9: PostgreSQL (with pgvector)
-   VECTOR_DB=postgres
-   VECTOR_DB_CONFIG={"host": "localhost", "port": 5433, "database": "postgres", "username": "postgres", "password": "password"}
-   
-   # Option 10: LanceDB (modern embedded)
-   VECTOR_DB=lancedb
-   VECTOR_DB_CONFIG={"uri": "./lancedb", "table_name": "documents"}
-   ```
-
-3. **Disable Knowledge Graph**:
-   ```bash
-   GRAPH_DB=none
-   ENABLE_KNOWLEDGE_GRAPH=false
-   ```
+See [docs/OLLAMA-CONFIGURATION.md](docs/OLLAMA-CONFIGURATION.md) for complete setup instructions, including:
+- All environment variable configurations
+- Platform-specific installation steps (Windows, Linux, macOS)
+- Performance optimization guidelines
+- Troubleshooting common issues
 
 
 
@@ -457,9 +533,6 @@ cp flexible-graphrag/env-sample.txt flexible-graphrag/.env
 
 # Windows Command Prompt  
 copy flexible-graphrag\env-sample.txt flexible-graphrag\.env
-
-# Windows PowerShell
-Copy-Item flexible-graphrag\env-sample.txt flexible-graphrag\.env
 ```
 Edit `.env` with your database credentials and API keys.
 
@@ -750,12 +823,11 @@ Between tests you can clean up data:
   - `start.py`: Startup script for uvicorn
   - `install.py`: Installation helper script
 
-- `/flexible-graphrag-mcp`: Standalone FastMCP server
-  - `fastmcp-server.py`: Proper remote MCP server using shared backend.py
-  - `main.py`: Alternative HTTP-based MCP client (calls REST API)
-  - `requirements.txt`: FastMCP and shared backend dependencies
-  - `README.md`: MCP server setup instructions
-  - **No HTTP overhead**: Calls backend.py directly through Python imports
+- `/flexible-graphrag-mcp`: Standalone MCP server
+  - `main.py`: HTTP-based MCP server (calls REST API)
+  - `pyproject.toml`: MCP package definition with minimal dependencies
+  - `README.md`: MCP server setup and installation instructions
+  - **Lightweight**: Only 4 dependencies (fastmcp, nest-asyncio, httpx, python-dotenv)
 
 - `/flexible-graphrag-ui`: Frontend applications
   - `/frontend-react`: React + TypeScript frontend (built with Vite)
@@ -783,9 +855,14 @@ Between tests you can clean up data:
   - `README.md`: Docker deployment documentation
 
 - `/docs`: Documentation
-  - `ENVIRONMENT-CONFIGURATION.md`: Environment setup guide
+  - `ARCHITECTURE.md`: Complete system architecture and component relationships
+  - `DEPLOYMENT-CONFIGURATIONS.md`: Standalone, hybrid, and full Docker deployment guides
+  - `ENVIRONMENT-CONFIGURATION.md`: Environment setup guide with database switching
   - `VECTOR-DIMENSIONS.md`: Vector database cleanup instructions
   - `SCHEMA-EXAMPLES.md`: Knowledge graph schema examples
+  - `PERFORMANCE.md`: Performance benchmarks and optimization guides
+  - `DEFAULT-USERNAMES-PASSWORDS.md`: Database credentials and dashboard access
+  - `PORT-MAPPINGS.md`: Complete port reference for all services
 
 - `/scripts`: Utility scripts
   - `create_opensearch_pipeline.py`: OpenSearch hybrid search pipeline setup

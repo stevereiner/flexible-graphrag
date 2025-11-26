@@ -1,5 +1,7 @@
 # Performance Test Results
 
+**⚠️ Note**: Performance benchmarks are being redone. Results below are from previous testing and will be updated.
+
 **Test Environment**: AMD 5950x 16-core CPU, 64GB RAM, 4090 Nvidia GPU, Windows 11 Pro
 
 **Infrastructure Configuration**: 
@@ -9,6 +11,28 @@
 - **LLM Models**: OpenAI gpt-4o-mini, Ollama llama3.2:3b
 - **Embedding Models**: OpenAI text-embedding-3-small, Ollama all-minilm
 - **Index Management**: Qdrant + Elasticsearch indexes cleared between LLM/Graph DB configuration changes, but preserved between 2-doc to 4-doc incremental tests within same configuration
+
+## Quick Summary: 6-Document Performance
+
+The table below provides a quick overview of 6-document ingestion performance across different graph database and LLM combinations. See detailed breakdowns in following sections.
+
+| Graph Database | LLM Provider | Ingestion Time | Search Time | Q&A Time |
+|----------------|--------------|----------------|-------------|----------|
+| Neo4j | OpenAI gpt-4o-mini | 11.31s | 0.912s | 2.796s |
+| Kuzu | OpenAI gpt-4o-mini | 15.72s | 1.240s | 2.187s |
+| FalkorDB | OpenAI gpt-4o-mini | 21.74s | 1.199s | 2.133s |
+| Neo4j | Ollama llama3.2:3b | 72.06s | ~4.2s | ~13.7s |
+| Kuzu | Ollama llama3.2:3b | 43.10s | 4.945s | 10.572s |
+
+**Key Observations**:
+- OpenAI consistently faster than Ollama across all graph databases
+- Neo4j + OpenAI provides fastest overall performance
+- Kuzu shows good performance with OpenAI
+- All configurations complete Q&A queries in under 15 seconds
+
+---
+
+## Detailed Test Results
 
 ## Neo4j + OpenAI
 
