@@ -421,29 +421,55 @@ ENABLE_KNOWLEDGE_GRAPH=false
 ### LLM Providers
 
 - **OpenAI**: GPT models with configurable endpoints
-  - Configuration: `LLM_PROVIDER=openai`
-  - Required: `OPENAI_API_KEY`
-  - Optional: `OPENAI_MODEL` (default: gpt-4o-mini), `OPENAI_EMBEDDING_MODEL` (default: text-embedding-3-small)
+  - Configuration:
+    ```bash
+    USE_OPENAI=true
+    LLM_PROVIDER=openai
+    OPENAI_API_KEY=your_api_key_here
+    OPENAI_MODEL=gpt-4o-mini
+    OPENAI_EMBEDDING_MODEL=text-embedding-3-small
+    ```
+  - Models: gpt-4o-mini (default), gpt-4o, gpt-4-turbo, gpt-3.5-turbo
+  - Embedding models: text-embedding-3-small (1536 dims, default), text-embedding-3-large (3072 dims)
 
 - **Ollama**: Local LLM deployment for privacy and control
-  - Configuration: `LLM_PROVIDER=ollama`
-  - Required: `OLLAMA_BASE_URL` (default: http://localhost:11434)
-  - Optional: `OLLAMA_MODEL` (default: llama3.2:latest), `OLLAMA_EMBEDDING_MODEL` (default: all-minilm)
+  - Configuration:
+    ```bash
+    USE_OPENAI=false
+    LLM_PROVIDER=ollama
+    OLLAMA_BASE_URL=http://localhost:11434
+    OLLAMA_MODEL=llama3.2:latest
+    OLLAMA_EMBEDDING_MODEL=all-minilm
+    ```
+  - Models: llama3.2:latest (default), llama3.1:8b, gpt-oss:20b, qwen2.5:latest
+  - Embedding models: all-minilm (384 dims, default), nomic-embed-text (768 dims), mxbai-embed-large (1024 dims)
 
 - **Azure OpenAI**: Enterprise OpenAI integration
-  - Configuration: `LLM_PROVIDER=azure`
-  - Required: `AZURE_OPENAI_ENDPOINT`, `AZURE_OPENAI_API_KEY`, `AZURE_OPENAI_DEPLOYMENT`, `AZURE_OPENAI_EMBEDDING_DEPLOYMENT`
-  - Optional: `AZURE_OPENAI_API_VERSION` (default: 2024-02-15-preview)
+  - Configuration: (**Untested - may require configuration code changes**)
+    ```bash
+    LLM_PROVIDER=azure
+    AZURE_OPENAI_ENDPOINT=https://your-resource.openai.azure.com
+    AZURE_OPENAI_API_KEY=your_api_key_here
+    AZURE_OPENAI_DEPLOYMENT=your_deployment_name
+    AZURE_OPENAI_EMBEDDING_DEPLOYMENT=your_embedding_deployment
+    AZURE_OPENAI_API_VERSION=2024-02-15-preview
+    ```
 
-- **Anthropic**: Claude models for complex reasoning
-  - Configuration: `LLM_PROVIDER=anthropic`
-  - Required: `ANTHROPIC_API_KEY`
-  - Optional: `ANTHROPIC_MODEL` (default: claude-3-sonnet-20240229)
+- **Anthropic Claude**: Claude models for complex reasoning
+  - Configuration: (**Untested - may require configuration code changes**)
+    ```bash
+    LLM_PROVIDER=anthropic
+    ANTHROPIC_API_KEY=your_api_key_here
+    ANTHROPIC_MODEL=claude-3-sonnet-20240229
+    ```
 
 - **Google Gemini**: Google's latest language models
-  - Configuration: `LLM_PROVIDER=gemini`
-  - Required: `GOOGLE_API_KEY`
-  - Optional: `GEMINI_MODEL` (default: gemini-pro)
+  - Configuration: (**Untested - may require configuration code changes**)
+    ```bash
+    LLM_PROVIDER=gemini
+    GOOGLE_API_KEY=your_api_key_here
+    GEMINI_MODEL=gemini-pro
+    ```
 
 ### LLM Performance Recommendations
 
