@@ -90,11 +90,21 @@ class CmisConfig(BaseModel):
     password: str
     folder_path: str
 
+class NodeDetail(BaseModel):
+    id: str
+    name: str
+    path: str
+    isFile: bool
+    isFolder: bool
+
 class AlfrescoConfig(BaseModel):
     url: str
     username: str
     password: str
     path: str
+    nodeRefs: Optional[List[str]] = None  # Array of node IDs for multi-select
+    nodeDetails: Optional[List[NodeDetail]] = None  # Array of node details with metadata
+    recursive: Optional[bool] = False  # Whether to recursively process subfolders (default: False)
 
 class WebConfig(BaseModel):
     url: str
@@ -171,6 +181,7 @@ class GoogleDriveConfig(BaseModel):
 class IngestRequest(BaseModel):
     paths: Optional[List[str]] = None  # overrides config
     data_source: Optional[str] = None  # filesystem, cmis, alfresco, web, wikipedia, youtube, s3, gcs, azure_blob, onedrive, sharepoint, box, google_drive
+    skip_graph: Optional[bool] = False  # Per-ingest flag to skip knowledge graph step (doesn't persist)
     cmis_config: Optional[CmisConfig] = None
     alfresco_config: Optional[AlfrescoConfig] = None
     web_config: Optional[WebConfig] = None
@@ -224,6 +235,12 @@ async def ingest(request: IngestRequest):
         
         # Prepare additional kwargs for data source configs
         kwargs = {}
+        
+        # Pass skip_graph flag if set
+        if request.skip_graph:
+            kwargs['skip_graph'] = request.skip_graph
+            logger.info(f"Per-ingest skip_graph flag set to: {request.skip_graph}")
+        
         if request.cmis_config:
             kwargs['cmis_config'] = request.cmis_config.dict()
         if request.alfresco_config:

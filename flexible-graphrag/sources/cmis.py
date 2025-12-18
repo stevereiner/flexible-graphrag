@@ -21,7 +21,18 @@ class CmisSource(BaseDataSource):
         self.url = config.get("url", "")
         self.username = config.get("username", "")
         self.password = config.get("password", "")
-        self.folder_path = config.get("folder_path", "/")
+        folder_path = config.get("folder_path", "/")
+        
+        # Strip /Company Home prefix if present (for Alfresco compatibility)
+        # CMIS paths don't include Company Home, but users might include it
+        if folder_path.startswith('/Company Home/'):
+            folder_path = '/' + folder_path[14:]  # Keep leading slash, remove "Company Home/"
+            logger.info(f"Stripped '/Company Home' prefix from path: {folder_path}")
+        elif folder_path.lower().startswith('/company home/'):
+            folder_path = '/' + folder_path[14:]  # Case-insensitive
+            logger.info(f"Stripped '/Company Home' prefix from path: {folder_path}")
+        
+        self.folder_path = folder_path
         
         try:
             self.client = CmisClient(self.url, self.username, self.password)

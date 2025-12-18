@@ -330,7 +330,11 @@ CMIS_USERNAME=admin
 CMIS_PASSWORD=admin
 
 # Alfresco Configuration (if using Alfresco)
-ALFRESCO_URL=http://localhost:8080/alfresco
+# Note: Requires python-alfresco-api >= 1.1.5 for optimal performance
+# Paths: Use short format like "/Shared/GraphRAG" (recommended - matches Alfresco Share UI)
+#        Full format like "/Company Home/Shared/GraphRAG" also works (prefix is auto-stripped)
+#        Both formats supported - system handles /Company Home prefix automatically
+ALFRESCO_URL=http://localhost:8080
 ALFRESCO_USERNAME=admin
 ALFRESCO_PASSWORD=admin
 

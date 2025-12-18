@@ -374,7 +374,7 @@ class FlexibleGraphRAGBackend:
         # Store data source type for completion message
         PROCESSING_STATUS[processing_id]["data_source"] = data_source
         
-        await self.system._process_documents_direct(documents, processing_id=processing_id, status_callback=status_callback)
+        await self.system._process_documents_direct(documents, processing_id=processing_id, status_callback=status_callback, skip_graph=skip_graph)
     
     def _update_file_progress(self, processing_id: str, file_index: int, status: str = None, 
                              progress: int = None, phase: str = None, message: str = None, error: str = None):
@@ -506,7 +506,8 @@ class FlexibleGraphRAGBackend:
                 await self.system.ingest_documents(
                     file_paths,
                     processing_id=processing_id,
-                    status_callback=completion_callback
+                    status_callback=completion_callback,
+                    skip_graph=skip_graph
                 )
                 
                 # Cancel progress updater since real processing is done
@@ -670,7 +671,8 @@ class FlexibleGraphRAGBackend:
                 processing_id=processing_id,
                 status_callback=lambda pid, status, msg, prog, **kwargs: self._update_file_progress(
                     processing_id, file_index, progress=min(50 + int(prog * 0.4), 90)
-                )
+                ),
+                skip_graph=skip_graph
             )
             
             # Phase 4: Indexing
@@ -726,8 +728,12 @@ class FlexibleGraphRAGBackend:
     
     # Core business logic methods
     
-    async def ingest_documents(self, data_source: str = None, paths: List[str] = None, **kwargs) -> Dict[str, Any]:
-        """Start async document ingestion and return processing ID"""
+    async def ingest_documents(self, data_source: str = None, paths: List[str] = None, skip_graph: bool = False, **kwargs) -> Dict[str, Any]:
+        """Start async document ingestion and return processing ID
+        
+        Args:
+            skip_graph: If True, skip knowledge graph extraction for this ingest (temporary, doesn't persist)
+        """
         processing_id = self._create_processing_id()
         
         # Start processing immediately in background
@@ -739,7 +745,7 @@ class FlexibleGraphRAGBackend:
         )
         
         # Start background task
-        asyncio.create_task(self._process_documents_async(processing_id, data_source, paths, **kwargs))
+        asyncio.create_task(self._process_documents_async(processing_id, data_source, paths, skip_graph, **kwargs))
         
         estimated_time = self._estimate_processing_time(data_source, paths)
         
@@ -750,10 +756,14 @@ class FlexibleGraphRAGBackend:
             "estimated_time": estimated_time
         }
     
-    async def _process_documents_async(self, processing_id: str, data_source: str = None, paths: List[str] = None, **kwargs):
+    async def _process_documents_async(self, processing_id: str, data_source: str = None, paths: List[str] = None, skip_graph: bool = False, **kwargs):
         """Background task for document processing"""
         try:
             data_source = data_source or self.settings.data_source
+            
+            # Log skip_graph flag if set
+            if skip_graph:
+                logger.info(f"skip_graph=True for processing_id={processing_id} - Knowledge graph extraction will be skipped for this ingest")
             
             # Check for cancellation before starting
             if self._is_processing_cancelled(processing_id):
@@ -880,7 +890,7 @@ class FlexibleGraphRAGBackend:
                         message="Documents loaded, starting pipeline processing..."
                     )
                 
-                await self.system._process_documents_direct(documents, processing_id=processing_id, status_callback=filesystem_status_callback)
+                await self.system._process_documents_direct(documents, processing_id=processing_id, status_callback=filesystem_status_callback, skip_graph=skip_graph)
                 
             elif data_source == "cmis":
                 self._update_processing_status(
@@ -922,7 +932,7 @@ class FlexibleGraphRAGBackend:
                     processing_id=processing_id,
                     status_callback=lambda **cb_kwargs: self._update_processing_status(**cb_kwargs)
                 )
-                await self.system._process_documents_direct(documents, processing_id=processing_id, status_callback=lambda **cb_kwargs: self._update_processing_status(**cb_kwargs))
+                await self.system._process_documents_direct(documents, processing_id=processing_id, status_callback=lambda **cb_kwargs: self._update_processing_status(**cb_kwargs), skip_graph=skip_graph)
                 
             elif data_source == "alfresco":
                 self._update_processing_status(
@@ -964,7 +974,7 @@ class FlexibleGraphRAGBackend:
                     processing_id=processing_id,
                     status_callback=lambda **cb_kwargs: self._update_processing_status(**cb_kwargs)
                 )
-                await self.system._process_documents_direct(documents, processing_id=processing_id, status_callback=lambda **cb_kwargs: self._update_processing_status(**cb_kwargs))
+                await self.system._process_documents_direct(documents, processing_id=processing_id, status_callback=lambda **cb_kwargs: self._update_processing_status(**cb_kwargs), skip_graph=skip_graph)
                 
             elif data_source == "web":
                 # Initialize progress tracking for web source
@@ -1021,7 +1031,7 @@ class FlexibleGraphRAGBackend:
                     processing_id=processing_id,
                     status_callback=web_status_callback
                 )
-                await self.system._process_documents_direct(documents, processing_id=processing_id, status_callback=web_status_callback)
+                await self.system._process_documents_direct(documents, processing_id=processing_id, status_callback=web_status_callback, skip_graph=skip_graph)
                 
             elif data_source == "youtube":
                 # Initialize progress tracking for YouTube source
@@ -1092,7 +1102,7 @@ class FlexibleGraphRAGBackend:
                     processing_id=processing_id,
                     status_callback=youtube_status_callback
                 )
-                await self.system._process_documents_direct(documents, processing_id=processing_id, status_callback=youtube_status_callback)
+                await self.system._process_documents_direct(documents, processing_id=processing_id, status_callback=youtube_status_callback, skip_graph=skip_graph)
                 
             elif data_source == "wikipedia":
                 # Initialize progress tracking for Wikipedia source
@@ -1163,7 +1173,7 @@ class FlexibleGraphRAGBackend:
                     processing_id=processing_id,
                     status_callback=wikipedia_status_callback
                 )
-                await self.system._process_documents_direct(documents, processing_id=processing_id, status_callback=wikipedia_status_callback)
+                await self.system._process_documents_direct(documents, processing_id=processing_id, status_callback=wikipedia_status_callback, skip_graph=skip_graph)
                 
             elif data_source == "s3":
                 # Initialize progress tracking for S3 source
@@ -1228,7 +1238,7 @@ class FlexibleGraphRAGBackend:
                     processing_id=processing_id,
                     status_callback=s3_status_callback
                 )
-                await self.system._process_documents_direct(documents, processing_id=processing_id, status_callback=s3_status_callback)
+                await self.system._process_documents_direct(documents, processing_id=processing_id, status_callback=s3_status_callback, skip_graph=skip_graph)
                 
             elif data_source == "gcs":
                 gcs_config = kwargs.get('gcs_config', {})

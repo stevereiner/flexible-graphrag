@@ -80,7 +80,7 @@ export default defineComponent({
   setup(props, { emit }) {
     const placeholder = computed(() => {
       const baseUrl = import.meta.env.VITE_ALFRESCO_BASE_URL || 'http://localhost:8080';
-      return `e.g., ${baseUrl}/alfresco`;
+      return `e.g., ${baseUrl}`;
     });
 
     const isValid = computed(() => {

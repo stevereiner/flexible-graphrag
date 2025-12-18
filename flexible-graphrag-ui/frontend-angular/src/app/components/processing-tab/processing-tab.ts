@@ -441,7 +441,7 @@ export class ProcessingTabComponent implements OnInit, OnChanges {
       } else if (this.configuredDataSource === 'alfresco') {
         processingData.paths = [this.configuredFolderPath || '/Sites/swsdp/documentLibrary']; // Use configured path
         processingData.alfresco_config = {
-          url: 'http://localhost:8080/alfresco/api/-default-/public/alfresco/versions/1/nodes/-shared-/children',
+          url: 'http://localhost:8080',
           username: 'admin',
           password: 'admin',
           path: this.configuredFolderPath || '/Sites/swsdp/documentLibrary'

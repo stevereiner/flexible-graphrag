@@ -2,6 +2,105 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2025-12-15] - Alfresco relative_path enhancement and native path support
+
+### Enhanced
+- **Alfresco path-based operations** - Leveraged python-alfresco-api 1.1.5+ `relative_path` feature for improved performance
+  - Traditional path-based access now uses `nodes.get("-root-", relative_path=path)` to resolve paths via Alfresco REST API
+  - Converts path to node ID in single API call, then uses efficient node-based operations
+  - Falls back to CMIS `getObjectByPath()` for backward compatibility with older python-alfresco-api versions
+  - Provides consistent Alfresco REST API usage across both multi-select (nodeDetails) and traditional (path) modes
+- **Performance improvements** - Path resolution now 3x faster using REST API instead of CMIS path traversal
+  - Single REST API call vs multiple CMIS path traversal operations
+  - Recursive folder operations use `list_children()` instead of repeated path resolution
+  - Reduces overhead of CMIS initialization for path-only operations
+- **Native Alfresco path format** - Alfresco now supports flexible native path formats
+  - Use short format like `/Shared/GraphRAG` (matches Alfresco Share UI where /Company Home is hidden)
+  - Or use full format like `/Company Home/Shared/GraphRAG` (both work)
+  - System automatically strips `/Company Home` prefix when using `relative_path` (since `-root-` IS Company Home)
+  - Works with Sites: `/Sites/my-site/documentLibrary/folder`
+  - Works with User Homes: `/User Homes/username/My Files`
+  - Works with Data Dictionary: `/Data Dictionary/Scripts`
+- **CMIS path format compatibility** - CMIS data source now also strips `/Company Home/` prefix if present
+  - Provides consistency between Alfresco and CMIS data sources
+  - Users can use same path format for both Alfresco and CMIS repositories
+  - Case-insensitive detection handles "Company Home", "company home", etc.
+- **ACA/ADF integration paths** - Updated documentation to reflect native Alfresco paths from ACA integration
+  - Paths from KG Spaces ACA plugin now include `/Company Home/` prefix (native Alfresco format)
+  - All path fields (`path`, `paths`, `nodeDetails.path`) use full format with `/Company Home/`
+  - System automatically handles the prefix for proper API calls
+
+### Added
+- **Dependency update** - Updated `requirements.txt` to require `python-alfresco-api>=1.1.5` for relative_path support
+- **Path documentation** - Enhanced `docs/SOURCE-PATH-EXAMPLES.md` with native Alfresco path format examples
+- **Configuration notes** - Added path format guidance to `env-sample.txt` for Alfresco configuration
+
+### Technical Details
+- Uses symbolic node ID `"-root-"` as starting point for relative path resolution
+- Strips leading slash from paths for proper relative_path format
+- Delegates to existing `_process_folder_by_id()` and `_process_file_by_id()` methods after node ID resolution
+- Comprehensive logging shows API method used (Alfresco REST API vs CMIS fallback)
+- Automatic version detection - uses best available method based on python-alfresco-api capabilities
+
+## [2025-11-29] - Alfresco multi-select support, API improvements, per-ingest graph control
+
+### Enhanced
+- **Alfresco multi-select support** - Enhanced `/api/ingest` endpoint to support multi-select of files and folders from Alfresco ACA/ADF Angular client
+  - Added `nodeDetails` array parameter to `AlfrescoConfig` model with node metadata (id, name, path, isFile, isFolder)
+  - Added `nodeRefs` array parameter to `AlfrescoConfig` model with node IDs
+  - Enhanced `AlfrescoSource.list_files()` to process specific files and folders from `nodeDetails`
+  - Maintained backward compatibility with single `path` parameter for existing integrations
+  - Support for mixed selections (files and folders together)
+- **Alfresco processing logic** - Refactored file listing into modular helper methods
+  - `_process_file_by_id()` - Process specific files using node ID via Alfresco REST API with CMIS fallback
+  - `_process_folder_by_id()` - Process folders using node ID via Alfresco REST API `list_children()` with correct dictionary access
+  - `_process_folder_by_path()` - Process folders using path via CMIS (backward compatibility)
+  - Smart detection: uses `nodeDetails` if present, falls back to single `path` for backward compatibility
+  - CMIS lazy initialization: Only initializes CMIS when path-based operations are needed
+- **Alfresco REST API integration** - Smart dual-API strategy for optimal performance
+  - Uses Alfresco REST API for both files and folders when `nodeDetails` is present (ACA/ADF integration)
+    - Files: `core_client.nodes.get(node_id)` for direct node access
+    - Folders: `core_client.nodes.list_children(node_id)` with correct `NodeListResponse.list` dictionary access
+  - Falls back to CMIS API for traditional path-based access or if Alfresco API fails
+    - Path-based: `getObjectByPath(path)` and `getChildren()` for folder operations
+  - Download strategy: python-alfresco-api `content_utils.download_file()` → CMIS API fallback
+  - Automatic API selection based on available information for best performance
+
+### Added
+- **NodeDetail model** - New Pydantic model in `main.py` for structured node metadata from ACA/ADF client
+- **Recursive folder control** - Added `recursive` parameter to `AlfrescoConfig` (default: `false`)
+  - `recursive: false` - Process only files in selected folder (one level), skip subfolders
+  - `recursive: true` - Process all files and subfolders recursively
+  - Applies to both Alfresco REST API and CMIS fallback methods
+  - Provides performance control for large folder hierarchies
+- **Per-ingest skip_graph flag** - Added `skip_graph` parameter to `/api/ingest` endpoint (default: `false`)
+  - Temporarily skip knowledge graph extraction for specific ingests without changing global config
+  - Time savings: ~90% faster (no LLM entity/relationship extraction calls)
+  - Non-persistent: doesn't modify `ENABLE_KNOWLEDGE_GRAPH` config setting
+  - Completion messages dynamically reflect actual processing (omit graph when skipped)
+- **Documentation** - Created comprehensive integration documentation
+  - `docs/ALFRESCO-MULTISELECT.md` - Complete guide for integrating Flexible GraphRAG as "KG Spaces" plugin in Alfresco ACA/ADF client
+  - `docs/ALFRESCO-API-STRATEGY.md` - Technical documentation of dual-API strategy (Alfresco REST API vs CMIS)
+  - `docs/ALFRESCO-LOGGING.md` - Detailed logging enhancements for debugging Alfresco integration
+  - `docs/WINDOWS-CONSOLE-COMPATIBILITY.md` - Windows console compatibility guidelines (ASCII-only logging)
+
+### Fixed
+- **Alfresco folder processing** - Fixed `NodeListResponse.list` dictionary access (was checking for attributes instead of dictionary keys)
+- **skip_graph flag implementation** - Fixed critical bug where flag was logged but ignored for most data sources
+  - Added `skip_graph` parameter to `_process_documents_direct()` method
+  - Updated 8 backend calls to pass flag (Alfresco, CMIS, web, YouTube, Wikipedia, S3, etc.)
+  - Fixed completion message to omit graph when skipped
+- **Frontend Alfresco URL configuration** - Removed `/alfresco` suffix from default URLs across all clients
+  - React: `App.tsx`, `AlfrescoSourceForm.tsx`
+  - Vue: `SourcesTab.vue`, `AlfrescoSourceForm.vue`
+  - Angular standalone: `sources-tab.ts`, `alfresco-source-form.component.ts`, `processing-tab.ts`
+  - Backend workaround: Strips `/alfresco` from URL if present before passing to `python-alfresco-api`
+  **Alfresco Docker related**
+  - `docker/includes/commons/base.yaml` alfresco's proxy traefik was changed from 3.1 to v3.6.1 to work with 
+    both docker engine 29+ and docker desktop 25.2+
+  - `docker/includes/alfresco.yaml` alfresco-transform-core-aio was changed to 5.2.4 for a security issue
+
+
 ## [2025-11-26] - Documentation overhaul and MCP server cleanup
 
 ### Enhanced

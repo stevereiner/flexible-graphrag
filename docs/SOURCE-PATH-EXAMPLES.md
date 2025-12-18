@@ -164,6 +164,58 @@ VITE_PROCESS_FOLDER_PATH=./sample-docs
 
 **Note**: Frontend environment variables typically expect a single directory path, while the backend `SOURCE_PATHS` accepts multiple files and directories.
 
+## 🗄️ **Repository Path Examples (CMIS/Alfresco)**
+
+### **CMIS Repository Paths**
+CMIS uses standard CMIS path format:
+```bash
+# CMIS paths start with /
+CMIS_FOLDER_PATH=/Shared/Documents
+CMIS_FOLDER_PATH=/Sites/my-site/documentLibrary/folder
+```
+
+### **Alfresco Repository Paths**
+**NEW (python-alfresco-api 1.1.5+)**: Alfresco now uses **native Alfresco paths** with flexible format:
+
+```bash
+# Short format (recommended - matches what you see in Alfresco Share)
+ALFRESCO_PATH=/Shared/GraphRAG
+ALFRESCO_PATH=/Sites/my-site/documentLibrary/Reports
+ALFRESCO_PATH=/User Homes/admin/My Files
+
+# Full format (also works - system automatically strips /Company Home prefix)
+ALFRESCO_PATH=/Company Home/Shared/GraphRAG
+ALFRESCO_PATH=/Company Home/Sites/my-site/documentLibrary/Reports
+```
+
+**Both formats work!** The system automatically strips `/Company Home` prefix if present, since the root node already represents Company Home.
+
+**Benefits of Native Alfresco Paths:**
+- ✅ More intuitive - matches what you see in Alfresco Share UI
+- ✅ Consistent with Alfresco Content Services API
+- ✅ Works with `relative_path` feature for better performance
+- ✅ Flexible - use short format (`/Shared`) or full format (`/Company Home/Shared`)
+- ✅ Backward compatible - both formats supported
+
+**Path Examples:**
+```bash
+# Shared folder (short format - recommended)
+/Shared/GraphRAG/documents
+
+# Sites (short format - recommended)
+/Sites/engineering/documentLibrary/specs
+
+# User Homes (short format - recommended)
+/User Homes/admin/My Files
+
+# Data Dictionary (short format - recommended)
+/Data Dictionary/Scripts
+
+# Full format also works (optional)
+/Company Home/Shared/GraphRAG/documents
+/Company Home/Sites/engineering/documentLibrary/specs
+```
+
 ## 💡 **Best Practices**
 
 1. **Use relative paths** when possible for portability
@@ -172,3 +224,4 @@ VITE_PROCESS_FOLDER_PATH=./sample-docs
 4. **Check file permissions** ensure the application can read the specified paths
 5. **Avoid system directories** stick to user documents and data folders
 6. **Test paths** verify paths exist and are accessible before running
+7. **Alfresco paths** - Use native `/Company Home/...` format for clarity (python-alfresco-api 1.1.5+)

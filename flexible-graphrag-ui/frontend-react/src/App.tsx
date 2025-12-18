@@ -121,7 +121,7 @@ const App: React.FC = () => {
   const [cmisUrl, setCmisUrl] = useState<string>(`${import.meta.env.VITE_CMIS_BASE_URL || 'http://localhost:8080'}/alfresco/api/-default-/public/cmis/versions/1.1/atom`);
   const [cmisUsername, setCmisUsername] = useState<string>('admin');
   const [cmisPassword, setCmisPassword] = useState<string>('admin');
-  const [alfrescoUrl, setAlfrescoUrl] = useState<string>(`${import.meta.env.VITE_ALFRESCO_BASE_URL || 'http://localhost:8080'}/alfresco`);
+  const [alfrescoUrl, setAlfrescoUrl] = useState<string>(import.meta.env.VITE_ALFRESCO_BASE_URL || 'http://localhost:8080');
   const [alfrescoUsername, setAlfrescoUsername] = useState<string>('admin');
   const [alfrescoPassword, setAlfrescoPassword] = useState<string>('admin');
   

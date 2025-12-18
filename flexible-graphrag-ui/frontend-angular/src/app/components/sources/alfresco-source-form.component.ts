@@ -87,7 +87,7 @@ export class AlfrescoSourceFormComponent implements OnInit, OnDestroy {
 
   get placeholder(): string {
     const baseUrl = environment.alfrescoBaseUrl || 'http://localhost:8080';
-    return `e.g., ${baseUrl}/alfresco`;
+    return `e.g., ${baseUrl}`;
   }
 
   ngOnInit() {

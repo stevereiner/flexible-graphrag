@@ -95,7 +95,7 @@ export default defineComponent({
     const cmisPassword = ref('admin');
 
     // Alfresco state
-    const alfrescoUrl = ref(`${import.meta.env.VITE_ALFRESCO_BASE_URL || 'http://localhost:8080'}/alfresco`);
+    const alfrescoUrl = ref(import.meta.env.VITE_ALFRESCO_BASE_URL || 'http://localhost:8080');
     const alfrescoUsername = ref('admin');
     const alfrescoPassword = ref('admin');
 

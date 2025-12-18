@@ -203,6 +203,9 @@ class HybridSearchSystem:
         self.graph_index = None
         self.hybrid_retriever = None
         
+        # Track whether graph was intentionally skipped (for per-ingest skip_graph flag)
+        self.graph_intentionally_skipped = False
+        
         logger.info("=== SYSTEM READY ===")
         logger.info("HybridSearchSystem initialized successfully with Ollama!" if config.llm_provider == LLMProvider.OLLAMA else "HybridSearchSystem initialized successfully")
     
@@ -277,8 +280,12 @@ class HybridSearchSystem:
         """Create HybridSearchSystem from Settings object"""
         return cls(settings)
     
-    async def ingest_documents(self, file_paths: List[Union[str, Path]], processing_id: str = None, status_callback=None):
-        """Process and ingest documents into all search modalities"""
+    async def ingest_documents(self, file_paths: List[Union[str, Path]], processing_id: str = None, status_callback=None, skip_graph: bool = False):
+        """Process and ingest documents into all search modalities
+        
+        Args:
+            skip_graph: If True, skip knowledge graph extraction for this ingest (temporary override)
+        """
         
         # Helper function to check cancellation
         def _check_cancellation():
@@ -437,7 +444,31 @@ class HybridSearchSystem:
             raise RuntimeError("Processing cancelled by user")
         
         # Step 4: Create graph index using the same nodes (only if knowledge graph is enabled)
-        if self.config.enable_knowledge_graph:
+        # Check both global config AND per-ingest skip_graph flag
+        should_skip_graph = skip_graph or not self.config.enable_knowledge_graph
+        
+        if should_skip_graph:
+            if skip_graph and self.config.enable_knowledge_graph:
+                logger.info("Knowledge graph extraction SKIPPED - per-ingest skip_graph flag is True (temporary override)")
+                _update_progress("Skipping knowledge graph extraction (per-ingest flag)...", 70, current_phase="kg_extraction")
+                # Track that graph was intentionally skipped for this ingestion
+                self.graph_intentionally_skipped = True
+                # Preserve existing graph_index if it exists (from previous ingestions)
+                if self.graph_index:
+                    logger.info("Preserving existing graph index from previous ingestion(s)")
+                # If no existing graph, that's OK - partial graph state is allowed with skip_graph
+            elif not self.config.enable_knowledge_graph:
+                logger.info("Knowledge graph extraction disabled - skipping graph index creation")
+                _update_progress("Skipping knowledge graph extraction...", 70, current_phase="kg_extraction")
+                # Graph disabled in config - clear any existing graph since it shouldn't be used
+                self.graph_index = None
+                self.graph_intentionally_skipped = False
+            kg_extractors = []
+            logger.info("Graph index creation skipped")
+        else:
+            # Knowledge graph is enabled and not skipped - proceed with extraction
+            # Clear the skip flag since we're creating a graph now
+            self.graph_intentionally_skipped = False
             kg_setup_start_time = time.time()
             graph_store_type = type(self.graph_store).__name__
             llm_model_name = getattr(self.llm, 'model', str(type(self.llm).__name__))
@@ -476,13 +507,8 @@ class HybridSearchSystem:
             
             kg_setup_duration = time.time() - kg_setup_start_time
             logger.info(f"Knowledge graph extractor setup completed in {kg_setup_duration:.2f}s")
-        else:
-            logger.info("Knowledge graph extraction disabled - skipping graph index creation")
-            _update_progress("Skipping knowledge graph extraction...", 70, current_phase="kg_extraction")
-            kg_extractors = []
-        
-        # Only create graph index if knowledge graph is enabled
-        if self.config.enable_knowledge_graph:
+            
+            # Create graph index
             graph_storage_context = StorageContext.from_defaults(
                 property_graph_store=self.graph_store,
                 docstore=self.vector_index.docstore  # Share the same docstore
@@ -536,10 +562,6 @@ class HybridSearchSystem:
             if _check_cancellation():
                 logger.info("Processing cancelled during graph index creation")
                 raise RuntimeError("Processing cancelled by user")
-        else:
-            # Skip graph index creation
-            self.graph_index = None
-            logger.info("Graph index creation skipped - knowledge graph disabled")
         
         # Step 4: Setup hybrid retriever
         self._setup_hybrid_retriever()
@@ -586,7 +608,7 @@ class HybridSearchSystem:
                 doc_count = len(documents)
                 logger.info(f"Using legacy document count: doc_count = {len(documents)}")
             
-            completion_message = self._generate_completion_message(doc_count)
+            completion_message = self._generate_completion_message(doc_count, skip_graph=skip_graph)
             status_callback(
                 processing_id=processing_id,
                 status="completed",
@@ -1060,9 +1082,11 @@ class HybridSearchSystem:
             logger.warning(f"Vector DB {self.config.vector_db} enabled but vector_index is missing")
         
         # Check graph index only if graph search is enabled AND knowledge graph extraction is enabled
+        # AND graph was not intentionally skipped (via per-ingest skip_graph flag)
         if (str(self.config.graph_db) != "none" and 
             self.config.enable_knowledge_graph and 
-            not self.graph_index):
+            not self.graph_index and
+            not self.graph_intentionally_skipped):
             missing_required = True
             logger.warning(f"Graph DB {self.config.graph_db} enabled but graph_index is missing")
         
@@ -1309,9 +1333,11 @@ class HybridSearchSystem:
             logger.warning(f"Vector DB {self.config.vector_db} enabled but vector_index is missing")
         
         # Check graph index only if graph search is enabled AND knowledge graph extraction is enabled
+        # AND graph was not intentionally skipped (via per-ingest skip_graph flag)
         if (str(self.config.graph_db) != "none" and 
             self.config.enable_knowledge_graph and 
-            not self.graph_index):
+            not self.graph_index and
+            not self.graph_intentionally_skipped):
             missing_required = True
             logger.warning(f"Graph DB {self.config.graph_db} enabled but graph_index is missing")
         
@@ -1342,8 +1368,12 @@ class HybridSearchSystem:
     
     
     
-    async def _process_documents_direct(self, documents: List, processing_id: str = None, status_callback=None):
-        """Process documents directly without file paths (for web, YouTube, Wikipedia sources)"""
+    async def _process_documents_direct(self, documents: List, processing_id: str = None, status_callback=None, skip_graph: bool = False):
+        """Process documents directly without file paths (for web, YouTube, Wikipedia sources)
+        
+        Args:
+            skip_graph: If True, skip knowledge graph extraction for this ingest (temporary override)
+        """
         logger.info(f"Processing {len(documents)} documents directly...")
         
         # Start timing for performance analysis
@@ -1437,8 +1467,27 @@ class HybridSearchSystem:
             raise RuntimeError("Processing cancelled by user")
         
         # Step 3: Create or update graph index (if knowledge graph extraction is enabled)
+        # Check both global config AND per-ingest skip_graph flag
+        should_skip_graph = skip_graph or not self.config.enable_knowledge_graph
         graph_creation_duration = 0
-        if self.config.enable_knowledge_graph:
+        
+        if should_skip_graph:
+            if skip_graph and self.config.enable_knowledge_graph:
+                logger.info("Knowledge graph extraction SKIPPED - per-ingest skip_graph flag is True (temporary override)")
+                # Track that graph was intentionally skipped for this ingestion
+                self.graph_intentionally_skipped = True
+                # Preserve existing graph_index if it exists (from previous ingestions)
+                if self.graph_index:
+                    logger.info("Preserving existing graph index from previous ingestion(s)")
+            elif not self.config.enable_knowledge_graph:
+                logger.info("Knowledge graph extraction disabled - skipping graph index creation")
+                # Graph disabled in config - clear any existing graph since it shouldn't be used
+                self.graph_index = None
+                self.graph_intentionally_skipped = False
+        else:
+            # Knowledge graph is enabled and not skipped - proceed with extraction
+            # Clear the skip flag since we're creating a graph now
+            self.graph_intentionally_skipped = False
             kg_setup_start_time = time.time()
             graph_store_type = type(self.graph_store).__name__
             llm_model_name = getattr(self.llm, 'model', str(type(self.llm).__name__))
@@ -1506,8 +1555,6 @@ class HybridSearchSystem:
                 graph_creation_duration = time.time() - graph_update_start_time
                 logger.info(f"Graph index update completed in {graph_creation_duration:.2f}s")
                 logger.info(f"Knowledge graph updated - new entities and relationships added to {graph_store_type}")
-        else:
-            logger.info("Knowledge graph extraction disabled - skipping graph index creation")
         
         # Check for cancellation after graph index creation/update
         if _check_cancellation():
@@ -1552,7 +1599,7 @@ class HybridSearchSystem:
                 doc_count = len(documents)
                 logger.info(f"Using legacy document count: doc_count = {len(documents)}")
             
-            completion_message = self._generate_completion_message(doc_count)
+            completion_message = self._generate_completion_message(doc_count, skip_graph=skip_graph)
             status_callback(
                 processing_id=processing_id,
                 status="completed",
@@ -1561,11 +1608,17 @@ class HybridSearchSystem:
             )
 
 
-    def _generate_completion_message(self, doc_count: int) -> str:
-        """Generate dynamic completion message based on enabled features"""
+    def _generate_completion_message(self, doc_count: int, skip_graph: bool = False) -> str:
+        """Generate dynamic completion message based on enabled features
+        
+        Args:
+            doc_count: Number of documents ingested
+            skip_graph: If True, graph was skipped for this ingest
+        """
         # Check what's actually enabled
         has_vector = str(self.config.vector_db) != "none"
-        has_graph = str(self.config.graph_db) != "none" and self.config.enable_knowledge_graph
+        # Graph is only "has" if config enabled AND not skipped for this ingest
+        has_graph = str(self.config.graph_db) != "none" and self.config.enable_knowledge_graph and not skip_graph
         has_search = str(self.config.search_db) != "none"
         
         # Build feature list in logical order: vector, search, knowledge graph

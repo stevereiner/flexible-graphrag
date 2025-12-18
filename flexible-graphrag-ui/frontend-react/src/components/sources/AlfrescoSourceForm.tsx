@@ -28,7 +28,7 @@ export const AlfrescoSourceForm: React.FC<AlfrescoSourceFormProps> = ({
 }) => {
   const placeholder = useMemo(() => {
     const baseUrl = import.meta.env.VITE_ALFRESCO_BASE_URL || 'http://localhost:8080';
-    return `e.g., ${baseUrl}/alfresco`;
+    return `e.g., ${baseUrl}`;
   }, []);
 
   const isValid = useMemo(() => {

@@ -8,7 +8,7 @@ python-dotenv
 nest-asyncio
 wikipedia
 cmislib
-python-alfresco-api==1.1.1
+python-alfresco-api>=1.1.5
 docling
 llama-parse
 neo4j

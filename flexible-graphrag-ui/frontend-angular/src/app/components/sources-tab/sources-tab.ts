@@ -24,7 +24,7 @@ export class SourcesTabComponent {
   cmisPassword = 'admin';
 
   // Alfresco state
-  alfrescoUrl = `${environment.alfrescoBaseUrl || 'http://localhost:8080'}/alfresco`;
+  alfrescoUrl = `${environment.alfrescoBaseUrl || 'http://localhost:8080'}`;
   alfrescoUsername = 'admin';
   alfrescoPassword = 'admin';
 
@@ -67,7 +67,7 @@ export class SourcesTabComponent {
 
   get alfrescoPlaceholder(): string {
     const baseUrl = environment.alfrescoBaseUrl || 'http://localhost:8080';
-    return `e.g., ${baseUrl}/alfresco`;
+    return `e.g., ${baseUrl}`;
   }
 
 
