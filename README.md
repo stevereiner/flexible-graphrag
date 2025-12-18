@@ -1,3 +1,5 @@
+**New!** - [KG Spaces Integration of Flexible GraphRAG in Alfresco ACA Client](https://github.com/stevereiner/kg-spaces-aca)
+
 # Flexible GraphRAG
 
 **Flexible GraphRAG** is a platform supporting document processing, knowledge graph auto-building, RAG and GraphRAG setup, hybrid search (fulltext, vector, graph) and AI Q&A query capabilities.
@@ -115,13 +117,15 @@ Flexible GraphRAG supports **13 different data sources** for ingesting documents
 3. **Google Cloud Storage (GCS)** - Google Cloud storage buckets
 4. **Azure Blob Storage** - Microsoft Azure blob containers
 5. **OneDrive** - Microsoft OneDrive personal/business storage
-6. **SharePoint** - Microsoft SharePoint document libraries
-7. **Box** - Box.com cloud storage
-8. **Google Drive** - Google Drive file storage
+6. **Google Drive** - Google Drive file storage
 
 ### Enterprise Repository Sources
-9. **CMIS (Content Management Interoperability Services)** - Industry-standard content repository interface
-10. **Alfresco** - Alfresco ECM/content repository
+7. **Alfresco** - Alfresco ECM/content repository with two integration options:
+   - **[KG Spaces ACA Extension](https://github.com/stevereiner/kg-spaces-aca)** - Integrates the Flexible GraphRAG Angular UI as an extension plugin within the Alfresco Content Application (ACA), enabling multi-select document/folder ingestion with nodeIds directly from the Alfresco interface
+   - **Flexible GraphRAG Alfresco Data Source** - Direct integration using Alfresco paths (e.g., /Shared/GraphRAG, /Company Home/Shared/GraphRAG, or /Shared/GraphRAG/cmispress.txt)
+8. **SharePoint** - Microsoft SharePoint document libraries
+9. **Box** - Box.com cloud storage
+10. **CMIS (Content Management Interoperability Services)** - Industry-standard content repository interface
 
 ### Web Sources
 11. **Web Pages** - Extract content from web URLs
