@@ -1,225 +1,272 @@
-# Docker Compose Configuration
+# Flexible GraphRAG Docker Deployment
 
-This directory contains the Docker Compose configuration for Flexible GraphRAG.
+This directory contains Docker Compose configuration for Flexible GraphRAG with modular database selection.
 
-## Environment Configuration
+## 📖 Documentation Overview
 
-### Two-Layer Configuration System
+This is a quick reference for Docker deployment. For detailed information, see:
 
-Flexible GraphRAG uses a two-layer environment configuration for Docker deployments:
+- **[../README.md](../README.md)** - Main documentation with deployment scenarios (A, B, C, D, E) and complete setup instructions
+- **[DOCKER-ENV-SETUP.md](DOCKER-ENV-SETUP.md)** - Environment configuration guide explaining the two-layer `.env` system
+- **[docker.env](docker.env)** - Docker networking overrides with SCENARIO A and SCENARIO B configurations
+- **[docker-env-sample.txt](docker-env-sample.txt)** - Template for docker.env with all database options
+- **[../docs/PORT-MAPPINGS.md](../docs/PORT-MAPPINGS.md)** - Complete port reference for all services
+- **[../docs/DEFAULT-USERNAMES-PASSWORDS.md](../docs/DEFAULT-USERNAMES-PASSWORDS.md)** - Database credentials and dashboard access
 
-1. **Main Configuration** (`flexible-graphrag/.env`): Contains all your settings (LLM, databases, credentials)
-2. **Docker Overrides** (`docker/docker.env`): Overrides only network addresses for Docker service names
+## 🏗️ Directory Structure
 
-This allows you to maintain a single configuration file for both standalone and Docker modes!
+```
+docker/
+├── docker-compose.yaml         # Main compose file with modular includes
+├── docker.env                  # Docker networking overrides (SCENARIO A/B)
+├── docker-env-sample.txt       # Template for docker.env
+├── neptune.env                 # Neptune Graph Explorer credentials (optional)
+├── neptune-env-sample.txt      # Template for Neptune credentials
+├── DOCKER-ENV-SETUP.md         # Environment configuration guide
+├── README.md                   # This file
+├── config/                     # Configuration files
+│   └── kibana.yml              # Kibana configuration
+├── lancedb-info/               # LanceDB info dashboard
+│   └── index.html              # Static info page
+├── nginx/                      # NGINX proxy configuration
+│   └── nginx.conf              # Reverse proxy rules
+├── pinecone-info/              # Pinecone info dashboard
+│   └── index.html              # Static info page
+├── postgres-init/              # PostgreSQL initialization scripts
+│   └── 01-init-pgvector.sql    # pgvector extension setup
+└── includes/                   # Modular service configurations
+    ├── commons/                # Common/shared configurations
+    │   └── base.yaml           # Base service definitions
+    ├── neo4j.yaml              # Neo4j graph database
+    ├── kuzu-explorer.yaml      # Kuzu Explorer web interface
+    ├── kuzu-api.yaml           # Kuzu API server
+    ├── falkordb.yaml           # FalkorDB graph database
+    ├── arcadedb.yaml           # ArcadeDB multi-model database
+    ├── memgraph.yaml           # MemGraph graph database
+    ├── nebula.yaml             # NebulaGraph distributed graph database
+    ├── neptune.yaml            # Amazon Neptune Graph Explorer
+    ├── qdrant.yaml             # Qdrant vector database
+    ├── chroma.yaml             # Chroma vector database
+    ├── milvus.yaml             # Milvus vector database
+    ├── weaviate.yaml           # Weaviate vector database
+    ├── pinecone.yaml           # Pinecone info dashboard
+    ├── postgres-pgvector.yaml  # PostgreSQL with pgvector extension
+    ├── lancedb.yaml            # LanceDB embedded vector database
+    ├── elasticsearch-dev.yaml  # Elasticsearch (security disabled)
+    ├── kibana-simple.yaml      # Kibana dashboard
+    ├── opensearch.yaml         # OpenSearch search engine + dashboards
+    ├── alfresco.yaml           # Alfresco Community (full stack)
+    ├── app-stack.yaml          # Flexible GraphRAG backend + UIs
+    └── proxy.yaml              # NGINX reverse proxy
+```
 
-### Setup Instructions
+## 🚀 Quick Start
 
-**Step 1: Main Configuration (Required)**
+### 1. Configure Environment Files
 
-**Windows:**
-```cmd
+**Main configuration** (required):
+```bash
+# Windows
 copy flexible-graphrag\env-sample.txt flexible-graphrag\.env
-REM Edit flexible-graphrag\.env with your settings (LLM provider, credentials, etc.)
-```
 
-**macOS/Linux:**
-```bash
+# macOS/Linux  
 cp flexible-graphrag/env-sample.txt flexible-graphrag/.env
-# Edit flexible-graphrag/.env with your settings (LLM provider, credentials, etc.)
 ```
+Edit `flexible-graphrag/.env` with your LLM provider, API keys, and database passwords.
 
-**Step 2: Docker Overrides (Required for Docker mode)**
-
-**Windows:**
-```cmd
+**Docker overrides** (required for Docker deployment):
+```bash
+# Windows
 copy docker\docker-env-sample.txt docker\docker.env
-REM This file converts localhost addresses to Docker service names
-REM Usually no editing needed - just copy and use as-is!
-```
 
-**macOS/Linux:**
-```bash
+# macOS/Linux
 cp docker/docker-env-sample.txt docker/docker.env
-# This file converts localhost addresses to Docker service names
-# Usually no editing needed - just copy and use as-is!
 ```
+See [DOCKER-ENV-SETUP.md](DOCKER-ENV-SETUP.md) for details on the two-layer configuration system.
 
-**Step 3: Neptune Graph Explorer (Optional - only if using Neptune)**
+### 2. Start Services
 
-**Windows:**
-```cmd
-copy docker\neptune-env-sample.txt docker\neptune.env
-REM Edit docker\neptune.env with Neptune AWS credentials (if different from main .env)
-```
-
-**macOS/Linux:**
-```bash
-cp docker/neptune-env-sample.txt docker/neptune.env
-# Edit docker/neptune.env with Neptune AWS credentials (if different from main .env)
-```
-
-### How It Works
-
-**Configuration Loading Order:**
-1. `flexible-graphrag/.env` loads first (all your settings with localhost addresses)
-2. `docker/docker.env` loads second (overrides with Docker service names like `neo4j`, `qdrant`, `elasticsearch`)
-3. Later values override earlier values - only network addresses change!
-
-**Example:**
-- **Standalone mode**: Uses `localhost:7687` from `flexible-graphrag/.env`
-- **Docker mode**: Override changes it to `neo4j:7687` from `docker/docker.env`
-- **Everything else** (LLM provider, API keys, passwords) stays the same!
-
-### Credential Separation
-
-This approach allows different AWS credentials for different services:
-- **S3 Data Source**: Uses credentials from `flexible-graphrag/.env`
-- **Neptune Analytics**: Uses credentials from `flexible-graphrag/.env` 
-- **Graph Explorer**: Uses credentials from `docker/neptune.env`
-
-This is useful when you have different AWS accounts/regions for storage vs graph databases.
-
-## Main Compose File
-
-| File | Purpose | Usage |
-|------|---------|-------|
-| `docker-compose.yaml` | **Modular deployment** with configurable services | `docker-compose -f docker/docker-compose.yaml -p flexible-graphrag up -d` |
-
-## Modular Service Definitions
-
-The `includes/` directory contains individual service definitions:
-
-| Service | File | Description |
-|---------|------|-------------|
-| **Databases** |
-| Neo4j | `includes/neo4j.yaml` | Graph database with APOC & GDS |
-| Kuzu | `includes/kuzu.yaml` | Embedded graph DB + web explorer |
-| FalkorDB | `includes/falkordb.yaml` | Production graph DB with browser (ports 6379, 3001) |
-| MemGraph | `includes/memgraph.yaml` | Real-time graph database with Lab dashboard (ports 7688, 3002) |
-| ArcadeDB | `includes/arcadedb.yaml` | Multi-model database with graph capabilities (ports 2480, 2424) |
-| Qdrant | `includes/qdrant.yaml` | Vector database |
-| Elasticsearch | `includes/elasticsearch.yaml` | Search engine |
-| Kibana | `includes/kibana.yaml` | Elasticsearch dashboard & visualization |
-| OpenSearch | `includes/opensearch.yaml` | Alternative search + dashboards |
-| **Content Management** |
-| Alfresco | `includes/alfresco.yaml` | Full Alfresco Community stack |
-| **Application** |
-| App Stack | `includes/app-stack.yaml` | Backend + Angular/React/Vue UIs |
-| Proxy | `includes/proxy.yaml` | NGINX reverse proxy |
-
-## Quick Start
-
-**Note**: All docker-compose commands use `-p flexible-graphrag` to set a consistent project name, which helps organize containers and prevents conflicts with other Docker projects.
-
-1. **Configure environment**:
-   ```bash
-   # From project root
-   cp flexible-graphrag/env-sample.txt flexible-graphrag/.env
-   # Edit .env with your database and API settings
-   ```
-
-2. **Deploy**:
-   ```bash
-   # Deploy with all configured services
-   docker-compose -f docker/docker-compose.yaml -p flexible-graphrag up -d
-   ```
-
-3. **Environment variables and volumes**:
-   ```bash
-   # Create required directories for data persistence
-   mkdir -p docker-data/{neo4j,kuzu,qdrant,elasticsearch,opensearch,alfresco}
-   
-   # Set environment variables if needed
-   export COMPOSE_PROJECT_NAME=flexible-graphrag
-   ```
-
-4. **Stop deployment**:
-   ```bash
-   docker-compose -f docker/docker-compose.yaml -p flexible-graphrag down
-   ```
-
-## Customization
-
-The single `docker-compose.yaml` file uses modular includes, making it easy to enable or disable services as needed.
-
-### Disable Services
-Edit `docker-compose.yaml` and comment out services you don't need:
-
-```yaml
-include:
-  - includes/neo4j.yaml          # ✅ Keep this
-  # - includes/kuzu.yaml         # ❌ Disable Kuzu
-  - includes/qdrant.yaml         # ✅ Keep this
-  # - includes/elasticsearch.yaml # ❌ Disable Elasticsearch
-```
-
-### Override Settings
-Copy and customize:
-```bash
-cp ../docker-compose.override.yaml.example docker-compose.override.yaml
-# Edit with your custom settings
-```
-
-## Service URLs
-
-After deployment with full stack (docker-compose.yaml), access services at:
-
-- **Angular UI**: http://localhost:8070/ui/angular/
-- **React UI**: http://localhost:8070/ui/react/
-- **Vue UI**: http://localhost:8070/ui/vue/
-- **Backend API**: http://localhost:8070/api/
-- **Neo4j Browser**: http://localhost:7474/
-- **Kuzu Explorer**: http://localhost:8002/
-- **FalkorDB Browser**: http://localhost:3001/
-- **MemGraph Lab**: http://localhost:3002/
-- **ArcadeDB Studio**: http://localhost:2480/
-- **Qdrant Dashboard**: http://localhost:6333/dashboard
-- **Elasticsearch**: http://localhost:9200/
-- **Kibana Dashboard**: http://localhost:5601/
-- **OpenSearch**: http://localhost:9201/
-- **OpenSearch Dashboards**: http://localhost:5602/
-- **Alfresco Share**: http://localhost:8080/share/
-
-## OpenSearch Pipeline Setup
-
-For advanced OpenSearch hybrid search, configure the search pipeline:
+From the project root:
 
 ```bash
-# Using the included Python script
-cd scripts
-python create_opensearch_pipeline.py
-
-# Or manually via curl:
-curl -X PUT "localhost:9201/_search/pipeline/hybrid-search-pipeline" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "description": "Hybrid search pipeline for vector and text search",
-    "processors": [
-      {
-        "normalization-processor": {
-          "normalization": {
-            "technique": "min_max"
-          },
-          "combination": {
-            "technique": "harmonic_mean",
-            "parameters": {
-              "weights": [0.3, 0.7]
-            }
-          }
-        }
-      }
-    ]
-  }'
+# Start with project name
+docker-compose -f docker/docker-compose.yaml -p flexible-graphrag up -d
 ```
 
-The pipeline enables native OpenSearch hybrid search with proper score fusion between vector and text results.
+**Common operations:**
+```bash
+# Stop services
+docker-compose -f docker/docker-compose.yaml -p flexible-graphrag down
 
-## Data Persistence
+# Stop and remove volumes (⚠️ deletes all data)
+docker-compose -f docker/docker-compose.yaml -p flexible-graphrag down -v
 
-All data is stored in Docker volumes that survive container restarts:
-- `neo4j_data`, `neo4j_logs`
-- `kuzu_data`
-- `qdrant_data`
-- `elasticsearch_data`, `opensearch_data`
-- `alfresco_data`, `alfresco_db_data`
+# View logs
+docker-compose -f docker/docker-compose.yaml -p flexible-graphrag logs -f
+
+# Check status
+docker-compose -f docker/docker-compose.yaml -p flexible-graphrag ps
+```
+
+See [../README.md](../README.md) for complete deployment scenario details (A, B, C, D, E).
+
+## 🔧 Selective Database Deployment
+
+The main deployment scenarios (covered in detail in [../README.md](../README.md)):
+
+**SCENARIO A (Default)**: Databases in Docker, app standalone - for development
+- Uncomment: neo4j, qdrant, elasticsearch-dev, kibana-simple
+- Comment out: app-stack, proxy
+- Use `host.docker.internal` in docker.env
+
+**SCENARIO B**: Full stack in Docker - for production
+- Uncomment: neo4j, qdrant, elasticsearch-dev, kibana-simple, app-stack, proxy
+- Use service names in docker.env
+
+**General principle**: Comment/uncomment services in `docker-compose.yaml` based on your needs. Only include:
+- The graph, vector, and search databases you're actually using
+- app-stack and proxy only if running backend/UIs in Docker (SCENARIO B)
+
+For alternative databases, uncomment the appropriate include file:
+- Graph databases: kuzu-explorer, falkordb, arcadedb, memgraph, nebula, neptune
+- Vector databases: chroma, milvus, weaviate, pinecone, postgres-pgvector, lancedb
+- Search engines: opensearch (alternative to Elasticsearch)
+- Content sources: alfresco
+
+## 🔄 Data Persistence
+
+All database data is stored in named Docker volumes that persist across container restarts:
+
+**Graph databases:**
+- `neo4j_data` - Neo4j graph data
+- `kuzu_data` - Kuzu graph data
+- `falkordb_data` - FalkorDB data
+- `arcadedb_data` - ArcadeDB data
+- `memgraph_data` - MemGraph data
+- `nebula_data` - NebulaGraph data
+
+**Vector databases:**
+- `qdrant_data` - Qdrant vector data
+- `chroma_data` - Chroma vector data
+- `milvus_data` - Milvus vector data
+- `weaviate_data` - Weaviate vector data
+- `postgres_data` - PostgreSQL pgvector data
+- `lancedb_data` - LanceDB data
+
+**Search engines:**
+- `elasticsearch_data` - Elasticsearch indices
+- `opensearch_data` - OpenSearch indices
+
+**Content management:**
+- `alfresco_data` - Alfresco content store
+- `alfresco_db_data` - Alfresco PostgreSQL data
+
+## 🔌 External LLM Access
+
+For external Ollama access from Docker containers:
+
+```bash
+# Make sure Ollama is running on host
+ollama serve
+
+# Configure in docker.env (already configured by default)
+OLLAMA_BASE_URL=http://host.docker.internal:11434
+```
+
+Note: Ollama typically runs on the host machine, not in a Docker container.
+
+## 🛠️ Development
+
+### Building Custom Images
+
+```bash
+# Backend only
+docker-compose -f docker/docker-compose.yaml build flexible-graphrag-backend
+
+# Specific UI
+docker-compose -f docker/docker-compose.yaml build flexible-graphrag-ui-react
+
+# All services
+docker-compose -f docker/docker-compose.yaml build
+```
+
+### Logs and Debugging
+
+```bash
+# All services
+docker-compose -f docker/docker-compose.yaml -p flexible-graphrag logs -f
+
+# Specific service
+docker-compose -f docker/docker-compose.yaml -p flexible-graphrag logs -f flexible-graphrag-backend
+
+# Database logs
+docker-compose -f docker/docker-compose.yaml -p flexible-graphrag logs -f neo4j
+```
+
+### Health Checks
+
+All services include health checks. Check status:
+
+```bash
+docker-compose -f docker/docker-compose.yaml -p flexible-graphrag ps
+```
+
+## 🧹 Cleanup
+
+```bash
+# Stop services
+docker-compose -f docker/docker-compose.yaml -p flexible-graphrag down
+
+# Remove volumes (⚠️ deletes all data)
+docker-compose -f docker/docker-compose.yaml -p flexible-graphrag down -v
+
+# Remove images
+docker-compose -f docker/docker-compose.yaml -p flexible-graphrag down --rmi all
+```
+
+## 🚨 Troubleshooting
+
+### Common Issues
+
+1. **Port conflicts**: Check [../docs/PORT-MAPPINGS.md](../docs/PORT-MAPPINGS.md) and modify port mappings in individual YAML files if needed
+2. **Memory issues**: Increase Docker memory limits (Settings → Resources) or reduce the number of services
+3. **Permission errors**: Check volume mount permissions, especially on Linux
+4. **Network connectivity**: Services use the default network `flexible-graphrag_default`
+5. **Connection refused**: Ensure `docker/docker.env` exists and uses correct addresses for your scenario
+
+### Resource Requirements
+
+**Minimum requirements (basic setup - Neo4j + Qdrant + Elasticsearch):**
+- RAM: 8GB
+- Disk: 20GB free space
+- Docker: 20.10+, Compose V2
+
+**Recommended for full stack (multiple databases + backend + UIs):**
+- RAM: 16GB+
+- Disk: 50GB+ free space
+- CPU: 4+ cores
+
+**Note**: Running multiple vector or graph databases simultaneously increases resource requirements proportionally.
+
+## 📚 MCP Server Integration
+
+The Docker setup works seamlessly with the MCP server for Claude Desktop integration, other MCP clients, etc.
+
+1. Install MCP server: `uvx flexible-graphrag-mcp`
+2. Configure to point to:
+   - **SCENARIO A (standalone)**: `http://localhost:8000`
+   - **SCENARIO B (Docker)**: `http://localhost:8070/api/`
+3. All database services are accessible through the unified API
+
+See [../flexible-graphrag-mcp/README.md](../flexible-graphrag-mcp/README.md) for complete MCP server documentation.
+
+## 📖 Additional Resources
+
+- **Main README**: [../README.md](../README.md) - Complete deployment scenarios and setup
+- **Environment Setup**: [DOCKER-ENV-SETUP.md](DOCKER-ENV-SETUP.md) - Two-layer configuration system
+- **Port Mappings**: [../docs/PORT-MAPPINGS.md](../docs/PORT-MAPPINGS.md) - All service ports
+- **Credentials**: [../docs/DEFAULT-USERNAMES-PASSWORDS.md](../docs/DEFAULT-USERNAMES-PASSWORDS.md) - Default passwords
+- **Deployment Options**: [../docs/DEPLOYMENT-CONFIGURATIONS.md](../docs/DEPLOYMENT-CONFIGURATIONS.md) - Detailed scenarios
+- **Architecture**: [../docs/ARCHITECTURE.md](../docs/ARCHITECTURE.md) - System architecture overview
+
+This modular approach allows you to run exactly what you need while maintaining easy access to all Flexible GraphRAG features.

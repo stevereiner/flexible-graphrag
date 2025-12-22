@@ -3,7 +3,7 @@ import logging
 
 from llama_index.llms.openai import OpenAI
 from llama_index.llms.ollama import Ollama
-from llama_index.llms.gemini import Gemini
+from llama_index.llms.google_genai import GoogleGenAI
 from llama_index.llms.azure_openai import AzureOpenAI
 from llama_index.llms.anthropic import Anthropic
 from llama_index.embeddings.openai import OpenAIEmbedding
@@ -118,11 +118,12 @@ class LLMFactory:
             )
         
         elif provider == LLMProvider.GEMINI:
-            return Gemini(
+            return GoogleGenAI(
                 model=config.get("model", "models/gemini-1.5-flash"),
                 api_key=config.get("api_key"),
                 temperature=config.get("temperature", 0.1),
-                request_timeout=config.get("timeout", 120.0)
+                # timeout not supported by GoogleGenAI, handled by google.genai.Client
+                # request_timeout=config.get("timeout", 120.0) 
             )
         
         elif provider == LLMProvider.AZURE_OPENAI:

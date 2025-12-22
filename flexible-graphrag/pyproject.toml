@@ -1,0 +1,172 @@
+[project]
+name = "flexible-graphrag"
+version = "0.1.0"
+description = "Flexible GraphRAG system supporting multiple LLM providers, graph databases, vector stores, and data sources"
+readme = "README.md"
+requires-python = ">=3.12,<3.14"
+license = {text = "Apache-2.0"}
+authors = [
+    {name = "Steve Reiner"}
+]
+keywords = ["graphrag", "rag", "llm", "knowledge-graph", "neo4j", "kuzu", "vector-database"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+
+dependencies = [
+    "fastapi",
+    "uvicorn",
+    "python-multipart",
+    "fastmcp",
+    "python-jose[cryptography]",
+    "passlib[bcrypt]",
+    "python-dotenv",
+    "nest-asyncio",
+    "wikipedia",
+    "cmislib",
+    "python-alfresco-api>=1.1.5",
+    "docling",
+    "llama-parse",
+    "neo4j",
+    "numpy",
+    "rapidfuzz",
+    "spacy",
+    "openai",
+    "ollama",
+    "pydantic",
+    "pydantic-settings",
+    # LlamaIndex core and integrations
+    "llama-index-core",
+    "llama-index-llms-openai",
+    "llama-index-llms-ollama",
+    "llama-index-llms-google-genai",
+    "llama-index-llms-azure-openai",
+    "llama-index-llms-anthropic",
+    "llama-index-embeddings-openai",
+    "llama-index-embeddings-ollama",
+    "llama-index-embeddings-azure-openai",
+    "llama-index-vector-stores-neo4jvector",
+    "llama-index-vector-stores-qdrant",
+    "llama-index-vector-stores-elasticsearch",
+    "llama-index-vector-stores-opensearch",
+    "llama-index-vector-stores-chroma",
+    "llama-index-vector-stores-milvus",
+    "llama-index-vector-stores-weaviate",
+    "llama-index-vector-stores-pinecone",
+    "llama-index-vector-stores-postgres",
+    "llama-index-vector-stores-lancedb",
+    "llama-index-graph-stores-neo4j",
+    "llama-index-graph-stores-kuzu",
+    "llama-index-graph-stores-falkordb",
+    "llama-index-graph-stores-memgraph",
+    "llama-index-graph-stores-nebula",
+    "llama-index-graph-stores-neptune",
+    "llama-index-retrievers-bm25",
+    # ArcadeDB graph database dependencies
+    "arcadedb-python",
+    "llama-index-graph-stores-arcadedb",
+    # Kuzu graph database dependencies
+    "kuzu",
+    # Search / Vector database dependencies
+    "elasticsearch",
+    "opensearch-py",
+    # Vector database client libraries
+    "qdrant-client",
+    "chromadb",
+    "pymilvus",
+    "weaviate-client",
+    "pinecone-client",
+    "psycopg2-binary",
+    "lancedb",
+    "pinecone",
+    # Data Source LlamaIndex Reader dependencies
+    "llama-index-readers-web",
+    "llama-index-readers-wikipedia",
+    "llama-index-readers-youtube-transcript",
+    "youtube_transcript_api",
+    "llama-index-readers-s3",
+    "llama-index-readers-gcs",
+    "llama-index-readers-google",
+    "llama-index-readers-azstorage-blob",
+    "llama-index-readers-microsoft-onedrive",
+    "llama-index-readers-microsoft-sharepoint",
+    "llama-index-readers-box",
+    "llama-index-readers-file",
+    "box-sdk-gen",
+    "s3fs",
+    "boto3",
+    # Cloud SDK dependencies
+    "google-cloud-storage",
+    "google-api-python-client",
+    "google-auth-httplib2",
+    "google-auth-oauthlib",
+    "azure-storage-blob",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "pytest-asyncio",
+    "pytest-cov",
+    "black",
+    "ruff",
+    "mypy",
+]
+
+[project.urls]
+Homepage = "https://github.com/stevereiner/flexible-graphrag"
+Repository = "https://github.com/stevereiner/flexible-graphrag"
+Documentation = "https://github.com/stevereiner/flexible-graphrag/blob/main/README.md"
+
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+# Flat layout - Python files are in the same directory as pyproject.toml
+py-modules = ["backend", "cmis_util", "config", "document_processor", "factories", "hybrid_system", "main", "neptune_analytics_wrapper", "start"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["ingest*", "sources*"]
+
+[tool.setuptools.package-data]
+"*" = ["*.txt", "*.md"]
+
+[tool.pytest.ini_options]
+testpaths = ["../tests"]
+python_files = "test_*.py"
+python_classes = "Test*"
+python_functions = "test_*"
+asyncio_mode = "auto"
+
+[tool.black]
+line-length = 120
+target-version = ["py312"]
+include = '\.pyi?$'
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+select = ["E", "F", "W", "I", "N", "UP", "B", "A", "C4"]
+ignore = ["E501", "B008"]
+
+[tool.ruff.per-file-ignores]
+"__init__.py" = ["F401"]
+
+[tool.mypy]
+python_version = "3.12"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false
+ignore_missing_imports = true
+
+[tool.uv]
+# Manual venv management - prevents uv from automatically creating .venv
+# See uv.toml for detailed documentation about venv management options
+managed = false
+

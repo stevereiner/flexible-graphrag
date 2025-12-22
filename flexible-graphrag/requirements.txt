@@ -20,11 +20,10 @@ ollama
 pydantic
 pydantic-settings
 # LlamaIndex core and integrations
-llama-index
 llama-index-core
 llama-index-llms-openai
 llama-index-llms-ollama
-llama-index-llms-gemini
+llama-index-llms-google-genai
 llama-index-llms-azure-openai
 llama-index-llms-anthropic
 llama-index-embeddings-openai

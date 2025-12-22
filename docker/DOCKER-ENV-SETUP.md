@@ -122,37 +122,6 @@ GRAPH_DB_CONFIG={"graph_identifier": "g-abc123", "region": "us-east-1", "access_
 GRAPH_DB_CONFIG={"graph_identifier": "g-abc123", "region": "us-east-1", "access_key": "...", "secret_key": "..."}
 ```
 
-## Service Name Reference
-
-| Database | Standalone (localhost) | Docker Override (host.docker.internal) |
-|----------|----------------------|-----------------------------------------|
-| **Graph Databases** |
-| Neo4j | `bolt://localhost:7687` | `bolt://host.docker.internal:7687` |
-| FalkorDB | `falkor://localhost:6379` | `falkor://host.docker.internal:6379` |
-| ArcadeDB | `"host": "localhost"` | `"host": "host.docker.internal"` |
-| MemGraph | `bolt://localhost:7688` | `bolt://host.docker.internal:7688` |
-| NebulaGraph | `"address": "localhost"` | `"address": "host.docker.internal"` |
-| Kuzu | `"db_path": "./kuzu_db/..."` | No change (file-based) |
-| Neptune/Neptune Analytics | AWS endpoint | No change (configured in main .env) |
-| Pinecone | Pinecone cloud | No change (configured in main .env) |
-| **Vector Databases** |
-| Qdrant | `"host": "localhost"` | `"host": "host.docker.internal"` |
-| Elasticsearch | `http://localhost:9200` | `http://host.docker.internal:9200` |
-| OpenSearch | `http://localhost:9201` | `http://host.docker.internal:9201` |
-| Chroma | `"host": "localhost"` | `"host": "host.docker.internal"` |
-| Milvus | `"host": "localhost"` | `"host": "host.docker.internal"` |
-| Weaviate | `http://localhost:8080` | `http://host.docker.internal:8080` |
-| PostgreSQL | `"host": "localhost"` | `"host": "host.docker.internal"` |
-| LanceDB | `"uri": "./lancedb"` | No change (file-based) |
-| Pinecone | Pinecone cloud | No change (configured in main .env) |
-| **Search Databases** |
-| Elasticsearch | `http://localhost:9200` | `http://host.docker.internal:9200` |
-| OpenSearch | `http://localhost:9201` | `http://host.docker.internal:9201` |
-| **LLM Providers** |
-| Ollama | `http://localhost:11434` | `http://host.docker.internal:11434` |
-| **Content Sources** |
-| Alfresco | `http://localhost:8080` | `http://host.docker.internal:8080` |
-
 ## Git Ignore
 Both environment files are git-ignored for security:
 ```

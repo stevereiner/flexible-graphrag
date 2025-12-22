@@ -2,7 +2,7 @@
 
 # Flexible GraphRAG
 
-**Flexible GraphRAG** is a platform supporting document processing, knowledge graph auto-building, RAG and GraphRAG setup, hybrid search (fulltext, vector, graph) and AI Q&A query capabilities.
+**Flexible GraphRAG** is an open source platform supporting document processing (Docling or LlamaParse), knowledge graph auto-building, schemas, LlamaIndex LLMs, RAG and GraphRAG setup, hybrid search (fulltext, vector, graph), AI query, and AI chat capabilities. The backend uses Python, LlamaIndex, and FastAPI. Has Angular, React, and Vue TypeScript frontends. A MCP Server is also available. Currently supports 13 data sources, 10 vector databases, OpenSearch / Elasticsearch search, 8 graph databases, and Alfresco.  These servers and their dashboards can be configured in a provided docker compose.
 
 <p align="center">
   <a href="./screen-shots/react/chat-webpage.png">
@@ -13,19 +13,17 @@
 <p align="center"><em>Flexible GraphRAG AI chat tab with a web pages data source generated graph displayed in Neo4j</em></p>
 
 
-## What It Is
+## Features
 
-A configurable hybrid search system that optionally combines vector similarity search, full-text search, and knowledge graph GraphRAG on documents processed from multiple data sources (file upload, cloud storage, enterprise repositories, web sources). Built with LlamaIndex which provides abstractions for allowing multiple vector, search graph databases, LLMs to be supported. Documents are parsed using either Docling (default) or LlamaParse (cloud API). It has both a FastAPI backend with REST endpoints and a Model Context Protocol (MCP) server for MCP clients like Claude Desktop, etc. Also has simple Angular, React, and Vue UI clients (which use the REST APIs of the FastAPI backend) for interacting with the system.
-
-
-- **Hybrid Search**: Combines vector embeddings, BM25 full-text search, and graph traversal for comprehensive document retrieval
-- **Knowledge Graph GraphRAG**: Extracts entities and relationships from documents to create graphs in graph databases for graph-based reasoning  
-- **Configurable Architecture**: LlamaIndex provides abstractions for vector databases, graph databases, search engines, and LLM providers
-- **Multi-Source Ingestion**: Processes documents from 13 data sources (file upload, cloud storage, enterprise repositories, web sources) with Docling or LlamaParse document parsing
-- **FastAPI Server with REST API**: FastAPI server with REST API for document ingesting, hybrid search, and AI Q&A query
-- **MCP Server**: MCP server that provides MCP Clients like Claude Desktop, etc. tools for document and text ingesting, hybrid search and AI Q&A query.
-- **UI Clients**: Angular, React, and Vue UI clients support choosing the data source (filesystem, Alfresco, CMIS, etc.), ingesting documents, performing hybrid searches and AI Q&A Queries.
-- **Docker Deployment Flexibility**: Supports both standalone and Docker deployment modes. Docker infrastructure provides modular database selection via docker-compose includes - vector, graph, and search databases can be included or excluded with a single comment. Choose between hybrid deployment (databases in Docker, backend and UIs standalone) or full containerization.
+- **Hybrid Search**: A configurable hybrid search system that combines vector search, full-text search, and graph GraphRAG
+- **Knowledge Graph GraphRAG**: Extracts entities and relationships from documents to auto create graphs in graph databases for GraphRAG. Configuration for schemas to use or use
+as a starting point for LLM to expand on is supported.
+- **Configurable Architecture**: LlamaIndex provides abstractions for allowing multiple vector databases, graph databases, search engines, and LLM providers to be supported
+- **Multi-Source Ingestion**: Processes documents from 13 data sources (file upload, cloud storage, enterprise repositories, web sources) with Docling (default) or LlamaParse (cloud API) document parsing.
+- **FastAPI Server with REST API**: Python based FastAPI server with REST APIs for document ingesting, hybrid search, AI query, and AI chat.
+- **MCP Server**: MCP server that provides MCP Clients like Claude Desktop, etc. tools for document and text ingesting, hybrid search and AI query. The MCP server (Python and FastMCP 2.x based) uses the REST APIs of the FastAPI backend. 
+- **UI Clients**: Angular, React, and Vue UI clients support choosing the data source (filesystem, Alfresco, CMIS, etc.), ingesting documents, performing hybrid searches, AI queries, and AI chat. The UI clients use the REST APIs of the FastAPI backend.
+- **Docker Deployment Flexibility**: Supports both standalone and Docker deployment modes. Docker infrastructure provides modular database selection via docker-compose includes - vector, graph, search engines, and Alfresco can be included or excluded with a single comment. Choose between hybrid deployment (databases in Docker, backend and UIs standalone) or full containerization.
 
 ## Frontend Screenshots
 
@@ -74,15 +72,16 @@ A configurable hybrid search system that optionally combines vector similarity s
 ## System Components
 
 ### FastAPI Backend (`/flexible-graphrag`)
-- **REST API Server**: Provides endpoints for document ingestion, search, and Q&A
-- **Hybrid Search Engine**: Combines vector similarity, BM25, and graph traversal
-- **Document Processing**: Advanced document conversion with Docling integration
+- **REST API Server**: Provides endpoints for document ingestion, search, and AI query/chat
+- **Hybrid Search Engine**: Combines vector similarity (RAG), fulltext (BM25), and graph traversal (GraphRAG)
+- **Document Processing**: Advanced document conversion with Docling and LlamaParse integration
 - **Configurable Architecture**: Environment-based configuration for all components
 - **Async Processing**: Background task processing with real-time progress updates
 
 ### MCP Server (`/flexible-graphrag-mcp`)  
-- **Claude Desktop Integration**: Model Context Protocol server for AI assistant workflows
-- **Dual Transport**: HTTP mode for debugging, stdio mode for Claude Desktop
+- **MCP Client support**: Model Context Protocol server for MCP clients / AI agents. 
+Config files for Claude Desktop and MCP Inpector provided.
+- **Dual Transport**: HTTP mode for debugging, stdio mode for Claude Desktop, etc.
 - **Tool Suite**: 9 specialized tools for document processing, search, and system management
 - **Multiple Installation**: pipx system installation or uvx no-install execution
 
@@ -90,13 +89,14 @@ A configurable hybrid search system that optionally combines vector similarity s
 - **Angular Frontend**: Material Design with TypeScript
 - **React Frontend**: Modern React with Vite and TypeScript  
 - **Vue Frontend**: Vue 3 Composition API with Vuetify and TypeScript
-- **Unified Features**: All clients support async processing, progress tracking, and cancellation
+- **Unified Features**: All clients support the 4 tab views, async processing, progress tracking, and cancellation
 
 ### Docker Infrastructure (`/docker`)
-- **Modular Database Selection**: Include/exclude vector, graph, and search databases with single-line comments
+- **Modular Database Selection**: Include/exclude vector, graph, and search engines, and Alfresco with single-line comments
 - **Flexible Deployment**: Hybrid mode (databases in Docker, apps standalone) or full containerization
 - **NGINX Reverse Proxy**: Unified access to all services with proper routing
-- **Database Dashboards**: Integrated web interfaces for Kibana (Elasticsearch), OpenSearch Dashboards, Neo4j Browser, and Kuzu Explorer
+- **Built-in Database Dashboards**: Most server dockers also provide built-in web interface dashboards (Neo4j browser, ArcadeDB, FalkorDB, OpenSearch, etc.)
+- **Separate Dashboards**: Additional dashboard dockers are provided: including Kibana for Elasticsearch and Kuzu Explorer.
 
 ## Data Sources
 
@@ -157,31 +157,44 @@ All data sources support two document parser options:
 - Configured via: `DOCUMENT_PARSER=llamaparse` + `LLAMAPARSE_API_KEY`
 - Get your API key from [LlamaCloud](https://cloud.llamaindex.ai/)
 
-Both parsers support PDF, Office documents (DOCX, XLSX, PPTX), images, HTML, and more with intelligent format detection.
-
 ## Supported File Formats
 
-The system processes **15+ document formats** through intelligent routing between Docling (advanced processing) and direct text handling:
+### Document Formats
+- **PDF**: `.pdf`
+  - **Docling**: Advanced layout analysis, table extraction, formula recognition, configurable OCR (EasyOCR, Tesseract, RapidOCR)
+  - **LlamaParse**: Automatic OCR within parsing pipeline, multimodal vision processing
+- **Microsoft Office**: `.docx`, `.xlsx`, `.pptx` and legacy formats (`.doc`, `.xls`, `.ppt`)
+  - **Docling**: DOCX, XLSX, PPTX structure preservation and content extraction
+  - **LlamaParse**: Full Office suite support including legacy formats and hundreds of variants
+- **Web Formats**: `.html`, `.htm`, `.xhtml`
+  - **Docling**: HTML/XHTML markup structure analysis
+  - **LlamaParse**: HTML/XHTML content extraction and formatting
+- **Data Formats**: `.csv`, `.tsv`, `.json`, `.xml`
+  - **Docling**: CSV structured data processing
+  - **LlamaParse**: CSV, TSV, JSON, XML with enhanced table understanding
+- **Documentation**: `.md`, `.markdown`, `.asciidoc`, `.adoc`, `.rtf`, `.txt`, `.epub`
+  - **Docling**: Markdown, AsciiDoc technical documentation with markup preservation
+  - **LlamaParse**: Extended format support including RTF, EPUB, and hundreds of text format variants
 
-### Document Formats (Docling Processing)
-- **PDF**: `.pdf` - Advanced layout analysis, table extraction, formula recognition
-- **Microsoft Office**: `.docx`, `.xlsx`, `.pptx` - Full structure preservation and content extraction
-- **Web Formats**: `.html`, `.htm`, `.xhtml` - Markup structure analysis
-- **Data Formats**: `.csv`, `.xml`, `.json` - Structured data processing
-- **Documentation**: `.asciidoc`, `.adoc` - Technical documentation with markup preservation
+### Image Formats
+- **Standard Images**: `.png`, `.jpg`, `.jpeg`, `.gif`, `.bmp`, `.webp`, `.tiff`, `.tif`
+  - **Docling**: OCR text extraction with configurable OCR backends (EasyOCR, Tesseract, RapidOCR)
+  - **LlamaParse**: Automatic OCR with multimodal vision processing and context understanding
 
-### Image Formats (Docling OCR)
-- **Standard Images**: `.png`, `.jpg`, `.jpeg` - OCR text extraction
-- **Professional Images**: `.tiff`, `.tif`, `.bmp`, `.webp` - Layout-aware OCR processing
-
-### Text Formats (Direct Processing)
-- **Plain Text**: `.txt` - Direct ingestion for optimal chunking
-- **Markdown**: `.md`, `.markdown` - Preserved formatting for technical documents
+### Audio Formats
+- **Audio Files**: `.wav`, `.mp3`, `.mp4`, `.m4a`
+  - **Docling**: Automatic speech recognition (ASR) support
+  - **LlamaParse**: Transcription and content extraction for MP3, MP4, MPEG, MPGA, M4A, WAV, WEBM
 
 ### Processing Intelligence
-- **Adaptive Output**: Tables convert to markdown, text content to plain text for optimal entity extraction
+- **Parser Selection**: 
+  - **Docling** (default, free): Local processing with specialized CV models (DocLayNet layout analysis, TableFormer for tables), configurable OCR backends (EasyOCR/Tesseract/RapidOCR), optional local VLM support (Granite-Docling, SmolDocling, Qwen2.5-VL, Pixtral)
+  - **LlamaParse** (cloud API, 3 credits/page): Automatic OCR in parsing pipeline, supports hundreds of file formats, fast mode (OCR-only), default mode (proprietary LlamaCloud model), premium mode (proprietary VLM mixture), multimodal mode (bring your own API keys: OpenAI GPT-4o, Anthropic Claude 3.5/4.5 Sonnet, Google Gemini 1.5/2.0, Azure OpenAI)
+- **Output Formats**: 
+  - **Flexible GraphRAG** uses **Markdown output** (default) from both parsers for optimal entity extraction
+  - **Docling** supports: Markdown, JSON (lossless with bounding boxes and provenance), HTML, plain text, and DocTags (specialized markup preserving multi-column layouts, mathematical formulas, and code blocks)
+  - **LlamaParse** supports: Markdown, plain text, raw JSON, XLSX (extracted tables), PDF, images (extracted separately), and structured output (beta - enforces custom JSON schema for strict data model extraction)
 - **Format Detection**: Automatic routing based on file extension and content analysis
-- **Fallback Handling**: Graceful degradation for unsupported formats
 
 ## Database Configuration
 
@@ -198,7 +211,6 @@ Flexible GraphRAG uses three types of databases for its hybrid search capabiliti
     SEARCH_DB=bm25
     SEARCH_DB_CONFIG={"persist_dir": "./bm25_index"}
     ```
-  - Ideal for: Development, small datasets, simple deployments
 
 - **Elasticsearch**: Enterprise search engine with advanced analyzers, faceted search, and real-time analytics
   - Dashboard: Kibana (http://localhost:5601) for search analytics, index management, and query debugging
@@ -207,7 +219,6 @@ Flexible GraphRAG uses three types of databases for its hybrid search capabiliti
     SEARCH_DB=elasticsearch
     SEARCH_DB_CONFIG={"hosts": ["http://localhost:9200"], "index_name": "hybrid_search"}
     ```
-  - Ideal for: Production workloads requiring sophisticated text processing
 
 - **OpenSearch**: AWS-led open-source fork with native hybrid scoring (vector + BM25) and k-NN algorithms
   - Dashboard: OpenSearch Dashboards (http://localhost:5601) for cluster monitoring and search pipeline management
@@ -216,7 +227,6 @@ Flexible GraphRAG uses three types of databases for its hybrid search capabiliti
     SEARCH_DB=opensearch
     SEARCH_DB_CONFIG={"hosts": ["http://localhost:9201"], "index_name": "hybrid_search"}
     ```
-  - Ideal for: Cost-effective alternative with strong community support
 
 - **None**: Disable full-text search (vector search only)
   - Configuration:
@@ -328,7 +338,7 @@ Flexible GraphRAG uses three types of databases for its hybrid search capabiliti
 
 #### RAG without GraphRAG
 
-For simpler deployments without knowledge graph extraction, configure:
+For faster document ingest processing (no graph extraction), and hybrid search with only full text + vector, configure:
 ```bash
 VECTOR_DB=qdrant  # Any vector store
 SEARCH_DB=elasticsearch  # Any search engine
@@ -336,11 +346,6 @@ GRAPH_DB=none
 ENABLE_KNOWLEDGE_GRAPH=false
 ```
 
-**Results**:
-- Vector similarity search (semantic)
-- Full-text search (keyword-based)
-- No graph traversal
-- Faster processing (no graph extraction)
 
 ### Graph Databases (Knowledge Graph / GraphRAG)
 
@@ -354,7 +359,7 @@ ENABLE_KNOWLEDGE_GRAPH=false
     GRAPH_DB_CONFIG={"uri": "bolt://localhost:7687", "username": "neo4j", "password": "your_password"}
     ```
 
-- **Kuzu**: Embedded graph database built for query speed and scalability, optimized for handling complex analytical workloads on very large graph databases. Supports the property graph data model and the Cypher query language
+- **Kuzu**: Embedded graph database built for query speed and scalability, optimized for handling complex analytical workloads on very large graph databases. Supports the property graph data model and the Cypher query language. **(Note: Kuzu proper is no longer being developed. Will support LadybugDB fork when LlamaIndex support is available)**
   - Dashboard: Kuzu Explorer (http://localhost:8002) for graph visualization and Cypher queries
   - Configuration:
     ```bash
@@ -498,135 +503,144 @@ See [docs/OLLAMA-CONFIGURATION.md](docs/OLLAMA-CONFIGURATION.md) for complete se
 
 
 
-## MCP Tools for MCP Clients like Claude Desktop, etc.
-
-The MCP server provides 9 specialized tools for document intelligence workflows:
-
-| Tool | Purpose | Usage |
-|------|---------|-------|
-| `get_system_status()` | System health and configuration | Verify setup and database connections |
-| `ingest_documents(data_source, paths)` | Bulk document processing | Process files/folders from filesystem, CMIS, Alfresco |
-| `ingest_text(content, source_name)` | Custom text analysis | Analyze specific text content |
-| `search_documents(query, top_k)` | Hybrid document retrieval | Find relevant document excerpts |
-| `query_documents(query, top_k)` | AI-powered Q&A | Generate answers from document corpus |
-| `test_with_sample()` | System verification | Quick test with sample content |
-| `check_processing_status(id)` | Async operation monitoring | Track long-running ingestion tasks |
-| `get_python_info()` | Environment diagnostics | Debug Python environment issues |
-| `health_check()` | Backend connectivity | Verify API server connection |
-
-### Client Support
-- **Claude Desktop and other MCP clients**: Native MCP integration with stdio transport
-- **MCP Inspector**: HTTP transport for debugging and development
-- **Multiple Installation**: pipx (system-wide) or uvx (no-install) options
-
 ## Prerequisites
 
 ### Required
-- Python 3.10+ (supports 3.10, 3.11, 3.12, 3.13)
-- UV package manager
-- Node.js 16+
-- npm or yarn
-- Neo4j graph database
-- Ollama or OpenAI with API key (for LLM processing)
+- Python 3.12 or 3.13 (as specified in `pyproject.toml` - 3.14 has LlamaIndex ChromaDB compatibility issues)
+- UV package manager (for dependency management)
+- Node.js 22.x (for UI clients)
+- npm (package manager)
+- Search database: Elasticsearch or OpenSearch
+- Vector database: Qdrant (or other supported vector databases)
+- Graph database: Neo4j (or other supported graph databases) - unless using vector-only RAG
+- OpenAI with API key (recommended) or Ollama (for LLM processing)
+
+**Note**: The `docker/docker-compose.yaml` file can provide all these databases via Docker containers.
 
 ### Optional (depending on data source)
-- CMIS-compliant repository (e.g., Alfresco) - only if using CMIS data source
-- Alfresco repository - only if using Alfresco data source
-- File system data source requires no additional setup
+- **Enterprise Repositories**:
+  - CMIS-compliant repository (e.g., Alfresco) - only if using CMIS data source
+  - Alfresco repository - only if using Alfresco data source
+- **Cloud Storage** (requires accounts and API keys/credentials):
+  - Amazon S3 - requires AWS account and access keys
+  - Google Cloud Storage - requires GCP account and service account credentials
+  - Google Drive - requires Google Cloud account and OAuth credentials or service account
+  - Azure Blob Storage - requires Azure account and connection string or account keys
+- **Cloud Business Services** (requires business accounts):
+  - Box - requires Box Business account (3 users minimum), API keys
+  - Microsoft OneDrive - requires OneDrive for Business (not personal OneDrive)
+  - Microsoft SharePoint - requires SharePoint access
+  - **Note**: SharePoint and OneDrive for Business are also available with a M365 Developer Program sandbox (with full Visual Studio annual subscription, not monthly).
+- **File Upload** (no account required):
+  - Web interface with file dialog (drag & drop or click to select)
+- **Web Sources** (no account required):
+  - Web pages, Wikipedia, YouTube - no accounts needed
 
 ## Setup
 
 ### 🐳 Docker Deployment
 
-Docker deployment offers two main approaches:
+Docker deployment offers multiple scenarios:
 
-#### Option A: Databases in Docker, App Standalone (Hybrid)
-**Best for**: Development, external content management systems, flexible deployment
+#### Scenario A: Databases in Docker, App Standalone (Hybrid)
 
 ```bash
 # Deploy only databases you need
 docker-compose -f docker/docker-compose.yaml -p flexible-graphrag up -d
 
-# Comment out services you don't need in docker-compose.yaml:
-# - includes/neo4j.yaml          # Comment out if using your own Neo4j
-# - includes/kuzu.yaml           # Comment out if not using Kuzu
-# - includes/qdrant.yaml         # Comment out if using Neo4j, Elasticsearch, or OpenSearch for vectors  
-# - includes/elasticsearch.yaml  # Comment out if not using Elasticsearch
-# - includes/elasticsearch-dev.yaml  # Comment out if not using Elasticsearch
-# - includes/kibana.yaml         # Comment out if not using Elasticsearch
-# - includes/opensearch.yaml     # Comment out if not using
-# - includes/alfresco.yaml       # Comment out if you want to use your own Alfresco install
-# - includes/app-stack.yaml      # Remove comment if you want backend and UI in Docker
-# - includes/proxy.yaml          # Remove comment if you want backend and UI in Docker
-#   (Note: app-stack.yaml has env config in it to customize for vector, graph, search, LLM using)
+# Scenario A setup in docker-compose.yaml:
+# Keep these services uncommented (default setup):
+  - includes/neo4j.yaml
+  - includes/qdrant.yaml
+  - includes/elasticsearch-dev.yaml
+  - includes/kibana-simple.yaml
 
-# Run backend and UI clients outside Docker
-cd flexible-graphrag
-uv run start.py
+# Keep these services commented out:
+# - includes/app-stack.yaml       # Must be commented out for Scenario A
+# - includes/proxy.yaml           # Must be commented out for Scenario A
+# - All other services remain commented unless you want a different vector database, 
+#   graph database, OpenSearch for search, or Alfresco included
 ```
 
-**Use cases:**
-- ✅ **File Upload**: Direct file upload through web interface
-- ✅ **External CMIS/Alfresco**: Connect to existing content management systems
-- ✅ **Development**: Easy debugging and hot-reloading
-- ✅ **Mixed environments**: Databases in containers, apps on host
-
-#### Option B: Full Stack in Docker (Complete)
-**Best for**: Production deployment, isolated environments, containerized content sources
+#### Scenario B: Full Stack in Docker (Complete)
 
 ```bash
 # Deploy everything including backend and UIs
 docker-compose -f docker/docker-compose.yaml -p flexible-graphrag up -d
+
+# Scenario B setup in docker-compose.yaml:
+# Keep these services uncommented:
+  - includes/neo4j.yaml
+  - includes/qdrant.yaml
+  - includes/elasticsearch-dev.yaml
+  - includes/kibana-simple.yaml
+  - includes/app-stack.yaml       # Backend and UI in Docker
+  - includes/proxy.yaml           # NGINX reverse proxy
+
+# Keep other services commented out unless you want a different vector database,
+# graph database, OpenSearch for search, or Alfresco included
 ```
 
-**Features:**
-- ✅ All databases pre-configured (Neo4j, Kuzu, Qdrant, Elasticsearch, OpenSearch, Alfresco)
-- ✅ Backend + 3 UI clients (Angular, React, Vue) in containers
-- ✅ NGINX reverse proxy with unified URLs
-- ✅ Persistent data volumes
-- ✅ Internal container networking
-
-**Service URLs after startup:**
+**Scenario B Service URLs:**
 - **Angular UI**: http://localhost:8070/ui/angular/
 - **React UI**: http://localhost:8070/ui/react/  
 - **Vue UI**: http://localhost:8070/ui/vue/
 - **Backend API**: http://localhost:8070/api/
-- **Neo4j Browser**: http://localhost:7474/
-- **Kuzu Explorer**: http://localhost:8002/
 
-**Data Source Workflow:**
-- ✅ **File Upload**: Upload files directly through the web interface (drag & drop or file selection dialog on click)
-- ✅ **Alfresco/CMIS**: Connect to existing Alfresco systems or CMIS repositories
+#### Other Deployment Scenarios
 
-#### Stopping Services
+**Scenario C: Fully Standalone** - Not using docker-compose at all
+- Standalone backend, standalone UIs, all databases running separately
+- Configure all database connections in `flexible-graphrag/.env`
 
-To stop and remove all Docker services:
+**Scenario D: Backend/UIs in Docker, Databases External**
+- Using docker-compose for backend and UIs (app-stack + proxy)
+- Some or all databases running separately (same docker-compose, other local Docker, cloud/remote servers)
+- Configure database connections in `docker/docker.env`: Backend in Docker reads this file
+  - For databases in same docker-compose: Use service names (e.g., `neo4j:7687`, `qdrant:6333`)
+  - For databases in other local Docker containers: Use `host.docker.internal:PORT`
+  - For remote/cloud databases: Use actual hostnames/IPs
+
+**Scenario E: Mixed Docker/Standalone**
+- Standalone backend and UIs
+- Running some databases in Docker (local) and some outside (cloud, external servers)
+- Configure all database connections in `flexible-graphrag/.env`: Use `host.docker.internal:PORT` for locally-running Docker databases, use actual hostnames/IPs for remote Docker or non-Docker databases
+
+#### Docker Control and Configuration
+
+**Managing Docker services:**
 
 ```bash
-# Stop all services
-docker-compose -f docker/docker-compose.yaml -p flexible-graphrag down
-```
+# Create and start services (recreates if configuration changed)
+docker-compose -f docker/docker-compose.yaml -p flexible-graphrag up -d
 
-**Common workflow for configuration changes:**
-```bash
-# Stop services, make changes, then restart
+# Stop services (keeps containers)
+docker-compose -f docker/docker-compose.yaml -p flexible-graphrag stop
+
+# Start stopped services
+docker-compose -f docker/docker-compose.yaml -p flexible-graphrag start
+
+# Stop and remove services
 docker-compose -f docker/docker-compose.yaml -p flexible-graphrag down
-# Edit docker-compose.yaml or .env files as needed
+
+# View logs
+docker-compose -f docker/docker-compose.yaml -p flexible-graphrag logs -f
+
+# Restart after configuration changes
+docker-compose -f docker/docker-compose.yaml -p flexible-graphrag down
+# Edit docker-compose.yaml, docker.env, or app-stack.yaml as needed
 docker-compose -f docker/docker-compose.yaml -p flexible-graphrag up -d
 ```
 
-#### Configuration
-
-1. **Modular deployment**: Comment out services you don't need in `docker/docker-compose.yaml`
-
-2. **Environment configuration** (for app-stack deployment): 
-   - Environment variables are configured directly in `docker/includes/app-stack.yaml`
-   - Database connections use `host.docker.internal` for container-to-container communication
-   - Default configuration includes OpenAI/Ollama LLM settings and database connections
+**Configuration:**
+- **Modular deployment**: Comment/uncomment services in `docker/docker-compose.yaml`
+- **Backend configuration** (Scenario B): Backend uses `flexible-graphrag/.env` with `docker/docker.env` for Docker-specific overrides (like using service names instead of localhost). No configuration needed in `app-stack.yaml`
 
 See [docker/README.md](./docker/README.md) for detailed Docker configuration.
 
-### 🔧 Local Development Setup
+### 🔧 Local Development Setup (Scenario A)
+
+**Note**: Skip this entire section if using Scenario B (Full Stack in Docker).
 
 #### Environment Configuration
 
@@ -640,30 +654,42 @@ copy flexible-graphrag\env-sample.txt flexible-graphrag\.env
 ```
 Edit `.env` with your database credentials and API keys.
 
-### Python Backend Setup
+### Python Backend Setup (Standalone)
 
 1. Navigate to the backend directory:
    ```bash
-   cd project-directory/flexible-graphrag
-   ```
-
-2. Create a virtual environment using UV and activate it:
-   ```bash
-   # From project root directory
-   uv venv
-   .\.venv\Scripts\Activate  # On Windows (works in both Command Prompt and PowerShell)
-   # or
-   source .venv/bin/activate  # on macOS/Linux
-   ```
-
-3. Install Python dependencies:
-   ```bash
-   # Navigate to flexible-graphrag directory and install requirements
    cd flexible-graphrag
+   ```
+
+2. Install the package in editable mode using **pyproject.toml** (recommended):
+   ```bash
+   # Option A: Manage your own virtual environment (default - managed = false in pyproject.toml)
+   uv venv venv-3.12 --python 3.12  # Python 3.12 (example with custom name)
+   uv venv venv-3.13 --python 3.13  # Python 3.13 (example with custom name)
+   # Activate it (replace venv-3.12 or venv-3.13 with your chosen name):
+   venv-3.12\Scripts\Activate  # Windows (Command Prompt/PowerShell)
+   source venv-3.12/bin/activate  # Linux/macOS
+   # Then install:
+   uv pip install -e .
+   
+   # Option B: Let uv manage the virtual environment automatically
+   # (would need to change managed = false to managed = true in pyproject.toml [tool.uv] section)
+   uv pip install -e .
+   ```
+
+   **Alternative (not recommended)**: Legacy requirements.txt approach:
+   ```bash
+   # Create venv manually
+   uv venv venv-3.13 --python 3.13
+   venv-3.13\Scripts\Activate  # Windows
+   source venv-3.13/bin/activate  # Linux/macOS
+   # Navigate to flexible-graphrar directory
+   cd flexible-graphrag
+   # Install from requirements.txt
    uv pip install -r requirements.txt
    ```
 
-4. Create a `.env` file by copying the sample and customizing:
+3. Create a `.env` file by copying the sample and customizing:
    ```bash
    # Copy sample environment file (use appropriate command for your platform)
    cp env-sample.txt .env  # Linux/macOS
@@ -672,18 +698,23 @@ Edit `.env` with your database credentials and API keys.
    
    Edit `.env` with your specific configuration. See [docs/ENVIRONMENT-CONFIGURATION.md](docs/ENVIRONMENT-CONFIGURATION.md) for detailed setup guide.
 
-### Frontend Setup
+**Note**: The system requires Python 3.12 or 3.13 as specified in `pyproject.toml` (requires-python = ">=3.12,<3.14"). Python 3.12 and 3.13 are fully tested and working. Python 3.14 has LlamaIndex ChromaDB compatibility issues (`chromadb` and `llama-index-vector-stores-chroma` packages). Virtual environment management is controlled by `managed = false` in `pyproject.toml` [tool.uv] section (you control venv creation and naming).
 
-**Production Mode** (backend does not serve frontend):
-- **Backend API**: http://localhost:8000 (FastAPI server only)
-- **Frontend deployment**: Separate deployment (nginx, Apache, static hosting, etc.)
-- Both standalone and Docker frontends point to backend at localhost:8000
+4. Start the backend:
+   ```bash
+   python start.py
+   # or: uv run start.py
+   ```
 
-**Development Mode** (frontend and backend run separately):
-- **Backend API**: http://localhost:8000 (FastAPI server only)
-- **Angular Dev**: http://localhost:4200 (ng serve)
-- **React Dev**: http://localhost:5173 (npm run dev)  
-- **Vue Dev**: http://localhost:5174 (npm run dev)
+The backend will be available at `http://localhost:8000`.
+
+### Frontend Setup (Standalone)
+
+**Standalone backend and frontend URLs:**
+- **Backend API**: http://localhost:8000 (FastAPI server)
+- **Angular**: http://localhost:4200 (npm start)
+- **React**: http://localhost:5173 (npm run dev)  
+- **Vue**: http://localhost:3000 (npm run dev)
 
 Choose one of the following frontend options to work with:
 
@@ -694,7 +725,7 @@ Choose one of the following frontend options to work with:
    cd flexible-graphrag-ui/frontend-react
    ```
 
-2. Install Node.js dependencies:
+2. Install Node.js dependencies (first time only):
    ```bash
    npm install
    ```
@@ -713,7 +744,7 @@ The React frontend will be available at `http://localhost:5174`.
    cd flexible-graphrag-ui/frontend-angular
    ```
 
-2. Install Node.js dependencies:
+2. Install Node.js dependencies (first time only):
    ```bash
    npm install
    ```
@@ -725,8 +756,6 @@ The React frontend will be available at `http://localhost:5174`.
 
 The Angular frontend will be available at `http://localhost:4200`.
 
-**Note**: If `ng build` gives budget errors, use `npm start` for development instead.
-
 #### Vue Frontend
 
 1. Navigate to the Vue frontend directory:
@@ -734,7 +763,7 @@ The Angular frontend will be available at `http://localhost:4200`.
    cd flexible-graphrag-ui/frontend-vue
    ```
 
-2. Install Node.js dependencies:
+2. Install Node.js dependencies (first time only):
    ```bash
    npm install
    ```
@@ -746,67 +775,40 @@ The Angular frontend will be available at `http://localhost:4200`.
 
 The Vue frontend will be available at `http://localhost:3000`.
 
-## Running the Application
+## Backend REST API
 
-### Start the Python Backend
+The FastAPI backend provides the following REST API endpoints:
 
-From the project root directory:
+**Base URL**: `http://localhost:8000/api/`
 
-```bash
-cd flexible-graphrag
-uv run start.py
-```
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/api/health` | GET | Health check - verify backend is running |
+| `/api/ingest` | POST | Ingest documents from configured data sources |
+| `/api/upload` | POST | Upload files for processing |
+| `/api/search` | POST | Hybrid search for relevant document excerpts |
+| `/api/query` | POST | AI-powered Q&A from document corpus |
+| `/api/status` | GET | Get system status and configuration |
+| `/api/processing-status/{id}` | GET | Check processing status for async operations |
+| `/api/processing-events/{id}` | GET | Server-sent events stream for real-time progress |
+| `/api/cancel-processing/{id}` | POST | Cancel ongoing processing operation |
+| `/api/ingest-text` | POST | Ingest custom text content |
+| `/api/test-sample` | POST | Test system with sample content |
+| `/api/cleanup-uploads` | POST | Clean up uploaded files |
+| `/api/info` | GET | Get system information and versions |
+| `/api/graph` | GET | Get graph data for visualization (nodes and relationships) |
+| `/api/python-info` | GET | Get Python environment diagnostics |
+| `/` | GET | Root endpoint (basic API info) |
 
-The backend will be available at `http://localhost:8000`.
+**Interactive API Documentation**:
+- **Swagger UI**: http://localhost:8000/docs
+- **ReDoc**: http://localhost:8000/redoc
 
-### Start Your Preferred Frontend
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for detailed API workflow and examples.
 
-Follow the instructions in the Frontend Setup section for your chosen frontend framework.
+## Full-Stack Debugging (Standalone Mode)
 
-### Frontend Deployment
-
-#### Build Frontend
-```bash
-# Angular (may have budget warnings - safe to ignore for development)
-cd flexible-graphrag-ui/frontend-angular
-ng build
-
-# React  
-cd flexible-graphrag-ui/frontend-react
-npm run build
-
-# Vue
-cd flexible-graphrag-ui/frontend-vue
-npm run build
-```
-
-**Angular Build Notes**:
-- Budget warnings are common in Angular and usually safe to ignore for development
-- For production, consider optimizing bundle sizes or adjusting budget limits in `angular.json`
-- Development mode: Use `npm start` to avoid build issues
-
-#### Start Production Server
-```bash
-cd flexible-graphrag
-uv run start.py
-```
-
-The backend provides:
-- API endpoints under `/api/*`
-- Independent operation focused on data processing and search
-- Clean separation from frontend serving concerns
-
-**Backend API Endpoints**:
-- **API Base**: http://localhost:8000/api/
-- **API Endpoints**: `/api/ingest`, `/api/search`, `/api/query`, `/api/status`, etc.
-- **Health Check**: http://localhost:8000/api/health
-
-**Frontend Deployment**:
-- **Manual Deployment**: Deploy frontends independently using your preferred method (nginx, Apache, static hosting, etc.)
-- **Frontend Configuration**: Both standalone and Docker frontends point to backend at `http://localhost:8000/api/`
-- Each frontend can be built and deployed separately based on your needs
-
-## Full-Stack Debugging
+**Note**: This debugging setup is for standalone backend and frontends (Scenario A or C), not for Full Stack in Docker (Scenario B).
 
 The project includes a `sample-launch.json` file with VS Code debugging configurations for all three frontend options and the backend. Copy this file to `.vscode/launch.json` to use these configurations.
 
@@ -825,7 +827,9 @@ The system provides a tabbed interface for document processing and querying. Fol
 
 ### 1. Sources Tab
 
-Configure your data source and select files for processing:
+Configure your data source and select files for processing. The system supports **13 data sources**:
+
+**Detailed Configuration:**
 
 #### File Upload Data Source
 - **Select**: "File Upload" from the data source dropdown
@@ -851,6 +855,13 @@ Configure your data source and select files for processing:
   - Username and password
   - Folder path (e.g., `/Sites/example/documentLibrary`)
 - **Next Step**: Click "CONFIGURE PROCESSING →" to proceed to Processing tab
+
+**All Data Sources** (13 available):
+- **Web Sources**: Web Page, Wikipedia, YouTube
+- **Cloud Storage**: Amazon S3, Google Cloud Storage, Azure Blob Storage, Google Drive, Microsoft OneDrive
+- **Enterprise Repositories**: Alfresco, Microsoft SharePoint, Box, CMIS
+
+See the [Data Sources](#data-sources) section for complete details on all 13 sources.
 
 ### 2. Processing Tab
 
@@ -894,24 +905,33 @@ Interactive conversational interface for document Q&A:
 - **Clear History**: Click "CLEAR HISTORY" button to start a new conversation
 - **Best for**: Iterative questioning, follow-up queries, conversational document exploration
 
-### Technical Implementation
-
-The system combines three retrieval methods for comprehensive hybrid search:
-
-- **Vector Similarity Search**: Uses embeddings to find semantically similar content based on meaning rather than exact word matches
-- **Full-Text Search**: Keyword-based search using:
-  - **Search Engines**: Elasticsearch or OpenSearch (which implement BM25 algorithms)
-  - **Built-in Option**: LlamaIndex local BM25 implementation for simpler deployments
-- **Graph Traversal**: Leverages knowledge graphs to find related entities and relationships, enabling GraphRAG (Graph-enhanced Retrieval Augmented Generation) that can surface contextually relevant information through entity connections and semantic relationships
-
-**How GraphRAG Works**: The system extracts entities (people, organizations, concepts) and relationships from documents, stores them in a graph database, then uses graph traversal during retrieval to find not just direct matches but also related information through entity connections. This enables more comprehensive answers that incorporate contextual relationships between concepts.
-
 ### Testing Cleanup
 
 Between tests you can clean up data:
 - **Vector Indexes**: See [docs/VECTOR-DIMENSIONS.md](docs/VECTOR-DIMENSIONS.md) for vector database cleanup instructions
 - **Graph Data**: See [flexible-graphrag/README-neo4j.md](flexible-graphrag/README-neo4j.md) for graph-related cleanup commands
 - **Neo4j**: Use on a test Neo4j database no one else is using 
+
+## MCP Tools for MCP Clients like Claude Desktop, etc.
+
+The MCP server provides 9 specialized tools for document intelligence workflows:
+
+| Tool | Purpose | Usage |
+|------|---------|-------|
+| `get_system_status()` | System health and configuration | Verify setup and database connections |
+| `ingest_documents(data_source, paths)` | Bulk document processing | Process files/folders from filesystem, CMIS, Alfresco |
+| `ingest_text(content, source_name)` | Custom text analysis | Analyze specific text content |
+| `search_documents(query, top_k)` | Hybrid document retrieval | Find relevant document excerpts |
+| `query_documents(query, top_k)` | AI-powered Q&A | Generate answers from document corpus |
+| `test_with_sample()` | System verification | Quick test with sample content |
+| `check_processing_status(id)` | Async operation monitoring | Track long-running ingestion tasks |
+| `get_python_info()` | Environment diagnostics | Debug Python environment issues |
+| `health_check()` | Backend connectivity | Verify API server connection |
+
+### Client Support
+- **Claude Desktop and other MCP clients**: Native MCP integration with stdio transport
+- **MCP Inspector**: HTTP transport for debugging and development
+- **Multiple Installation**: pipx (system-wide) or uvx (no-install) options
 
 ## Project Structure
 
@@ -922,8 +942,11 @@ Between tests you can clean up data:
   - `hybrid_system.py`: Main hybrid search system using LlamaIndex
   - `document_processor.py`: Document processing with Docling integration
   - `factories.py`: Factory classes for LLM and database creation
-  - `sources.py`: Data source connectors (filesystem, CMIS, Alfresco)
-  - `requirements.txt`: FastAPI and LlamaIndex dependencies
+  - `sources/`: Data source connectors (filesystem, CMIS, Alfresco, cloud storage, web sources)
+  - `ingest/`: Ingestion management and orchestration
+  - `pyproject.toml`: Modern Python package definition with 409 dependencies (PEP 517/518)
+  - `uv.toml`: UV package manager configuration for virtual environment management
+  - `requirements.txt`: Legacy pip requirements file (backward compatibility)
   - `start.py`: Startup script for uvicorn
   - `install.py`: Installation helper script
 

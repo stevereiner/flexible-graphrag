@@ -1,0 +1,53 @@
+# UV configuration for flexible-graphrag
+# 
+# =============================================================================
+# VENV MANAGEMENT OPTIONS
+# =============================================================================
+# The `managed` setting has been moved to pyproject.toml [tool.uv] section
+# as required by uv 0.5+. This file is kept for potential future uv settings.
+#
+# Current setting in pyproject.toml: managed = false
+# This means you control venv creation, naming, and location.
+# 
+# =============================================================================
+# OPTION 1: Manual venv management (CURRENT SETTING)
+# =============================================================================
+# With managed = false (set in pyproject.toml):
+# - You control venv creation, naming, and location
+# - Venv can be named anything (venv, .venv, venv-3.12, etc.)
+# - Venv can be anywhere (project root, parent directory, etc.)
+# 
+# Workflow:
+# 1. Create your own venv (examples):
+#    - python -m venv venv
+#    - uv venv venv-3.12 --python 3.12
+#    - uv venv my-venv-3.13 --python 3.13
+#    - uv venv (creates with default name .venv)
+# 2. Activate it manually
+# 3. Install with: uv pip install -e .
+# 4. Run with: python start.py (fastest)
+#    or: uv run --active start.py (uses the active venv)
+
+# =============================================================================
+# OPTION 2: Let uv manage the venv (ALTERNATIVE)
+# =============================================================================
+# To enable automatic venv management:
+# 1. Edit pyproject.toml [tool.uv] section
+# 2. Change "managed = false" to "managed = true"
+#
+# With managed = true:
+# - uv automatically creates .venv in the flexible-graphrag directory
+# - uv run start.py works directly without manual activation
+# - uv handles all dependency installation automatically
+# - First run is slower (creates venv + installs deps), subsequent runs are fast
+# - Python version: uv picks the best match for requires-python in pyproject.toml
+#   (requires-python = ">=3.12" means any 3.12+ version, not a specific version)
+#   (requires-python = "==3.12" would mean exactly 3.12.x)
+# - To use a specific Python version, pre-create .venv: uv venv --python 3.13
+# - Venv name is always .venv (not customizable with managed = true)
+#
+# Workflow:
+# 1. Just run: uv run start.py 
+#    (First time: creates .venv and installs deps - slow)
+#    (Subsequent times: uses existing .venv - fast!)
+#

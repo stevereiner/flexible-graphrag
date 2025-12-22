@@ -6,64 +6,120 @@
 # overrides only the Docker networking configuration
 
 # ====================================================================
-# DOCKER SERVICE NAME OVERRIDES
+# DOCKER DEPLOYMENT SCENARIOS
+# ====================================================================
+# This file configures database connection addresses based on your deployment scenario.
+# You must choose ONE of these deployment scenarios (not optional features):
+#
+# SCENARIO A: Databases in Docker, App Standalone (Hybrid)
+# - Backend runs on host machine (uv run start.py or python start.py)
+# - Frontends run on host machine (npm run dev)
+# - Databases run in Docker containers
+# - Use "host.docker.internal" to access Docker services from host
+# - Best for: Development, debugging, hot-reloading, file upload support
+# - CURRENT CONFIGURATION (uncommented lines below use SCENARIO A for Neo4j/Qdrant/Elasticsearch)
+# - RECOMMENDED: Start here for development!
+#
+# SCENARIO B: Full Stack in Docker (Complete)
+# - Backend runs in Docker (flexible-graphrag-backend container)
+# - Frontends run in Docker (UI containers)
+# - Databases run in Docker containers
+# - Use Docker service names (e.g., "neo4j", "qdrant", "elasticsearch")
+# - Containers communicate via internal Docker network
+# - Best for: Production deployment, simplified management
+# - To use: Comment out SCENARIO A lines, uncomment SCENARIO B lines
+#
+# Note: Other combinations are possible (e.g., backend in Docker with host databases)
+# but these two scenarios are the most common and well-tested.
 # ====================================================================
 
 # Graph Database - Override with Docker service names
 # Neo4j (when using Docker Neo4j service)
+# SCENARIO A (Hybrid): Use host.docker.internal
 GRAPH_DB_CONFIG={"url": "bolt://host.docker.internal:7687", "username": "neo4j", "password": "password"}
+# SCENARIO B (Full Stack in Docker): Use service name
+#GRAPH_DB_CONFIG={"url": "bolt://neo4j:7687", "username": "neo4j", "password": "password"}
 
 # Kuzu (when using Docker - still uses local file path mounted as volume)
 #GRAPH_DB_CONFIG={"db_path": "./kuzu_db/database.kz", "use_structured_schema": false, "use_vector_index": false}
 
 # FalkorDB (when using Docker service)
-#GRAPH_DB_CONFIG={"url": "falkor://host.docker.internal:6379"}
+# SCENARIO A (Hybrid): Use host.docker.internal
 #GRAPH_DB_CONFIG={"url": "falkor://host.docker.internal:6379", "database": "falkor"}
+# SCENARIO B (Full Stack in Docker): Use service name
+#GRAPH_DB_CONFIG={"url": "falkor://falkordb:6379", "database": "falkor"}
 
 # ArcadeDB (when using Docker service)
+# SCENARIO A (Hybrid): Use host.docker.internal
 #GRAPH_DB_CONFIG={"host": "host.docker.internal", "port": 2480, "username": "root", "password": "playwithdata", "database": "flexible_graphrag", "include_basic_schema": true}
+# SCENARIO B (Full Stack in Docker): Use service name
+#GRAPH_DB_CONFIG={"host": "arcadedb", "port": 2480, "username": "root", "password": "playwithdata", "database": "flexible_graphrag", "include_basic_schema": true}
 
 # MemGraph (when using Docker service)
+# SCENARIO A (Hybrid): Use host.docker.internal
 #GRAPH_DB_CONFIG={"url": "bolt://host.docker.internal:7688", "username": "", "password": "", "database": "memgraph"}
+# SCENARIO B (Full Stack in Docker): Use service name
+#GRAPH_DB_CONFIG={"url": "bolt://memgraph:7687", "username": "", "password": "", "database": "memgraph"}
 
 # NebulaGraph (when using Docker service)
+# SCENARIO A (Hybrid): Use host.docker.internal
 #GRAPH_DB_CONFIG={"space": "flexible_graphrag", "overwrite": true, "address": "host.docker.internal", "port": 9669, "username": "root", "password": "nebula"}
+# SCENARIO B (Full Stack in Docker): Use service name
+#GRAPH_DB_CONFIG={"space": "flexible_graphrag", "overwrite": true, "address": "nebula-graphd", "port": 9669, "username": "root", "password": "nebula"}
 
-# Neptune/Neptune Analytics (AWS - credentials must be available in Docker container)
-# AWS credentials are configured in main .env file, but Docker needs them passed through
-# Option 1: Set AWS credentials as environment variables on your host, they'll pass through
-# Option 2: Uncomment and set them here (not recommended for security):
-#AWS_ACCESS_KEY_ID=your_access_key
-#AWS_SECRET_ACCESS_KEY=your_secret_key
-#AWS_DEFAULT_REGION=us-east-1
+# Neptune/Neptune Analytics (AWS - no overrides needed, configured in main .env file)
 
 # ====================================================================
 # Vector Database - Override with Docker service names
 # ====================================================================
 
 # Qdrant (when using Docker service)
+# SCENARIO A (Hybrid): Use host.docker.internal
 VECTOR_DB_CONFIG={"host": "host.docker.internal", "port": 6333, "collection_name": "hybrid_search_vector", "https": false}
+# SCENARIO B (Full Stack in Docker): Use service name
+#VECTOR_DB_CONFIG={"host": "qdrant", "port": 6333, "collection_name": "hybrid_search_vector", "https": false}
 
 # Elasticsearch (when using Docker service)
+# SCENARIO A (Hybrid): Use host.docker.internal
 #VECTOR_DB_CONFIG={"url": "http://host.docker.internal:9200", "index_name": "hybrid_search_vector"}
+# SCENARIO B (Full Stack in Docker): Use service name
+#VECTOR_DB_CONFIG={"url": "http://elasticsearch:9200", "index_name": "hybrid_search_vector"}
 
 # OpenSearch (when using Docker service)
+# SCENARIO A (Hybrid): Use host.docker.internal
 #VECTOR_DB_CONFIG={"url": "http://host.docker.internal:9201", "index_name": "hybrid_search_vector"}
+# SCENARIO B (Full Stack in Docker): Use service name
+#VECTOR_DB_CONFIG={"url": "http://opensearch:9200", "index_name": "hybrid_search_vector"}
 
 # Neo4j as vector database (when using Docker service)
+# SCENARIO A (Hybrid): Use host.docker.internal
 #VECTOR_DB_CONFIG={"url": "bolt://host.docker.internal:7687", "username": "neo4j", "password": "password", "index_name": "hybrid_search_vector", "database": "neo4j"}
+# SCENARIO B (Full Stack in Docker): Use service name
+#VECTOR_DB_CONFIG={"url": "bolt://neo4j:7687", "username": "neo4j", "password": "password", "index_name": "hybrid_search_vector", "database": "neo4j"}
 
 # Chroma (when using Docker service)
+# SCENARIO A (Hybrid): Use host.docker.internal
 #VECTOR_DB_CONFIG={"host": "host.docker.internal", "port": 8001, "collection_name": "hybrid_search"}
+# SCENARIO B (Full Stack in Docker): Use service name
+#VECTOR_DB_CONFIG={"host": "chroma", "port": 8001, "collection_name": "hybrid_search"}
 
 # Milvus (when using Docker service)
+# SCENARIO A (Hybrid): Use host.docker.internal
 #VECTOR_DB_CONFIG={"host": "host.docker.internal", "port": 19530, "collection_name": "hybrid_search", "username": "root", "password": "milvus"}
+# SCENARIO B (Full Stack in Docker): Use service name
+#VECTOR_DB_CONFIG={"host": "milvus-standalone", "port": 19530, "collection_name": "hybrid_search", "username": "root", "password": "milvus"}
 
 # Weaviate (when using Docker service)
+# SCENARIO A (Hybrid): Use host.docker.internal
 #VECTOR_DB_CONFIG={"url": "http://host.docker.internal:8080", "index_name": "HybridSearch"}
+# SCENARIO B (Full Stack in Docker): Use service name
+#VECTOR_DB_CONFIG={"url": "http://weaviate:8080", "index_name": "HybridSearch"}
 
 # PostgreSQL with pgvector (when using Docker service)
+# SCENARIO A (Hybrid): Use host.docker.internal
 #VECTOR_DB_CONFIG={"host": "host.docker.internal", "port": 5432, "database": "postgres", "username": "postgres", "password": "password", "table_name": "hybrid_search_vectors"}
+# SCENARIO B (Full Stack in Docker): Use service name
+#VECTOR_DB_CONFIG={"host": "postgres-pgvector", "port": 5432, "database": "postgres", "username": "postgres", "password": "password", "table_name": "hybrid_search_vectors"}
 
 # LanceDB (uses local file path mounted as volume)
 #VECTOR_DB_CONFIG={"uri": "./lancedb", "table_name": "hybrid_search", "vector_column_name": "vector", "text_column_name": "text"}
@@ -75,20 +131,32 @@ VECTOR_DB_CONFIG={"host": "host.docker.internal", "port": 6333, "collection_name
 # ====================================================================
 
 # Elasticsearch (when using Docker service)
+# SCENARIO A (Hybrid): Use host.docker.internal
 SEARCH_DB_CONFIG={"url": "http://host.docker.internal:9200", "index_name": "hybrid_search_fulltext"}
+# SCENARIO B (Full Stack in Docker): Use service name
+#SEARCH_DB_CONFIG={"url": "http://elasticsearch:9200", "index_name": "hybrid_search_fulltext"}
 
 # OpenSearch (when using Docker service)
+# SCENARIO A (Hybrid): Use host.docker.internal
 #SEARCH_DB_CONFIG={"url": "http://host.docker.internal:9201", "index_name": "hybrid_search_fulltext"}
+# SCENARIO B (Full Stack in Docker): Use service name
+#SEARCH_DB_CONFIG={"url": "http://opensearch:9200", "index_name": "hybrid_search_fulltext"}
 
 # ====================================================================
 # Content Sources - Override with Docker service names
 # ====================================================================
 
 # CMIS Repository (when using Alfresco Docker service)
+# SCENARIO A (Hybrid): Use host.docker.internal
 #CMIS_CONFIG={"url": "http://host.docker.internal:8080/alfresco/api/-default-/public/cmis/versions/1.1/atom", "username": "admin", "password": "admin", "repository_id": "-default-"}
+# SCENARIO B (Full Stack in Docker): Use service name
+#CMIS_CONFIG={"url": "http://alfresco:8080/alfresco/api/-default-/public/cmis/versions/1.1/atom", "username": "admin", "password": "admin", "repository_id": "-default-"}
 
 # Alfresco Repository (when using Alfresco Docker service)
+# SCENARIO A (Hybrid): Use host.docker.internal
 #ALFRESCO_CONFIG={"base_url": "http://host.docker.internal:8080/alfresco", "username": "admin", "password": "admin"}
+# SCENARIO B (Full Stack in Docker): Use service name
+#ALFRESCO_CONFIG={"base_url": "http://alfresco:8080/alfresco", "username": "admin", "password": "admin"}
 
 # ====================================================================
 # LLM Provider - Override with Docker service names
@@ -96,9 +164,9 @@ SEARCH_DB_CONFIG={"url": "http://host.docker.internal:9200", "index_name": "hybr
 
 # Ollama (when running on host machine, accessed from Docker container)
 # Note: Ollama typically runs on the host, not in a container
+# SCENARIO B (backend in Docker, Ollama on host): Use host.docker.internal
 OLLAMA_BASE_URL=http://host.docker.internal:11434
-
-# If Ollama is running in a Docker container (uncommon):
+# SCENARIO B alternative (both in Docker - uncommon): Use service name
 #OLLAMA_BASE_URL=http://ollama:11434
 
 # ====================================================================
@@ -106,29 +174,80 @@ OLLAMA_BASE_URL=http://host.docker.internal:11434
 # ====================================================================
 
 # Neo4j
+# SCENARIO A (Hybrid): Use host.docker.internal
 NEO4J_URI=bolt://host.docker.internal:7687
+# SCENARIO B (Full Stack in Docker): Use service name
+#NEO4J_URI=bolt://neo4j:7687
 
 # Elasticsearch
+# SCENARIO A (Hybrid): Use host.docker.internal
 ELASTICSEARCH_URL=http://host.docker.internal:9200
+# SCENARIO B (Full Stack in Docker): Use service name
+#ELASTICSEARCH_URL=http://elasticsearch:9200
 
 # OpenSearch
-OPENSEARCH_URL=http://host.docker.internal:9201
+# SCENARIO A (Hybrid): Use host.docker.internal
+#OPENSEARCH_URL=http://host.docker.internal:9201
+# SCENARIO B (Full Stack in Docker): Use service name
+#OPENSEARCH_URL=http://opensearch:9200
 
 # Qdrant
+# SCENARIO A (Hybrid): Use host.docker.internal
 QDRANT_HOST=host.docker.internal
+# SCENARIO B (Full Stack in Docker): Use service name
+#QDRANT_HOST=qdrant
 
 # Weaviate
-WEAVIATE_URL=http://host.docker.internal:8081
+# SCENARIO A (Hybrid): Use host.docker.internal
+#WEAVIATE_URL=http://host.docker.internal:8081
+# SCENARIO B (Full Stack in Docker): Use service name
+#WEAVIATE_URL=http://weaviate:8080
 
 # ====================================================================
 # NOTES
 # ====================================================================
-# 1. This file uses host.docker.internal to access services running on your host machine
-#    from within Docker containers (consistent with original app-stack.yaml approach)
-# 2. Cloud services (Neptune, Neptune Analytics, Pinecone) don't need overrides - 
-#    they use internet endpoints configured in main flexible-graphrag/.env file
-# 3. File-based databases (Kuzu, LanceDB) use local paths with Docker volume mounts
-# 4. Copy this file to docker/docker.env before starting Docker services:
+# 1. DEPLOYMENT SCENARIOS (Choose ONE):
+#
+#    SCENARIO A: Databases in Docker, App Standalone (Hybrid) - CURRENT CONFIGURATION
+#    - Backend and frontends run on host machine (development mode)
+#    - Databases run in Docker containers
+#    - Use host.docker.internal to access Docker services from host
+#    - Uncomment lines with "host.docker.internal"
+#
+#    SCENARIO B: Full Stack in Docker (Complete)
+#    - Backend, frontends, and databases all in Docker
+#    - Use Docker service names (neo4j, qdrant, elasticsearch, etc.)
+#    - Containers communicate via Docker internal network
+#    - Exception: Ollama typically runs on host, so use host.docker.internal
+#
+# 2. Service Names Reference (from docker-compose include files):
+#    - neo4j (neo4j.yaml)
+#    - qdrant (qdrant.yaml)
+#    - elasticsearch (elasticsearch-dev.yaml)
+#    - opensearch (opensearch.yaml)
+#    - falkordb (falkordb.yaml)
+#    - arcadedb (arcadedb.yaml)
+#    - memgraph (memgraph.yaml)
+#    - nebula-graphd (nebula.yaml)
+#    - chroma (chroma.yaml)
+#    - milvus-standalone (milvus.yaml)
+#    - weaviate (weaviate.yaml)
+#    - postgres-pgvector (postgres-pgvector.yaml)
+#    - alfresco (alfresco.yaml)
+#
+# 3. Cloud services (Neptune, Neptune Analytics, Pinecone):
+#    - Use internet endpoints configured in main flexible-graphrag/.env file
+#    - No Docker networking overrides needed
+#
+# 4. File-based databases (Kuzu, LanceDB):
+#    - Use local paths with Docker volume mounts
+#    - No network configuration needed
+#
+# 5. To switch scenarios:
+#    - Comment/uncomment the appropriate lines for your chosen scenario
+#    - Match the configuration in docker-compose.yaml (include/exclude app-stack.yaml)
+#
+# 6. Copy this file to docker/docker.env before starting Docker services:
 #    Windows: copy docker\docker-env-sample.txt docker\docker.env
 #    macOS/Linux: cp docker/docker-env-sample.txt docker/docker.env
 

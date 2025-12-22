@@ -2,6 +2,38 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2025-12-21] - pyproject.toml added, readme and docker docs updated, errors fixed with llama-core only, switch to google-genai package
+
+### Added
+- **pyproject.toml support** - Created modern PEP 517/518 package definition for flexible-graphrag backend
+  - Flat layout with py-modules for individual files (backend, config, etc.) and packages.find for ingest/sources subdirectories
+  - All 409 dependencies migrated from requirements.txt with optional dev dependencies (pytest, black, ruff, mypy)
+  - Python >=3.12,<3.14 requirement (3.12 and 3.13 supported, 3.14 has ChromaDB and Kuzu compatibility issues)
+  - Virtual environment management via `managed = false` in [tool.uv] section (user controls venv creation/naming)
+- **Docker pyproject.toml support** - Updated Dockerfile to use `uv pip install -e .` with pyproject.toml (legacy requirements.txt kept as commented alternative)
+- **Backend REST API documentation** - Added comprehensive REST API endpoint table with all 16 endpoints, Swagger UI and ReDoc links to README
+
+### Fixed
+- **requirements.txt package conflicts** - Removed `llama-index` package, kept only `llama-index-core` to fix package version build errors
+- **Deprecated Gemini package** - Updated from `llama-index-llms-gemini` to `llama-index-llms-google-genai` in both requirements.txt and factories.py
+- **GoogleGenAI class** - Updated import and usage to correct `GoogleGenAI` class instead of deprecated `Gemini` class
+
+### Enhanced
+- **Docker documentation** - Updated docker/README.md and docker/docker-env-sample.txt with pyproject.toml approach and accurate service configurations
+- **README.md improvements**
+  - Reorganized Docker deployment scenarios (A/B/C/D/E) with clearer configuration guidance
+  - Updated Supported File Formats with accurate Docling and LlamaParse capabilities
+  - Enhanced Prerequisites with detailed cloud data source requirements
+  - Added Backend Setup (Standalone) and Frontend Setup (Standalone) sections
+  - Shortened and clarified deployment scenarios
+  - Added Kuzu deprecation note (LadybugDB fork mention)
+- **Backend setup** - Improved installation instructions with pyproject.toml examples, clarified venv management options
+
+### Documentation
+- Updated Prerequisites for Python 3.12 or 3.13 (requires-python = ">=3.12,<3.14", 3.14 has ChromaDB and Kuzu compatibility issues)
+- Enhanced cloud data source requirements (AWS, GCP, Azure, Google Drive, Box, OneDrive for Business, SharePoint)
+- Clarified Docker configuration (.env base + docker.env overrides, app-stack.yaml needs no configuration)
+
 ## [2025-12-15] - Alfresco relative_path enhancement and native path support
 
 ### Enhanced
