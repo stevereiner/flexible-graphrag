@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2025-12-22] - Docker documentation updates for workflow clarity
+
+### Documentation
+- **Docker workflow improvements** - Updated README.md, docker/README.md, and docker/DOCKER-ENV-SETUP.md for better Docker setup workflow
+  - Added environment file setup (`.env` and `docker.env`) before scenario configuration to prevent deployment without proper configuration
+  - Changed all Docker commands to assume working from `docker/` directory (removed `docker/` prefix from paths)
+  - Added `cd` navigation instructions before file operations for clearer directory context
+  - Provided both Linux/macOS (`cp`) and Windows (`copy`) commands for cross-platform compatibility
+  - Reordered configuration steps: environment files first, then scenario-specific docker-compose.yaml edits, then deployment
+
 ## [2025-12-21] - pyproject.toml added, readme and docker docs updated, errors fixed with llama-core only, switch to google-genai package
 
 ### Added

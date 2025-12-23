@@ -23,38 +23,50 @@ Perfect Docker deployment! 🎉
 
 ### 1. Main Configuration (Required)
 ```bash
-# Windows
-copy flexible-graphrag\env-sample.txt flexible-graphrag\.env
+# Navigate to backend directory
+cd flexible-graphrag
 
-# macOS/Linux  
-cp flexible-graphrag/env-sample.txt flexible-graphrag/.env
+# Linux/macOS  
+cp env-sample.txt .env
+
+# Windows Command Prompt
+copy env-sample.txt .env
+
+# Edit .env with:
+# - LLM provider and API keys
+# - Database passwords
+# - All localhost addresses (for standalone use)
+
+# Return to project root
+cd ..
 ```
-
-**Edit** `flexible-graphrag/.env` with:
-- ✅ LLM provider and API keys
-- ✅ Database passwords
-- ✅ All localhost addresses (for standalone use)
 
 ### 2. Docker Overrides (Required for Docker)
 ```bash
-# Windows
-copy docker\docker-env-sample.txt docker\docker.env
+# Navigate to docker directory
+cd docker
 
-# macOS/Linux
-cp docker/docker-env-sample.txt docker/docker.env
+# Linux/macOS
+cp docker-env-sample.txt docker.env
+
+# Windows Command Prompt
+copy docker-env-sample.txt docker.env
+
+# No editing needed! This file already has the correct Docker service names.
 ```
-
-**No editing needed!** This file already has the correct Docker service names.
 
 ### 3. Neptune Graph Explorer (Optional)
 Only needed if using Neptune and want separate AWS credentials for Graph Explorer:
 
 ```bash
-# Windows
-copy docker\neptune-env-sample.txt docker\neptune.env
+# If not already in docker directory:
+# cd docker
 
-# macOS/Linux
-cp docker/neptune-env-sample.txt docker/neptune.env
+# Linux/macOS
+cp neptune-env-sample.txt neptune.env
+
+# Windows Command Prompt
+copy neptune-env-sample.txt neptune.env
 ```
 
 ## How It Works

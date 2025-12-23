@@ -540,14 +540,51 @@ See [docs/OLLAMA-CONFIGURATION.md](docs/OLLAMA-CONFIGURATION.md) for complete se
 
 ### 🐳 Docker Deployment
 
-Docker deployment offers multiple scenarios:
+Docker deployment offers multiple scenarios. Before deploying any scenario, set up your environment files:
+
+**Environment File Setup (Required for All Scenarios):**
+
+1. **Backend Configuration** (`.env`):
+   ```bash
+   # Navigate to backend directory
+   cd flexible-graphrag
+   
+   # Linux/macOS
+   cp env-sample.txt .env
+   
+   # Windows Command Prompt
+   copy env-sample.txt .env
+   
+   # Edit .env with your database credentials, API keys, and settings
+   # Then return to project root
+   cd ..
+   ```
+
+2. **Docker Configuration** (`docker.env`):
+   ```bash
+   # Navigate to docker directory
+   cd docker
+   
+   # Linux/macOS
+   cp docker-env-sample.txt docker.env
+   
+   # Windows Command Prompt
+   copy docker-env-sample.txt docker.env
+   
+   # Edit docker.env for Docker-specific overrides (network addresses, service names)
+   # Stay in docker directory for next steps
+   ```
+
+---
 
 #### Scenario A: Databases in Docker, App Standalone (Hybrid)
 
+**Configuration Setup:**
 ```bash
-# Deploy only databases you need
-docker-compose -f docker/docker-compose.yaml -p flexible-graphrag up -d
+# If not already in docker directory from previous step:
+# cd docker
 
+# Edit docker-compose.yaml to uncomment/comment services as needed
 # Scenario A setup in docker-compose.yaml:
 # Keep these services uncommented (default setup):
   - includes/neo4j.yaml
@@ -562,12 +599,20 @@ docker-compose -f docker/docker-compose.yaml -p flexible-graphrag up -d
 #   graph database, OpenSearch for search, or Alfresco included
 ```
 
+**Deploy Services:**
+```bash
+# From the docker directory
+docker-compose -f docker-compose.yaml -p flexible-graphrag up -d
+```
+
 #### Scenario B: Full Stack in Docker (Complete)
 
+**Configuration Setup:**
 ```bash
-# Deploy everything including backend and UIs
-docker-compose -f docker/docker-compose.yaml -p flexible-graphrag up -d
+# If not already in docker directory from previous step:
+# cd docker
 
+# Edit docker-compose.yaml to uncomment/comment services as needed
 # Scenario B setup in docker-compose.yaml:
 # Keep these services uncommented:
   - includes/neo4j.yaml
@@ -579,6 +624,12 @@ docker-compose -f docker/docker-compose.yaml -p flexible-graphrag up -d
 
 # Keep other services commented out unless you want a different vector database,
 # graph database, OpenSearch for search, or Alfresco included
+```
+
+**Deploy Services:**
+```bash
+# From the docker directory
+docker-compose -f docker-compose.yaml -p flexible-graphrag up -d
 ```
 
 **Scenario B Service URLs:**
@@ -611,25 +662,28 @@ docker-compose -f docker/docker-compose.yaml -p flexible-graphrag up -d
 **Managing Docker services:**
 
 ```bash
+# Navigate to docker directory (if not already there)
+cd docker
+
 # Create and start services (recreates if configuration changed)
-docker-compose -f docker/docker-compose.yaml -p flexible-graphrag up -d
+docker-compose -f docker-compose.yaml -p flexible-graphrag up -d
 
 # Stop services (keeps containers)
-docker-compose -f docker/docker-compose.yaml -p flexible-graphrag stop
+docker-compose -f docker-compose.yaml -p flexible-graphrag stop
 
 # Start stopped services
-docker-compose -f docker/docker-compose.yaml -p flexible-graphrag start
+docker-compose -f docker-compose.yaml -p flexible-graphrag start
 
 # Stop and remove services
-docker-compose -f docker/docker-compose.yaml -p flexible-graphrag down
+docker-compose -f docker-compose.yaml -p flexible-graphrag down
 
 # View logs
-docker-compose -f docker/docker-compose.yaml -p flexible-graphrag logs -f
+docker-compose -f docker-compose.yaml -p flexible-graphrag logs -f
 
 # Restart after configuration changes
-docker-compose -f docker/docker-compose.yaml -p flexible-graphrag down
-# Edit docker-compose.yaml, docker.env, or app-stack.yaml as needed
-docker-compose -f docker/docker-compose.yaml -p flexible-graphrag up -d
+docker-compose -f docker-compose.yaml -p flexible-graphrag down
+# Edit docker-compose.yaml, docker.env, or includes/app-stack.yaml as needed
+docker-compose -f docker-compose.yaml -p flexible-graphrag up -d
 ```
 
 **Configuration:**

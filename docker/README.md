@@ -66,46 +66,56 @@ docker/
 
 **Main configuration** (required):
 ```bash
+# Navigate to backend directory
+cd ../flexible-graphrag
+
 # Windows
-copy flexible-graphrag\env-sample.txt flexible-graphrag\.env
+copy env-sample.txt .env
 
 # macOS/Linux  
-cp flexible-graphrag/env-sample.txt flexible-graphrag/.env
+cp env-sample.txt .env
+
+# Edit .env with your LLM provider, API keys, and database passwords
+# Return to project root
+cd ..
 ```
-Edit `flexible-graphrag/.env` with your LLM provider, API keys, and database passwords.
 
 **Docker overrides** (required for Docker deployment):
 ```bash
+# Navigate to docker directory
+cd docker
+
 # Windows
-copy docker\docker-env-sample.txt docker\docker.env
+copy docker-env-sample.txt docker.env
 
 # macOS/Linux
-cp docker/docker-env-sample.txt docker/docker.env
+cp docker-env-sample.txt docker.env
+
+# See DOCKER-ENV-SETUP.md for details on the two-layer configuration system
 ```
-See [DOCKER-ENV-SETUP.md](DOCKER-ENV-SETUP.md) for details on the two-layer configuration system.
 
 ### 2. Start Services
 
-From the project root:
+From the docker directory:
 
 ```bash
 # Start with project name
-docker-compose -f docker/docker-compose.yaml -p flexible-graphrag up -d
+docker-compose -f docker-compose.yaml -p flexible-graphrag up -d
 ```
 
 **Common operations:**
 ```bash
 # Stop services
-docker-compose -f docker/docker-compose.yaml -p flexible-graphrag down
+docker-compose -f docker-compose.yaml -p flexible-graphrag down
 
 # Stop and remove volumes (⚠️ deletes all data)
-docker-compose -f docker/docker-compose.yaml -p flexible-graphrag down -v
+docker-compose -f docker-compose.yaml -p flexible-graphrag down -v
 
 # View logs
-docker-compose -f docker/docker-compose.yaml -p flexible-graphrag logs -f
+docker-compose -f docker-compose.yaml -p flexible-graphrag logs -f
 
 # Check status
-docker-compose -f docker/docker-compose.yaml -p flexible-graphrag ps
+docker-compose -f docker-compose.yaml -p flexible-graphrag ps
 ```
 
 See [../README.md](../README.md) for complete deployment scenario details (A, B, C, D, E).
@@ -181,26 +191,26 @@ Note: Ollama typically runs on the host machine, not in a Docker container.
 
 ```bash
 # Backend only
-docker-compose -f docker/docker-compose.yaml build flexible-graphrag-backend
+docker-compose -f docker-compose.yaml build flexible-graphrag-backend
 
 # Specific UI
-docker-compose -f docker/docker-compose.yaml build flexible-graphrag-ui-react
+docker-compose -f docker-compose.yaml build flexible-graphrag-ui-react
 
 # All services
-docker-compose -f docker/docker-compose.yaml build
+docker-compose -f docker-compose.yaml build
 ```
 
 ### Logs and Debugging
 
 ```bash
 # All services
-docker-compose -f docker/docker-compose.yaml -p flexible-graphrag logs -f
+docker-compose -f docker-compose.yaml -p flexible-graphrag logs -f
 
 # Specific service
-docker-compose -f docker/docker-compose.yaml -p flexible-graphrag logs -f flexible-graphrag-backend
+docker-compose -f docker-compose.yaml -p flexible-graphrag logs -f flexible-graphrag-backend
 
 # Database logs
-docker-compose -f docker/docker-compose.yaml -p flexible-graphrag logs -f neo4j
+docker-compose -f docker-compose.yaml -p flexible-graphrag logs -f neo4j
 ```
 
 ### Health Checks
@@ -208,20 +218,20 @@ docker-compose -f docker/docker-compose.yaml -p flexible-graphrag logs -f neo4j
 All services include health checks. Check status:
 
 ```bash
-docker-compose -f docker/docker-compose.yaml -p flexible-graphrag ps
+docker-compose -f docker-compose.yaml -p flexible-graphrag ps
 ```
 
 ## 🧹 Cleanup
 
 ```bash
 # Stop services
-docker-compose -f docker/docker-compose.yaml -p flexible-graphrag down
+docker-compose -f docker-compose.yaml -p flexible-graphrag down
 
 # Remove volumes (⚠️ deletes all data)
-docker-compose -f docker/docker-compose.yaml -p flexible-graphrag down -v
+docker-compose -f docker-compose.yaml -p flexible-graphrag down -v
 
 # Remove images
-docker-compose -f docker/docker-compose.yaml -p flexible-graphrag down --rmi all
+docker-compose -f docker-compose.yaml -p flexible-graphrag down --rmi all
 ```
 
 ## 🚨 Troubleshooting
