@@ -110,7 +110,7 @@ export const SearchTab: React.FC<SearchTabProps> = ({
         <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 2 }}>
           <Tabs value={activeTab} onChange={handleTabChange}>
             <Tab label="Hybrid Search" value="search" />
-            <Tab label="Q&A Query" value="qa" />
+            <Tab label="AI Query" value="qa" />
           </Tabs>
         </Box>
         

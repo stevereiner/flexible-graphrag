@@ -5,6 +5,7 @@ export interface ProcessFolderRequest {
 export interface IngestRequest {
   paths?: string[];
   data_source?: string;
+  skip_graph?: boolean;  // Per-ingest flag to skip knowledge graph step (doesn't persist)
   cmis_config?: {
     url: string;
     username: string;

@@ -1,5 +1,15 @@
 <div class="processing-tab-container">
-  <h2>File Processing</h2>
+  <!-- Header with Skip Graph Checkbox -->
+  <div class="processing-header">
+    <h2>File Processing</h2>
+    <mat-checkbox 
+      [(ngModel)]="skipGraph"
+      [disabled]="isProcessing"
+      color="primary"
+      class="skip-graph-checkbox">
+      Skip graph (search + vector only) for these documents
+    </mat-checkbox>
+  </div>
 
   <!-- No Sources Configured Message -->
   <mat-card *ngIf="!hasConfiguredSources" class="no-sources-card">

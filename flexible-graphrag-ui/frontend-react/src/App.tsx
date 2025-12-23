@@ -417,8 +417,8 @@ const App: React.FC = () => {
               >
                 <Tab label="SOURCES" value="sources" />
                 <Tab label="PROCESSING" value="processing" />
-                <Tab label="SEARCH" value="search" />
-                <Tab label="CHAT" value="chat" />
+                <Tab label="HYBRID SEARCH" value="search" />
+                <Tab label="AI CHAT" value="chat" />
                 {/* <Tab label="GRAPH" value="graph" /> */}
               </Tabs>
             </Box>

@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2025-12-23] - UI enhancements for skip graph and terminology updates
+
+### Enhanced
+- **Skip graph checkbox** - Added "Skip graph (search + vector only) for these documents" checkbox to Processing tab in all three frontends (Angular, React, Vue)
+  - Positioned at top right of File Processing header
+  - Sends `skip_graph` parameter to backend for per-ingest graph skipping
+  - Completion messages automatically reflect whether graph was skipped
+- **Tab naming updates** - Updated terminology to match KG Spaces ACA conventions
+  - Main "SEARCH" tab renamed to "HYBRID SEARCH"
+  - Search sub-tab "Q&A QUERY" renamed to "AI QUERY"
+  - Main "CHAT" tab renamed to "AI CHAT"
+
 ## [2025-12-22] - Docker documentation updates for workflow clarity
 
 ### Documentation

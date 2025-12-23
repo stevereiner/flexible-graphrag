@@ -48,6 +48,7 @@ export class ProcessingTabComponent implements OnInit, OnChanges {
   lastStatusData: ProcessingStatusResponse | null = null;
   successMessage = '';
   error = '';
+  skipGraph = false;  // Per-ingest flag to skip knowledge graph extraction
 
   // Expose Math to template
   Math = Math;
@@ -474,9 +475,16 @@ export class ProcessingTabComponent implements OnInit, OnChanges {
         wikipediaConfig: this.configuredWikipediaConfig,
         youtubeConfig: this.configuredYoutubeConfig,
         cloudConfig: this.configuredCloudConfig,
-        enterpriseConfig: this.configuredEnterpriseConfig
+        enterpriseConfig: this.configuredEnterpriseConfig,
+        skipGraph: this.skipGraph
       });
       console.log('Starting processing with data:', processingData);
+      
+      // Add skip_graph flag to processing data
+      if (this.skipGraph) {
+        processingData.skip_graph = true;
+        console.log('✓ skip_graph flag set to true - Knowledge graph extraction will be skipped');
+      }
       
       this.apiService.ingestDocuments(processingData).subscribe({
         next: (response: AsyncProcessingResponse) => {

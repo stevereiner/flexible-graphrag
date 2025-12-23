@@ -27,8 +27,8 @@
             class="custom-tabs">
             <v-tab value="sources">SOURCES</v-tab>
             <v-tab value="processing">PROCESSING</v-tab>
-            <v-tab value="search">SEARCH</v-tab>
-            <v-tab value="chat">CHAT</v-tab>
+            <v-tab value="search">HYBRID SEARCH</v-tab>
+            <v-tab value="chat">AI CHAT</v-tab>
             <!-- <v-tab value="graph">Graph</v-tab> -->
           </v-tabs>
 

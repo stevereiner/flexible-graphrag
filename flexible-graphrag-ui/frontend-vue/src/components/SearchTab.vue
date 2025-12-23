@@ -6,7 +6,7 @@
       color="primary"
       slider-color="primary">
       <v-tab value="search">Hybrid Search</v-tab>
-      <v-tab value="qa">Q&A Query</v-tab>
+      <v-tab value="qa">AI Query</v-tab>
     </v-tabs>
 
     <!-- Search Input -->

@@ -1,6 +1,17 @@
 <template>
   <div class="pa-4">
-    <h2 class="mb-4">File Processing</h2>
+    <!-- Header with Skip Graph Checkbox -->
+    <div class="d-flex justify-space-between align-center mb-4">
+      <h2>File Processing</h2>
+      <v-checkbox
+        v-model="skipGraph"
+        label="Skip graph (search + vector only) for these documents"
+        :disabled="isProcessing"
+        color="primary"
+        hide-details
+        density="compact"
+      ></v-checkbox>
+    </div>
 
     <!-- No Sources Configured Message -->
     <v-card
@@ -340,6 +351,7 @@ export default defineComponent({
     const showDebugPanel = ref(false);
     const successMessage = ref('');
     const error = ref('');
+    const skipGraph = ref(false);  // Per-ingest flag to skip knowledge graph extraction
     const repositoryItemsHidden = ref(false); // Track when repository items are explicitly hidden
     const sourcesReconfiguredFlag = ref(0); // Counter to force repository items to show when reconfigured
 
@@ -818,6 +830,12 @@ export default defineComponent({
           data_source: props.configuredDataSource
         };
 
+        // Add skip_graph flag if checked
+        if (skipGraph.value) {
+          request.skip_graph = true;
+          console.log('✓ skip_graph flag set to true - Knowledge graph extraction will be skipped');
+        }
+
         if (props.configuredDataSource === 'upload') {
           // For upload, we need to upload files first, then use their paths
           const uploadedPaths = await uploadFiles();
@@ -1058,6 +1076,7 @@ export default defineComponent({
       showDebugPanel,
       successMessage,
       error,
+      skipGraph,
       repositoryItemsHidden,
       sourcesReconfiguredFlag,
       tableHeaders,

@@ -16,6 +16,7 @@ import {
   IconButton,
   Chip,
   Alert,
+  FormControlLabel,
 } from '@mui/material';
 import DeleteIcon from '@mui/icons-material/Delete';
 import CloseIcon from '@mui/icons-material/Close';
@@ -108,6 +109,9 @@ export const ProcessingTab: React.FC<ProcessingTabProps> = ({
 }) => {
   // Local UI state (only for state that doesn't need persistence)
   // Processing state now comes from props for persistence
+
+  // Skip graph state
+  const [skipGraph, setSkipGraph] = useState<boolean>(false);
 
   // File upload state
   const [uploadProgress, setUploadProgress] = useState<number>(0);
@@ -442,6 +446,12 @@ export const ProcessingTab: React.FC<ProcessingTabProps> = ({
         data_source: configuredDataSource
       };
 
+      // Add skip_graph flag if checked
+      if (skipGraph) {
+        request.skip_graph = true;
+        console.log('✓ skip_graph flag set to true - Knowledge graph extraction will be skipped');
+      }
+
       if (configuredDataSource === 'upload') {
         const uploadedPaths = await uploadFiles();
         request.paths = uploadedPaths;
@@ -580,9 +590,27 @@ export const ProcessingTab: React.FC<ProcessingTabProps> = ({
 
   return (
     <Box sx={{ p: 3 }}>
-      <Typography variant="h6" gutterBottom>
-        File Processing
-      </Typography>
+      {/* Header with Skip Graph Checkbox */}
+      <Box sx={{ 
+        display: 'flex', 
+        justifyContent: 'space-between', 
+        alignItems: 'center',
+        mb: 3 
+      }}>
+        <Typography variant="h6">
+          File Processing
+        </Typography>
+        <FormControlLabel
+          control={
+            <Checkbox
+              checked={skipGraph}
+              onChange={(e) => setSkipGraph(e.target.checked)}
+              disabled={isProcessing}
+            />
+          }
+          label="Skip graph (search + vector only) for these documents"
+        />
+      </Box>
       
       {/* Show prompt only when not configured */}
       {!hasConfiguredSources && (
