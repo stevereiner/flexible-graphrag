@@ -74,30 +74,24 @@ class SharePointSource(BaseDataSource):
             extractor = PassthroughExtractor(progress_callback=None)
             
             # Initialize SharePointReader with PassthroughExtractor
+            # Pass all available SharePoint parameters to constructor
             reader = SharePointReader(
                 client_id=self.client_id,
                 client_secret=self.client_secret,
                 tenant_id=self.tenant_id,
+                sharepoint_site_name=self.site_name,
+                sharepoint_site_id=self.site_id if self.site_id else None,
+                sharepoint_folder_path=self.folder_path if self.folder_path else None,
+                sharepoint_folder_id=self.folder_id if self.folder_id else None,
                 file_extractor={".pdf": extractor, ".docx": extractor, ".pptx": extractor,
                                ".xlsx": extractor, ".txt": extractor, ".md": extractor,
                                ".html": extractor, ".csv": extractor}
             )
             
-            # Use SharePointReader to load placeholder documents following LlamaCloud patterns
-            if self.file_ids:
-                # Load specific files by ID
-                documents = reader.load_data(
-                    sharepoint_site_name=self.site_name,
-                    file_ids=self.file_ids
-                )
-                logger.info(f"Loaded {len(self.file_ids)} specific SharePoint files by ID")
-            else:
-                # Load all files from folder path
-                documents = reader.load_data(
-                    sharepoint_site_name=self.site_name,
-                    sharepoint_folder_path=self.folder_path
-                )
-                logger.info(f"Loaded {len(documents)} SharePoint files from folder: {self.folder_path}")
+            # Use SharePointReader to load placeholder documents
+            # All parameters already set in constructor, just call load_data()
+            documents = reader.load_data()
+            logger.info(f"Loaded {len(documents)} SharePoint files from site: {self.site_name}")
             
             # Add source metadata to placeholder documents
             for doc in documents:
@@ -118,16 +112,16 @@ class SharePointSource(BaseDataSource):
             logger.error(f"Error loading documents from SharePoint site '{self.site_name}': {str(e)}")
             raise
     
-    def get_documents_with_progress(self, progress_callback=None) -> List[Document]:
+    async def get_documents_with_progress(self, progress_callback=None) -> List[Document]:
         """
-        Retrieve documents from SharePoint with progress tracking using PassthroughExtractor.
-        Returns placeholder documents with file metadata for DocumentProcessor.
+        Retrieve documents from SharePoint with progress tracking.
+        SharePoint downloads files directly and extracts actual content.
         
         Args:
             progress_callback: Callback function for progress updates
         
         Returns:
-            List[Document]: List of placeholder Document objects with _fs metadata
+            List[Document]: List of Document objects with actual file content
         """
         try:
             from llama_index.readers.microsoft_sharepoint import SharePointReader
@@ -137,31 +131,34 @@ class SharePointSource(BaseDataSource):
             if progress_callback:
                 progress_callback(0, 1, f"Connecting to SharePoint site: {self.site_name}")
             
-            # Create PassthroughExtractor with progress callback
-            extractor = PassthroughExtractor(progress_callback=progress_callback)
+            # SharePoint downloads files to temp directory, so we need immediate processing
+            # Create DocumentProcessor for immediate file processing
+            from document_processor import DocumentProcessor, get_parser_type_from_env
+            parser_type = get_parser_type_from_env()
+            doc_processor = DocumentProcessor(parser_type=parser_type)
+            
+            # Create PassthroughExtractor with progress callback AND doc_processor for immediate processing
+            extractor = PassthroughExtractor(progress_callback=progress_callback, doc_processor=doc_processor)
             
             # Initialize SharePointReader with PassthroughExtractor
+            # Pass all available SharePoint parameters to constructor
             reader = SharePointReader(
                 client_id=self.client_id,
                 client_secret=self.client_secret,
                 tenant_id=self.tenant_id,
+                sharepoint_site_name=self.site_name,
+                sharepoint_site_id=self.site_id if self.site_id else None,
+                sharepoint_folder_path=self.folder_path if self.folder_path else None,
+                sharepoint_folder_id=self.folder_id if self.folder_id else None,
                 file_extractor={".pdf": extractor, ".docx": extractor, ".pptx": extractor,
                                ".xlsx": extractor, ".txt": extractor, ".md": extractor,
                                ".html": extractor, ".csv": extractor}
             )
             
-            # Use SharePointReader to load placeholder documents
-            if self.file_ids:
-                # Loading specific files by ID
-                documents = reader.load_data(file_ids=self.file_ids)
-                logger.info(f"Loaded {len(self.file_ids)} specific SharePoint files by ID")
-            else:
-                # Loading from folder path
-                documents = reader.load_data(
-                    sharepoint_site_name=self.site_name,
-                    sharepoint_folder_path=self.folder_path
-                )
-                logger.info(f"Loaded {len(documents)} SharePoint files from folder: {self.folder_path}")
+            # Use SharePointReader to load documents with actual content (processed immediately by PassthroughExtractor)
+            # All parameters already set in constructor, just call load_data()
+            documents = reader.load_data()
+            logger.info(f"Loaded {len(documents)} SharePoint files from site: {self.site_name}")
             
             # Add source metadata to placeholder documents
             for doc in documents:

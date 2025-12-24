@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2025-12-24] - OneDrive and SharePoint data sources fixed and now working
+
+### Fixed
+- **OneDrive authentication** - Corrected parameter name to `userprincipalname` for LlamaIndex library compatibility
+- **SharePoint site resolution** - Fixed config parameters passed to SharePointReader constructor
+- **Content extraction** - Both sources now return actual document content instead of empty text with metadata only, using PassthroughExtractor with DocumentProcessor for immediate file processing
+
+### Added
+- **Data source documentation** - Created `docs/DATA-SOURCE-CONFIGURATION.md` with setup guides for OneDrive, SharePoint, Box, and source path examples
+
+### Documentation
+- **Streamlined env-sample.txt** - Moved verbose Box config detail info, OneDrive/SharePoint details, and source path examples to `docs/DATA-SOURCE-CONFIGURATION.md` 
+
 ## [2025-12-23] - UI enhancements for skip graph and terminology updates
 
 ### Enhanced

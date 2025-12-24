@@ -26,6 +26,14 @@ class OneDriveSource(BaseDataSource):
         self.folder_id = config.get("folder_id", "")  # Optional: specific folder ID
         self.file_ids = config.get("file_ids", [])  # Optional: specific file IDs
         
+        # Log all configuration for debugging
+        logger.info(f"OneDriveSource __init__ received config keys: {list(config.keys())}")
+        logger.info(f"OneDriveSource __init__ - user_principal_name: '{self.user_principal_name}'")
+        logger.info(f"OneDriveSource __init__ - client_id: '{self.client_id[:10]}...' (truncated)")
+        logger.info(f"OneDriveSource __init__ - tenant_id: '{self.tenant_id}'")
+        logger.info(f"OneDriveSource __init__ - folder_path: '{self.folder_path}'")
+        logger.info(f"OneDriveSource __init__ - NOTE: LlamaIndex parameter name is 'userprincipalname' (not user_principal_name)")
+        
         # Import LlamaIndex OneDrive reader
         try:
             from llama_index.readers.microsoft_onedrive import OneDriveReader
@@ -66,29 +74,37 @@ class OneDriveSource(BaseDataSource):
         try:
             from llama_index.readers.microsoft_onedrive import OneDriveReader
             
-            logger.info(f"Loading documents from OneDrive folder: {self.folder_path}")
+            # Initialize OneDriveReader with PassthroughExtractor
+            # NOTE: LlamaIndex parameter name is 'userprincipalname' (not user_principal_name)
+            logger.info(f"get_documents() called - Loading documents from OneDrive folder: {self.folder_path}")
+            logger.info(f"get_documents() - user_principal_name: '{self.user_principal_name}'")
+            logger.info(f"get_documents() - client_id: '{self.client_id[:10]}...'")
+            logger.info(f"get_documents() - tenant_id: '{self.tenant_id}'")
             
             # Create PassthroughExtractor (no progress callback for get_documents)
             extractor = PassthroughExtractor(progress_callback=None)
             
-            # Initialize OneDriveReader with PassthroughExtractor
+            logger.info(f"get_documents() - Creating OneDriveReader with userprincipalname='{self.user_principal_name}'")
             reader = OneDriveReader(
                 client_id=self.client_id,
                 client_secret=self.client_secret,
                 tenant_id=self.tenant_id,
-                user_principal_name=self.user_principal_name,
+                userprincipalname=self.user_principal_name,  # Note: LlamaIndex uses 'userprincipalname' not 'user_principal_name'
                 file_extractor={".pdf": extractor, ".docx": extractor, ".pptx": extractor,
                                ".xlsx": extractor, ".txt": extractor, ".md": extractor,
                                ".html": extractor, ".csv": extractor}
             )
+            logger.info(f"get_documents() - OneDriveReader created successfully")
             
             # Use OneDriveReader to load placeholder documents
             if self.file_ids:
                 # Load specific files by ID
+                logger.info(f"get_documents() - Loading {len(self.file_ids)} specific files by ID")
                 documents = reader.load_data(file_ids=self.file_ids)
                 logger.info(f"Loaded {len(self.file_ids)} specific OneDrive files by ID")
             else:
                 # Load all files from folder path
+                logger.info(f"get_documents() - Loading files from folder path: {self.folder_path}")
                 documents = reader.load_data(folder_path=self.folder_path)
                 logger.info(f"Loaded {len(documents)} OneDrive files from folder: {self.folder_path}")
             
@@ -106,66 +122,90 @@ class OneDriveSource(BaseDataSource):
             return documents
             
         except Exception as e:
-            logger.error(f"Error loading documents from OneDrive: {str(e)}")
+            logger.error(f"Error loading documents from OneDrive in get_documents(): {str(e)}", exc_info=True)
             raise
     
-    def get_documents_with_progress(self, progress_callback=None) -> List[Document]:
+    async def get_documents_with_progress(self, progress_callback=None) -> List[Document]:
         """
-        Retrieve documents from OneDrive with progress tracking using PassthroughExtractor.
-        Returns placeholder documents with file metadata for DocumentProcessor.
+        Retrieve documents from OneDrive with progress tracking.
+        OneDrive downloads files directly and extracts actual content.
         
         Args:
             progress_callback: Callback function for progress updates
         
         Returns:
-            List[Document]: List of placeholder Document objects with _fs metadata
+            List[Document]: List of Document objects with actual file content
         """
         try:
             from llama_index.readers.microsoft_onedrive import OneDriveReader
             
-            logger.info(f"Loading documents from OneDrive with progress tracking")
+            logger.info(f"get_documents_with_progress() called - Loading documents from OneDrive with progress tracking")
+            logger.info(f"get_documents_with_progress() - user_principal_name: '{self.user_principal_name}'")
+            logger.info(f"get_documents_with_progress() - client_id: '{self.client_id[:10]}...'")
+            logger.info(f"get_documents_with_progress() - tenant_id: '{self.tenant_id}'")
+            logger.info(f"get_documents_with_progress() - folder_path: '{self.folder_path}'")
             
             if progress_callback:
+                logger.info(f"get_documents_with_progress() - progress_callback provided, calling with initial message")
                 progress_callback(0, 1, "Connecting to OneDrive...")
             
-            # Create PassthroughExtractor with progress callback
-            extractor = PassthroughExtractor(progress_callback=progress_callback)
+            # OneDrive downloads files to temp directory, so we need immediate processing
+            # Create DocumentProcessor for immediate file processing
+            from document_processor import DocumentProcessor, get_parser_type_from_env
+            parser_type = get_parser_type_from_env()
+            doc_processor = DocumentProcessor(parser_type=parser_type)
+            
+            # Create PassthroughExtractor with progress callback AND doc_processor for immediate processing
+            extractor = PassthroughExtractor(progress_callback=progress_callback, doc_processor=doc_processor)
             
             # Initialize OneDriveReader with PassthroughExtractor
+            # NOTE: LlamaIndex parameter name is 'userprincipalname' (not user_principal_name)
+            logger.info(f"get_documents_with_progress() - Creating OneDriveReader with userprincipalname='{self.user_principal_name}'")
             reader = OneDriveReader(
                 client_id=self.client_id,
                 client_secret=self.client_secret,
                 tenant_id=self.tenant_id,
-                user_principal_name=self.user_principal_name,
+                userprincipalname=self.user_principal_name,
                 file_extractor={".pdf": extractor, ".docx": extractor, ".pptx": extractor,
                                ".xlsx": extractor, ".txt": extractor, ".md": extractor,
                                ".html": extractor, ".csv": extractor}
             )
+            logger.info(f"get_documents_with_progress() - OneDriveReader created successfully")
             
-            # Use OneDriveReader to load placeholder documents
+            # Use OneDriveReader to load documents with actual content (processed immediately by PassthroughExtractor)
             if self.file_ids:
                 # Loading specific files by ID
+                logger.info(f"get_documents_with_progress() - Loading {len(self.file_ids)} specific files by ID")
                 documents = reader.load_data(file_ids=self.file_ids)
-                logger.info(f"Loaded {len(self.file_ids)} specific OneDrive files by ID")
+                logger.info(f"Loaded {len(self.file_ids) if self.file_ids else 0} specific OneDrive files by ID")
             else:
                 # Loading from folder path
+                logger.info(f"get_documents_with_progress() - Calling reader.load_data(folder_path='{self.folder_path}')")
                 documents = reader.load_data(folder_path=self.folder_path)
+                logger.info(f"load_data() returned: {documents} (type: {type(documents)})")
+                if documents is None:
+                    logger.error("load_data() returned None - this indicates OneDriveReader failed to authenticate or load documents")
+                    raise ValueError("OneDriveReader.load_data() returned None - authentication or loading failed")
                 logger.info(f"Loaded {len(documents)} OneDrive files from folder: {self.folder_path}")
             
             # Add source metadata to placeholder documents
-            for doc in documents:
-                doc.metadata.update({
-                    "source": "onedrive",
-                    "user_principal_name": self.user_principal_name,
-                    "client_id": self.client_id,
-                    "tenant_id": self.tenant_id,
-                    "folder_path": self.folder_path,
-                    "source_type": "onedrive_file"
-                })
-            
-            logger.info(f"OneDriveSource created {len(documents)} placeholder documents for processing")
-            return documents
+            if documents:
+                for doc in documents:
+                    doc.metadata.update({
+                        "source": "onedrive",
+                        "user_principal_name": self.user_principal_name,
+                        "client_id": self.client_id,
+                        "tenant_id": self.tenant_id,
+                        "folder_path": self.folder_path,
+                        "source_type": "onedrive_file"
+                    })
+                
+                logger.info(f"OneDriveSource created {len(documents)} placeholder documents for processing")
+                return documents
+            else:
+                logger.warning("No documents returned from OneDrive")
+                return []
             
         except Exception as e:
-            logger.error(f"Error loading documents from OneDrive: {str(e)}")
+            logger.error(f"Error loading documents from OneDrive in get_documents_with_progress(): {str(e)}", exc_info=True)
             raise

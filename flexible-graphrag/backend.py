@@ -323,6 +323,12 @@ class FlexibleGraphRAGBackend:
         if not config:
             raise ValueError(f"{data_source.title()} configuration is required for {data_source} data source")
         
+        # Get skip_graph flag from kwargs
+        skip_graph = kwargs.get('skip_graph', False)
+        
+        # Log the config for debugging
+        logger.info(f"Processing {data_source} with config: {config}")
+        
         # Initialize progress tracking
         file_progress = self._initialize_data_source_progress(processing_id, data_source, display_name)
         

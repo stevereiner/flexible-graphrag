@@ -1,9 +1,5 @@
 # Flexible GraphRAG Configuration
 
-# Data Source (filesystem, cmis, alfresco, upload, web, wikipedia, youtube, s3, gcs, azure_blob, onedrive, sharepoint, box, google_drive)
-DATA_SOURCE=filesystem
-SOURCE_PATHS=["./sample-docs/cmispress.txt"]
-
 # Document Parser Configuration
 # DOCUMENT_PARSER can be "docling" (default, open-source) or "llamaparse" (cloud-based, requires API key)
 # Docling: Free, open-source, runs locally, good for most document types
@@ -53,39 +49,23 @@ DOCUMENT_PARSER=docling
 # Optional: blob (specific blob name), prefix (folder path), connection_string (alternative to account_key)
 
 # Microsoft OneDrive Configuration
-# ONEDRIVE_CONFIG={"user_principal_name": "user@domain.com", "client_id": "12345678-1234-1234-1234-123456789abc", "client_secret": "your-secret", "tenant_id": "87654321-4321-4321-4321-cba987654321", "folder_path": "/Documents", "folder_id": "01234567890ABCDEF"}
-# Required: user_principal_name, client_id, client_secret, tenant_id
-# Optional: folder_path (default: /), folder_id, file_ids (list of specific file IDs)
-# Note: Requires Azure AD app registration with Microsoft Graph API permissions
+# ONEDRIVE_CONFIG={"user_principal_name": "admin@tenant.onmicrosoft.com", "client_id": "12345678-1234-1234-1234-123456789abc", "client_secret": "XFA8Q~abc123...", "tenant_id": "87654321-4321-4321-4321-cba987654321", "folder_path": "/Documents"}
+# Required: user_principal_name (M365 email), client_id, client_secret, tenant_id
+# Optional: folder_path (default: / for root), folder_id, file_ids
+# Setup instructions: docs/DATA-SOURCE-CONFIGURATION.md
 
 # Microsoft SharePoint Configuration
-# SHAREPOINT_CONFIG={"client_id": "12345678-1234-1234-1234-123456789abc", "client_secret": "your-secret", "tenant_id": "87654321-4321-4321-4321-cba987654321", "site_name": "MySite", "folder_path": "/Shared Documents", "folder_id": "library-id"}
-# Required: client_id, client_secret, tenant_id, site_name
-# Optional: site_id (for Sites.Selected permission), folder_path (default: /), folder_id, file_ids
-# Note: site_name is the SharePoint site name, not full URL
+# SHAREPOINT_CONFIG={"client_id": "12345678-1234-1234-1234-123456789abc", "client_secret": "XFA8Q~abc123...", "tenant_id": "87654321-4321-4321-4321-cba987654321", "site_name": "MySite", "folder_path": "/Shared Documents"}
+# Required: client_id, client_secret, tenant_id, site_name (SharePoint site name, not full URL)
+# Optional: site_id, folder_path (default: /), folder_id, file_ids
+# Setup instructions: docs/DATA-SOURCE-CONFIGURATION.md
 
 # Box Configuration
-# Box supports two authentication methods:
-# 
-# 1. Developer Token (simplest for testing, expires in 60 minutes):
-#    BOX_CONFIG={"folder_id": "348947552674", "developer_token": "your_developer_token"}
-#    Required: developer_token (or access_token)
-#    Optional: folder_id (default: "0" for root folder)
-#    Note: Get developer token from Box Developer Console (https://app.box.com/developers/console)
-#
-# 2. Client Credentials Grant (CCG) - Production OAuth (long-lived credentials):
-#    a) Non-enterprise user account:
-#       BOX_CONFIG={"folder_id": "0", "client_id": "abc123", "client_secret": "xyz789", "user_id": "12345678"}
-#    
-#    b) Enterprise-wide access:
-#       BOX_CONFIG={"folder_id": "0", "client_id": "abc123", "client_secret": "xyz789", "enterprise_id": "987654321"}
-#    
-#    c) Enterprise + specific user:
-#       BOX_CONFIG={"folder_id": "0", "client_id": "abc123", "client_secret": "xyz789", "enterprise_id": "987654321", "user_id": "12345678"}
-#    
-#    CCG Required: client_id, client_secret, AND at least one of (user_id OR enterprise_id)
-#    CCG Optional: folder_id (default: "0" for root), box_file_ids (list of specific file IDs)
-#    Note: Requires Box app with CCG enabled in Box Developer Console
+# Developer Token (simplest, expires in 60 minutes):
+# BOX_CONFIG={"folder_id": "0", "developer_token": "your_developer_token"}
+# Client Credentials Grant (production, long-lived):
+# BOX_CONFIG={"folder_id": "0", "client_id": "abc123", "client_secret": "xyz789", "user_id": "12345678"}
+# For detailed setup instructions, see docs/DATA-SOURCE-CONFIGURATION.md
 
 # Google Drive Configuration
 # GOOGLE_DRIVE_CONFIG={"credentials": "{\"type\":\"service_account\",\"project_id\":\"my-project\",...}", "folder_id": "1A2B3C4D5E6F7G8H9I0J", "file_ids": ["file1-id", "file2-id"], "query": "name contains 'report'"}
@@ -95,15 +75,6 @@ DOCUMENT_PARSER=docling
 
 # Sample Text for Testing (optional - overrides default Dune text)
 # SAMPLE_TEXT="Luke Skywalker is a Jedi Knight from Tatooine. His father is Darth Vader, formerly known as Anakin Skywalker."
-
-# Source Path Examples:
-# Windows single file: SOURCE_PATHS=["C:\Documents\report.pdf"]
-# Windows multiple files: SOURCE_PATHS=["C:\file1.pdf", "D:\folder\file2.docx"] 
-# Windows whole directory: SOURCE_PATHS=["C:\Documents\reports"]  # Note: processes ALL files
-# macOS single file: SOURCE_PATHS=["/Users/username/Documents/report.pdf"]
-# Linux single file: SOURCE_PATHS=["/home/username/documents/report.pdf"]
-# See docs/SOURCE-PATH-EXAMPLES.md for more detailed examples
-# Note: UI clients use different env vars (PROCESS_FOLDER_PATH, VITE_PROCESS_FOLDER_PATH)
 
 # ====================================================================
 # 1. GRAPH DATABASE CONFIGURATION
@@ -323,6 +294,16 @@ EMBEDDING_MODEL=text-embedding-3-small  # 1536 dimensions, recommended
 # ====================================================================
 # 5. CONTENT SOURCES CONFIGURATION
 # ====================================================================
+
+# Data Source Type (mainly for REST API and MCP server usage)
+# Options: filesystem, cmis, alfresco, upload, web, wikipedia, youtube, s3, gcs, azure_blob, onedrive, sharepoint, box, google_drive
+# Note: UI clients typically override this setting with their own data source selection
+DATA_SOURCE=filesystem
+
+# Source Paths (for filesystem data source - REST API and MCP server)
+# Note: UI clients use file upload dialogs instead of this configuration
+# For path format examples, see docs/DATA-SOURCE-CONFIGURATION.md
+SOURCE_PATHS=["./sample-docs/cmispress.txt"]
 
 # CMIS Configuration (if using CMIS)
 CMIS_URL=http://localhost:8080/alfresco/api/-default-/public/cmis/versions/1.1/atom
