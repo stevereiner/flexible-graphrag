@@ -253,16 +253,37 @@ SEARCH_DB_CONFIG={"url": "http://localhost:9200", "index_name": "hybrid_search_f
 # 4. LLM CONFIGURATION
 # ====================================================================
 
+# LLM Provider Selection
 LLM_PROVIDER=openai
-USE_OPENAI=true
 #LLM_PROVIDER=ollama
-#USE_OPENAI=false
+#LLM_PROVIDER=azure_openai
+#LLM_PROVIDER=gemini
+#LLM_PROVIDER=anthropic
 
 # OpenAI Configuration (if using OpenAI)
 OPENAI_API_KEY=your-openai-api-key-here
 OPENAI_MODEL=gpt-4o-mini
-EMBEDDING_MODEL=text-embedding-3-small  # 1536 dimensions, recommended
 # OPENAI_TIMEOUT=120.0  # LLM request timeout in seconds (default: 2 minutes)
+
+# Azure OpenAI Configuration (if using Azure OpenAI)
+# AZURE_OPENAI_API_KEY=your-azure-openai-key
+# AZURE_OPENAI_ENDPOINT=https://your-resource.openai.azure.com/
+# AZURE_OPENAI_ENGINE=gpt-4o-mini  # Your deployment name (often same as model name)
+# AZURE_OPENAI_MODEL=gpt-4o-mini  # The model name
+# AZURE_OPENAI_API_VERSION=2024-12-01-preview
+# AZURE_OPENAI_TIMEOUT=120.0  # LLM request timeout in seconds
+
+# Google Gemini Configuration (if using Gemini)
+# GOOGLE_API_KEY=your-google-api-key
+# GEMINI_MODEL=gemini-2.0-flash
+# GEMINI_TIMEOUT=120.0  # LLM request timeout in seconds
+# Note: Gemini has known issues with graph search (use with GRAPH_DB=none for vector+search only)
+
+# Anthropic Configuration (if using Claude)
+# ANTHROPIC_API_KEY=your-anthropic-api-key
+# ANTHROPIC_MODEL=claude-sonnet-4-5-20250929
+# ANTHROPIC_TIMEOUT=120.0  # LLM request timeout in seconds
+# Note: Claude only creates chunk nodes during graph building (no entity/relationship extraction)
 
 # Ollama Configuration (if using Ollama)
 #OLLAMA_MODEL=llama3.1:8b              # 8B params - did better previously, but gives errors,
@@ -274,22 +295,47 @@ EMBEDDING_MODEL=text-embedding-3-small  # 1536 dimensions, recommended
 #OLLAMA_MODEL=gpt-oss:20b              # 20B params, needs 16 GB min GPU memory, and 16 GB - 32 GB system memory, 
                                        # 13 GB on disk, didn't seem to work (chunk only)
 
-# Embedding Models for Ollama (smaller models perform better):
-#EMBEDDING_MODEL=all-minilm             # 22M params, 384 dims - fastest, default for Ollama
-#EMBEDDING_MODEL=nomic-embed-text       # 137M params, 768 dims - good balance of speed/quality
-#EMBEDDING_MODEL=mxbai-embed-large      # 334M params, 1024 dims - high quality but much slower
-
 #OLLAMA_BASE_URL=http://localhost:11434
 # OLLAMA_TIMEOUT=300.0  # LLM request timeout in seconds (default: 5 minutes - higher for local processing)
 
-# Azure OpenAI Configuration (if using Azure)
-# AZURE_OPENAI_TIMEOUT=120.0  # LLM request timeout in seconds
+# ====================================================================
+# EMBEDDING CONFIGURATION (Independent of LLM Provider)
+# ====================================================================
+# Embeddings can be configured separately from your LLM provider.
+# This allows mixing providers (e.g., OpenAI LLM + Ollama embeddings for privacy)
+#
+# EMBEDDING_KIND: openai, ollama, google, azure (optional - defaults to LLM provider)
+# EMBEDDING_MODEL: Specific model name
+# EMBEDDING_DIMENSION: Optional explicit dimension override
+#
+# See docs/LLM-EMBEDDING-CONFIG.md for detailed configuration examples
+#
+# Quick Examples:
+# - Local Ollama embeddings with any LLM:
+#   EMBEDDING_KIND=ollama
+#   EMBEDDING_MODEL=nomic-embed-text  # 768 dims (default)
+#
+# - Google embeddings with custom dimension:
+#   EMBEDDING_KIND=google
+#   EMBEDDING_MODEL=text-embedding-004  # Note: text-embedding-001 not available
+#   EMBEDDING_DIMENSION=768  # Override default 1536 (supports 768, 1536, or 3072)
+#
+# - Azure embeddings with any LLM provider:
+#   EMBEDDING_KIND=azure
+#   EMBEDDING_MODEL=text-embedding-3-small  # Used as deployment name
+#   AZURE_OPENAI_ENDPOINT=https://your-resource.openai.azure.com/
+#   AZURE_OPENAI_API_KEY=your-azure-key
+#   AZURE_OPENAI_API_VERSION=2024-12-01-preview
+#   # AZURE_EMBEDDING_DEPLOYMENT=custom-deployment-name  # Optional: override deployment name
 
-# Anthropic Configuration (if using Claude)
-# ANTHROPIC_TIMEOUT=120.0  # LLM request timeout in seconds
+# OpenAI Embeddings (if using OpenAI embeddings with non-OpenAI LLM)
+EMBEDDING_MODEL=text-embedding-3-small  # Only used if EMBEDDING_KIND not specified
 
-# Gemini Configuration (if using Google)
-# GEMINI_TIMEOUT=120.0  # LLM request timeout in seconds
+# Ollama Embeddings (if using Ollama embeddings)
+# EMBEDDING_KIND=ollama
+#EMBEDDING_MODEL=nomic-embed-text       # 137M params, 768 dims - good balance (default)
+#EMBEDDING_MODEL=all-minilm             # 22M params, 384 dims - fastest
+#EMBEDDING_MODEL=mxbai-embed-large      # 334M params, 1024 dims - highest quality
 
 # ====================================================================
 # 5. CONTENT SOURCES CONFIGURATION

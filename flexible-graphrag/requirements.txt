@@ -28,6 +28,7 @@ llama-index-llms-azure-openai
 llama-index-llms-anthropic
 llama-index-embeddings-openai
 llama-index-embeddings-ollama
+llama-index-embeddings-google-genai
 llama-index-embeddings-azure-openai
 llama-index-vector-stores-neo4jvector
 llama-index-vector-stores-qdrant

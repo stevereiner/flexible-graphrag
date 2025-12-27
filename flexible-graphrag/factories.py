@@ -1,5 +1,6 @@
 from typing import Dict, Any
 import logging
+import os
 
 from llama_index.llms.openai import OpenAI
 from llama_index.llms.ollama import Ollama
@@ -9,6 +10,7 @@ from llama_index.llms.anthropic import Anthropic
 from llama_index.embeddings.openai import OpenAIEmbedding
 from llama_index.embeddings.ollama import OllamaEmbedding
 from llama_index.embeddings.azure_openai import AzureOpenAIEmbedding
+from llama_index.embeddings.google_genai import GoogleGenAIEmbedding
 from llama_index.vector_stores.neo4jvector import Neo4jVectorStore
 from llama_index.vector_stores.qdrant import QdrantVectorStore
 from llama_index.vector_stores.elasticsearch import ElasticsearchStore, AsyncBM25Strategy
@@ -43,13 +45,32 @@ from neptune_analytics_wrapper import NeptuneAnalyticsNoVectorWrapper
 logger = logging.getLogger(__name__)
 
 
-def get_embedding_dimension(llm_provider: LLMProvider, llm_config: Dict[str, Any]) -> int:
+def get_embedding_dimension(embedding_kind: str = None, embedding_model: str = None, embedding_dimension: int = None) -> int:
     """
-    Get the embedding dimension based on LLM provider and specific model.
-    Centralized function to avoid repeating logic across all database factories.
+    Get the embedding dimension based on embedding kind and model.
+    Independent of LLM provider - embeddings can be configured separately.
+    
+    Args:
+        embedding_kind: Type of embedding (openai, ollama, google, azure)
+        embedding_model: Specific model name
+        embedding_dimension: Explicit dimension override (takes precedence)
+    
+    Returns:
+        Embedding dimension
     """
-    if llm_provider == LLMProvider.OPENAI:
-        embedding_model = llm_config.get("embedding_model", "text-embedding-3-small")
+    # If explicit dimension provided, use it
+    if embedding_dimension:
+        logger.info(f"Using explicit embedding dimension: {embedding_dimension}")
+        return embedding_dimension
+    
+    # Determine dimension based on embedding kind and model
+    if not embedding_kind:
+        logger.warning("No embedding_kind specified, defaulting to 1536")
+        return 1536
+    
+    embedding_kind = embedding_kind.lower()
+    
+    if embedding_kind == "openai":
         # OpenAI embedding dimensions by model
         if "text-embedding-3-large" in embedding_model:
             return 3072
@@ -60,8 +81,7 @@ def get_embedding_dimension(llm_provider: LLMProvider, llm_config: Dict[str, Any
         else:
             return 1536  # Default for OpenAI
     
-    elif llm_provider == LLMProvider.OLLAMA:
-        embedding_model = llm_config.get("embedding_model", "mxbai-embed-large")
+    elif embedding_kind == "ollama":
         # Ollama embedding dimensions by model
         if "mxbai-embed-large" in embedding_model:
             return 1024
@@ -70,11 +90,16 @@ def get_embedding_dimension(llm_provider: LLMProvider, llm_config: Dict[str, Any
         elif "all-minilm" in embedding_model:
             return 384
         else:
-            return 1024  # Default for Ollama
+            logger.warning(f"Unknown Ollama model {embedding_model}, defaulting to 768 (nomic-embed-text)")
+            return 768
     
-    elif llm_provider == LLMProvider.AZURE_OPENAI:
+    elif embedding_kind == "google":
+        # Google Gemini embeddings support 768, 1536, or 3072 dimensions
+        # Default to 1536 for text-embedding-001
+        return 1536  # Default for Google embeddings
+    
+    elif embedding_kind == "azure":
         # Azure OpenAI uses same models as OpenAI
-        embedding_model = llm_config.get("embedding_model", "text-embedding-3-small")
         if "text-embedding-3-large" in embedding_model:
             return 3072
         elif "text-embedding-3-small" in embedding_model:
@@ -83,9 +108,9 @@ def get_embedding_dimension(llm_provider: LLMProvider, llm_config: Dict[str, Any
             return 1536  # Default for Azure OpenAI
     
     else:
-        # Default fallback for other providers
-        logger.warning(f"Unknown embedding dimension for provider {llm_provider}, defaulting to 1536")
-        return 1536
+        # Default to Ollama nomic-embed-text for unknown embedding kinds
+        logger.warning(f"Unknown embedding_kind {embedding_kind}, defaulting to Ollama nomic-embed-text (768)")
+        return 768
 
 class LLMFactory:
     """Factory for creating LLM instances based on configuration"""
@@ -102,7 +127,8 @@ class LLMFactory:
                 temperature=config.get("temperature", 0.1),
                 api_key=config.get("api_key"),
                 max_tokens=config.get("max_tokens", 4000),
-                request_timeout=config.get("timeout", 120.0)
+                #request_timeout=config.get("timeout", 120.0)
+                timeout=config.get("timeout", 120.0)
             )
         
         elif provider == LLMProvider.OLLAMA:
@@ -119,11 +145,11 @@ class LLMFactory:
         
         elif provider == LLMProvider.GEMINI:
             return GoogleGenAI(
-                model=config.get("model", "models/gemini-1.5-flash"),
+                model=config.get("model", "gemini-2.5-flash"),
                 api_key=config.get("api_key"),
                 temperature=config.get("temperature", 0.1),
                 # timeout not supported by GoogleGenAI, handled by google.genai.Client
-                # request_timeout=config.get("timeout", 120.0) 
+                # timeout=config.get("timeout", 120.0) 
             )
         
         elif provider == LLMProvider.AZURE_OPENAI:
@@ -134,71 +160,203 @@ class LLMFactory:
                 azure_endpoint=config["azure_endpoint"],
                 api_key=config["api_key"],
                 api_version=config.get("api_version", "2024-02-01"),
-                request_timeout=config.get("timeout", 120.0)
+                timeout=config.get("timeout", 120.0)
             )
         
         elif provider == LLMProvider.ANTHROPIC:
             return Anthropic(
-                model=config.get("model", "claude-3-5-sonnet-20241022"),
+                model=config.get("model", "claude-sonnet-4-5-20250929"),
                 api_key=config.get("api_key"),
                 temperature=config.get("temperature", 0.1),
-                request_timeout=config.get("timeout", 120.0)
+                timeout=config.get("timeout", 120.0)
             )
         
         else:
             raise ValueError(f"Unsupported LLM provider: {provider}")
     
     @staticmethod
-    def create_embedding_model(provider: LLMProvider, config: Dict[str, Any]):
-        """Create embedding model based on provider"""
+    def create_embedding_model(provider: LLMProvider, config: Dict[str, Any], settings):
+        """Create embedding model based on configuration
         
-        logger.info(f"Creating embedding model with provider: {provider}")
+        Settings object contains:
+        - embedding_kind: "openai", "ollama", "google", "azure" (overrides provider default)
+        - embedding_model: Model name
+        - embedding_dimension: Explicit dimension (optional, for configurable models like Google)
+        """
         
+        logger.info(f"Creating embedding model with LLM provider: {provider}")
+        
+        # Get embedding config from settings object
+        embedding_kind = getattr(settings, 'embedding_kind', None)
+        embedding_model = getattr(settings, 'embedding_model', None)
+        embedding_dimension = getattr(settings, 'embedding_dimension', None)
+        
+        logger.info(f"Embedding kind: {embedding_kind}, Model: {embedding_model}, Dimension: {embedding_dimension}")
+        
+        if embedding_kind:
+            logger.info(f"Using explicit embedding_kind: {embedding_kind}")
+            
+            if embedding_kind == "openai":
+                model_name = embedding_model or "text-embedding-3-small"
+                logger.info(f"Using OpenAI embeddings - Model: {model_name}")
+                
+                # OpenAI embeddings can be used with any LLM provider
+                # If LLM provider is NOT OpenAI, must use OPENAI_API_KEY environment variable
+                if provider == LLMProvider.OPENAI:
+                    api_key = config.get("api_key") or os.getenv("OPENAI_API_KEY")
+                else:
+                    # For non-OpenAI LLM providers, get OpenAI key from environment only
+                    api_key = os.getenv("OPENAI_API_KEY")
+                
+                if not api_key:
+                    raise ValueError("OpenAI embeddings require OPENAI_API_KEY environment variable when not using openai LLM provider")
+                
+                return OpenAIEmbedding(
+                    model_name=model_name,
+                    api_key=api_key
+                )
+            
+            elif embedding_kind == "ollama":
+                model_name = embedding_model or "nomic-embed-text"
+                base_url = config.get("ollama_base_url", "http://localhost:11434")
+                logger.info(f"Using Ollama embeddings - Model: {model_name}, Base URL: {base_url}")
+                return OllamaEmbedding(
+                    model_name=model_name,
+                    base_url=base_url
+                )
+            
+            elif embedding_kind == "google":
+                model_name = embedding_model or "text-embedding-001"
+                embed_dim = embedding_dimension or 1536
+                logger.info(f"Using Google embeddings - Model: {model_name}, Dimensions: {embed_dim}")
+                
+                return GoogleGenAIEmbedding(
+                    model_name=model_name,
+                    api_key=config.get("api_key"),
+                    embedding_config={
+                        "output_dimensionality": embed_dim
+                    }
+                )
+            
+            elif embedding_kind == "azure":
+                model_name = embedding_model or "text-embedding-3-small"
+                logger.info(f"Using Azure OpenAI embeddings - Model: {model_name}")
+                
+                # Azure embeddings can be used with any LLM provider
+                # If LLM provider is Azure, get config from llm_config; otherwise use environment variables
+                if provider == LLMProvider.AZURE_OPENAI:
+                    azure_endpoint = config.get("azure_endpoint")
+                    api_key = config.get("api_key")
+                    api_version = config.get("api_version", "2024-02-01")
+                else:
+                    # For non-Azure LLM providers, get all Azure config from environment
+                    azure_endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
+                    api_key = os.getenv("AZURE_OPENAI_API_KEY")
+                    api_version = os.getenv("AZURE_OPENAI_API_VERSION", "2024-02-01")
+                
+                if not azure_endpoint or not api_key:
+                    raise ValueError("Azure embeddings require AZURE_OPENAI_ENDPOINT and AZURE_OPENAI_API_KEY environment variables when not using azure_openai LLM provider")
+                
+                # Use EMBEDDING_MODEL as deployment name (common pattern: deployment name = model name)
+                # Allow override with AZURE_EMBEDDING_DEPLOYMENT if deployment name differs from model
+                deployment_name = os.getenv("AZURE_EMBEDDING_DEPLOYMENT") or model_name
+                
+                return AzureOpenAIEmbedding(
+                    model=model_name,
+                    deployment_name=deployment_name,
+                    azure_endpoint=azure_endpoint,
+                    api_key=api_key,
+                    api_version=api_version
+                )
+            
+            else:
+                # Unknown embedding_kind - fall through to provider defaults
+                logger.warning(f"Unknown embedding_kind '{embedding_kind}', using provider default")
+        
+        # No explicit embedding_kind (or unknown kind) - use provider defaults
         if provider in [LLMProvider.OPENAI, LLMProvider.AZURE_OPENAI]:
             if provider == LLMProvider.AZURE_OPENAI:
+                model_name = embedding_model or "text-embedding-3-small"
+                logger.info(f"Using Azure OpenAI embeddings (provider default) - Model: {model_name}")
                 return AzureOpenAIEmbedding(
-                    model=config.get("embedding_model", "text-embedding-3-small"),
+                    model=model_name,
                     azure_endpoint=config["azure_endpoint"],
                     api_key=config["api_key"],
                     api_version=config.get("api_version", "2024-02-01")
                 )
             else:
+                model_name = embedding_model or "text-embedding-3-small"
+                logger.info(f"Using OpenAI embeddings (provider default) - Model: {model_name}")
                 return OpenAIEmbedding(
-                    model_name=config.get("embedding_model", "text-embedding-3-small"),
+                    model_name=model_name,
                     api_key=config.get("api_key")
                 )
         
         elif provider == LLMProvider.OLLAMA:
-            embedding_model = config.get("embedding_model", "mxbai-embed-large")
+            model_name = embedding_model or "nomic-embed-text"
             base_url = config.get("base_url", "http://localhost:11434")
-            logger.info(f"Configuring Ollama Embeddings - Model: {embedding_model}, Base URL: {base_url}")
+            logger.info(f"Using Ollama embeddings (provider default) - Model: {model_name}, Base URL: {base_url}")
             return OllamaEmbedding(
-                model_name=embedding_model,
+                model_name=model_name,
+                base_url=base_url
+            )
+        
+        elif provider == LLMProvider.GEMINI:
+            # Gemini: Use Google embeddings by default
+            model_name = embedding_model or "text-embedding-001"
+            embed_dim = embedding_dimension or 1536
+            logger.info(f"Using Google embeddings (Gemini provider default) - Model: {model_name}, Dimensions: {embed_dim}")
+            
+            return GoogleGenAIEmbedding(
+                model_name=model_name,
+                api_key=config.get("api_key"),
+                embedding_config={
+                    "output_dimensionality": embed_dim
+                }
+            )
+        
+        elif provider == LLMProvider.ANTHROPIC:
+            # Anthropic: Use Ollama embeddings by default (nomic-embed-text, 768 dims)
+            # Allows local, private embeddings with Claude reasoning
+            model_name = embedding_model or "nomic-embed-text"
+            base_url = config.get("ollama_base_url") or config.get("base_url", "http://localhost:11434")
+            logger.info(f"Using Ollama embeddings (Anthropic provider default) - Model: {model_name}, Base URL: {base_url}")
+            return OllamaEmbedding(
+                model_name=model_name,
                 base_url=base_url
             )
         
         else:
-            # Default to OpenAI for other providers
-            logger.warning(f"No embedding model implementation for {provider}, using OpenAI default")
-            return OpenAIEmbedding(model_name="text-embedding-3-small")
+            # Default to Ollama nomic-embed-text for unknown providers
+            model_name = embedding_model or "nomic-embed-text"
+            base_url = config.get("ollama_base_url") or config.get("base_url", "http://localhost:11434")
+            logger.warning(f"No embedding model implementation for {provider}, using Ollama default: {model_name}")
+            return OllamaEmbedding(
+                model_name=model_name,
+                base_url=base_url
+            )
 
 class DatabaseFactory:
     """Factory for creating database connections"""
     
     @staticmethod
-    def create_vector_store(db_type: VectorDBType, config: Dict[str, Any], llm_provider: LLMProvider = None, llm_config: Dict[str, Any] = None):
+    def create_vector_store(db_type: VectorDBType, config: Dict[str, Any], llm_provider: LLMProvider = None, llm_config: Dict[str, Any] = None, app_config=None):
         """Create vector store based on database type"""
         
         logger.info(f"Creating vector store with type: {db_type}")
         
-        # Get embedding dimension from centralized function
-        embed_dim = config.get("embed_dim")
-        if embed_dim is None and llm_provider and llm_config:
-            embed_dim = get_embedding_dimension(llm_provider, llm_config)
-            logger.info(f"Detected embedding dimension: {embed_dim} for provider: {llm_provider}")
-        elif embed_dim is None:
-            embed_dim = 1536  # Fallback default
-            logger.warning(f"No embedding dimension detected, using fallback: {embed_dim}")
+        # Get embedding dimension - now independent of LLM provider
+        # Extract embedding configuration from app_config (Settings object)
+        embedding_kind = getattr(app_config, 'embedding_kind', None) if app_config else None
+        embedding_model = getattr(app_config, 'embedding_model', None) if app_config else None
+        embedding_dimension = getattr(app_config, 'embedding_dimension', None) if app_config else None
+        
+        embed_dim = get_embedding_dimension(
+            embedding_kind=embedding_kind,
+            embedding_model=embedding_model,
+            embedding_dimension=embedding_dimension
+        )
+        logger.info(f"Detected embedding dimension: {embed_dim} (kind: {embedding_kind}, model: {embedding_model})")
         
         if db_type == VectorDBType.NONE:
             logger.info("Vector search disabled - no vector store created")
@@ -560,7 +718,7 @@ class DatabaseFactory:
             
             # Use the proper embedding model based on LLM provider
             if llm_provider and llm_config:
-                embed_model = LLMFactory.create_embedding_model(llm_provider, llm_config)
+                embed_model = LLMFactory.create_embedding_model(llm_provider, llm_config, settings=app_config)
                 provider_name = llm_provider.value if hasattr(llm_provider, 'value') else str(llm_provider)
                 logger.info(f"Embedding model: {provider_name}")
             else:
@@ -623,13 +781,17 @@ class DatabaseFactory:
             include_basic_schema = config.get("include_basic_schema", True)
             
             # Get embedding dimension from centralized function
-            embed_dim = config.get("embed_dim")
-            if embed_dim is None and llm_provider and llm_config:
-                embed_dim = get_embedding_dimension(llm_provider, llm_config)
-                logger.info(f"Detected embedding dimension for ArcadeDB: {embed_dim} for provider: {llm_provider}")
-            elif embed_dim is None:
-                embed_dim = 1536  # Fallback default
-                logger.warning(f"No embedding dimension detected for ArcadeDB, using fallback: {embed_dim}")
+            # Extract embedding configuration from app_config (Settings object)
+            embedding_kind = getattr(app_config, 'embedding_kind', None) if app_config else None
+            embedding_model = getattr(app_config, 'embedding_model', None) if app_config else None
+            embedding_dimension = getattr(app_config, 'embedding_dimension', None) if app_config else None
+            
+            embed_dim = get_embedding_dimension(
+                embedding_kind=embedding_kind,
+                embedding_model=embedding_model,
+                embedding_dimension=embedding_dimension
+            )
+            logger.info(f"Detected embedding dimension for ArcadeDB: {embed_dim} (kind: {embedding_kind}, model: {embedding_model})")
             
             logger.info(f"Creating ArcadeDB graph store - Host: {host}:{port}, Database: {database}, Include basic schema: {include_basic_schema}, Embed dim: {embed_dim}")
             
@@ -847,19 +1009,23 @@ class DatabaseFactory:
             raise ValueError(f"Unsupported graph database: {db_type}")
     
     @staticmethod
-    def create_search_store(db_type: SearchDBType, config: Dict[str, Any], vector_db_type: VectorDBType = None, llm_provider: LLMProvider = None, llm_config: Dict[str, Any] = None):
+    def create_search_store(db_type: SearchDBType, config: Dict[str, Any], vector_db_type: VectorDBType = None, llm_provider: LLMProvider = None, llm_config: Dict[str, Any] = None, app_config=None):
         """Create search store for full-text search"""
         
         logger.info(f"Creating search store with type: {db_type}")
         
         # Get embedding dimension from centralized function
-        embed_dim = config.get("embed_dim")
-        if embed_dim is None and llm_provider and llm_config:
-            embed_dim = get_embedding_dimension(llm_provider, llm_config)
-            logger.info(f"Detected embedding dimension for search store: {embed_dim} for provider: {llm_provider}")
-        elif embed_dim is None:
-            embed_dim = 1536  # Fallback default
-            logger.warning(f"No embedding dimension detected for search store, using fallback: {embed_dim}")
+        # Extract embedding configuration from app_config (Settings object)
+        embedding_kind = getattr(app_config, 'embedding_kind', None) if app_config else None
+        embedding_model = getattr(app_config, 'embedding_model', None) if app_config else None
+        embedding_dimension = getattr(app_config, 'embedding_dimension', None) if app_config else None
+        
+        embed_dim = get_embedding_dimension(
+            embedding_kind=embedding_kind,
+            embedding_model=embedding_model,
+            embedding_dimension=embedding_dimension
+        )
+        logger.info(f"Detected embedding dimension for search store: {embed_dim} (kind: {embedding_kind}, model: {embedding_model})")
         
         if db_type == SearchDBType.NONE:
             logger.info("Full-text search disabled - no search store created")

@@ -2,6 +2,26 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2025-12-26] - Completed LLM setup support: Azure OpenAI (working), Google Gemini (issue), Anthropic (issue)
+
+### Enhanced
+- **Independent embedding provider configuration** - Embeddings can now be configured independently from LLM provider with new environment variables: `EMBEDDING_KIND`, `EMBEDDING_MODEL`, `EMBEDDING_DIMENSION`
+- **Google Gemini embeddings support** - Added `text-embedding-004` model with configurable dimensions (768, 1536, or 3072)
+- **Azure embeddings support** - Can be used with any LLM provider by setting `AZURE_OPENAI_ENDPOINT`, `AZURE_OPENAI_API_KEY`, and `AZURE_OPENAI_API_VERSION`
+- **Embedding dimension detection** - Unified configuration across all database types using centralized `get_embedding_dimension()` function
+- **Removed hardcoded dimension assumptions** - Eliminated `1536 if llm_provider == OPENAI else 1024` patterns in config.py that incorrectly assumed Ollama when not OpenAI
+
+### Fixed
+- **Mixed LLM/Embedding provider API key handling** - Correctly fetches credentials from environment for cross-provider scenarios (e.g., Azure LLM with OpenAI embeddings)
+- **Azure embeddings deployment name** - Uses `EMBEDDING_MODEL` as deployment name by default, with optional `AZURE_EMBEDDING_DEPLOYMENT` override
+- **Google Gemini LLM support** - Enabled for vector and search operations (graph search has known instrumentation issues)
+- **Anthropic Claude LLM support** - Enabled for GraphRAG (creates chunk nodes only, no entity extraction)
+
+### Tested
+- Comprehensive LLM compatibility testing across Google Gemini, Anthropic Claude, Azure OpenAI, and Ollama models
+- Mixed provider configurations validated (OpenAI LLM + Azure embeddings, Azure LLM + OpenAI embeddings, Gemini + OpenAI embeddings)
+- See `docs/LLM-TESTING-RESULTS.md` for test results for new models and Ollama
+
 ## [2025-12-24] - OneDrive and SharePoint data sources fixed and now working
 
 ### Fixed

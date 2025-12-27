@@ -14,7 +14,6 @@ from config import Settings as AppSettings, SAMPLE_SCHEMA, SearchDBType, VectorD
 from document_processor import DocumentProcessor
 from factories import LLMFactory, DatabaseFactory
 
-
 logger = logging.getLogger(__name__)
 
 class SchemaManager:
@@ -116,6 +115,7 @@ class HybridSearchSystem:
     
     def __init__(self, config: AppSettings):
         self.config = config
+        
         # Initialize DocumentProcessor with configured parser type
         # Handle both Enum and string values
         if hasattr(config, 'document_parser'):
@@ -160,7 +160,7 @@ class HybridSearchSystem:
         logger.info(f"LLM Provider: {provider_name}")
         
         self.llm = LLMFactory.create_llm(config.llm_provider, config.llm_config)
-        self.embed_model = LLMFactory.create_embedding_model(config.llm_provider, config.llm_config)
+        self.embed_model = LLMFactory.create_embedding_model(config.llm_provider, config.llm_config, settings=config)
         
         # Enhanced LLM configuration logging
         if hasattr(self.llm, 'model'):
@@ -218,7 +218,8 @@ class HybridSearchSystem:
             self.config.vector_db, 
             self.config.vector_db_config or {},
             self.config.llm_provider,
-            self.config.llm_config
+            self.config.llm_config,
+            app_config=self.config
         )
         
         # Check if vector search is disabled
@@ -253,7 +254,8 @@ class HybridSearchSystem:
                 self.config.search_db_config or {},
                 self.config.vector_db,  # Pass vector_db_type for OpenSearch hybrid detection
                 self.config.llm_provider,
-                self.config.llm_config
+                self.config.llm_config,
+                app_config=self.config
             )
             if self.search_store is not None:
                 logger.info(f"Using external search engine: {self.config.search_db}")

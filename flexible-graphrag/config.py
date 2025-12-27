@@ -99,6 +99,11 @@ an aristocratic family that rules the planet Caladan, the rainy planet, since 10
     llm_provider: LLMProvider = LLMProvider.OPENAI
     llm_config: Dict[str, Any] = {}
     
+    # Embedding configuration (independent of LLM provider)
+    embedding_kind: Optional[str] = Field(None, description="Embedding provider: openai, ollama, google, azure")
+    embedding_model: Optional[str] = Field(None, description="Embedding model name")
+    embedding_dimension: Optional[int] = Field(None, description="Embedding dimension (for configurable models)")
+    
     # Schema system
     schema_name: str = Field("default", description="Name of schema to use: 'none', 'default', or custom name")
     schemas: Optional[List[Dict[str, Any]]] = Field(default_factory=list, description="Array of named schemas")
@@ -202,7 +207,7 @@ an aristocratic family that rules the planet Caladan, the rainy planet, since 10
                 }
             elif self.llm_provider == LLMProvider.GEMINI:
                 self.llm_config = {
-                    "model": os.getenv("GEMINI_MODEL", "models/gemini-1.5-flash"),
+                    "model": os.getenv("GEMINI_MODEL", "gemini-2.5-flash"),
                     "api_key": os.getenv("GEMINI_API_KEY"),
                     "temperature": float(os.getenv("GEMINI_TEMPERATURE", "0.1")),
                     "timeout": float(os.getenv("GEMINI_TIMEOUT", "120.0"))
@@ -216,8 +221,7 @@ an aristocratic family that rules the planet Caladan, the rainy planet, since 10
                     "password": os.getenv("NEO4J_PASSWORD", "password"),
                     "url": os.getenv("NEO4J_URI", "bolt://localhost:7687"),  # Standard Neo4j port
                     "database": os.getenv("NEO4J_DATABASE", "neo4j"),
-                    "index_name": os.getenv("NEO4J_VECTOR_INDEX", "hybrid_search_vector"),
-                    "embed_dim": 1536 if self.llm_provider == LLMProvider.OPENAI else 1024
+                    "index_name": os.getenv("NEO4J_VECTOR_INDEX", "hybrid_search_vector")
                 }
             elif self.vector_db == VectorDBType.QDRANT:
                 self.vector_db_config = {
@@ -225,8 +229,7 @@ an aristocratic family that rules the planet Caladan, the rainy planet, since 10
                     "port": int(os.getenv("QDRANT_PORT", "6333")),
                     "api_key": os.getenv("QDRANT_API_KEY"),
                     "collection_name": os.getenv("QDRANT_COLLECTION", "hybrid_search"),
-                    "https": os.getenv("QDRANT_HTTPS", "false").lower() == "true",
-                    "embed_dim": 1536 if self.llm_provider == LLMProvider.OPENAI else 1024  # Ollama compatibility
+                    "https": os.getenv("QDRANT_HTTPS", "false").lower() == "true"
                 }
             elif self.vector_db == VectorDBType.OPENSEARCH:
                 self.vector_db_config = {
@@ -234,7 +237,6 @@ an aristocratic family that rules the planet Caladan, the rainy planet, since 10
                     "index_name": os.getenv("OPENSEARCH_INDEX", "hybrid_search_vector"),
                     "username": os.getenv("OPENSEARCH_USERNAME"),
                     "password": os.getenv("OPENSEARCH_PASSWORD"),
-                    "embed_dim": 1536 if self.llm_provider == LLMProvider.OPENAI else 1024,  # Ollama compatibility
                     "embedding_field": "embedding",
                     "text_field": "content",
                     "search_pipeline": "hybrid-search-pipeline"
@@ -242,8 +244,7 @@ an aristocratic family that rules the planet Caladan, the rainy planet, since 10
             elif self.vector_db == VectorDBType.CHROMA:
                 self.vector_db_config = {
                     "persist_directory": os.getenv("CHROMA_PERSIST_DIR", "./chroma_db"),
-                    "collection_name": os.getenv("CHROMA_COLLECTION", "hybrid_search"),
-                    "embed_dim": 1536 if self.llm_provider == LLMProvider.OPENAI else 1024
+                    "collection_name": os.getenv("CHROMA_COLLECTION", "hybrid_search")
                 }
             elif self.vector_db == VectorDBType.MILVUS:
                 self.vector_db_config = {
@@ -252,16 +253,14 @@ an aristocratic family that rules the planet Caladan, the rainy planet, since 10
                     "collection_name": os.getenv("MILVUS_COLLECTION", "hybrid_search"),
                     "username": os.getenv("MILVUS_USERNAME"),
                     "password": os.getenv("MILVUS_PASSWORD"),
-                    "use_secure": os.getenv("MILVUS_USE_SECURE", "false").lower() == "true",
-                    "embed_dim": 1536 if self.llm_provider == LLMProvider.OPENAI else 1024
+                    "use_secure": os.getenv("MILVUS_USE_SECURE", "false").lower() == "true"
                 }
             elif self.vector_db == VectorDBType.WEAVIATE:
                 self.vector_db_config = {
                     "url": os.getenv("WEAVIATE_URL", "http://localhost:8081"),
                     "index_name": os.getenv("WEAVIATE_INDEX_NAME", "HybridSearch"),  # Must start with capital letter
                     "api_key": os.getenv("WEAVIATE_API_KEY"),
-                    "text_key": os.getenv("WEAVIATE_TEXT_KEY", "content"),
-                    "embed_dim": 1536 if self.llm_provider == LLMProvider.OPENAI else 1024
+                    "text_key": os.getenv("WEAVIATE_TEXT_KEY", "content")
                 }
             elif self.vector_db == VectorDBType.PINECONE:
                 self.vector_db_config = {
@@ -269,8 +268,7 @@ an aristocratic family that rules the planet Caladan, the rainy planet, since 10
                     "environment": os.getenv("PINECONE_ENVIRONMENT"),
                     "index_name": os.getenv("PINECONE_INDEX", "hybrid-search"),
                     "namespace": os.getenv("PINECONE_NAMESPACE"),
-                    "metric": os.getenv("PINECONE_METRIC", "cosine"),
-                    "embed_dim": 1536 if self.llm_provider == LLMProvider.OPENAI else 1024
+                    "metric": os.getenv("PINECONE_METRIC", "cosine")
                 }
             elif self.vector_db == VectorDBType.POSTGRES:
                 self.vector_db_config = {
@@ -280,16 +278,14 @@ an aristocratic family that rules the planet Caladan, the rainy planet, since 10
                     "username": os.getenv("POSTGRES_USERNAME", "postgres"),
                     "password": os.getenv("POSTGRES_PASSWORD"),
                     "table_name": os.getenv("POSTGRES_TABLE", "hybrid_search_vectors"),
-                    "connection_string": os.getenv("POSTGRES_CONNECTION_STRING"),
-                    "embed_dim": 1536 if self.llm_provider == LLMProvider.OPENAI else 1024
+                    "connection_string": os.getenv("POSTGRES_CONNECTION_STRING")
                 }
             elif self.vector_db == VectorDBType.LANCEDB:
                 self.vector_db_config = {
                     "uri": os.getenv("LANCEDB_URI", "./lancedb"),
                     "table_name": os.getenv("LANCEDB_TABLE", "hybrid_search"),
                     "vector_column_name": os.getenv("LANCEDB_VECTOR_COLUMN", "vector"),
-                    "text_column_name": os.getenv("LANCEDB_TEXT_COLUMN", "text"),
-                    "embed_dim": 1536 if self.llm_provider == LLMProvider.OPENAI else 1024
+                    "text_column_name": os.getenv("LANCEDB_TEXT_COLUMN", "text")
                 }
         
         if not self.graph_db_config:
@@ -351,7 +347,6 @@ an aristocratic family that rules the planet Caladan, the rainy planet, since 10
                     "index_name": os.getenv("OPENSEARCH_INDEX", "hybrid_search_fulltext"),
                     "username": os.getenv("OPENSEARCH_USERNAME"),
                     "password": os.getenv("OPENSEARCH_PASSWORD"),
-                    "embed_dim": 1536 if self.llm_provider == LLMProvider.OPENAI else 1024,  # Ollama compatibility
                     "embedding_field": "embedding",
                     "text_field": "content"
                 }
@@ -360,8 +355,7 @@ an aristocratic family that rules the planet Caladan, the rainy planet, since 10
                     "url": os.getenv("ELASTICSEARCH_URL", "http://localhost:9200"),
                     "index_name": os.getenv("ELASTICSEARCH_INDEX", "hybrid_search_fulltext"),
                     "username": os.getenv("ELASTICSEARCH_USERNAME"),
-                    "password": os.getenv("ELASTICSEARCH_PASSWORD"),
-                    "embed_dim": 1536 if self.llm_provider == LLMProvider.OPENAI else 1024  # Ollama compatibility
+                    "password": os.getenv("ELASTICSEARCH_PASSWORD")
                 }
     
     def get_active_schema(self) -> Optional[Dict[str, Any]]:

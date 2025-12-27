@@ -1448,7 +1448,7 @@ class FlexibleGraphRAGBackend:
         try:
             query_engine = self.system.get_query_engine()
             
-            # Use async methods as recommended by LlamaIndex error message
+            # Use async methods - nest_asyncio should handle any nested loops
             logger.info("Using async query method (aquery) for all LLM providers")
             response = await query_engine.aquery(query)
             
@@ -1472,7 +1472,7 @@ class FlexibleGraphRAGBackend:
         try:
             query_engine = self.system.get_query_engine()
             
-            # Use async methods as recommended by LlamaIndex error message
+            # Use async methods - nest_asyncio should handle any nested loops
             logger.info("Using async query method (aquery) for all LLM providers")
             response = await query_engine.aquery(query)
             
