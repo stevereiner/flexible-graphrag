@@ -425,81 +425,79 @@ ENABLE_KNOWLEDGE_GRAPH=false
 
 ## LLM Configuration
 
-**Configuration**: Set via `LLM_PROVIDER` and provider-specific environment variables
+**Configuration**: Set via `LLM_PROVIDER` and provider-specific environment variables. See [docs/LLM-EMBEDDING-CONFIG.md](docs/LLM-EMBEDDING-CONFIG.md) for detailed examples and all options.
 
-### LLM Providers
+### Supported LLM Providers
 
-- **OpenAI**: GPT models with configurable endpoints
-  - Configuration:
-    ```bash
-    USE_OPENAI=true
-    LLM_PROVIDER=openai
-    OPENAI_API_KEY=your_api_key_here
-    OPENAI_MODEL=gpt-4o-mini
-    OPENAI_EMBEDDING_MODEL=text-embedding-3-small
-    ```
-  - Models: gpt-4o-mini (default), gpt-4o, gpt-4-turbo, gpt-3.5-turbo
-  - Embedding models: text-embedding-3-small (1536 dims, default), text-embedding-3-large (3072 dims)
+1. **OpenAI** - gpt-4o-mini (default), gpt-4o, gpt-4.1-mini, gpt-5-mini, etc.
+2. **Ollama** - Local deployment (llama3.2, llama3.1, qwen2.5, gpt-oss, etc.)
+3. **Azure OpenAI** - Azure-hosted OpenAI models
+4. **Google Gemini** - gemini-2.5-flash, gemini-3-flash-preview, gemini-3-pro-preview, etc.
+5. **Anthropic Claude** - claude-sonnet-4-5, claude-haiku-4-5, etc.
+6. **Google Vertex AI** - Google Cloud-hosted Vertex AI Platform Gemini models
+7. **Amazon Bedrock** - Amazon Nova, Titan, Anthropic Claude, Meta Llama, Mistral AI, etc.
+8. **Groq** - Fast low-cost LPU inference, low latency: OpenAI GPT-OSS, Meta Llama (4, 3.3, 3.1), Qwen3, Kimi, etc.
+9. **Fireworks AI** - More choices, fine-tuning: Meta, Qwen, Mistral AI, DeepSeek, OpenAI GPT-OSS, Kimi, GLM, MiniMax, etc.
 
-- **Ollama**: Local LLM deployment for privacy and control
-  - Configuration:
-    ```bash
-    USE_OPENAI=false
-    LLM_PROVIDER=ollama
-    OLLAMA_BASE_URL=http://localhost:11434
-    OLLAMA_MODEL=llama3.2:latest
-    OLLAMA_EMBEDDING_MODEL=all-minilm
-    ```
-  - Models: llama3.2:latest (default), llama3.1:8b, gpt-oss:20b, qwen2.5:latest
-  - Embedding models: all-minilm (384 dims, default), nomic-embed-text (768 dims), mxbai-embed-large (1024 dims)
+### Quick Start Examples
 
-- **Azure OpenAI**: Enterprise OpenAI integration
-  - Configuration: (**Untested - may require configuration code changes**)
-    ```bash
-    LLM_PROVIDER=azure
-    AZURE_OPENAI_ENDPOINT=https://your-resource.openai.azure.com
-    AZURE_OPENAI_API_KEY=your_api_key_here
-    AZURE_OPENAI_DEPLOYMENT=your_deployment_name
-    AZURE_OPENAI_EMBEDDING_DEPLOYMENT=your_embedding_deployment
-    AZURE_OPENAI_API_VERSION=2024-02-15-preview
-    ```
+**OpenAI** (recommended):
+```bash
+LLM_PROVIDER=openai
+OPENAI_API_KEY=your_api_key
+OPENAI_MODEL=gpt-4o-mini
+```
 
-- **Anthropic Claude**: Claude models for complex reasoning
-  - Configuration: (**Untested - may require configuration code changes**)
-    ```bash
-    LLM_PROVIDER=anthropic
-    ANTHROPIC_API_KEY=your_api_key_here
-    ANTHROPIC_MODEL=claude-3-sonnet-20240229
-    ```
+**Ollama** (local):
+```bash
+LLM_PROVIDER=ollama
+OLLAMA_BASE_URL=http://localhost:11434
+OLLAMA_MODEL=llama3.2:latest
+```
 
-- **Google Gemini**: Google's latest language models
-  - Configuration: (**Untested - may require configuration code changes**)
-    ```bash
-    LLM_PROVIDER=gemini
-    GOOGLE_API_KEY=your_api_key_here
-    GEMINI_MODEL=gemini-pro
-    ```
+**Azure OpenAI**:
+```bash
+LLM_PROVIDER=azure_openai
+AZURE_OPENAI_API_KEY=your_key
+AZURE_OPENAI_ENDPOINT=https://your-resource.openai.azure.com/
+AZURE_OPENAI_ENGINE=gpt-4o-mini
+```
 
-### LLM Performance Recommendations
+### Embedding Configuration
 
-**General Performance with LlamaIndex: OpenAI vs Ollama**
+Embeddings can be configured independently of the LLM provider:
 
-Based on testing with OpenAI GPT-4o-mini and Ollama models (llama3.1:8b, llama3.2:latest, gpt-oss:20b), **OpenAI consistently outperforms Ollama models** in LlamaIndex operations.
+**OpenAI**:
+```bash
+EMBEDDING_KIND=openai
+EMBEDDING_MODEL=text-embedding-3-small
+EMBEDDING_DIMENSION=1536  # Auto-detected if not specified
+```
+
+**Ollama**:
+```bash
+EMBEDDING_KIND=ollama
+EMBEDDING_MODEL=all-minilm
+EMBEDDING_DIMENSION=384  # Auto-detected if not specified
+```
+
+**Common embedding dimensions:**
+- OpenAI: 1536 (text-embedding-3-small), 3072 (text-embedding-3-large)
+- Ollama: 384 (all-minilm, default), 768 (nomic-embed-text), 1024 (mxbai-embed-large)
+- Google: 768 (text-embedding-004, configurable with output_dimensionality parameter)
+
+**Note**: When switching embedding models, you must delete existing vector indexes due to dimension incompatibility. See [VECTOR-DIMENSIONS.md](VECTOR-DIMENSIONS.md) for cleanup instructions.
 
 ### Ollama Configuration
 
-When using Ollama as your LLM provider, you must configure system-wide environment variables before starting the Ollama service. These settings optimize performance and enable parallel processing.
+When using Ollama, configure system-wide environment variables before starting the Ollama service:
 
 **Key requirements**:
 - Configure environment variables **system-wide** (not in Flexible GraphRAG `.env` file)
-- `OLLAMA_NUM_PARALLEL=4` is **critical** for parallel document processing
+- `OLLAMA_NUM_PARALLEL=4` for optimal performance (or 1-2 if resource constrained)
 - Always restart Ollama service after changing environment variables
 
-See [docs/OLLAMA-CONFIGURATION.md](docs/OLLAMA-CONFIGURATION.md) for complete setup instructions, including:
-- All environment variable configurations
-- Platform-specific installation steps (Windows, Linux, macOS)
-- Performance optimization guidelines
-- Troubleshooting common issues
+See [docs/OLLAMA-CONFIGURATION.md](docs/OLLAMA-CONFIGURATION.md) for complete setup instructions including platform-specific steps and performance optimization.
 
 
 
@@ -519,17 +517,16 @@ See [docs/OLLAMA-CONFIGURATION.md](docs/OLLAMA-CONFIGURATION.md) for complete se
 
 ### Optional (depending on data source)
 - **Enterprise Repositories**:
-  - CMIS-compliant repository (e.g., Alfresco) - only if using CMIS data source
   - Alfresco repository - only if using Alfresco data source
+  - SharePoint - requires SharePoint access
+  - Box - requires Box Business account (3 users minimum), API keys
+  - CMIS-compliant repository (e.g., Alfresco) - only if using CMIS data source
 - **Cloud Storage** (requires accounts and API keys/credentials):
   - Amazon S3 - requires AWS account and access keys
   - Google Cloud Storage - requires GCP account and service account credentials
   - Google Drive - requires Google Cloud account and OAuth credentials or service account
   - Azure Blob Storage - requires Azure account and connection string or account keys
-- **Cloud Business Services** (requires business accounts):
-  - Box - requires Box Business account (3 users minimum), API keys
   - Microsoft OneDrive - requires OneDrive for Business (not personal OneDrive)
-  - Microsoft SharePoint - requires SharePoint access
   - **Note**: SharePoint and OneDrive for Business are also available with a M365 Developer Program sandbox (with full Visual Studio annual subscription, not monthly).
 - **File Upload** (no account required):
   - Web interface with file dialog (drag & drop or click to select)

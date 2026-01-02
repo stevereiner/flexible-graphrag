@@ -252,6 +252,7 @@ SEARCH_DB_CONFIG={"url": "http://localhost:9200", "index_name": "hybrid_search_f
 # ====================================================================
 # 4. LLM CONFIGURATION
 # ====================================================================
+# For detailed configuration examples and all options, see: docs/LLM-EMBEDDING-CONFIG.md
 
 # LLM Provider Selection
 LLM_PROVIDER=openai
@@ -259,6 +260,10 @@ LLM_PROVIDER=openai
 #LLM_PROVIDER=azure_openai
 #LLM_PROVIDER=gemini
 #LLM_PROVIDER=anthropic
+#LLM_PROVIDER=vertex_ai
+#LLM_PROVIDER=bedrock
+#LLM_PROVIDER=groq
+#LLM_PROVIDER=fireworks
 
 # OpenAI Configuration (if using OpenAI)
 OPENAI_API_KEY=your-openai-api-key-here
@@ -266,76 +271,86 @@ OPENAI_MODEL=gpt-4o-mini
 # OPENAI_TIMEOUT=120.0  # LLM request timeout in seconds (default: 2 minutes)
 
 # Azure OpenAI Configuration (if using Azure OpenAI)
+# See docs/LLM-EMBEDDING-CONFIG.md for detailed examples
 # AZURE_OPENAI_API_KEY=your-azure-openai-key
 # AZURE_OPENAI_ENDPOINT=https://your-resource.openai.azure.com/
-# AZURE_OPENAI_ENGINE=gpt-4o-mini  # Your deployment name (often same as model name)
-# AZURE_OPENAI_MODEL=gpt-4o-mini  # The model name
+# AZURE_OPENAI_ENGINE=gpt-4o-mini  # Your deployment name
+# AZURE_OPENAI_MODEL=gpt-4o-mini
 # AZURE_OPENAI_API_VERSION=2024-12-01-preview
-# AZURE_OPENAI_TIMEOUT=120.0  # LLM request timeout in seconds
 
 # Google Gemini Configuration (if using Gemini)
+# See docs/LLM-EMBEDDING-CONFIG.md for detailed examples
 # GOOGLE_API_KEY=your-google-api-key
 # GEMINI_MODEL=gemini-2.0-flash
-# GEMINI_TIMEOUT=120.0  # LLM request timeout in seconds
 # Note: Gemini has known issues with graph search (use with GRAPH_DB=none for vector+search only)
 
-# Anthropic Configuration (if using Claude)
+# Anthropic Claude Configuration (if using Claude)
+# See docs/LLM-EMBEDDING-CONFIG.md for detailed examples
 # ANTHROPIC_API_KEY=your-anthropic-api-key
 # ANTHROPIC_MODEL=claude-sonnet-4-5-20250929
-# ANTHROPIC_TIMEOUT=120.0  # LLM request timeout in seconds
 # Note: Claude only creates chunk nodes during graph building (no entity/relationship extraction)
 
-# Ollama Configuration (if using Ollama)
-#OLLAMA_MODEL=llama3.1:8b              # 8B params - did better previously, but gives errors,
-                                       # may be my ollama env setting (4.9 GB on disk)
+# Google Vertex AI Configuration (if using Vertex AI)
+# See docs/LLM-EMBEDDING-CONFIG.md for detailed examples and package options
+# VERTEX_AI_PROJECT=your-gcp-project-id  # Required
+# VERTEX_AI_LOCATION=us-central1
+# VERTEX_AI_MODEL=gemini-2.0-flash-001
+# VERTEX_AI_CREDENTIALS_PATH=/path/to/service-account-key.json  # Optional
+# See: https://developers.llamaindex.ai/python/examples/llm/google_genai/#vertex-ai-support
 
-#OLLAMA_MODEL=llama3.2:3b              # 3B params - good balance, recommended default 
-                                       # gets orgs, misses person cmispress.txt (2.0 GB on disk)
+# Amazon Bedrock Configuration (if using Bedrock)
+# See docs/LLM-EMBEDDING-CONFIG.md for detailed examples and available models
+# BEDROCK_MODEL=anthropic.claude-3-5-sonnet-20241022-v2:0
+# BEDROCK_REGION=us-east-1
+# BEDROCK_ACCESS_KEY=your-aws-access-key  # Optional: uses default AWS credentials if not provided
+# BEDROCK_SECRET_KEY=your-aws-secret-key
 
-#OLLAMA_MODEL=gpt-oss:20b              # 20B params, needs 16 GB min GPU memory, and 16 GB - 32 GB system memory, 
-                                       # 13 GB on disk, didn't seem to work (chunk only)
+# Groq Configuration (if using Groq - ultra-fast inference)
+# See docs/LLM-EMBEDDING-CONFIG.md for detailed examples and available models
+# See pricing: https://groq.com/pricing
+# GROQ_API_KEY=your-groq-api-key  # Get from https://console.groq.com
+# GROQ_MODEL=llama-3.3-70b-versatile  # Recommended for speed
+# Note: Groq doesn't provide embeddings - defaults to local Ollama embeddings
 
+# Fireworks AI Configuration (if using Fireworks - fast compound AI)
+# See docs/LLM-EMBEDDING-CONFIG.md for detailed examples and available models
+# See models: https://fireworks.ai/models
+# FIREWORKS_API_KEY=your-fireworks-api-key  # Get from https://fireworks.ai
+# FIREWORKS_MODEL=accounts/fireworks/models/llama-v3p3-70b-instruct
+
+# Ollama Configuration (if using Ollama - local LLM)
+# See docs/OLLAMA-CONFIGURATION.md for detailed setup and optimization
+#OLLAMA_MODEL=llama3.2:3b              # 3B params - good balance, recommended default
 #OLLAMA_BASE_URL=http://localhost:11434
-# OLLAMA_TIMEOUT=300.0  # LLM request timeout in seconds (default: 5 minutes - higher for local processing)
+# OLLAMA_TIMEOUT=300.0  # Higher default for local processing
 
 # ====================================================================
 # EMBEDDING CONFIGURATION (Independent of LLM Provider)
 # ====================================================================
 # Embeddings can be configured separately from your LLM provider.
-# This allows mixing providers (e.g., OpenAI LLM + Ollama embeddings for privacy)
+# For detailed configuration examples, see: docs/LLM-EMBEDDING-CONFIG.md
 #
-# EMBEDDING_KIND: openai, ollama, google, azure (optional - defaults to LLM provider)
+# EMBEDDING_KIND: openai, ollama, google, vertex, azure, bedrock, fireworks
 # EMBEDDING_MODEL: Specific model name
 # EMBEDDING_DIMENSION: Optional explicit dimension override
 #
-# See docs/LLM-EMBEDDING-CONFIG.md for detailed configuration examples
-#
-# Quick Examples:
-# - Local Ollama embeddings with any LLM:
-#   EMBEDDING_KIND=ollama
-#   EMBEDDING_MODEL=nomic-embed-text  # 768 dims (default)
-#
-# - Google embeddings with custom dimension:
-#   EMBEDDING_KIND=google
-#   EMBEDDING_MODEL=text-embedding-004  # Note: text-embedding-001 not available
-#   EMBEDDING_DIMENSION=768  # Override default 1536 (supports 768, 1536, or 3072)
-#
-# - Azure embeddings with any LLM provider:
-#   EMBEDDING_KIND=azure
-#   EMBEDDING_MODEL=text-embedding-3-small  # Used as deployment name
-#   AZURE_OPENAI_ENDPOINT=https://your-resource.openai.azure.com/
-#   AZURE_OPENAI_API_KEY=your-azure-key
-#   AZURE_OPENAI_API_VERSION=2024-12-01-preview
-#   # AZURE_EMBEDDING_DEPLOYMENT=custom-deployment-name  # Optional: override deployment name
+# Quick Examples (see docs for full details):
+# - Local Ollama embeddings: EMBEDDING_KIND=ollama, EMBEDDING_MODEL=nomic-embed-text (768 dims)
+# - OpenAI embeddings: EMBEDDING_KIND=openai, EMBEDDING_MODEL=text-embedding-3-small (1536 dims)
+# - Vertex AI embeddings: EMBEDDING_KIND=vertex, EMBEDDING_MODEL=text-embedding-004 (768 dims)
+# - Bedrock embeddings: EMBEDDING_KIND=bedrock, EMBEDDING_MODEL=amazon.titan-embed-text-v2:0 (1024 dims)
+# - Fireworks embeddings: EMBEDDING_KIND=fireworks, EMBEDDING_MODEL=nomic-ai/nomic-embed-text-v1.5 (768 dims)
 
-# OpenAI Embeddings (if using OpenAI embeddings with non-OpenAI LLM)
-EMBEDDING_MODEL=text-embedding-3-small  # Only used if EMBEDDING_KIND not specified
+# OpenAI Embeddings
+EMBEDDING_KIND=openai
+EMBEDDING_MODEL=text-embedding-3-small
 
 # Ollama Embeddings (if using Ollama embeddings)
+# See docs/LLM-EMBEDDING-CONFIG.md for detailed model options
 # EMBEDDING_KIND=ollama
-#EMBEDDING_MODEL=nomic-embed-text       # 137M params, 768 dims - good balance (default)
-#EMBEDDING_MODEL=all-minilm             # 22M params, 384 dims - fastest
-#EMBEDDING_MODEL=mxbai-embed-large      # 334M params, 1024 dims - highest quality
+#EMBEDDING_MODEL=nomic-embed-text       # 768 dims - good balance (default)
+#EMBEDDING_MODEL=all-minilm             # 384 dims - fastest
+#EMBEDDING_MODEL=mxbai-embed-large      # 1024 dims - highest quality
 
 # ====================================================================
 # 5. CONTENT SOURCES CONFIGURATION

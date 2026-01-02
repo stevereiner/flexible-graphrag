@@ -57,6 +57,10 @@ class LLMProvider(str, Enum):
     GEMINI = "gemini"
     AZURE_OPENAI = "azure_openai"
     ANTHROPIC = "anthropic"
+    VERTEX_AI = "vertex_ai"
+    BEDROCK = "bedrock"
+    GROQ = "groq"
+    FIREWORKS = "fireworks"
 
 class DocumentParser(str, Enum):
     DOCLING = "docling"
@@ -211,6 +215,43 @@ an aristocratic family that rules the planet Caladan, the rainy planet, since 10
                     "api_key": os.getenv("GEMINI_API_KEY"),
                     "temperature": float(os.getenv("GEMINI_TEMPERATURE", "0.1")),
                     "timeout": float(os.getenv("GEMINI_TIMEOUT", "120.0"))
+                }
+            elif self.llm_provider == LLMProvider.VERTEX_AI:
+                self.llm_config = {
+                    "model": os.getenv("VERTEX_AI_MODEL", "gemini-2.0-flash-001"),
+                    "project": os.getenv("VERTEX_AI_PROJECT"),
+                    "location": os.getenv("VERTEX_AI_LOCATION", "us-central1"),
+                    "credentials_path": os.getenv("VERTEX_AI_CREDENTIALS_PATH"),
+                    "use_google_genai": os.getenv("VERTEX_AI_USE_GOOGLE_GENAI", "false").lower() == "true",
+                    "api_key": os.getenv("VERTEX_AI_API_KEY"),  # Optional, for google-genai approach
+                    "temperature": float(os.getenv("VERTEX_AI_TEMPERATURE", "0.1")),
+                    "timeout": float(os.getenv("VERTEX_AI_TIMEOUT", "120.0"))
+                }
+            elif self.llm_provider == LLMProvider.BEDROCK:
+                self.llm_config = {
+                    "model": os.getenv("BEDROCK_MODEL", "anthropic.claude-3-5-sonnet-20241022-v2:0"),
+                    "region_name": os.getenv("BEDROCK_REGION", "us-east-1"),
+                    "aws_access_key_id": os.getenv("BEDROCK_ACCESS_KEY"),
+                    "aws_secret_access_key": os.getenv("BEDROCK_SECRET_KEY"),
+                    "aws_session_token": os.getenv("BEDROCK_SESSION_TOKEN"),
+                    "profile_name": os.getenv("BEDROCK_PROFILE_NAME"),
+                    "temperature": float(os.getenv("BEDROCK_TEMPERATURE", "0.1")),
+                    "timeout": float(os.getenv("BEDROCK_TIMEOUT", "120.0")),
+                    "context_size": int(os.getenv("BEDROCK_CONTEXT_SIZE", "0")) if os.getenv("BEDROCK_CONTEXT_SIZE") else None
+                }
+            elif self.llm_provider == LLMProvider.GROQ:
+                self.llm_config = {
+                    "model": os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile"),
+                    "api_key": os.getenv("GROQ_API_KEY"),
+                    "temperature": float(os.getenv("GROQ_TEMPERATURE", "0.1")),
+                    "timeout": float(os.getenv("GROQ_TIMEOUT", "120.0"))
+                }
+            elif self.llm_provider == LLMProvider.FIREWORKS:
+                self.llm_config = {
+                    "model": os.getenv("FIREWORKS_MODEL", "accounts/fireworks/models/llama-v3p3-70b-instruct"),
+                    "api_key": os.getenv("FIREWORKS_API_KEY"),
+                    "temperature": float(os.getenv("FIREWORKS_TEMPERATURE", "0.1")),
+                    "timeout": float(os.getenv("FIREWORKS_TIMEOUT", "120.0"))
                 }
         
         # Set default database configs if not provided

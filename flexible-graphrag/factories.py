@@ -7,10 +7,18 @@ from llama_index.llms.ollama import Ollama
 from llama_index.llms.google_genai import GoogleGenAI
 from llama_index.llms.azure_openai import AzureOpenAI
 from llama_index.llms.anthropic import Anthropic
+# Vertex removed - use GoogleGenAI with vertexai_config instead
+from llama_index.llms.bedrock_converse import BedrockConverse
+from llama_index.llms.groq import Groq
+from llama_index.llms.fireworks import Fireworks
 from llama_index.embeddings.openai import OpenAIEmbedding
 from llama_index.embeddings.ollama import OllamaEmbedding
 from llama_index.embeddings.azure_openai import AzureOpenAIEmbedding
 from llama_index.embeddings.google_genai import GoogleGenAIEmbedding
+# Vertex embedding removed - use GoogleGenAIEmbedding with vertexai_config instead
+from llama_index.embeddings.bedrock import BedrockEmbedding
+from llama_index.embeddings.fireworks import FireworksEmbedding
+from google.genai.types import EmbedContentConfig
 from llama_index.vector_stores.neo4jvector import Neo4jVectorStore
 from llama_index.vector_stores.qdrant import QdrantVectorStore
 from llama_index.vector_stores.elasticsearch import ElasticsearchStore, AsyncBM25Strategy
@@ -107,6 +115,36 @@ def get_embedding_dimension(embedding_kind: str = None, embedding_model: str = N
         else:
             return 1536  # Default for Azure OpenAI
     
+    elif embedding_kind == "vertex":
+        # Vertex AI uses Google's embedding models
+        # text-embedding-004 (default): 768 dimensions
+        # text-multilingual-embedding-002: 768 dimensions
+        return 768  # Default for Vertex AI embeddings
+    
+    elif embedding_kind == "bedrock":
+        # Amazon Bedrock embedding dimensions by model
+        if "amazon.titan-embed-text" in embedding_model:
+            if "v2" in embedding_model:
+                return 1024  # Titan Embeddings v2
+            return 1536  # Titan Embeddings v1
+        elif "cohere.embed" in embedding_model:
+            if "multilingual" in embedding_model:
+                return 1024  # Cohere Embed Multilingual
+            return 1024  # Cohere Embed English
+        else:
+            return 1024  # Default for Bedrock
+    
+    elif embedding_kind == "fireworks":
+        # Fireworks AI embedding dimensions
+        if "nomic-ai/nomic-embed-text-v1.5" in embedding_model:
+            return 768  # Nomic Embed Text v1.5
+        elif "nomic-ai/nomic-embed-text-v1" in embedding_model:
+            return 768  # Nomic Embed Text v1
+        elif "WhereIsAI/UAE-Large-V1" in embedding_model:
+            return 1024  # UAE Large V1
+        else:
+            return 768  # Default for Fireworks (nomic-embed-text)
+    
     else:
         # Default to Ollama nomic-embed-text for unknown embedding kinds
         logger.warning(f"Unknown embedding_kind {embedding_kind}, defaulting to Ollama nomic-embed-text (768)")
@@ -171,6 +209,104 @@ class LLMFactory:
                 timeout=config.get("timeout", 120.0)
             )
         
+        elif provider == LLMProvider.VERTEX_AI:
+            # Vertex AI via GoogleGenAI package (modern approach)
+            project = config.get("project")
+            if not project:
+                raise ValueError("Vertex AI requires 'project' parameter (VERTEX_AI_PROJECT)")
+            
+            location = config.get("location", "us-central1")
+            model = config.get("model", "gemini-2.0-flash-001")
+            credentials_path = config.get("credentials_path")
+            
+            logger.info(f"Configuring Vertex AI - Project: {project}, Location: {location}, Model: {model}")
+            
+            # Set credentials if provided
+            if credentials_path:
+                os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = credentials_path
+                logger.info(f"Using Vertex AI credentials from: {credentials_path}")
+            
+            # Set environment variables for Vertex AI mode
+            os.environ['GOOGLE_GENAI_USE_VERTEXAI'] = 'true'
+            os.environ['GOOGLE_CLOUD_PROJECT'] = project
+            os.environ['GOOGLE_CLOUD_LOCATION'] = location
+            logger.info(f"Set environment variables: GOOGLE_GENAI_USE_VERTEXAI=true, GOOGLE_CLOUD_PROJECT={project}, GOOGLE_CLOUD_LOCATION={location}")
+            
+            return GoogleGenAI(
+                model=model,
+                temperature=config.get("temperature", 0.1),
+                vertexai_config={"project": project, "location": location}
+            )
+        
+        elif provider == LLMProvider.BEDROCK:
+            region_name = config.get("region_name", "us-east-1")
+            model = config.get("model", "anthropic.claude-3-5-sonnet-20241022-v2:0")
+            context_size = config.get("context_size")
+            
+            logger.info(f"Configuring Bedrock LLM - Region: {region_name}, Model: {model}")
+            if context_size:
+                logger.info(f"Using explicit context_size: {context_size}")
+            
+            # Build AWS credentials dict - only include provided values
+            aws_credentials = {}
+            if config.get("aws_access_key_id"):
+                aws_credentials["aws_access_key_id"] = config.get("aws_access_key_id")
+            if config.get("aws_secret_access_key"):
+                aws_credentials["aws_secret_access_key"] = config.get("aws_secret_access_key")
+            if config.get("aws_session_token"):
+                aws_credentials["aws_session_token"] = config.get("aws_session_token")
+            if config.get("profile_name"):
+                aws_credentials["profile_name"] = config.get("profile_name")
+            
+            if aws_credentials:
+                logger.info(f"Using explicit AWS credentials for Bedrock (keys provided: {list(aws_credentials.keys())})")
+            else:
+                logger.info("Using default AWS credentials for Bedrock (from environment, IAM role, or ~/.aws/credentials)")
+            
+            # Build BedrockConverse parameters (new Converse API)
+            bedrock_params = {
+                "model": model,
+                "region_name": region_name,
+                "temperature": config.get("temperature", 0.1),
+                "timeout": config.get("timeout", 120.0),
+                **aws_credentials
+            }
+            
+            # Note: BedrockConverse doesn't need context_size parameter
+            # The Converse API handles context automatically
+            
+            return BedrockConverse(**bedrock_params)
+        
+        elif provider == LLMProvider.GROQ:
+            api_key = config.get("api_key")
+            if not api_key:
+                raise ValueError("Groq requires 'api_key' parameter (GROQ_API_KEY)")
+            
+            model = config.get("model", "llama-3.3-70b-versatile")
+            logger.info(f"Configuring Groq LLM - Model: {model}")
+            
+            return Groq(
+                model=model,
+                api_key=api_key,
+                temperature=config.get("temperature", 0.1),
+                timeout=config.get("timeout", 120.0)  # Groq uses timeout (inherits from OpenAILike)
+            )
+        
+        elif provider == LLMProvider.FIREWORKS:
+            api_key = config.get("api_key")
+            if not api_key:
+                raise ValueError("Fireworks requires 'api_key' parameter (FIREWORKS_API_KEY)")
+            
+            model = config.get("model", "accounts/fireworks/models/llama-v3p3-70b-instruct")
+            logger.info(f"Configuring Fireworks LLM - Model: {model}")
+            
+            return Fireworks(
+                model=model,
+                api_key=api_key,
+                temperature=config.get("temperature", 0.1)
+                # Note: Fireworks doesn't support timeout parameter (overrides __init__)
+            )
+        
         else:
             raise ValueError(f"Unsupported LLM provider: {provider}")
     
@@ -233,9 +369,9 @@ class LLMFactory:
                 return GoogleGenAIEmbedding(
                     model_name=model_name,
                     api_key=config.get("api_key"),
-                    embedding_config={
-                        "output_dimensionality": embed_dim
-                    }
+                    embedding_config=EmbedContentConfig(
+                        output_dimensionality=embed_dim
+                    )
                 )
             
             elif embedding_kind == "azure":
@@ -267,6 +403,95 @@ class LLMFactory:
                     azure_endpoint=azure_endpoint,
                     api_key=api_key,
                     api_version=api_version
+                )
+            
+            elif embedding_kind == "vertex":
+                # Vertex AI via GoogleGenAIEmbedding (modern approach)
+                model_name = embedding_model or "text-embedding-004"
+                project = config.get("project") or os.getenv("VERTEX_AI_PROJECT")
+                location = config.get("location") or os.getenv("VERTEX_AI_LOCATION", "us-central1")
+                credentials_path = config.get("credentials_path") or os.getenv("VERTEX_AI_CREDENTIALS_PATH")
+                
+                logger.info(f"Using Vertex AI embeddings - Model: {model_name}, Project: {project}, Location: {location}")
+                
+                # Set credentials if provided
+                if credentials_path:
+                    os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = credentials_path
+                    logger.info(f"Using Vertex AI credentials from: {credentials_path}")
+                
+                # Set environment variables for Vertex AI mode
+                if project:
+                    os.environ['GOOGLE_GENAI_USE_VERTEXAI'] = 'true'
+                    os.environ['GOOGLE_CLOUD_PROJECT'] = project
+                    os.environ['GOOGLE_CLOUD_LOCATION'] = location
+                    logger.info(f"Set environment variables: GOOGLE_GENAI_USE_VERTEXAI=true, GOOGLE_CLOUD_PROJECT={project}, GOOGLE_CLOUD_LOCATION={location}")
+                
+                # Build embedding parameters
+                embedding_params = {
+                    "model_name": model_name,
+                    "embed_batch_size": 100
+                }
+                
+                # Add vertexai_config if project is provided
+                if project:
+                    embedding_params["vertexai_config"] = {
+                        "project": project,
+                        "location": location
+                    }
+                
+                # Add embedding_config for dimension control
+                if embedding_dimension:
+                    embedding_params["embedding_config"] = EmbedContentConfig(
+                        output_dimensionality=embedding_dimension
+                    )
+                
+                return GoogleGenAIEmbedding(**embedding_params)
+            
+            elif embedding_kind == "bedrock":
+                model_name = embedding_model or "amazon.titan-embed-text-v2:0"
+                region_name = config.get("region_name") or os.getenv("BEDROCK_REGION", "us-east-1")
+                
+                logger.info(f"Using Bedrock embeddings - Model: {model_name}, Region: {region_name}")
+                
+                # Build AWS credentials dict - only include provided values
+                aws_credentials = {}
+                access_key = config.get("aws_access_key_id") or os.getenv("BEDROCK_ACCESS_KEY")
+                secret_key = config.get("aws_secret_access_key") or os.getenv("BEDROCK_SECRET_KEY")
+                session_token = config.get("aws_session_token") or os.getenv("BEDROCK_SESSION_TOKEN")
+                profile_name = config.get("profile_name") or os.getenv("BEDROCK_PROFILE_NAME")
+                
+                if access_key:
+                    aws_credentials["aws_access_key_id"] = access_key
+                if secret_key:
+                    aws_credentials["aws_secret_access_key"] = secret_key
+                if session_token:
+                    aws_credentials["aws_session_token"] = session_token
+                if profile_name:
+                    aws_credentials["profile_name"] = profile_name
+                
+                if aws_credentials:
+                    logger.info(f"Using explicit AWS credentials for Bedrock embeddings (keys provided: {list(aws_credentials.keys())})")
+                else:
+                    logger.info("Using default AWS credentials for Bedrock embeddings")
+                
+                return BedrockEmbedding(
+                    model_name=model_name,
+                    region_name=region_name,
+                    **aws_credentials
+                )
+            
+            elif embedding_kind == "fireworks":
+                model_name = embedding_model or "nomic-ai/nomic-embed-text-v1.5"
+                api_key = config.get("api_key") or os.getenv("FIREWORKS_API_KEY")
+                
+                logger.info(f"Using Fireworks embeddings - Model: {model_name}")
+                
+                if not api_key:
+                    raise ValueError("Fireworks embeddings require FIREWORKS_API_KEY environment variable or api_key in config")
+                
+                return FireworksEmbedding(
+                    model_name=model_name,
+                    api_key=api_key
                 )
             
             else:
@@ -310,9 +535,9 @@ class LLMFactory:
             return GoogleGenAIEmbedding(
                 model_name=model_name,
                 api_key=config.get("api_key"),
-                embedding_config={
-                    "output_dimensionality": embed_dim
-                }
+                embedding_config=EmbedContentConfig(
+                    output_dimensionality=embed_dim
+                )
             )
         
         elif provider == LLMProvider.ANTHROPIC:
@@ -324,6 +549,94 @@ class LLMFactory:
             return OllamaEmbedding(
                 model_name=model_name,
                 base_url=base_url
+            )
+        
+        elif provider == LLMProvider.VERTEX_AI:
+            # Vertex AI: Use Vertex embeddings by default (via GoogleGenAIEmbedding)
+            model_name = embedding_model or "text-embedding-004"
+            project = config.get("project")
+            location = config.get("location", "us-central1")
+            credentials_path = config.get("credentials_path")
+            
+            if not project:
+                raise ValueError("Vertex AI embeddings require 'project' parameter (VERTEX_AI_PROJECT)")
+            
+            logger.info(f"Using Vertex AI embeddings (provider default) - Model: {model_name}, Project: {project}, Location: {location}")
+            
+            # Set credentials if provided
+            if credentials_path:
+                os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = credentials_path
+            
+            # Set environment variables for Vertex AI mode
+            os.environ['GOOGLE_GENAI_USE_VERTEXAI'] = 'true'
+            os.environ['GOOGLE_CLOUD_PROJECT'] = project
+            os.environ['GOOGLE_CLOUD_LOCATION'] = location
+            
+            embedding_params = {
+                "model_name": model_name,
+                "embed_batch_size": 100,
+                "vertexai_config": {
+                    "project": project,
+                    "location": location
+                }
+            }
+            
+            # Add embedding_config for dimension control
+            if embedding_dimension:
+                embedding_params["embedding_config"] = EmbedContentConfig(
+                    output_dimensionality=embedding_dimension
+                )
+            
+            return GoogleGenAIEmbedding(**embedding_params)
+        
+        elif provider == LLMProvider.BEDROCK:
+            # Bedrock: Use Bedrock embeddings by default
+            model_name = embedding_model or "amazon.titan-embed-text-v2:0"
+            region_name = config.get("region_name", "us-east-1")
+            
+            logger.info(f"Using Bedrock embeddings (provider default) - Model: {model_name}, Region: {region_name}")
+            
+            # Build AWS credentials dict
+            aws_credentials = {}
+            if config.get("aws_access_key_id"):
+                aws_credentials["aws_access_key_id"] = config.get("aws_access_key_id")
+            if config.get("aws_secret_access_key"):
+                aws_credentials["aws_secret_access_key"] = config.get("aws_secret_access_key")
+            if config.get("aws_session_token"):
+                aws_credentials["aws_session_token"] = config.get("aws_session_token")
+            if config.get("profile_name"):
+                aws_credentials["profile_name"] = config.get("profile_name")
+            
+            return BedrockEmbedding(
+                model_name=model_name,
+                region_name=region_name,
+                **aws_credentials
+            )
+        
+        elif provider == LLMProvider.GROQ:
+            # Groq: No native embeddings - use Ollama embeddings by default
+            model_name = embedding_model or "nomic-embed-text"
+            base_url = config.get("ollama_base_url") or config.get("base_url", "http://localhost:11434")
+            logger.info(f"Using Ollama embeddings (Groq provider default) - Model: {model_name}, Base URL: {base_url}")
+            logger.info("Note: Groq doesn't provide embeddings - using local Ollama for privacy")
+            return OllamaEmbedding(
+                model_name=model_name,
+                base_url=base_url
+            )
+        
+        elif provider == LLMProvider.FIREWORKS:
+            # Fireworks: Use Fireworks embeddings by default
+            model_name = embedding_model or "nomic-ai/nomic-embed-text-v1.5"
+            api_key = config.get("api_key")
+            
+            logger.info(f"Using Fireworks embeddings (provider default) - Model: {model_name}")
+            
+            if not api_key:
+                raise ValueError("Fireworks embeddings require 'api_key' parameter (FIREWORKS_API_KEY)")
+            
+            return FireworksEmbedding(
+                model_name=model_name,
+                api_key=api_key
             )
         
         else:

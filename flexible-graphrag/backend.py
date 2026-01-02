@@ -1386,38 +1386,48 @@ class FlexibleGraphRAGBackend:
                 # Clean up any partial indexes that might have been created
                 await self._cleanup_partial_processing(processing_id)
             else:
-                logger.error(f"Runtime error in processing {processing_id}: {str(e)}")
+                import traceback
+                error_msg = str(e) if str(e) else repr(e)
+                logger.error(f"Runtime error in processing {processing_id}: {error_msg}")
+                logger.error(f"Full traceback:\n{traceback.format_exc()}")
                 self._update_processing_status(
                     processing_id, 
                     "failed", 
-                    f"Document processing failed: {str(e)}", 
+                    f"Document processing failed: {error_msg}", 
                     0
                 )
         except Exception as e:
+            import traceback
             # Handle LLM self-cancellation and timeout errors gracefully
-            error_str = str(e).lower()
+            error_str = str(e).lower() if str(e) else ""
+            error_msg = str(e) if str(e) else repr(e)
+            
             if any(keyword in error_str for keyword in ['timeout', 'timed out', 'request timeout', 'connection timeout']):
-                logger.warning(f"LLM timeout in processing {processing_id}: {str(e)}")
+                logger.warning(f"LLM timeout in processing {processing_id}: {error_msg}")
+                logger.error(f"Full traceback:\n{traceback.format_exc()}")
                 self._update_processing_status(
                     processing_id, 
                     "failed", 
-                    f"Processing timeout - LLM took too long to respond. Try increasing timeout or using smaller documents: {str(e)}", 
+                    f"Processing timeout - LLM took too long to respond. Try increasing timeout or using smaller documents: {error_msg}", 
                     0
                 )
             elif any(keyword in error_str for keyword in ['cancelled', 'aborted', 'interrupted']):
-                logger.warning(f"LLM self-cancelled in processing {processing_id}: {str(e)}")
+                logger.warning(f"LLM self-cancelled in processing {processing_id}: {error_msg}")
+                logger.error(f"Full traceback:\n{traceback.format_exc()}")
                 self._update_processing_status(
                     processing_id, 
                     "failed", 
-                    f"LLM processing was interrupted. This can happen with complex documents: {str(e)}", 
+                    f"LLM processing was interrupted. This can happen with complex documents: {error_msg}", 
                     0
                 )
             else:
-                logger.error(f"Error ingesting documents {processing_id}: {str(e)}")
+                logger.error(f"Error ingesting documents {processing_id}: {error_msg}")
+                logger.error(f"Error type: {type(e).__name__}")
+                logger.error(f"Full traceback:\n{traceback.format_exc()}")
                 self._update_processing_status(
                     processing_id, 
                     "failed", 
-                    f"Document processing failed: {str(e)}", 
+                    f"Document processing failed: {error_msg}", 
                     0
                 )
     

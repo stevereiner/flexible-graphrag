@@ -2,6 +2,36 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2026-01-01] - LLM Testing Documentation and Query Timing Improvements
+
+### Documentation
+- **Comprehensive LLM testing results** - Updated `docs/LLM-TESTING-RESULTS.md` with complete test matrix for all 9 LLM providers (OpenAI, Azure OpenAI, Gemini, Vertex AI, Groq, Fireworks AI, Claude, Bedrock, Ollama)
+- **Graph database compatibility** - Documented that compatibility patterns are LLM-dependent, not database-dependent (Neo4j, FalkorDB, ArcadeDB show identical behavior per LLM)
+- **Graph-only mode testing** - Added results for configurations without vector/search databases
+- **Updated test summary** - Added table showing specific models tested for each provider with graph extraction, search, and AI query results
+- **Bedrock models** - Documented 11 tested models including cross-region inference profile requirements ("us." prefix for most models)
+
+### Enhanced
+- **Error logging in backend.py** - Improved error logging for better debugging and troubleshooting of processing failures with detailed error messages and tracebacks
+
+## [2025-12-27] - Added 4 New LLM Providers: Vertex AI, Bedrock, Groq, and Fireworks AI
+
+### Added
+- **Google Vertex AI** - Google Cloud-hosted Vertex AI Platform Gemini models with dual package support (`llama-index-llms-vertex` or `google-genai`)
+- **Amazon Bedrock** - AWS Bedrock supporting Amazon Nova, Titan, Anthropic Claude, Meta Llama, Mistral AI, etc.
+- **Groq** - Fast low-cost LPU inference with OpenAI GPT-OSS, Meta Llama (4, 3.3, 3.1), Qwen3, Kimi, etc. (defaults to Ollama embeddings)
+- **Fireworks AI** - Fast inference with fine-tuning support: Meta, Qwen, Mistral AI, DeepSeek, OpenAI GPT-OSS, Kimi, GLM, MiniMax, etc.
+- **Independent embeddings** - All providers support separate embedding configuration (`EMBEDDING_KIND`, `EMBEDDING_MODEL`, `EMBEDDING_DIMENSION`)
+
+### Enhanced
+- Extended `LLMFactory` with all 4 new providers and their embedding models
+- Updated `get_embedding_dimension()` with automatic detection for Vertex AI (768), Bedrock (1024/1536), Fireworks (768)
+- Added intelligent provider defaults: Vertex AI → Vertex embeddings, Bedrock → Bedrock embeddings, Groq → Ollama embeddings, Fireworks → Fireworks embeddings
+
+### Documentation
+- Added configuration examples to `env-sample.txt` and `docs/LLM-EMBEDDING-CONFIG.md` for all 4 providers
+- See [docs/LLM-EMBEDDING-CONFIG.md](docs/LLM-EMBEDDING-CONFIG.md) for detailed configuration examples and model options
+
 ## [2025-12-26] - Completed LLM setup support: Azure OpenAI (working), Google Gemini (issue), Anthropic (issue)
 
 ### Enhanced
