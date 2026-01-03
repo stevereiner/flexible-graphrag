@@ -102,3 +102,21 @@ google-auth-httplib2
 google-auth-oauthlib
 azure-storage-blob  # Azure SDK (used by AzStorageBlobReader)
 
+# Observability dependencies (OPTIONAL - Install via pyproject.toml extras)
+# 
+# Use optional installation instead of including in requirements.txt:
+#   uv pip install -e ".[observability]"       # OpenInference only (lightweight)
+#   uv pip install -e ".[observability-dual]"  # OpenInference + OpenLIT (complete dashboard)
+#
+# Note: OpenLIT requires OpenAI 1.x (will downgrade from 2.x)
+#
+# # OpenInference - Trace-focused
+# openinference-instrumentation-llama-index
+# opentelemetry-exporter-otlp
+# opentelemetry-sdk
+# opentelemetry-api
+#
+# # OpenLIT - Token/cost metrics (requires OpenAI 1.x)
+# openlit
+
+

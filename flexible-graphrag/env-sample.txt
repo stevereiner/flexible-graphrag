@@ -6,6 +6,41 @@
 # LlamaParse: Cloud-based parsing service from LlamaIndex, advanced multimodal parsing, requires API key
 DOCUMENT_PARSER=docling
 
+# =============================================================================
+# OBSERVABILITY CONFIGURATION (OpenTelemetry Traces and Metrics)
+# =============================================================================
+# Enable observability with OpenTelemetry, Prometheus, Grafana, Jaeger
+# Set to "true" to enable automatic instrumentation of LlamaIndex operations
+ENABLE_OBSERVABILITY=false
+
+# Observability Backend Mode (choose your telemetry producer)
+# Options:
+#   "openinference" - Default, trace-focused, requires spanmetrics connector for token metrics
+#   "openlit" - Alternative with built-in token metrics (gen_ai_usage_*_tokens_total)
+#   "both" - DUAL MODE (recommended!) - Best of both worlds!
+#     - OpenInference: Detailed traces with full LlamaIndex operation visibility
+#     - OpenLIT: Token metrics, cost tracking, VectorDB metrics out-of-the-box
+#     - Custom metrics: Graph extraction, retrieval, document processing
+# Recommendation: Use "both" for complete observability with all metrics
+OBSERVABILITY_BACKEND=both
+
+# OTLP (OpenTelemetry Protocol) exporter endpoint
+# Default: http://localhost:4318 (OTLP HTTP receiver)
+# For gRPC: use http://localhost:4317
+# For cloud services (SigNoz, Langfuse, etc.), use their endpoint
+OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
+
+# Service metadata for traces
+OTEL_SERVICE_NAME=flexible-graphrag
+OTEL_SERVICE_VERSION=1.0.0
+OTEL_SERVICE_NAMESPACE=llm-apps
+
+# Enable automatic LlamaIndex instrumentation (captures all LlamaIndex operations)
+# Set to "false" if you only want manual tracing with custom decorators
+ENABLE_LLAMA_INDEX_INSTRUMENTATION=true
+
+# =============================================================================
+
 # LlamaParse API Key (only needed if DOCUMENT_PARSER=llamaparse)
 # Get your API key from https://cloud.llamaindex.ai/  bottom left "API Keys", then "Generate New Key"
 # LlamaParse offers high-quality document parsing of complex documents

@@ -66,6 +66,12 @@ class DocumentParser(str, Enum):
     DOCLING = "docling"
     LLAMAPARSE = "llamaparse"
 
+class ObservabilityBackend(str, Enum):
+    """Observability backend mode for telemetry producers"""
+    OPENINFERENCE = "openinference"  # Default, trace-focused, requires spanmetrics for token metrics
+    OPENLIT = "openlit"              # Token metrics + cost tracking built-in
+    BOTH = "both"                    # DUAL mode (recommended!) - Best of both worlds
+
 class Settings(BaseSettings):
     # Data source configuration
     data_source: DataSourceType = DataSourceType.FILESYSTEM
@@ -133,6 +139,18 @@ an aristocratic family that rules the planet Caladan, the rainy planet, since 10
     # Knowledge graph extraction control
     enable_knowledge_graph: bool = Field(True, description="Enable knowledge graph extraction for graph functionality")
     kg_extractor_type: str = Field("schema", description="Type of KG extractor: 'simple', 'schema', or 'dynamic'")
+    
+    # Observability configuration
+    enable_observability: bool = Field(False, description="Enable OpenTelemetry observability (traces/metrics)")
+    observability_backend: ObservabilityBackend = Field(
+        ObservabilityBackend.BOTH,
+        description="Observability backend: openinference (traces), openlit (metrics+costs), or both (recommended)"
+    )
+    otel_exporter_otlp_endpoint: str = Field("http://localhost:4318", description="OTLP exporter endpoint for traces and metrics")
+    otel_service_name: str = Field("flexible-graphrag", description="Service name for observability traces")
+    otel_service_version: str = Field("1.0.0", description="Service version for observability")
+    otel_service_namespace: str = Field("llm-apps", description="Service namespace for observability")
+    enable_llama_index_instrumentation: bool = Field(True, description="Enable automatic LlamaIndex instrumentation")
     
     
     # Database connection parameters

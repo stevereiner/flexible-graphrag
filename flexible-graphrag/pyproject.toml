@@ -35,7 +35,7 @@ dependencies = [
     "numpy",
     "rapidfuzz",
     "spacy",
-    "openai",
+    "openai",  # Note: observability-dual will downgrade to 1.x (OpenLIT requirement)
     "ollama",
     "pydantic",
     "pydantic-settings",
@@ -116,6 +116,38 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# Observability dependencies (optional - for OpenTelemetry/Prometheus/Grafana monitoring)
+# 
+# Three installation options:
+# 1. OpenInference only (default): pip install .[observability]
+# 2. OpenLIT only: pip install .[observability-openlit]
+# 3. DUAL mode (RECOMMENDED): pip install .[observability-dual]
+#
+observability = [
+    "openinference-instrumentation-llama-index",
+    "opentelemetry-exporter-otlp",
+    "opentelemetry-sdk",
+    "opentelemetry-api",
+]
+
+# OpenLIT observability (alternative - includes token metrics out-of-the-box)
+observability-openlit = [
+    "openlit",
+    "opentelemetry-exporter-otlp",
+    "opentelemetry-sdk",
+    "opentelemetry-api",
+]
+
+# DUAL mode observability (RECOMMENDED - best of both worlds!)
+# Includes both OpenInference (rich traces) + OpenLIT (token metrics, costs)
+observability-dual = [
+    "openinference-instrumentation-llama-index",
+    "openlit>=1.36.0",  # Pin to version that works with our setup
+    "opentelemetry-exporter-otlp",
+    "opentelemetry-sdk",
+    "opentelemetry-api",
+]
+
 dev = [
     "pytest",
     "pytest-asyncio",
@@ -140,7 +172,7 @@ py-modules = ["backend", "cmis_util", "config", "document_processor", "factories
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["ingest*", "sources*"]
+include = ["ingest*", "sources*", "observability*"]
 
 [tool.setuptools.package-data]
 "*" = ["*.txt", "*.md"]

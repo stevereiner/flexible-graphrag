@@ -1,0 +1,83 @@
+# OpenTelemetry Collector Configuration
+# Receives traces and metrics from Flexible GraphRAG application
+# Exports to Jaeger (traces) and Prometheus (metrics)
+# Derives LLM metrics from traces using spanmetrics connector
+
+receivers:
+  otlp:
+    protocols:
+      http:
+        endpoint: "0.0.0.0:4318"
+      grpc:
+        endpoint: "0.0.0.0:4317"
+
+connectors:
+  # Spanmetrics: Derive metrics from LLM trace spans
+  # Creates call counts, latency histograms, and error rates for all LLM operations
+  spanmetrics:
+    # Histogram buckets for latency (in milliseconds)
+    histogram:
+      explicit:
+        buckets: [50, 100, 200, 500, 1000, 2000, 5000, 10000]
+    
+    # Extract these span attributes as metric dimensions/labels
+    # Note: service.name is automatically included as a resource attribute
+    dimensions:
+      - name: llm.model_name
+        default: unknown
+      - name: llm.request.type
+        default: unknown
+      - name: llm.provider
+        default: unknown
+    
+    # Metric aggregation settings
+    aggregation_temporality: "CUMULATIVE"
+    metrics_expiration: 5m
+    
+    # Generate these metrics from spans:
+    # - calls_total (counter)
+    # - duration_milliseconds_bucket (histogram)
+    # - duration_milliseconds_sum
+    # - duration_milliseconds_count
+
+exporters:
+  # Jaeger exporter for traces
+  otlp/jaeger:
+    endpoint: "jaeger:4317"
+    tls:
+      insecure: true
+
+  # Prometheus exporter for metrics
+  prometheus:
+    endpoint: "0.0.0.0:8889"
+    
+  # Debug exporter for debugging (replaces deprecated logging exporter)
+  debug:
+    verbosity: detailed
+
+processors:
+  # Batch processor for efficiency
+  batch:
+    timeout: 10s
+    send_batch_size: 1024
+    
+  # Memory limiter to prevent OOM
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 512
+    spike_limit_mib: 128
+
+service:
+  pipelines:
+    # Traces pipeline
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [otlp/jaeger, spanmetrics, debug]  # Add spanmetrics to derive metrics
+      
+    # Metrics pipeline
+    metrics:
+      receivers: [otlp, spanmetrics]  # Receive from app AND spanmetrics connector
+      processors: [memory_limiter, batch]
+      exporters: [prometheus, debug]
+

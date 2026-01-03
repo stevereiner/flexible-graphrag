@@ -5,6 +5,8 @@ from llama_index.core.ingestion import IngestionPipeline
 from llama_index.core.node_parser import SentenceSplitter
 from llama_index.core.extractors import KeywordExtractor, SummaryExtractor
 from llama_index.core.indices.property_graph import SchemaLLMPathExtractor, SimpleLLMPathExtractor, DynamicLLMPathExtractor
+from llama_index.core.graph_stores.types import KG_NODES_KEY, KG_RELATIONS_KEY
+from llama_index.core.schema import BaseNode
 from typing import List, Dict, Any, Union
 from pathlib import Path
 import logging
@@ -14,7 +16,46 @@ from config import Settings as AppSettings, SAMPLE_SCHEMA, SearchDBType, VectorD
 from document_processor import DocumentProcessor
 from factories import LLMFactory, DatabaseFactory
 
+# Import observability for graph extraction tracing and metrics
+try:
+    from observability import get_tracer
+    from observability.metrics import get_rag_metrics
+    OBSERVABILITY_AVAILABLE = True
+except ImportError:
+    OBSERVABILITY_AVAILABLE = False
+    get_tracer = None
+    get_rag_metrics = None
+
 logger = logging.getLogger(__name__)
+
+
+def count_extracted_entities_and_relations(nodes: List[BaseNode]) -> tuple[int, int]:
+    """
+    Count entities and relations from node metadata after extraction.
+    
+    This follows Method 1 from LlamaIndex best practices: examining node metadata
+    before insertion into the graph store to get accurate extraction counts.
+    
+    Args:
+        nodes: List of nodes after kg_extractors have processed them
+        
+    Returns:
+        Tuple of (entity_count, relation_count)
+    """
+    entity_count = 0
+    relation_count = 0
+    
+    for node in nodes:
+        # Get entities from this node (stored in metadata by extractors)
+        entities = node.metadata.get(KG_NODES_KEY, [])
+        entity_count += len(entities)
+        
+        # Get relations from this node (stored in metadata by extractors)
+        relations = node.metadata.get(KG_RELATIONS_KEY, [])
+        relation_count += len(relations)
+    
+    return entity_count, relation_count
+
 
 class SchemaManager:
     """Manages schema definitions for entity and relationship extraction"""
@@ -205,6 +246,20 @@ class HybridSearchSystem:
         
         # Track whether graph was intentionally skipped (for per-ingest skip_graph flag)
         self.graph_intentionally_skipped = False
+        
+        # Track observability status
+        self._observability_enabled = getattr(config, 'enable_observability', False)
+        
+        # Initialize error counter at 0 so dashboard shows "0" instead of "No Data"
+        if self._observability_enabled:
+            try:
+                from observability.metrics import get_rag_metrics
+                metrics = get_rag_metrics()
+                # Initialize error counter with 0 to ensure metric exists
+                metrics.errors_total.add(0, {})
+                logger.info("Initialized observability metrics (error counter at 0)")
+            except Exception as e:
+                logger.warning(f"Failed to initialize observability metrics: {e}")
         
         logger.info("=== SYSTEM READY ===")
         logger.info("HybridSearchSystem initialized successfully with Ollama!" if config.llm_provider == LLMProvider.OLLAMA else "HybridSearchSystem initialized successfully")
@@ -552,13 +607,119 @@ class HybridSearchSystem:
             logger.info(f"LLM model being used for knowledge graph extraction: {llm_model_name}")
             logger.info(f"Graph database target: {graph_store_type}")                    
             
-            # Use run_in_executor with proper nest_asyncio handling
-            create_graph_index = functools.partial(PropertyGraphIndex.from_documents, **graph_index_kwargs)
-            self.graph_index = await loop.run_in_executor(None, create_graph_index)
+            # Create tracer span for graph extraction if observability is enabled
+            if OBSERVABILITY_AVAILABLE:
+                from opentelemetry import context, trace as otel_trace
+                tracer = get_tracer(__name__)
+                graph_span = tracer.start_span("rag.graph_extraction")
+                graph_span.set_attribute("graph.num_documents", len(documents))
+                graph_span.set_attribute("graph.llm_model", llm_model_name)
+                graph_span.set_attribute("graph.database_type", graph_store_type)
+                graph_span.set_attribute("graph.extractor_type", self.config.kg_extractor_type)
+                
+                # Attach span to current context for propagation to nested operations
+                ctx = otel_trace.set_span_in_context(graph_span)
+                token = context.attach(ctx)
+            else:
+                graph_span = None
+                token = None
             
-            graph_creation_duration = time.time() - graph_creation_start_time
-            logger.info(f"PropertyGraphIndex creation completed in {graph_creation_duration:.2f}s")
-            logger.info(f"Knowledge graph extraction finished - entities and relationships stored in {graph_store_type}")
+            try:
+                # Use run_in_executor with proper nest_asyncio handling
+                create_graph_index = functools.partial(PropertyGraphIndex.from_documents, **graph_index_kwargs)
+                self.graph_index = await loop.run_in_executor(None, create_graph_index)
+                
+                graph_creation_duration = time.time() - graph_creation_start_time
+                logger.info(f"PropertyGraphIndex creation completed in {graph_creation_duration:.2f}s")
+                logger.info(f"Knowledge graph extraction finished - entities and relationships stored in {graph_store_type}")
+                
+                # Count entities and relations from the graph store
+                num_entities = 0
+                num_relations = 0
+                try:
+                    # Method 1: Try to get counts from graph index
+                    if hasattr(self.graph_index, 'property_graph_store'):
+                        pg_store = self.graph_index.property_graph_store
+                        
+                        # Try get_triplets method (works for most stores)
+                        if hasattr(pg_store, 'get_triplets'):
+                            try:
+                                triplets = pg_store.get_triplets()
+                                if triplets:
+                                    # Count unique subjects (entities) and relations
+                                    unique_entities = set()
+                                    for triplet in triplets:
+                                        if hasattr(triplet, 'subject_id'):
+                                            unique_entities.add(triplet.subject_id)
+                                        if hasattr(triplet, 'object_id'):
+                                            unique_entities.add(triplet.object_id)
+                                    num_entities = len(unique_entities)
+                                    num_relations = len(triplets)
+                                    logger.debug(f"Counted from triplets: {num_entities} entities, {num_relations} relations")
+                            except Exception as triplet_error:
+                                logger.debug(f"Could not get triplets: {triplet_error}")
+                        
+                        # Fallback: Try get_schema method
+                        if num_entities == 0 and hasattr(pg_store, 'get_schema'):
+                            try:
+                                schema = pg_store.get_schema(refresh=True)
+                                if schema:
+                                    # Try different schema formats
+                                    if isinstance(schema, str):
+                                        # Parse string schema (Neo4j returns string)
+                                        import re
+                                        nodes_match = re.findall(r'Node properties:', schema)
+                                        rels_match = re.findall(r'Relationship properties:|Relationships:', schema)
+                                        # This is approximate - use triplets method if available
+                                    elif isinstance(schema, dict):
+                                        nodes = schema.get('nodes', [])
+                                        rels = schema.get('relationships', [])
+                                        num_entities = len(nodes) if nodes else 0
+                                        num_relations = len(rels) if rels else 0
+                                        logger.debug(f"Counted from schema: {num_entities} entity types, {num_relations} relation types")
+                            except Exception as schema_error:
+                                logger.debug(f"Could not get schema: {schema_error}")
+                    
+                    logger.info(f"Graph extraction complete: {num_entities} entities, {num_relations} relationships")
+                except Exception as count_error:
+                    logger.warning(f"Could not count graph entities/relations: {count_error}")
+                    # Even if counting fails, we still have the timing data
+                    logger.info(f"Graph extraction complete: entity/relation counts unavailable")
+                
+                # Add metrics to span if available
+                if graph_span:
+                    graph_span.set_attribute("graph.extraction_latency_ms", graph_creation_duration * 1000)
+                    if num_entities > 0 or num_relations > 0:
+                        graph_span.set_attribute("graph.num_entities", num_entities)
+                        graph_span.set_attribute("graph.num_relations", num_relations)
+                    graph_span.set_attribute("graph.status", "success")
+                
+                # Record custom metrics for Grafana dashboard
+                if OBSERVABILITY_AVAILABLE and get_rag_metrics:
+                    try:
+                        metrics = get_rag_metrics()
+                        # Record graph extraction with entity/relation counts
+                        metrics.record_graph_extraction(
+                            latency_ms=graph_creation_duration * 1000,
+                            num_entities=num_entities,
+                            num_relations=num_relations
+                        )
+                        logger.info(f"[PATH 1] Recorded graph extraction metrics: {graph_creation_duration * 1000:.2f}ms, {num_entities} entities, {num_relations} relations")
+                    except Exception as e:
+                        logger.warning(f"Failed to record graph metrics: {e}")
+                    
+            except Exception as e:
+                graph_creation_duration = time.time() - graph_creation_start_time
+                if graph_span:
+                    graph_span.set_attribute("graph.status", "error")
+                    graph_span.set_attribute("graph.error", str(e))
+                    graph_span.record_exception(e)
+                raise
+            finally:
+                if graph_span:
+                    graph_span.end()
+                if token is not None:
+                    context.detach(token)
             
             # Check for cancellation after graph index creation
             if _check_cancellation():
@@ -583,6 +744,41 @@ class HybridSearchSystem:
         
         logger.info(f"Document ingestion completed successfully in {total_duration:.2f}s total!")
         logger.info(f"Performance summary - Pipeline: {pipeline_duration:.2f}s, Vector: {vector_time:.2f}s, Graph: {graph_time:.2f}s")
+        
+        # Record comprehensive metrics for Grafana dashboard
+        if OBSERVABILITY_AVAILABLE and get_rag_metrics:
+            try:
+                metrics = get_rag_metrics()
+                
+                # Record document processing metrics (pipeline timing)
+                metrics.record_document_processing(
+                    latency_ms=pipeline_duration * 1000,
+                    num_chunks=len(nodes)
+                )
+                logger.info(f"Recorded document processing metrics: {pipeline_duration * 1000:.2f}ms, {len(nodes)} chunks")
+                
+                # Record vector indexing metrics
+                if self.vector_store and vector_time > 0:
+                    metrics.record_vector_indexing(
+                        latency_ms=vector_time * 1000,
+                        num_vectors=len(nodes)
+                    )
+                    logger.info(f"Recorded vector indexing metrics: {vector_time * 1000:.2f}ms, {len(nodes)} vectors")
+                
+                logger.info(f"All metrics recorded successfully - Pipeline: {pipeline_duration:.2f}s, Vector: {vector_time:.2f}s, Graph: {graph_time:.2f}s")
+                
+                # Force flush metrics to ensure they're exported immediately
+                try:
+                    from opentelemetry import metrics as otel_metrics
+                    meter_provider = otel_metrics.get_meter_provider()
+                    if hasattr(meter_provider, 'force_flush'):
+                        meter_provider.force_flush(timeout_millis=5000)
+                        logger.debug("Forced metrics flush to OTEL collector")
+                except Exception as flush_error:
+                    logger.debug(f"Could not force flush metrics: {flush_error}")
+                    
+            except Exception as e:
+                logger.warning(f"Failed to record ingestion metrics: {e}")
         
         # Notify completion via status callback - this will trigger the UI completion status
         if status_callback:
@@ -1173,6 +1369,24 @@ class HybridSearchSystem:
             })
         
         logger.info(f"Deduplication summary: {len(results)} -> {len(deduplicated_results)} -> {len(formatted_results)} final results")
+        
+        # Record retrieval metrics for observability
+        if self._observability_enabled:
+            try:
+                from observability.metrics import get_rag_metrics
+                metrics = get_rag_metrics()
+                retrieval_latency_ms = retrieval_duration * 1000
+                top_score = formatted_results[0]["score"] if formatted_results else None
+                metrics.record_retrieval(
+                    latency_ms=retrieval_latency_ms,
+                    num_documents=len(formatted_results),
+                    top_score=top_score,
+                    attributes={"query_length": len(query), "top_k": top_k}
+                )
+                logger.info(f"Recorded retrieval metrics: {retrieval_latency_ms:.2f}ms, {len(formatted_results)} docs")
+            except Exception as e:
+                logger.warning(f"Failed to record retrieval metrics: {e}")
+        
         return formatted_results
     
     def _extract_core_content(self, text: str) -> str:
@@ -1527,36 +1741,158 @@ class HybridSearchSystem:
                 logger.info(f"Starting PropertyGraphIndex.from_documents() - this will make LLM calls to extract entities and relationships from {len(documents)} documents")
                 logger.info(f"LLM model being used for knowledge graph extraction: {llm_model_name}")
                 
-                # Prepare kwargs for PropertyGraphIndex.from_documents
-                graph_kwargs = {
-                    "documents": documents,
-                    "llm": self.llm,
-                    "embed_model": self.embed_model,
-                    "kg_extractors": kg_extractors,
-                    "storage_context": graph_storage_context
-                }
+                # Create tracer span for graph extraction if observability is enabled
+                if OBSERVABILITY_AVAILABLE:
+                    tracer = get_tracer(__name__)
+                    graph_span = tracer.start_span("rag.graph_extraction.create")
+                    graph_span.set_attribute("graph.num_documents", len(documents))
+                    graph_span.set_attribute("graph.llm_model", llm_model_name)
+                    graph_span.set_attribute("graph.database_type", graph_store_type)
+                    graph_span.set_attribute("graph.extractor_type", self.config.kg_extractor_type)
+                else:
+                    graph_span = None
                 
-                # CRITICAL: Neptune Analytics has non-atomic vector index limitations
-                # Disable vector embeddings for knowledge graph nodes to avoid vector operation conflicts
-                if hasattr(self.graph_store, '__class__') and 'NeptuneAnalytics' in str(self.graph_store.__class__):
-                    graph_kwargs["embed_kg_nodes"] = False
-                    logger.info("Neptune Analytics detected: Setting embed_kg_nodes=False to avoid vector index atomicity issues")
-                    logger.info("Knowledge graph structure will be created without vector embeddings (use separate VECTOR_DB for embeddings)")
-                
-                create_graph_index = functools.partial(PropertyGraphIndex.from_documents, **graph_kwargs)
-                self.graph_index = await loop.run_in_executor(None, create_graph_index)
-                
-                graph_creation_duration = time.time() - graph_creation_start_time
-                logger.info(f"PropertyGraphIndex creation completed in {graph_creation_duration:.2f}s")
-                logger.info(f"Knowledge graph extraction finished - entities and relationships stored in {graph_store_type}")
+                try:
+                    # METHOD 1: Track counts during extraction by manually running extractors
+                    # This follows LlamaIndex best practice for accurate entity/relation counting
+                    
+                    # First, convert documents to nodes (this is what PropertyGraphIndex does internally)
+                    from llama_index.core.node_parser import SimpleNodeParser
+                    node_parser = SimpleNodeParser.from_defaults()
+                    
+                    logger.info(f"Converting {len(documents)} documents to nodes for extraction...")
+                    nodes = node_parser.get_nodes_from_documents(documents)
+                    logger.info(f"Created {len(nodes)} nodes from documents")
+                    
+                    # Run extractors on nodes manually to capture metadata
+                    logger.info(f"Running {len(kg_extractors)} extractor(s) on nodes to extract entities and relationships...")
+                    for extractor in kg_extractors:
+                        # Extractors modify nodes in-place, adding KG_NODES_KEY and KG_RELATIONS_KEY to metadata
+                        nodes = extractor(nodes, show_progress=True)
+                    
+                    # Count entities and relations from node metadata (before insertion)
+                    num_entities, num_relations = count_extracted_entities_and_relations(nodes)
+                    logger.info(f"Extraction complete: {num_entities} entities, {num_relations} relationships extracted from node metadata")
+                    
+                    # Prepare kwargs for PropertyGraphIndex using already-extracted nodes
+                    # Method 1: Pass nodes (not documents) with empty extractors (already extracted!)
+                    graph_kwargs = {
+                        "nodes": nodes,  # Use pre-extracted nodes, not documents
+                        "llm": self.llm,
+                        "embed_model": self.embed_model,
+                        "kg_extractors": [],  # Empty - extraction already done above!
+                        "property_graph_store": self.graph_store,  # Pass store directly
+                        "storage_context": graph_storage_context
+                    }
+                    
+                    # CRITICAL: Neptune Analytics has non-atomic vector index limitations
+                    # Disable vector embeddings for knowledge graph nodes to avoid vector operation conflicts
+                    if hasattr(self.graph_store, '__class__') and 'NeptuneAnalytics' in str(self.graph_store.__class__):
+                        graph_kwargs["embed_kg_nodes"] = False
+                        logger.info("Neptune Analytics detected: Setting embed_kg_nodes=False to avoid vector index atomicity issues")
+                        logger.info("Knowledge graph structure will be created without vector embeddings (use separate VECTOR_DB for embeddings)")
+                    
+                    # Use PropertyGraphIndex constructor (not from_documents) since we have nodes
+                    create_graph_index = functools.partial(PropertyGraphIndex, **graph_kwargs)
+                    self.graph_index = await loop.run_in_executor(None, create_graph_index)
+                    
+                    graph_creation_duration = time.time() - graph_creation_start_time
+                    logger.info(f"PropertyGraphIndex creation completed in {graph_creation_duration:.2f}s")
+                    logger.info(f"Knowledge graph extraction finished - {num_entities} entities and {num_relations} relationships stored in {graph_store_type}")
+                    
+                    # Record metrics if available
+                    if graph_span:
+                        graph_span.set_attribute("graph.extraction_latency_ms", graph_creation_duration * 1000)
+                        graph_span.set_attribute("graph.num_entities", num_entities)
+                        graph_span.set_attribute("graph.num_relations", num_relations)
+                        graph_span.set_attribute("graph.status", "success")
+                    
+                    # Record custom metrics for Grafana dashboard
+                    if OBSERVABILITY_AVAILABLE and get_rag_metrics:
+                        try:
+                            metrics = get_rag_metrics()
+                            # Record graph extraction with entity/relation counts
+                            metrics.record_graph_extraction(
+                                latency_ms=graph_creation_duration * 1000,
+                                num_entities=num_entities,
+                                num_relations=num_relations
+                            )
+                            logger.info(f"[PATH 2] Recorded graph extraction metrics: {graph_creation_duration * 1000:.2f}ms, {num_entities} entities, {num_relations} relations")
+                        except Exception as e:
+                            logger.warning(f"Failed to record graph metrics: {e}")
+                        
+                except Exception as e:
+                    graph_creation_duration = time.time() - graph_creation_start_time
+                    if graph_span:
+                        graph_span.set_attribute("graph.status", "error")
+                        graph_span.set_attribute("graph.error", str(e))
+                        graph_span.record_exception(e)
+                    raise
+                finally:
+                    if graph_span:
+                        graph_span.end()
             else:
                 # Add to existing graph index
                 graph_update_start_time = time.time()
                 logger.info(f"Adding {len(nodes)} nodes to existing graph index...")
-                self.graph_index.insert_nodes(nodes)
-                graph_creation_duration = time.time() - graph_update_start_time
-                logger.info(f"Graph index update completed in {graph_creation_duration:.2f}s")
-                logger.info(f"Knowledge graph updated - new entities and relationships added to {graph_store_type}")
+                
+                # Create tracer span for graph update if observability is enabled
+                if OBSERVABILITY_AVAILABLE:
+                    tracer = get_tracer(__name__)
+                    graph_span = tracer.start_span("rag.graph_extraction.update")
+                    graph_span.set_attribute("graph.num_nodes", len(nodes))
+                    graph_span.set_attribute("graph.database_type", graph_store_type)
+                else:
+                    graph_span = None
+                
+                try:
+                    # PATH 3: Run extractors manually on nodes to populate metadata with entities/relations
+                    # This is necessary because IngestionPipeline doesn't include KG extractors
+                    logger.info(f"Running {len(kg_extractors)} extractor(s) on {len(nodes)} nodes to extract entities and relationships...")
+                    for extractor in kg_extractors:
+                        # Extractors modify nodes in-place, adding KG_NODES_KEY and KG_RELATIONS_KEY to metadata
+                        nodes = extractor(nodes, show_progress=True)
+                    
+                    # Count entities/relations from node metadata (after extraction, before insertion)
+                    num_entities, num_relations = count_extracted_entities_and_relations(nodes)
+                    logger.info(f"Extraction complete: {num_entities} entities, {num_relations} relationships extracted from node metadata")
+                    logger.info(f"Inserting nodes with {num_entities} entities and {num_relations} relationships...")
+                    
+                    self.graph_index.insert_nodes(nodes)
+                    graph_creation_duration = time.time() - graph_update_start_time
+                    logger.info(f"Graph index update completed in {graph_creation_duration:.2f}s")
+                    logger.info(f"Knowledge graph updated - {num_entities} new entities and {num_relations} new relationships added to {graph_store_type}")
+                    
+                    if graph_span:
+                        graph_span.set_attribute("graph.update_latency_ms", graph_creation_duration * 1000)
+                        graph_span.set_attribute("graph.num_entities", num_entities)
+                        graph_span.set_attribute("graph.num_relations", num_relations)
+                        graph_span.set_attribute("graph.status", "success")
+                    
+                    # Record custom metrics for Grafana dashboard
+                    if OBSERVABILITY_AVAILABLE and get_rag_metrics:
+                        try:
+                            metrics = get_rag_metrics()
+                            # Record graph extraction with entity/relation counts
+                            metrics.record_graph_extraction(
+                                latency_ms=graph_creation_duration * 1000,
+                                num_entities=num_entities,
+                                num_relations=num_relations
+                            )
+                            logger.info(f"[PATH 3 - UPDATE] Recorded graph extraction metrics: {graph_creation_duration * 1000:.2f}ms, {num_entities} entities, {num_relations} relations")
+                        except Exception as e:
+                            logger.warning(f"Failed to record graph metrics: {e}")
+                        
+                except Exception as e:
+                    graph_creation_duration = time.time() - graph_update_start_time
+                    if graph_span:
+                        graph_span.set_attribute("graph.status", "error")
+                        graph_span.set_attribute("graph.error", str(e))
+                        graph_span.record_exception(e)
+                    raise
+                finally:
+                    if graph_span:
+                        graph_span.end()
         
         # Check for cancellation after graph index creation/update
         if _check_cancellation():
@@ -1574,6 +1910,40 @@ class HybridSearchSystem:
         
         logger.info(f"Direct document processing completed successfully in {total_duration:.2f}s total!")
         logger.info(f"Performance summary - Pipeline: {pipeline_duration:.2f}s, Vector: {vector_duration:.2f}s, Graph: {graph_time:.2f}s")
+        
+        # Record metrics for document processing, vector indexing (graph already recorded in its own section)
+        if OBSERVABILITY_AVAILABLE and get_rag_metrics:
+            try:
+                metrics = get_rag_metrics()
+                
+                # Record document processing metrics (pipeline time)
+                if pipeline_duration > 0:
+                    metrics.record_document_processing(
+                        latency_ms=pipeline_duration * 1000,
+                        num_chunks=len(nodes)
+                    )
+                    logger.info(f"Recorded document processing metrics: {pipeline_duration * 1000:.2f}ms, {len(nodes)} chunks")
+                
+                # Record vector indexing metrics
+                if vector_duration > 0:
+                    metrics.record_vector_indexing(
+                        latency_ms=vector_duration * 1000,
+                        num_vectors=len(nodes)
+                    )
+                    logger.info(f"Recorded vector indexing metrics: {vector_duration * 1000:.2f}ms, {len(nodes)} vectors")
+                
+                # Force flush metrics to ensure they're exported immediately
+                try:
+                    from opentelemetry import metrics as otel_metrics
+                    meter_provider = otel_metrics.get_meter_provider()
+                    if hasattr(meter_provider, 'force_flush'):
+                        meter_provider.force_flush(timeout_millis=5000)
+                        logger.debug("Forced metrics flush to OTEL collector")
+                except Exception as flush_error:
+                    logger.debug(f"Could not force flush metrics: {flush_error}")
+                    
+            except Exception as e:
+                logger.warning(f"Failed to record processing metrics: {e}")
         
         # Notify completion via status callback - this will trigger the UI completion status
         if status_callback:

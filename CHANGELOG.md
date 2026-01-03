@@ -2,6 +2,71 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2026-01-02] - Entity/Relation counting fix for incremental ingestions
+
+### Fixed
+- **Entity/relation counting in PATH 3** - Fixed incremental graph updates (second+ documents) showing 0 entities/0 relations by running KG extractors before counting in `hybrid_system.py` line ~1849-1864
+
+## [2025-12-30] - OpenLIT DUAL mode observability integration
+
+### Added
+- **DUAL mode observability** - Combined OpenInference + OpenLIT as dual OTLP producers for comprehensive monitoring
+- `ObservabilityBackend` enum in `config.py` with three modes: `openinference`, `openlit`, `both` (recommended)
+- `observability_backend` field in Settings class with proper Pydantic integration
+- Explicit datasource UIDs in Grafana provisioning (`uid: prometheus`, `uid: jaeger`) for reliable dashboard connections
+- Auto-refresh (30s) to observability dashboards for real-time monitoring
+
+### Enhanced
+- Complete token usage tracking (input/output tokens by model)
+- Cost tracking with per-hour and cumulative metrics  
+- VectorDB operation monitoring
+- LLM latency histograms (P50/P95/P99)
+- Dashboard metric queries updated to match OpenLIT output format
+- Grafana dashboard JSON files corrected for proper data visualization
+
+## [2025-12-29] - Observability metrics enhancements
+
+### Added
+- **Entity and relation counting** - Knowledge graph extraction now tracks and displays entity/relationship counts in Grafana
+- **Search and query metrics** - Document retrieval and LLM generation operations now record observability metrics
+- Knowledge Graph Entities panel in Grafana showing extraction rates and totals
+- Knowledge Graph Relations panel in Grafana showing extraction rates and totals
+
+### Fixed
+- **Grafana rate metrics** - Adjusted time window to properly display entity/relation extraction rates during short ingestion operations
+- **Missing dashboard data** - Document Retrieval Latency and LLM Generation Latency panels now populate during search/query operations
+
+### Documentation
+- Created comprehensive observability documentation for entity/relation counting and search/query metrics
+- Added troubleshooting guides for Grafana dashboard metrics
+
+## [2025-12-27] - Observability support added with OpenTelemetry, Prometheus, Grafana, and Jaeger
+
+### Added
+- **OpenTelemetry instrumentation** - Comprehensive observability module (`flexible-graphrag/observability/`) with automatic LlamaIndex tracing via OpenInference
+- **Custom tracing decorators** - `@trace_retrieval`, `@trace_llm_call`, `@trace_graph_extraction`, `@trace_document_processing` for adding tracing to custom code
+- **RAG-specific metrics** - Automatic collection of retrieval latency, LLM token usage, graph extraction stats, document processing metrics, and error tracking
+- **Metrics API** - `RAGMetrics` class with methods for recording custom metrics: `record_retrieval()`, `record_llm_call()`, `record_graph_extraction()`, etc.
+- **Docker observability stack** - Complete stack with OTLP Collector, Jaeger (traces), Prometheus (metrics), and Grafana (dashboards)
+- **Pre-configured Grafana dashboard** - "Flexible GraphRAG - RAG Metrics" dashboard with panels for retrieval latency (P95/P99), LLM generation latency, token usage, document processing rates, error tracking
+- **Configuration options** - Added `ENABLE_OBSERVABILITY`, `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_SERVICE_NAME`, and other observability settings to config
+- **Comprehensive documentation** - Created `docs/OBSERVABILITY.md` with quick start, architecture diagrams, custom instrumentation examples, PromQL queries, and production checklist
+- **Optional dependencies** - Added `[observability]` extras group in `pyproject.toml` for easy installation: `uv pip install -e ".[observability]"`
+
+### Enhanced
+- **Optional dependencies** - Observability packages (`openinference-instrumentation-llama-index`, `opentelemetry-exporter-otlp`, `opentelemetry-sdk`) are optional extras and gracefully degrade if not installed
+- **Automatic initialization** - Observability automatically initializes on startup when `ENABLE_OBSERVABILITY=true` with proper error handling
+- **Production-ready configuration** - Includes batch span processor, memory limiter, and configurable service metadata for production deployments
+- **Docker Compose integration** - Added to `docker-compose.yaml` include list (commented by default) for easy one-line enabling
+
+### Documentation
+- **Updated README.md** - Added "Observability and Monitoring" section with quick start and dashboard access info
+- **Updated env-sample.txt** - Added observability configuration section with all OTLP and service settings
+- **Docker configuration** - Added `docker/includes/observability.yaml` for easy deployment of complete observability stack
+- **OTLP collector config** - Created `docker/otel/otel-collector-config.yaml` with proper trace/metric pipelines
+- **Prometheus config** - Created `docker/otel/prometheus.yml` with scrape configurations
+- **Grafana provisioning** - Auto-provisions Prometheus and Jaeger datasources plus custom RAG metrics dashboard
+
 ## [2026-01-01] - LLM Testing Documentation and Query Timing Improvements
 
 ### Documentation

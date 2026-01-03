@@ -27,6 +27,7 @@ include:
    - includes/kibana-simple.yaml      # Kibana working configuration
    #- includes/opensearch.yaml      # Commented - using elasticsearch instead
    #- includes/alfresco.yaml        # Alfresco content management system
+   #- includes/observability.yaml   # OpenTelemetry observability stack (Jaeger, Prometheus, Grafana)
    # commented out app-stack.yaml and proxy.yaml currently using external/standalone flexible-graphrag 
    # backend and ui clients, but using databases in docker
    #- includes/app-stack.yaml       # backend and ui clients

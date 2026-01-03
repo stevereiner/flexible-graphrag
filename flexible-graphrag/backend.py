@@ -1467,6 +1467,36 @@ class FlexibleGraphRAGBackend:
             answer = str(response)
             logger.info(f"Q&A query completed in {duration:.3f}s - Answer length: {len(answer)} characters")
             
+            # Record LLM generation metrics for observability
+            if hasattr(self.system, '_observability_enabled') and self.system._observability_enabled:
+                try:
+                    from observability.metrics import get_rag_metrics
+                    metrics = get_rag_metrics()
+                    generation_latency_ms = duration * 1000
+                    
+                    # Extract token counts from response metadata if available
+                    prompt_tokens = 0
+                    completion_tokens = 0
+                    if hasattr(response, 'metadata') and response.metadata:
+                        prompt_tokens = response.metadata.get('prompt_tokens', 0)
+                        completion_tokens = response.metadata.get('completion_tokens', 0)
+                    elif hasattr(response, 'source_nodes'):
+                        # Try to get from source nodes metadata
+                        for node in response.source_nodes:
+                            if hasattr(node, 'metadata') and node.metadata:
+                                prompt_tokens += node.metadata.get('prompt_tokens', 0)
+                                completion_tokens += node.metadata.get('completion_tokens', 0)
+                    
+                    metrics.record_llm_call(
+                        latency_ms=generation_latency_ms,
+                        prompt_tokens=prompt_tokens,
+                        completion_tokens=completion_tokens,
+                        attributes={"operation": "qa_query", "query_length": len(query)}
+                    )
+                    logger.info(f"Recorded LLM generation metrics: {generation_latency_ms:.2f}ms, {prompt_tokens} prompt tokens, {completion_tokens} completion tokens")
+                except Exception as e:
+                    logger.warning(f"Failed to record LLM metrics: {e}")
+            
             return {"success": True, "answer": answer, "query_time": f"{duration:.3f}s"}
         except Exception as e:
             end_time = datetime.now()
@@ -1490,6 +1520,36 @@ class FlexibleGraphRAGBackend:
             duration = (end_time - start_time).total_seconds()
             answer = str(response)
             logger.info(f"Document query completed in {duration:.3f}s - Answer length: {len(answer)} characters")
+            
+            # Record LLM generation metrics for observability
+            if hasattr(self.system, '_observability_enabled') and self.system._observability_enabled:
+                try:
+                    from observability.metrics import get_rag_metrics
+                    metrics = get_rag_metrics()
+                    generation_latency_ms = duration * 1000
+                    
+                    # Extract token counts from response metadata if available
+                    prompt_tokens = 0
+                    completion_tokens = 0
+                    if hasattr(response, 'metadata') and response.metadata:
+                        prompt_tokens = response.metadata.get('prompt_tokens', 0)
+                        completion_tokens = response.metadata.get('completion_tokens', 0)
+                    elif hasattr(response, 'source_nodes'):
+                        # Try to get from source nodes metadata
+                        for node in response.source_nodes:
+                            if hasattr(node, 'metadata') and node.metadata:
+                                prompt_tokens += node.metadata.get('prompt_tokens', 0)
+                                completion_tokens += node.metadata.get('completion_tokens', 0)
+                    
+                    metrics.record_llm_call(
+                        latency_ms=generation_latency_ms,
+                        prompt_tokens=prompt_tokens,
+                        completion_tokens=completion_tokens,
+                        attributes={"operation": "query_documents", "query_length": len(query)}
+                    )
+                    logger.info(f"Recorded LLM generation metrics: {generation_latency_ms:.2f}ms, {prompt_tokens} prompt tokens, {completion_tokens} completion tokens")
+                except Exception as e:
+                    logger.warning(f"Failed to record LLM metrics: {e}")
             
             return {"success": True, "answer": answer, "query_time": f"{duration:.3f}s"}
         except Exception as e:

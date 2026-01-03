@@ -25,6 +25,14 @@ The following port conflicts were identified and resolved for new vector databas
 | Angular Frontend | 5173 | Angular UI | http://localhost:5173 |
 | Nginx Proxy | 8070 | Reverse proxy for all UIs | http://localhost:8070 |
 
+### Observability Services
+| **Service** | **Port(s)** | **Purpose** | **Dashboard URL** |
+|-------------|-------------|-------------|-------------------|
+| **OTLP Collector** | **4317, 4318, 8888, 8889** | Receives traces/metrics (gRPC, HTTP, Prometheus metrics) | - |
+| **Jaeger** | **16686, 14250** | Distributed tracing UI | http://localhost:16686 |
+| **Prometheus** | **9090** | Metrics collection | http://localhost:9090 |
+| **Grafana** | **3009** | Dashboards and visualization | http://localhost:3009 |
+
 ### Graph Databases
 | **Service** | **Port(s)** | **Purpose** | **Dashboard URL** |
 |-------------|-------------|-------------|-------------------|

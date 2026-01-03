@@ -20,6 +20,7 @@
 as a starting point for LLM to expand on is supported.
 - **Configurable Architecture**: LlamaIndex provides abstractions for allowing multiple vector databases, graph databases, search engines, and LLM providers to be supported
 - **Multi-Source Ingestion**: Processes documents from 13 data sources (file upload, cloud storage, enterprise repositories, web sources) with Docling (default) or LlamaParse (cloud API) document parsing.
+- **Observability**: Built-in OpenTelemetry instrumentation with automatic LlamaIndex tracing, Prometheus metrics, Jaeger traces, and Grafana dashboards for production monitoring
 - **FastAPI Server with REST API**: Python based FastAPI server with REST APIs for document ingesting, hybrid search, AI query, and AI chat.
 - **MCP Server**: MCP server that provides MCP Clients like Claude Desktop, etc. tools for document and text ingesting, hybrid search and AI query. The MCP server (Python and FastMCP 2.x based) uses the REST APIs of the FastAPI backend. 
 - **UI Clients**: Angular, React, and Vue UI clients support choosing the data source (filesystem, Alfresco, CMIS, etc.), ingesting documents, performing hybrid searches, AI queries, and AI chat. The UI clients use the REST APIs of the FastAPI backend.
@@ -962,6 +963,55 @@ Between tests you can clean up data:
 - **Vector Indexes**: See [docs/VECTOR-DIMENSIONS.md](docs/VECTOR-DIMENSIONS.md) for vector database cleanup instructions
 - **Graph Data**: See [flexible-graphrag/README-neo4j.md](flexible-graphrag/README-neo4j.md) for graph-related cleanup commands
 - **Neo4j**: Use on a test Neo4j database no one else is using 
+
+## Observability and Monitoring
+
+Flexible GraphRAG includes comprehensive observability features for production monitoring:
+
+- **OpenTelemetry Integration**: Industry-standard instrumentation with automatic LlamaIndex tracing
+- **Distributed Tracing**: Jaeger UI for visualizing complete request flows
+- **Metrics Collection**: Prometheus for RAG-specific metrics (retrieval/LLM latency, token usage, entity/relation counts)
+- **Visualization**: Grafana dashboards with pre-configured RAG metrics panels
+- **Dual Mode Support**: OpenInference (LlamaIndex) + OpenLIT (optional) as dual OTLP producers
+- **Custom Instrumentation**: Decorators for adding tracing to custom code
+
+### Quick Start
+
+1. Install observability dependencies (optional):
+   ```bash
+   cd flexible-graphrag
+   uv pip install -e ".[observability-dual]"  # OpenInference + OpenLIT (recommended for complete metrics)
+   # Or combine with dev tools: uv pip install -e ".[observability-dual,dev]"
+   ```
+   
+   **Note:** OpenLIT currently requires OpenAI 1.x and will downgrade from 2.x ([support for OpenAI 2.x in progress](https://github.com/openlit/openlit/issues/934)). Flexible GraphRAG works correctly with OpenAI 1.x and has been tested.
+
+2. Enable in `.env`:
+   ```bash
+   ENABLE_OBSERVABILITY=true
+   OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
+   OBSERVABILITY_BACKEND=both  # openinference, openlit, or both (recommended)
+   ```
+
+3. Start observability stack:
+   ```bash
+   cd docker
+   # Uncomment observability.yaml in docker-compose.yaml first
+   docker-compose -f docker-compose.yaml -p flexible-graphrag up -d
+   ```
+
+4. Access dashboards:
+   - **Grafana**: http://localhost:3009 (admin/admin) - RAG metrics dashboards
+   - **Jaeger**: http://localhost:16686 - Distributed tracing
+   - **Prometheus**: http://localhost:9090 - Raw metrics
+
+<p align="center">
+  <a href="./screen-shots/observability/observability-grafana-prometheus-jaeger-ui.png">
+    <img src="./screen-shots/observability/observability-grafana-prometheus-jaeger-ui.png" alt="Observability Dashboard" width="700">
+  </a>
+</p>
+
+See [docs/OBSERVABILITY.md](docs/OBSERVABILITY.md) for complete setup, custom instrumentation, and production best practices. 
 
 ## MCP Tools for MCP Clients like Claude Desktop, etc.
 

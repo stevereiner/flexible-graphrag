@@ -17,6 +17,40 @@ import nest_asyncio
 from config import Settings, DataSourceType
 from backend import get_backend
 
+# Set up logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
+
+# Initialize observability if enabled
+try:
+    from observability import setup_observability
+    # Use Settings class for type-safe configuration with validation
+    temp_settings = Settings()
+    
+    if temp_settings.enable_observability:
+        # Note: observability_backend is already a string due to use_enum_values=True in Settings
+        logger.info(f"🔧 Initializing observability (backend: {temp_settings.observability_backend})...")
+        setup_observability(
+            service_name=temp_settings.otel_service_name,
+            otlp_endpoint=temp_settings.otel_exporter_otlp_endpoint,
+            enable_instrumentation=temp_settings.enable_llama_index_instrumentation,
+            service_version=temp_settings.otel_service_version,
+            service_namespace=temp_settings.otel_service_namespace,
+            backend=temp_settings.observability_backend  # Already a string, not .value needed
+        )
+        logger.info("✅ Observability initialized successfully")
+    else:
+        logger.info("ℹ️ Observability disabled (ENABLE_OBSERVABILITY=false)")
+except ImportError:
+    logger.warning("⚠️ Observability dependencies not installed. Install with: pip install openinference-instrumentation-llama-index opentelemetry-exporter-otlp opentelemetry-sdk openlit")
+except Exception as e:
+    logger.error(f"❌ Failed to initialize observability: {e}")
+    import traceback
+    traceback.print_exc()
+
 # Load environment variables
 load_dotenv()
 

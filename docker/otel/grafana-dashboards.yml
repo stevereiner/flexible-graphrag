@@ -1,0 +1,16 @@
+# Grafana Dashboards Configuration
+# Auto-provisions custom dashboards for Flexible GraphRAG
+
+apiVersion: 1
+
+providers:
+  - name: 'Flexible GraphRAG Dashboards'
+    orgId: 1
+    folder: 'RAG Observability'
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 10
+    allowUiUpdates: true
+    options:
+      path: /var/lib/grafana/dashboards
+
