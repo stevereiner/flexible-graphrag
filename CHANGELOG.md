@@ -2,6 +2,24 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2026-01-03] - MCP server enhancements for complete REST API parity
+
+### Enhanced
+- **MCP server full feature parity** - `ingest_documents` tool now supports all backend REST API features for use with Claude Desktop and other MCP clients:
+  - Existing `paths` parameter (for filesystem, Alfresco, CMIS) continues to work as before; other repositories (SharePoint, Box, etc.) use their own config parameters
+  - Added `skip_graph` parameter for faster performance on a per-ingest basis (vector + search only, no knowledge graph) - works with all data sources
+  - Added support for all 13 data sources: `filesystem`, `cmis`, `alfresco`, `web`, `wikipedia`, `youtube`, `s3`, `gcs`, `azure_blob`, `onedrive`, `sharepoint`, `box`, `google_drive`
+  - Added configuration parameters for each data source as JSON strings (e.g., `alfresco_config`, `s3_config`, etc.)
+  - Added `nodeDetails` list support for Alfresco integration with ACA (Alfresco Content App) multi-select
+  - Tool now accepts same parameters as `/api/ingest` REST endpoint with automatic JSON parsing
+
+### Documentation
+- Updated `flexible-graphrag-mcp/README.md` with comprehensive tool documentation including parameter descriptions and configuration examples
+- Added examples for filesystem with `skip_graph`, CMIS with single path, Alfresco with single path and with `nodeDetails` list, and Amazon S3 cloud storage
+- Updated `flexible-graphrag-mcp/QUICK-USAGE-GUIDE.md` to reflect all 13 data sources and clarify parameter applicability (`paths` for filesystem/Alfresco/CMIS, `skip_graph` for all sources, `nodeDetails` list for Alfresco only; other repositories use config-specific parameters)
+- Updated main `README.md` MCP Tools section with clarified parameter descriptions
+- Clarified MCP client support to indicate "Claude Desktop and other MCP clients" for broader applicability
+
 ## [2026-01-02] - Entity/Relation counting fix for incremental ingestions
 
 ### Fixed

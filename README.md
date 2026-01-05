@@ -22,7 +22,7 @@ as a starting point for LLM to expand on is supported.
 - **Multi-Source Ingestion**: Processes documents from 13 data sources (file upload, cloud storage, enterprise repositories, web sources) with Docling (default) or LlamaParse (cloud API) document parsing.
 - **Observability**: Built-in OpenTelemetry instrumentation with automatic LlamaIndex tracing, Prometheus metrics, Jaeger traces, and Grafana dashboards for production monitoring
 - **FastAPI Server with REST API**: Python based FastAPI server with REST APIs for document ingesting, hybrid search, AI query, and AI chat.
-- **MCP Server**: MCP server that provides MCP Clients like Claude Desktop, etc. tools for document and text ingesting, hybrid search and AI query. The MCP server (Python and FastMCP 2.x based) uses the REST APIs of the FastAPI backend. 
+- **MCP Server**: MCP server providing Claude Desktop and other MCP clients with tools for document/text ingesting (all 13 data sources), hybrid search, and AI query. Uses FastAPI backend REST APIs. 
 - **UI Clients**: Angular, React, and Vue UI clients support choosing the data source (filesystem, Alfresco, CMIS, etc.), ingesting documents, performing hybrid searches, AI queries, and AI chat. The UI clients use the REST APIs of the FastAPI backend.
 - **Docker Deployment Flexibility**: Supports both standalone and Docker deployment modes. Docker infrastructure provides modular database selection via docker-compose includes - vector, graph, search engines, and Alfresco can be included or excluded with a single comment. Choose between hybrid deployment (databases in Docker, backend and UIs standalone) or full containerization.
 
@@ -80,9 +80,10 @@ as a starting point for LLM to expand on is supported.
 - **Async Processing**: Background task processing with real-time progress updates
 
 ### MCP Server (`/flexible-graphrag-mcp`)  
-- **MCP Client support**: Model Context Protocol server for MCP clients / AI agents. 
-Config files for Claude Desktop and MCP Inpector provided.
-- **Dual Transport**: HTTP mode for debugging, stdio mode for Claude Desktop, etc.
+- **MCP Client support**: Model Context Protocol server for Claude Desktop and other MCP clients
+- **Full API Parity**: Tools like `ingest_documents()` support all 13 data sources with source-specific configs: filesystem, repositories (Alfresco, SharePoint, Box, CMIS), cloud storage, web; `skip_graph` flag for all data sources; `paths` parameter for filesystem/Alfresco/CMIS; Alfresco also supports `nodeDetails` list (multi-select for KG Spaces)
+- **Additional Tools**: `search_documents()`, `query_documents()`, `ingest_text()`, system diagnostics, and health checks
+- **Dual Transport**: HTTP mode for debugging, stdio mode for production
 - **Tool Suite**: 9 specialized tools for document processing, search, and system management
 - **Multiple Installation**: pipx system installation or uvx no-install execution
 
@@ -1013,14 +1014,14 @@ Flexible GraphRAG includes comprehensive observability features for production m
 
 See [docs/OBSERVABILITY.md](docs/OBSERVABILITY.md) for complete setup, custom instrumentation, and production best practices. 
 
-## MCP Tools for MCP Clients like Claude Desktop, etc.
+## MCP Tools for Claude Desktop and Other MCP Clients
 
 The MCP server provides 9 specialized tools for document intelligence workflows:
 
 | Tool | Purpose | Usage |
 |------|---------|-------|
 | `get_system_status()` | System health and configuration | Verify setup and database connections |
-| `ingest_documents(data_source, paths)` | Bulk document processing | Process files/folders from filesystem, CMIS, Alfresco |
+| `ingest_documents()` | Bulk document processing | All sources support `skip_graph`; filesystem/Alfresco/CMIS use `paths`; Alfresco also supports `nodeDetails` list (13 sources have their own config: filesystem, repositories (Alfresco, SharePoint, Box, CMIS), cloud storage, web) |
 | `ingest_text(content, source_name)` | Custom text analysis | Analyze specific text content |
 | `search_documents(query, top_k)` | Hybrid document retrieval | Find relevant document excerpts |
 | `query_documents(query, top_k)` | AI-powered Q&A | Generate answers from document corpus |

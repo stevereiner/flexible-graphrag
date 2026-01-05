@@ -48,19 +48,68 @@ async def get_system_status() -> Dict[str, Any]:
         return {"success": False, "error": str(e)}
 
 @mcp.tool()
-async def ingest_documents(data_source: str = "filesystem", paths: str = None) -> Dict[str, Any]:
+async def ingest_documents(
+    data_source: str = "filesystem", 
+    paths: Optional[str] = None,
+    skip_graph: Optional[bool] = False,
+    cmis_config: Optional[str] = None,
+    alfresco_config: Optional[str] = None,
+    web_config: Optional[str] = None,
+    wikipedia_config: Optional[str] = None,
+    youtube_config: Optional[str] = None,
+    s3_config: Optional[str] = None,
+    gcs_config: Optional[str] = None,
+    azure_blob_config: Optional[str] = None,
+    onedrive_config: Optional[str] = None,
+    sharepoint_config: Optional[str] = None,
+    box_config: Optional[str] = None,
+    google_drive_config: Optional[str] = None
+) -> Dict[str, Any]:
     """
     Ingest documents from a data source
     
     Args:
-        data_source: Type of data source (filesystem, cmis, alfresco)  
+        data_source: Type of data source (filesystem, cmis, alfresco, web, wikipedia, youtube, s3, gcs, azure_blob, onedrive, sharepoint, box, google_drive)
         paths: Single file path or JSON array of paths (for filesystem source)
+        skip_graph: Skip knowledge graph extraction for faster processing (vector + search only)
+        cmis_config: CMIS configuration as JSON string (url, username, password, folder_path)
+        alfresco_config: Alfresco configuration as JSON string (url, username, password, path, nodeRefs, nodeDetails, recursive)
+        web_config: Web page configuration as JSON string (url)
+        wikipedia_config: Wikipedia configuration as JSON string (query, language, max_docs)
+        youtube_config: YouTube configuration as JSON string (url, chunk_size_seconds)
+        s3_config: Amazon S3 configuration as JSON string (bucket_name, prefix, access_key, secret_key, region_name)
+        gcs_config: Google Cloud Storage configuration as JSON string (bucket_name, credentials, prefix)
+        azure_blob_config: Azure Blob Storage configuration as JSON string (container_name, account_url, blob, prefix, account_name, account_key)
+        onedrive_config: Microsoft OneDrive configuration as JSON string (user_principal_name, client_id, client_secret, tenant_id, folder_path, folder_id)
+        sharepoint_config: Microsoft SharePoint configuration as JSON string (client_id, client_secret, tenant_id, site_name, site_id, folder_path, folder_id)
+        box_config: Box configuration as JSON string (folder_id, client_id, client_secret, developer_token, enterprise_id, user_id)
+        google_drive_config: Google Drive configuration as JSON string (folder_id, file_ids, credentials, credentials_path)
+    
+    Example alfresco_config with nodeDetails for multi-select:
+    {
+        "url": "https://alfresco.example.com",
+        "username": "admin",
+        "password": "password",
+        "path": "/Shared/GraphRAG",
+        "nodeDetails": [
+            {"id": "abc123", "name": "doc1.pdf", "path": "/Shared/GraphRAG/doc1.pdf", "isFile": true, "isFolder": false},
+            {"id": "def456", "name": "Reports", "path": "/Shared/GraphRAG/Reports", "isFile": false, "isFolder": true}
+        ],
+        "recursive": false
+    }
     """
     try:
+        import json
+        
         request_data = {"data_source": data_source}
+        
+        # Add skip_graph flag if set
+        if skip_graph:
+            request_data["skip_graph"] = skip_graph
+        
+        # Add paths if provided
         if paths:
             # Handle both single path string and JSON array string
-            import json
             try:
                 # Try to parse as JSON array first
                 parsed_paths = json.loads(paths)
@@ -71,6 +120,35 @@ async def ingest_documents(data_source: str = "filesystem", paths: str = None) -
             except json.JSONDecodeError:
                 # If JSON parsing fails, treat as single path
                 request_data["paths"] = [paths]
+        
+        # Add data source configurations if provided (parse JSON strings)
+        config_mappings = {
+            "cmis_config": cmis_config,
+            "alfresco_config": alfresco_config,
+            "web_config": web_config,
+            "wikipedia_config": wikipedia_config,
+            "youtube_config": youtube_config,
+            "s3_config": s3_config,
+            "gcs_config": gcs_config,
+            "azure_blob_config": azure_blob_config,
+            "onedrive_config": onedrive_config,
+            "sharepoint_config": sharepoint_config,
+            "box_config": box_config,
+            "google_drive_config": google_drive_config
+        }
+        
+        for config_key, config_value in config_mappings.items():
+            if config_value:
+                try:
+                    # Parse JSON string to dictionary
+                    request_data[config_key] = json.loads(config_value)
+                except json.JSONDecodeError as e:
+                    return {
+                        "processing_id": "error",
+                        "status": "failed",
+                        "message": f"Invalid JSON in {config_key}: {str(e)}",
+                        "progress": 0
+                    }
             
         result = await make_api_call("POST", "/api/ingest", request_data)
         return result  # Return the async processing response directly
@@ -217,7 +295,7 @@ def main():
     
     sys.stderr.write("🛠️  Available tools:\n")
     sys.stderr.write("   • get_system_status\n")
-    sys.stderr.write("   • ingest_documents\n")
+    sys.stderr.write("   • ingest_documents (supports paths, skip_graph, nodeDetails, all 13 data sources)\n")
     sys.stderr.write("   • search_documents\n") 
     sys.stderr.write("   • query_documents\n")
     sys.stderr.write("   • test_with_sample\n")

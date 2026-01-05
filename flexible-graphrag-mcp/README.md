@@ -162,7 +162,7 @@ The HTTP mode is automatically configured in the `mcp-inspector/` config files a
 ## Available Tools
 
 - **`get_system_status()`** - System status and configuration
-- **`ingest_documents(data_source, paths)`** - Ingest documents from various sources
+- **`ingest_documents()`** - Ingest documents from 13 data sources (all support `skip_graph`; filesystem/Alfresco/CMIS use `paths`; Alfresco also supports `nodeDetails` list)
 - **`ingest_text(content, source_name)`** - Ingest custom text content
 - **`search_documents(query, top_k)`** - Hybrid search for document retrieval
 - **`query_documents(query, top_k)`** - AI-generated answers from documents
@@ -171,11 +171,89 @@ The HTTP mode is automatically configured in the `mcp-inspector/` config files a
 - **`get_python_info()`** - Python environment information
 - **`health_check()`** - Backend connectivity check
 
+## Tool Details
+
+### `ingest_documents`
+Ingest documents from various sources into the knowledge graph.
+
+**Parameters:**
+- `data_source` (string, default: "filesystem"): Type of data source
+  - Options: `filesystem`, `cmis`, `alfresco`, `web`, `wikipedia`, `youtube`, `s3`, `gcs`, `azure_blob`, `onedrive`, `sharepoint`, `box`, `google_drive`
+- `paths` (string, optional): File path(s) to process (for filesystem, Alfresco, and CMIS sources)
+  - Single path: `"/path/to/file.pdf"`
+  - Multiple paths (JSON array): `["file1.pdf", "file2.docx"]`
+- `skip_graph` (boolean, default: false): Skip knowledge graph extraction on a per-ingest basis for faster performance (vector + search only)
+- `cmis_config` (string, optional): CMIS configuration as JSON string
+- `alfresco_config` (string, optional): Alfresco configuration as JSON string (also supports `nodeDetails` list for multi-select)
+- `web_config` (string, optional): Web page configuration as JSON string
+- `wikipedia_config` (string, optional): Wikipedia configuration as JSON string
+- `youtube_config` (string, optional): YouTube configuration as JSON string
+- `s3_config` (string, optional): Amazon S3 configuration as JSON string
+- `gcs_config` (string, optional): Google Cloud Storage configuration as JSON string
+- `azure_blob_config` (string, optional): Azure Blob Storage configuration as JSON string
+- `onedrive_config` (string, optional): Microsoft OneDrive configuration as JSON string
+- `sharepoint_config` (string, optional): Microsoft SharePoint configuration as JSON string
+- `box_config` (string, optional): Box configuration as JSON string
+- `google_drive_config` (string, optional): Google Drive configuration as JSON string
+
+**Example - Basic filesystem with skip_graph:**
+```json
+{
+  "data_source": "filesystem",
+  "paths": "[\"./sample-docs/cmispress.txt\", \"./sample-docs/space-station.txt\"]",
+  "skip_graph": true
+}
+```
+
+**Example - CMIS with single path:**
+```json
+{
+  "data_source": "cmis",
+  "paths": "[\"/Shared/GraphRAG/cmispress.txt\"]",
+  "cmis_config": "{\"url\": \"https://cmis.example.com\", \"username\": \"admin\", \"password\": \"password\", \"folder_path\": \"/Shared/GraphRAG\"}"
+}
+```
+
+**Example - Alfresco with single path:**
+```json
+{
+  "data_source": "alfresco",
+  "paths": "[\"/Shared/GraphRAG/space-station.txt\"]",
+  "alfresco_config": "{\"url\": \"https://alfresco.example.com\", \"username\": \"admin\", \"password\": \"password\", \"path\": \"/Shared/GraphRAG\"}"
+}
+```
+
+**Example - Alfresco with nodeDetails (multi-select from ACA):**
+```json
+{
+  "data_source": "alfresco",
+  "alfresco_config": "{\"url\": \"https://alfresco.example.com\", \"username\": \"admin\", \"password\": \"password\", \"nodeDetails\": [{\"id\": \"abc123\", \"name\": \"doc1.pdf\", \"path\": \"/Shared/GraphRAG/doc1.pdf\", \"isFile\": true, \"isFolder\": false}], \"recursive\": false}"
+}
+```
+
+**Example - Amazon S3:**
+```json
+{
+  "data_source": "s3",
+  "s3_config": "{\"bucket_name\": \"my-bucket\", \"prefix\": \"documents/\", \"access_key\": \"AKIAIOSFODNN7EXAMPLE\", \"secret_key\": \"wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY\", \"region_name\": \"us-east-1\"}"
+}
+```
+
 ## Example Usage
 
 ### Basic Document Ingestion
 ```
 @flexible-graphrag Please ingest documents from C:/Documents/research
+```
+
+### Fast Ingestion (Skip Graph)
+```
+@flexible-graphrag Ingest from ./sample-docs/ with skip_graph=true for faster processing (works with all data sources)
+```
+
+### Alfresco Multi-Select
+```
+@flexible-graphrag Ingest from Alfresco with this config: {"url": "https://alfresco.example.com", "username": "admin", "password": "password", "nodeDetails": [{"id": "abc123", "name": "report.pdf", "path": "/Shared/Reports/report.pdf", "isFile": true, "isFolder": false}]}
 ```
 
 ### Custom Text Processing

@@ -79,7 +79,7 @@ Use config: `mcp-inspector/uvx-http-config.json`
 | Tool | Description | Example Usage |
 |------|-------------|---------------|
 | `get_system_status()` | Check system health and configuration | System diagnostics |
-| `ingest_documents()` | Process documents from filesystem/CMIS/Alfresco | Bulk document ingestion |
+| `ingest_documents()` | Process documents from 13 data sources (all support `skip_graph`; filesystem/Alfresco/CMIS use `paths`; Alfresco also supports `nodeDetails` list) | Bulk document ingestion |
 | `ingest_text()` | Process custom text content | Quick text analysis |
 | `search_documents()` | Hybrid search across all content | Find relevant documents |
 | `query_documents()` | AI-powered Q&A over your documents | Ask questions about content |
@@ -118,10 +118,12 @@ flexible-graphrag-mcp/
 - Supports custom ports: `--http --port 8080`
 
 ### 🌐 Multiple Data Sources
-- **Filesystem**: Local files and directories
-- **CMIS**: SharePoint and other CMIS repositories
-- **Alfresco**: Direct Alfresco integration
+- **Filesystem**: Local files and directories (uses `paths` parameter)
+- **Enterprise Repositories**: Alfresco (uses `paths` and also supports `nodeDetails` list for multi-select from ACA), CMIS (uses `paths`), SharePoint, Box (use config-specific parameters)
+- **Web Sources**: Web pages, Wikipedia, YouTube
+- **Cloud Storage**: Amazon S3, Google Cloud Storage, Azure Blob, OneDrive, Google Drive
 - **Text**: Custom text content
+- **Performance**: All sources support `skip_graph` on a per-ingest basis for faster performance (vector + search only)
 
 ### 🔧 Windows Compatibility
 - Unicode encoding handled automatically
