@@ -366,9 +366,20 @@ class LLMFactory:
                 embed_dim = embedding_dimension or 1536
                 logger.info(f"Using Google embeddings - Model: {model_name}, Dimensions: {embed_dim}")
                 
+                # Google embeddings can be used with any LLM provider
+                # If LLM provider is Gemini/Vertex, use config API key; otherwise use GOOGLE_API_KEY env var
+                if provider in [LLMProvider.GEMINI, LLMProvider.VERTEX_AI]:
+                    api_key = config.get("api_key") or os.getenv("GOOGLE_API_KEY")
+                else:
+                    # For non-Google LLM providers, get Google key from environment only
+                    api_key = os.getenv("GOOGLE_API_KEY")
+                
+                if not api_key:
+                    raise ValueError("Google embeddings require GOOGLE_API_KEY environment variable when not using gemini/vertex_ai LLM provider")
+                
                 return GoogleGenAIEmbedding(
                     model_name=model_name,
-                    api_key=config.get("api_key"),
+                    api_key=api_key,
                     embedding_config=EmbedContentConfig(
                         output_dimensionality=embed_dim
                     )

@@ -1458,8 +1458,7 @@ class FlexibleGraphRAGBackend:
         try:
             query_engine = self.system.get_query_engine()
             
-            # Use async methods - nest_asyncio should handle any nested loops
-            logger.info("Using async query method (aquery) for all LLM providers")
+            # Use async method directly (nest_asyncio.apply() called at module level)
             response = await query_engine.aquery(query)
             
             end_time = datetime.now()
@@ -1512,8 +1511,7 @@ class FlexibleGraphRAGBackend:
         try:
             query_engine = self.system.get_query_engine()
             
-            # Use async methods - nest_asyncio should handle any nested loops
-            logger.info("Using async query method (aquery) for all LLM providers")
+            # Use async method directly (nest_asyncio.apply() called at module level)
             response = await query_engine.aquery(query)
             
             end_time = datetime.now()

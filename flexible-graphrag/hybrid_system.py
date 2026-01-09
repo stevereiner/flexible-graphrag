@@ -157,6 +157,30 @@ class HybridSearchSystem:
     def __init__(self, config: AppSettings):
         self.config = config
         
+        # CRITICAL: Validate LLM + Embedding compatibility
+        # Google embeddings (async SDK) only work with Gemini/Vertex AI LLMs (also async)
+        # Mixing async embeddings with sync LLMs causes "attached to different loop" errors during search
+        embedding_kind = getattr(config, 'embedding_kind', None)
+        if embedding_kind in ['google', 'vertex'] and config.llm_provider not in [LLMProvider.GEMINI, LLMProvider.VERTEX_AI]:
+            logger.error("=" * 80)
+            logger.error("INCOMPATIBLE CONFIGURATION DETECTED!")
+            logger.error(f"LLM Provider: {config.llm_provider}")
+            logger.error(f"Embedding Kind: {embedding_kind}")
+            logger.error("")
+            logger.error("Google/Vertex embeddings use async SDK and ONLY work with Gemini/Vertex LLMs.")
+            logger.error("Mixing async embeddings with non-Gemini LLMs causes event loop conflicts during search.")
+            logger.error("")
+            logger.error("Supported combinations:")
+            logger.error("  OK: Gemini LLM + Google embeddings")
+            logger.error("  OK: OpenAI LLM + OpenAI embeddings")
+            logger.error("  OK: Ollama LLM + Ollama embeddings")
+            logger.error("  FAIL: OpenAI/Ollama/etc LLM + Google embeddings")
+            logger.error("")
+            logger.error("Please change EMBEDDING_KIND to match your LLM provider or use Gemini LLM.")
+            logger.error("=" * 80)
+            raise ValueError(f"Incompatible configuration: {config.llm_provider} LLM with {embedding_kind} embeddings. "
+                           f"Google/Vertex embeddings require Gemini/Vertex AI LLM due to async SDK requirements.")
+        
         # Initialize DocumentProcessor with configured parser type
         # Handle both Enum and string values
         if hasattr(config, 'document_parser'):
@@ -1249,6 +1273,8 @@ class HybridSearchSystem:
         logger.info(f"Starting hybrid retrieval at {retrieval_start.strftime('%H:%M:%S.%f')[:-3]}")
         
         query_bundle = QueryBundle(query_str=query)
+        
+        # Use async method directly - nest_asyncio.apply() already called in backend.py/main.py
         raw_results = await self.hybrid_retriever.aretrieve(query_bundle)
         
         retrieval_end = datetime.now()
@@ -1766,9 +1792,29 @@ class HybridSearchSystem:
                     
                     # Run extractors on nodes manually to capture metadata
                     logger.info(f"Running {len(kg_extractors)} extractor(s) on nodes to extract entities and relationships...")
-                    for extractor in kg_extractors:
-                        # Extractors modify nodes in-place, adding KG_NODES_KEY and KG_RELATIONS_KEY to metadata
-                        nodes = extractor(nodes, show_progress=True)
+                    
+                    # CRITICAL: For Gemini/Vertex, run extractors directly (not in executor)
+                    # Reason: Gemini SDK is async and needs to use the MAIN event loop
+                    # Running in executor causes Gemini to create event loops in worker threads,
+                    # then during search, Futures from those threads cause "attached to different loop" errors
+                    logger.info(f"PATH 2: LLM Provider check: {self.config.llm_provider}")
+                    logger.info(f"PATH 2: Is Gemini? {self.config.llm_provider in [LLMProvider.GEMINI, LLMProvider.VERTEX_AI]}")
+                    
+                    if self.config.llm_provider in [LLMProvider.GEMINI, LLMProvider.VERTEX_AI]:
+                        logger.info("PATH 2: GEMINI BRANCH - Running extractors in main async context (NOT using executor)")
+                        for i, extractor in enumerate(kg_extractors):
+                            logger.info(f"PATH 2: Running extractor {i+1}/{len(kg_extractors)} directly (no executor)")
+                            # Run directly - let Gemini use main event loop
+                            nodes = extractor(nodes, show_progress=True)
+                            logger.info(f"PATH 2: Extractor {i+1} completed")
+                    else:
+                        logger.info("PATH 2: NON-GEMINI BRANCH - Running extractors in executor")
+                        # For other LLMs (OpenAI, Ollama, etc.), use executor as before
+                        for i, extractor in enumerate(kg_extractors):
+                            logger.info(f"PATH 2: Running extractor {i+1}/{len(kg_extractors)} in executor")
+                            extract_func = functools.partial(extractor, nodes, show_progress=True)
+                            nodes = await loop.run_in_executor(None, extract_func)
+                            logger.info(f"PATH 2: Extractor {i+1} completed")
                     
                     # Count entities and relations from node metadata (before insertion)
                     num_entities, num_relations = count_extracted_entities_and_relations(nodes)
@@ -1792,9 +1838,21 @@ class HybridSearchSystem:
                         logger.info("Neptune Analytics detected: Setting embed_kg_nodes=False to avoid vector index atomicity issues")
                         logger.info("Knowledge graph structure will be created without vector embeddings (use separate VECTOR_DB for embeddings)")
                     
-                    # Use PropertyGraphIndex constructor (not from_documents) since we have nodes
-                    create_graph_index = functools.partial(PropertyGraphIndex, **graph_kwargs)
-                    self.graph_index = await loop.run_in_executor(None, create_graph_index)
+                    # CRITICAL: For Gemini/Vertex, create PropertyGraphIndex directly (not in executor)
+                    # Even though we pass empty kg_extractors, PropertyGraphIndex still does internal
+                    # async operations that need the main event loop
+                    if self.config.llm_provider in [LLMProvider.GEMINI, LLMProvider.VERTEX_AI]:
+                        logger.info("PATH 2: Creating PropertyGraphIndex directly in main context (not executor)")
+                        # Run synchronously in main context - PropertyGraphIndex.__init__ is not async
+                        # but it internally uses asyncio.run() which needs to be in main loop
+                        self.graph_index = PropertyGraphIndex(**graph_kwargs)
+                        logger.info("PATH 2: PropertyGraphIndex creation completed")
+                    else:
+                        # For other LLMs, use executor as before
+                        logger.info("PATH 2: Creating PropertyGraphIndex in executor")
+                        create_graph_index = functools.partial(PropertyGraphIndex, **graph_kwargs)
+                        self.graph_index = await loop.run_in_executor(None, create_graph_index)
+                        logger.info("PATH 2: PropertyGraphIndex creation completed")
                     
                     graph_creation_duration = time.time() - graph_creation_start_time
                     logger.info(f"PropertyGraphIndex creation completed in {graph_creation_duration:.2f}s")
@@ -1849,16 +1907,49 @@ class HybridSearchSystem:
                     # PATH 3: Run extractors manually on nodes to populate metadata with entities/relations
                     # This is necessary because IngestionPipeline doesn't include KG extractors
                     logger.info(f"Running {len(kg_extractors)} extractor(s) on {len(nodes)} nodes to extract entities and relationships...")
-                    for extractor in kg_extractors:
-                        # Extractors modify nodes in-place, adding KG_NODES_KEY and KG_RELATIONS_KEY to metadata
-                        nodes = extractor(nodes, show_progress=True)
+                    
+                    # Get event loop for async compatibility
+                    import asyncio
+                    import functools
+                    try:
+                        loop = asyncio.get_running_loop()
+                    except RuntimeError:
+                        loop = asyncio.new_event_loop()
+                        asyncio.set_event_loop(loop)
+                    
+                    # CRITICAL: For Gemini/Vertex, run extractors directly (not in executor)
+                    # Reason: Gemini SDK is async and needs to use the MAIN event loop
+                    # Running in executor causes Gemini to create event loops in worker threads,
+                    # then during search, Futures from those threads cause "attached to different loop" errors
+                    logger.info(f"PATH 3: LLM Provider check: {self.config.llm_provider}")
+                    logger.info(f"PATH 3: Is Gemini? {self.config.llm_provider in [LLMProvider.GEMINI, LLMProvider.VERTEX_AI]}")
+                    
+                    if self.config.llm_provider in [LLMProvider.GEMINI, LLMProvider.VERTEX_AI]:
+                        logger.info("PATH 3: GEMINI BRANCH - Running extractors in main async context (NOT using executor)")
+                        for i, extractor in enumerate(kg_extractors):
+                            logger.info(f"PATH 3: Running extractor {i+1}/{len(kg_extractors)} directly (no executor)")
+                            # Run directly - let Gemini use main event loop
+                            nodes = extractor(nodes, show_progress=True)
+                            logger.info(f"PATH 3: Extractor {i+1} completed")
+                    else:
+                        logger.info("PATH 3: NON-GEMINI BRANCH - Running extractors in executor")
+                        # For other LLMs (OpenAI, Ollama, etc.), use executor as before
+                        for i, extractor in enumerate(kg_extractors):
+                            logger.info(f"PATH 3: Running extractor {i+1}/{len(kg_extractors)} in executor")
+                            extract_func = functools.partial(extractor, nodes, show_progress=True)
+                            nodes = await loop.run_in_executor(None, extract_func)
+                            logger.info(f"PATH 3: Extractor {i+1} completed")
                     
                     # Count entities/relations from node metadata (after extraction, before insertion)
                     num_entities, num_relations = count_extracted_entities_and_relations(nodes)
                     logger.info(f"Extraction complete: {num_entities} entities, {num_relations} relationships extracted from node metadata")
                     logger.info(f"Inserting nodes with {num_entities} entities and {num_relations} relationships...")
                     
+                    # Note: insert_nodes is synchronous but may trigger async operations internally
+                    # For Gemini, this should work since we're in main async context and extractors already ran
+                    logger.info(f"PATH 3: Calling graph_index.insert_nodes() with {len(nodes)} nodes")
                     self.graph_index.insert_nodes(nodes)
+                    logger.info(f"PATH 3: graph_index.insert_nodes() completed")
                     graph_creation_duration = time.time() - graph_update_start_time
                     logger.info(f"Graph index update completed in {graph_creation_duration:.2f}s")
                     logger.info(f"Knowledge graph updated - {num_entities} new entities and {num_relations} new relationships added to {graph_store_type}")

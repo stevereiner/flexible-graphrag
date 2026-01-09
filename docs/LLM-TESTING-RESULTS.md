@@ -8,8 +8,8 @@ Comprehensive testing results for different LLM and embedding provider combinati
 |----------------------|------------------|-------------------|---------------------|-------|
 | **OpenAI** (gpt-4o-mini, etc.) | ✅ Full entities/relationships | ✅ Works | ✅ Works | Recommended for full GraphRAG |
 | **Azure OpenAI** (gpt-4o-mini) | ✅ Full entities/relationships | ✅ Works | ✅ Works | Same as OpenAI, enterprise hosting |
-| **Google Gemini** (gemini-2.5-flash, gemini-3-pro-preview) | ✅ Full entities/relationships | ❌ Search error | ❌ Query error | Works with `GRAPH_DB=none` |
-| **Google Vertex AI** (gemini-2.5-flash) | ✅ Full entities/relationships | ❌ Search error | ❌ Query error | Same as Gemini behavior |
+| **Google Gemini** (gemini-2.5-flash, gemini-3-pro-preview) | ✅ Full entities/relationships | ✅ Works | ✅ Works | **Fixed 2026-01-08**: Async issues resolved |
+| **Google Vertex AI** (gemini-2.5-flash) | ✅ Full entities/relationships | ✅ Works | ✅ Works | **Fixed 2026-01-08**: Same as Gemini |
 | **Groq** (gpt-oss-20b) | ⚠️ Chunk nodes only | ✅ Works | ✅ Works | Fast inference, limited extraction |
 | **Fireworks AI** (gpt-oss-20b) | ⚠️ Chunk nodes only | ✅ Works | ✅ Works | Fine-tuning support, limited extraction |
 | **Anthropic Claude** (sonnet-4-5, haiku-4-5) | ⚠️ Chunk nodes only | ✅ Works | ✅ Works | Known LlamaIndex limitation |
@@ -27,15 +27,15 @@ All graph databases (Neo4j, FalkorDB, ArcadeDB, Kuzu, MemGraph, etc.) show ident
 ## Google Gemini Models
 
 ### Tested Models
-- ✅ `gemini-2.5-flash` - Full graph building, search error when graph enabled
-- ✅ `gemini-3-pro-preview` - Full graph building, search error when graph enabled
-- ❌ `gemini-3-flash-preview` - Takes forever on ingest, hangs during processing
+- ✅ `gemini-2.5-flash` - Full graph building, search and query work
+- ✅ `gemini-3-pro-preview` - Full graph building, search and query work
+- ✅ `gemini-3-flash-preview` - Full graph building, search and query work
 
 ### Known Issues
-- **Graph Search Incompatibility** - Gemini creates full knowledge graphs with proper entities and relationships on Neo4j, FalkorDB, ArcadeDB, and other graph databases, BUT search and AI query operations fail when graph is enabled
-- Error occurs regardless of vector/search database configuration (fails even with no vector or no search databases)
-- **Workaround**: Use Gemini with `GRAPH_DB=none` and `ENABLE_KNOWLEDGE_GRAPH=false` for vector + search only
-- Root cause appears to be async instrumentation conflicts in `llama-index-llms-google-genai` package
+- ✅ **Fixed 2026-01-08**: Graph search/query async event loop conflicts resolved
+- Gemini creates full knowledge graphs with proper entities and relationships on all graph databases
+- Search and AI query now work correctly with graph enabled
+- **Limitation**: Google embeddings (`EMBEDDING_KIND=google`) require Gemini/Vertex AI LLM due to async SDK compatibility
 
 ## Google Vertex AI Models
 
@@ -49,10 +49,10 @@ All graph databases (Neo4j, FalkorDB, ArcadeDB, Kuzu, MemGraph, etc.) show ident
 - Environment variables (`GOOGLE_GENAI_USE_VERTEXAI`, `GOOGLE_CLOUD_PROJECT`, `GOOGLE_CLOUD_LOCATION`) are set automatically by the code
 
 ### Known Issues
-- **Graph Search Incompatibility** - Same behavior as Gemini: creates full knowledge graphs with proper entities and relationships on all graph databases, BUT search and AI query operations fail when graph is enabled
-- Error occurs regardless of vector/search database configuration (fails even with no vector or no search databases)
-- **Workaround**: Use Vertex AI with `GRAPH_DB=none` and `ENABLE_KNOWLEDGE_GRAPH=false` for vector + search only
-- Root cause appears to be same async instrumentation conflicts in `google-genai` package (shared with Gemini)
+- ✅ **Fixed 2026-01-08**: Graph search/query async event loop conflicts resolved (same fix as Gemini)
+- Vertex AI creates full knowledge graphs with proper entities and relationships on all graph databases
+- Search and AI query now work correctly with graph enabled
+- **Limitation**: Google embeddings (`EMBEDDING_KIND=vertex`) require Gemini/Vertex AI LLM due to async SDK compatibility
 
 ## Anthropic Claude Models
 
@@ -152,8 +152,8 @@ Testing with OpenAI + full database stack (vector + search + graph):
 | **OpenAI** | ✅ Full graph + search | ✅ Full graph + search | ✅ Full graph + search | All work identically |
 | **Azure OpenAI** | ✅ Full graph + search | ✅ Full graph + search | ✅ Full graph + search | All work identically |
 | **Groq (gpt-oss)** | ⚠️ Chunk only | ⚠️ Chunk only | ⚠️ Chunk only | Database doesn't matter |
-| **Gemini** | ✅ Graph / ❌ Search | ✅ Graph / ❌ Search | ✅ Graph / ❌ Search | Error affects all databases |
-| **Vertex AI** | ✅ Graph / ❌ Search | ✅ Graph / ❌ Search | ✅ Graph / ❌ Search | Same as Gemini |
+| **Gemini** | ✅ Graph + Search | ✅ Graph + Search | ✅ Graph + Search | **Fixed 2026-01-08** |
+| **Vertex AI** | ✅ Graph + Search | ✅ Graph + Search | ✅ Graph + Search | **Fixed 2026-01-08** |
 
 **Conclusion**: Graph database choice doesn't affect LLM compatibility - the pattern is determined by LLM provider's integration with LlamaIndex PropertyGraph.
 
@@ -180,11 +180,16 @@ Testing with OpenAI + full database stack (vector + search + graph):
 ## Mixed Provider Configurations
 
 Successfully tested combinations:
+- ✅ Google Gemini LLM + Google embeddings - **Recommended for Gemini users**
 - ✅ Google Gemini LLM + OpenAI embeddings (2 separate API keys)
 - ✅ Azure OpenAI LLM + Azure embeddings (same endpoint, uses `EMBEDDING_MODEL` as deployment name)
 - ✅ Azure OpenAI LLM + OpenAI embeddings (fetches `OPENAI_API_KEY` from environment)
 - ✅ OpenAI LLM + Azure embeddings (requires `EMBEDDING_MODEL` or `AZURE_EMBEDDING_DEPLOYMENT` for deployment name)
 - ✅ OpenAI LLM + OpenAI embeddings (same API key)
+- ❌ OpenAI LLM + Google embeddings - **Not supported due to async SDK incompatibility**
+- ❌ Ollama LLM + Google embeddings - **Not supported due to async SDK incompatibility**
+
+**Note**: Google/Vertex embeddings use async SDK and only work with Gemini/Vertex AI LLMs. System validates configuration at startup and prevents incompatible combinations.
 
 ## Recommendations
 
@@ -192,14 +197,14 @@ Successfully tested combinations:
 - ✅ **OpenAI** (gpt-4o, gpt-4o-mini) - Best overall performance, works with all graph databases
 - ✅ **Azure OpenAI** (gpt-4o-mini) - Enterprise deployment option, same capabilities as OpenAI
 
-### For Graph Building + Vector/Search (with limitations):
-- ⚠️ **Google Gemini** (gemini-2.5-flash, gemini-3-pro-preview)
-  - Can build graphs with entities and relationships on all graph databases
-  - Graph search/query fails on ALL graph databases due to instrumentation issues
-  - **Workaround**: Use with `GRAPH_DB=none` and `ENABLE_KNOWLEDGE_GRAPH=false` for vector + fulltext search only
-- ⚠️ **Google Vertex AI** (gemini-2.5-flash)
-  - Same behavior as Gemini: full graph extraction but search/query failures when graph enabled
-  - **Workaround**: Use with `GRAPH_DB=none` and `ENABLE_KNOWLEDGE_GRAPH=false` for vector + fulltext search only
+### For Graph Building + Vector/Search:
+- ✅ **Google Gemini** (gemini-2.5-flash, gemini-3-pro-preview) - **Fixed 2026-01-08**
+  - Full graph extraction with entities and relationships on all graph databases
+  - Search and AI query work correctly with graph enabled
+  - **Note**: Google embeddings require Gemini/Vertex AI LLM (async compatibility)
+- ✅ **Google Vertex AI** (gemini-2.5-flash) - **Fixed 2026-01-08**
+  - Same as Gemini: full graph extraction, search/query work with graph enabled
+  - **Note**: Google embeddings require Gemini/Vertex AI LLM (async compatibility)
 - ⚠️ **Anthropic Claude** (sonnet, haiku)
   - Can search with graph enabled
   - Graph building only creates chunk nodes (no entities/relationships extracted) across all databases

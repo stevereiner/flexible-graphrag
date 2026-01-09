@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2026-01-08] - Gemini async compatibility fixes
+
+### Fixed
+- **Gemini LLM event loop conflicts (Issue #11)** - Fixed "Future attached to different loop" errors during graph extraction and searching by running extractors directly in main async context instead of ThreadPoolExecutor for Gemini/Vertex AI providers
+- **Google embeddings API key with non-Google LLM providers** - Fixed Google embeddings not working with OpenAI/Ollama/etc LLM providers by correctly retrieving GOOGLE_API_KEY from environment instead of using LLM provider's API key
+
+### Added
+- **Configuration validation** - Added startup validation to prevent incompatible combinations: Google/Vertex embeddings require Gemini/Vertex AI LLM due to async SDK limitations
+
+### Documentation
+- Updated `docs/LLM-TESTING-RESULTS.md` to reflect Gemini/Vertex AI now fully functional with graph indexing (marked "Fixed 2026-01-08")
+
 ## [2026-01-03] - MCP server enhancements for complete REST API parity
 
 ### Enhanced
