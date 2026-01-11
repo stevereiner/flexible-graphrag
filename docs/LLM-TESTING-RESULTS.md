@@ -10,11 +10,11 @@ Comprehensive testing results for different LLM and embedding provider combinati
 | **Azure OpenAI** (gpt-4o-mini) | ✅ Full entities/relationships | ✅ Works | ✅ Works | Same as OpenAI, enterprise hosting |
 | **Google Gemini** (gemini-2.5-flash, gemini-3-pro-preview) | ✅ Full entities/relationships | ✅ Works | ✅ Works | **Fixed 2026-01-08**: Async issues resolved |
 | **Google Vertex AI** (gemini-2.5-flash) | ✅ Full entities/relationships | ✅ Works | ✅ Works | **Fixed 2026-01-08**: Same as Gemini |
-| **Groq** (gpt-oss-20b) | ⚠️ Chunk nodes only | ✅ Works | ✅ Works | Fast inference, limited extraction |
-| **Fireworks AI** (gpt-oss-20b) | ⚠️ Chunk nodes only | ✅ Works | ✅ Works | Fine-tuning support, limited extraction |
-| **Anthropic Claude** (sonnet-4-5, haiku-4-5) | ⚠️ Chunk nodes only | ✅ Works | ✅ Works | Known LlamaIndex limitation |
-| **Amazon Bedrock** (gpt-oss-20b/120b, claude-sonnet, deepseek-r1, llama3.1/3.2/3.3, llama4) | ⚠️ Chunk nodes only | ✅ Works | ✅ Works | Cross-region profiles needed for most |
-| **Ollama** (llama3.2, sciphi/triplex) | ❌ Fails ingestion | ❌ N/A | ❌ N/A | Regression from previous versions |
+| **Anthropic Claude** (sonnet-4-5, haiku-4-5) | ✅ Full entities/relationships | ✅ Works | ✅ Works | **Fixed 2026-01-09**: Event loop fix restored extraction |
+| **Ollama** (llama3.1:8b, llama3.2:3b, gpt-oss:20b) | ✅ Full entities/relationships | ✅ Works | ✅ Works | **Fixed 2026-01-09**: Event loop fix restored functionality |
+| **Groq** (openai/gpt-oss-20b) | ⚠️ First doc: full graph, subsequent: chunk only | ✅ Works | ✅ Works | **LlamaIndex integration bug** - manual extraction fails |
+| **Fireworks AI** (llama4-maverick, deepseek-v3p2, gpt-oss) | ⚠️ First doc: full graph, subsequent: chunk only | ✅ Works | ✅ Works | **LlamaIndex integration bug** - manual extraction fails |
+| **Amazon Bedrock** (claude-sonnet, gpt-oss, deepseek-r1, llama3) | ⚠️ First doc: full graph, subsequent: chunk only | ✅ Works | ✅ Works | **LlamaIndex integration bug** - manual extraction fails |
 
 ### Graph Database Compatibility
 
@@ -57,50 +57,67 @@ All graph databases (Neo4j, FalkorDB, ArcadeDB, Kuzu, MemGraph, etc.) show ident
 ## Anthropic Claude Models
 
 ### Tested Models
-- ✅ `claude-sonnet-4-5-20250929` - Graph building works (chunk nodes only), search and AI query work
-- ✅ `claude-haiku-4-5-20251001` - Graph building works (chunk nodes only), search and AI query work
+- ✅ `claude-sonnet-4-5-20250929` - Full graph building with entities/relationships, search and AI query work
+- ✅ `claude-haiku-4-5-20251001` - Full graph building with entities/relationships, search and AI query work
 
 ### Known Issues
-- **Graph extraction limitation** - Claude only creates chunk nodes during graph building (no entities/relationships extracted) - known LlamaIndex limitation
+- **Fixed 2026-01-09**: Event loop fix restored full entity/relationship extraction (was previously showing "chunk nodes only")
+- Both models now create proper entities and relationships with the async event loop fix
 
 ## Groq Models
 
 ### Tested Models
-- ✅ `gpt-oss-20b` - Graph building (chunk nodes only), search and AI query work
+- ⚠️ `openai/gpt-oss-20b` - First document creates full graph with entities/relationships, subsequent documents create chunk nodes only
 
 ### Configuration Notes
 - Ultra-fast LPU (Language Processing Unit) architecture for low-latency inference
 - **DOES support timeout parameter** (inherits from OpenAILike base class)
 - Cost-effective for high-volume workloads
+- Model supports function calling, but LlamaIndex integration has bugs
 
 ### Known Issues
-- **Graph extraction limitation** - Creates only chunk nodes during graph building (no entities/relationships extracted) - same behavior as Bedrock and Fireworks with non-OpenAI models
+- **Likely LlamaIndex integration bug**: Manual extraction with `SchemaLLMPathExtractor` returns 0 entities/relations
+- **First document**: PropertyGraphIndex.from_documents() internal retry succeeds, creates proper graph with typed entities (PERSON, ORGANIZATION, etc.)
+- **Second+ documents**: insert_nodes() has no retry mechanism, only adds chunk node
+- **Root cause**: Likely in `llama-index-llms-groq` package's tool calling implementation for structured extraction
 - Search and AI query work correctly with graph enabled
+- **Workaround**: None available - issue is likely in LlamaIndex Groq integration class
+- **Recommendation**: Use OpenAI, Gemini, Vertex AI, Claude, Ollama, or Azure OpenAI for knowledge graph extraction
 
 ## Fireworks AI Models
 
 ### Tested Models
-- ✅ `gpt-oss-20b` - Graph building (chunk nodes only), search and AI query work
+- ⚠️ `accounts/fireworks/models/llama4-maverick-instruct-basic` - First document creates full graph, subsequent documents create chunk nodes only
+- ⚠️ `accounts/fireworks/models/deepseek-v3p2` - Same pattern as llama4-maverick-instruct-basic
+- ⚠️ `accounts/fireworks/models/gpt-oss-120b` - Creates 2 chunk nodes for first document, 1 chunk node for second document
+- ⚠️ `accounts/fireworks/models/gpt-oss-20b` - Same pattern as other models
 
 ### Configuration Notes
 - Supports fine-tuning and wide model selection (Meta, Qwen, Mistral AI, DeepSeek, OpenAI GPT-OSS, Kimi, GLM, MiniMax)
 - Embeddings work well (`nomic-ai/nomic-embed-text-v1.5`)
 - **Does NOT support timeout parameter** (overrides `__init__` without including timeout parameter)
+- Models support function calling, but LlamaIndex integration has bugs
 
 ### Known Issues
-- **Graph extraction limitation** - Creates only chunk nodes during graph building (no entities/relationships extracted)
-- Inherits from OpenAI class but blocks timeout parameter
+- **Likely LlamaIndex integration bug**: Manual extraction with `SchemaLLMPathExtractor` returns 0 entities/relations
+- **First document**: PropertyGraphIndex.from_documents() sometimes succeeds internally (model-dependent), creates graph with entities/relationships
+- **Second+ documents**: insert_nodes() has no retry mechanism, only adds chunk node
+- **SimpleLLMPathExtractor doesn't help**: Also fails with 0 entities despite not requiring function calling
+- **Root cause**: Likely in `llama-index-llms-fireworks` package's tool calling and structured output handling
+- Search and AI query work correctly with graph enabled
+- **Workaround**: None available - issue is likely in LlamaIndex Fireworks integration class
+- **Recommendation**: Use OpenAI, Gemini, Vertex AI, Claude, Ollama, or Azure OpenAI for knowledge graph extraction
 
 ## Amazon Bedrock Models
 
 ### Tested Models
 
-**Partial Success (search/AI query work, graph=chunk only):**
-- ✅ `openai.gpt-oss-20b-1:0` - Chunk nodes only
-- ✅ `openai.gpt-oss-120b-1:0` - Chunk nodes only
-- ✅ `us.anthropic.claude-sonnet-4-5-20250929-v1:0` - Chunk nodes only (requires "us." cross-region inference profile)
-- ✅ `us.deepseek.r1-v1:0` - Chunk nodes only (requires "us." cross-region inference profile)
-- ✅ `us.meta.llama3-3-70b-instruct-v1:0` - Chunk nodes only (requires "us." cross-region inference profile)
+**Partial Success (first document creates graph, second+ documents create chunk nodes only):**
+- ⚠️ `us.anthropic.claude-sonnet-4-5-20250929-v1:0` - First document: full graph with entities/relationships, subsequent documents: chunk nodes only
+- ⚠️ `openai.gpt-oss-20b-1:0` - Same pattern as Claude Sonnet
+- ⚠️ `openai.gpt-oss-120b-1:0` - Same pattern as Claude Sonnet
+- ⚠️ `us.deepseek.r1-v1:0` - Same pattern as Claude Sonnet
+- ⚠️ `us.meta.llama3-3-70b-instruct-v1:0` - Same pattern as Claude Sonnet
 
 **Model Crashes:**
 - ❌ `amazon.nova-pro-v1:0` - ModelErrorException: invalid ToolUse sequence
@@ -116,12 +133,19 @@ All graph databases (Neo4j, FalkorDB, ArcadeDB, Kuzu, MemGraph, etc.) show ident
 - **Embeddings work perfectly**: `amazon.titan-embed-text-v2:0` tested successfully with OpenAI and Bedrock LLMs
 - **Cross-region inference profiles**: Most models require "us." prefix (e.g., `us.anthropic.claude-*`, `us.meta.llama*`, `us.deepseek.*`, `us.amazon.nova-premier-*`)
 - **No prefix needed**: OpenAI GPT-OSS models and `amazon.nova-pro-v1:0` use standard model IDs without "us." prefix
+- Models support function calling/tool use, but LlamaIndex integration has bugs
 
 ### Known Issues
-- **Graph extraction limitation** - Non-OpenAI models create only chunk nodes (no entities/relationships)
-- **Root cause**: BedrockConverse sends `toolConfig.toolChoice.any` which most models reject
+- **Likely LlamaIndex integration bug**: Manual extraction with `SchemaLLMPathExtractor` returns 0 entities/relations  
+- **First document**: PropertyGraphIndex.from_documents() internal retry succeeds, creates proper graph with typed entities (PERSON, ORGANIZATION, TECHNOLOGY, etc.)
+- **Second+ documents**: insert_nodes() has no retry mechanism, only adds chunk node
+- **Root cause**: Likely in `llama-index-llms-bedrock-converse` package's tool calling implementation for structured extraction
+- **Claude Sonnet 4.5 tested specifically**: Shows same pattern as Groq/Fireworks despite being same model as Anthropic provider (which works correctly)
 - Nova models (Pro and Premier) have invalid ToolUse sequence errors
-- Meta Llama models don't support tool choice configuration
+- Meta Llama models don't support tool choice configuration and crash with ValidationException
+- Search and AI query work correctly with graph enabled
+- **Workaround**: None available - issue is likely in LlamaIndex Bedrock-Converse integration class
+- **Recommendation**: Use OpenAI, Gemini, Vertex AI, **Anthropic Claude** (direct, not Bedrock), Ollama, or Azure OpenAI for knowledge graph extraction
 
 
 ## Graph Database Testing Results
@@ -169,12 +193,15 @@ Testing with OpenAI + full database stack (vector + search + graph):
 ## Ollama Models
 
 ### Tested Models
-- ⚠️ `sciphi/triplex` - Graph building creates chunk nodes only (no entities/relationships extracted despite being specifically designed for KG extraction)
-- ❌ `llama3.2` - Fails during graph building with both `all-minilm` and `nomic-embed-text` embeddings (regression - previously worked)
+- ✅ `llama3.1:8b` - Full graph building with entities/relationships, good performance
+- ✅ `llama3.2:3b` - Full graph building with entities/relationships, faster than 3.1
+- ✅ `gpt-oss:20b` - Full graph building with entities/relationships, slower but functional
+- ❌ `sciphi/triplex` - Extracts 0 entities/relationships, extremely slow, not usable
 
 ### Known Issues
-- Most Ollama models only create chunk nodes with no entity/relationship extraction, even when specifically designed for KG extraction
-- Likely due to changes in Ollama and LlamaIndex
+- **Fixed 2026-01-09**: Async event loop fix restored full Ollama functionality for llama3.1, llama3.2, and gpt-oss models
+- `sciphi/triplex` still fails to extract entities/relationships despite being specifically designed for KG extraction
+- Recommend using `llama3.1:8b` or `llama3.2:3b` for local GraphRAG with Ollama
 
 
 ## Mixed Provider Configurations
@@ -205,9 +232,10 @@ Successfully tested combinations:
 - ✅ **Google Vertex AI** (gemini-2.5-flash) - **Fixed 2026-01-08**
   - Same as Gemini: full graph extraction, search/query work with graph enabled
   - **Note**: Google embeddings require Gemini/Vertex AI LLM (async compatibility)
-- ⚠️ **Anthropic Claude** (sonnet, haiku)
-  - Can search with graph enabled
-  - Graph building only creates chunk nodes (no entities/relationships extracted) across all databases
+- ✅ **Anthropic Claude** (sonnet-4-5, haiku-4-5) - **Fixed 2026-01-09**
+  - Full graph extraction with entities and relationships
+  - Search and AI query work correctly
+  - Event loop fix restored proper entity/relationship extraction
 - ⚠️ **Groq** (llama-3.3-70b-versatile, gpt-oss-20b)
   - Fast inference with LPU architecture
   - Graph building only creates chunk nodes across all databases
@@ -232,8 +260,11 @@ Successfully tested combinations:
 - Graph database choice (Neo4j/FalkorDB/ArcadeDB/Kuzu/MemGraph) doesn't affect LLM compatibility patterns
 
 ### Local Models (Ollama):
-- ❌ **Not recommended for GraphRAG**
-  - `llama3.2` - Previously worked but now fails to complete ingestion
-  - `sciphi/triplex` - Fails to complete ingestion despite being designed for KG extraction
-  - Likely due to smaller model capacity and recent changes in Ollama/LlamaIndex
+- ✅ **Recommended for local GraphRAG** - **Fixed 2026-01-09**
+  - `llama3.1:8b` - Works, creates proper entities/relationships, good performance
+  - `llama3.2:3b` - Works, creates proper entities/relationships, faster than 3.1
+  - `gpt-oss:20b` - Works, creates proper entities/relationships, slower but functional
+  - Event loop fixes restored full Ollama functionality
+- ❌ **Not recommended**
+  - `sciphi/triplex` - Extracts 0 entities/relationships, extremely slow, not usable despite being designed for KG extraction
 

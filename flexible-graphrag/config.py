@@ -169,8 +169,8 @@ an aristocratic family that rules the planet Caladan, the rainy planet, since 10
     # Processing parameters
     chunk_size: int = 1024
     chunk_overlap: int = 128
-    max_triplets_per_chunk: int = 100
-    max_paths_per_chunk: int = 100
+    max_triplets_per_chunk: int = 20
+    max_paths_per_chunk: int = 20
     
     # Document processing timeouts (in seconds) - DIFFERENT from LLM timeouts
     docling_timeout: int = Field(300, description="Timeout for single document Docling conversion in seconds (default: 5 minutes) - separate from LLM request timeouts")
@@ -206,9 +206,9 @@ an aristocratic family that rules the planet Caladan, the rainy planet, since 10
                 self.llm_config = {
                     "model": os.getenv("OLLAMA_MODEL", "llama3.1:8b"),
                     "base_url": os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"),
-                    "embedding_model": os.getenv("EMBEDDING_MODEL", "all-minilm"),
+                    "embedding_model": os.getenv("EMBEDDING_MODEL", "nomic-embed-text"),
                     "temperature": float(os.getenv("OLLAMA_TEMPERATURE", "0.1")),
-                    "timeout": float(os.getenv("OLLAMA_TIMEOUT", "300.0"))  # Higher default for local processing
+                    "timeout": float(os.getenv("OLLAMA_TIMEOUT", "900.0"))  # 15 minutes for graph extraction
                 }
             elif self.llm_provider == LLMProvider.AZURE_OPENAI:
                 self.llm_config = {
@@ -506,7 +506,7 @@ SAMPLE_SCHEMA = {
         ("PLACE", "HAS", "PERSON")
     ],
     "strict": False,
-    "max_triplets_per_chunk": 100
+    "max_triplets_per_chunk": 20
 }
 
 # LlamaIndex Kuzu documentation schema (too restrictive - commented out)

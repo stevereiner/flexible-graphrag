@@ -174,10 +174,10 @@ Maximum number of relationship paths to extract per text chunk.
 
 ### **Configuration Tips**
 1. **Use strict=false** for better coverage
-2. **Adjust extraction limits** based on document complexity:
-   - Dense content (technical docs, research papers): `MAX_TRIPLETS_PER_CHUNK=100`, `MAX_PATHS_PER_CHUNK=100`
-   - Simple content (news articles, basic docs): `MAX_TRIPLETS_PER_CHUNK=20`, `MAX_PATHS_PER_CHUNK=20`
-   - Very complex content (legal docs, scientific papers): `MAX_TRIPLETS_PER_CHUNK=200`, `MAX_PATHS_PER_CHUNK=200`
+2. **Adjust extraction limits** based on document complexity (default: 20/20):
+   - Standard content (most documents): `MAX_TRIPLETS_PER_CHUNK=20`, `MAX_PATHS_PER_CHUNK=20` **(default)**
+   - Dense content (technical docs, research papers): `MAX_TRIPLETS_PER_CHUNK=50`, `MAX_PATHS_PER_CHUNK=50`
+   - Very complex content (legal docs, scientific papers): `MAX_TRIPLETS_PER_CHUNK=100`, `MAX_PATHS_PER_CHUNK=100`
 3. **Test with small samples** before processing large datasets
 4. **Compare with default schema** to see extraction differences
 5. **Monitor processing time** - higher limits increase extraction quality but slow processing

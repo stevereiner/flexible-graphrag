@@ -730,6 +730,8 @@ Edit `.env` with your database credentials and API keys.
    uv pip install -e .
    ```
 
+   **Windows Note**: If installation fails with "Microsoft Visual C++ 14.0 or greater is required" error, install [Microsoft C++ Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/) (required for compiling Docling dependencies). Select "Desktop development with C++" during installation.
+
    **Alternative (not recommended)**: Legacy requirements.txt approach:
    ```bash
    # Create venv manually

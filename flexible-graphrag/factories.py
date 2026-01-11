@@ -172,8 +172,11 @@ class LLMFactory:
         elif provider == LLMProvider.OLLAMA:
             model = config.get("model", "llama3.1:8b")
             base_url = config.get("base_url", "http://localhost:11434")
-            timeout = config.get("timeout", 300.0)
+            timeout = config.get("timeout", 900.0)  # 15 minutes for graph extraction
             logger.info(f"Configuring Ollama LLM - Model: {model}, Base URL: {base_url}, Timeout: {timeout}s")
+            
+            # Note: Ollama internally creates AsyncClient with request_timeout
+            # See llama_index/llms/ollama/base.py line 204
             return Ollama(
                 model=model,
                 base_url=base_url,

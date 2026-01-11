@@ -2,6 +2,52 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2026-01-10] - Knowledge graph extractor refactoring
+
+### Changed
+- **Simplified knowledge graph extractor handling** - Refactored `_run_kg_extractors_on_nodes()` in `hybrid_system.py` to eliminate repeated code
+  - Now validates exactly one extractor (current production usage)
+
+### Fixed
+- **Gemini/Vertex AI second document ingestion** - Fixed async event loop error when adding documents to existing graph by running `insert_nodes()` directly in main context (not executor) for Gemini/Vertex providers
+
+
+## [2026-01-09] - Ollama timeout and async event loop fixes
+
+### Fixed
+- **Ollama ReadTimeout during graph extraction** - Fixed `httpx.ReadTimeout` errors during knowledge graph entity/relationship extraction by increasing default `OLLAMA_TIMEOUT` from 300s (5 min) to 900s (15 min) in `config.py`
+  - Ollama's internal `AsyncClient` already properly uses `request_timeout` parameter
+  - Graph extraction with Ollama can take 5-15 minutes per document depending on model size and content complexity
+  - Users can override with `OLLAMA_TIMEOUT` environment variable for even longer documents
+- **Async event loop conflict when adding documents to existing graph** - Fixed `RuntimeError: <asyncio.locks.Event> is bound to a different event loop` error
+  - Root cause: `graph_index.insert_nodes()` is synchronous but uses `asyncio.run()` internally, causing conflict when called from async context
+  - Solution: Wrapped `insert_nodes()` call in `run_in_executor()` at line ~1960 in `hybrid_system.py` to isolate event loop
+  - Solution: Temporarily clear `_kg_extractors` before calling `insert_nodes()` since extraction already completed manually
+  - Affects all LLM providers (OpenAI, Ollama, Claude, etc.) during graph updates with multiple documents
+  - **Restored functionality**: Ollama models (llama3.1:8b, llama3.2:3b, gpt-oss:20b) and Anthropic Claude (sonnet-4-5, haiku-4-5) now extract full entities/relationships correctly
+
+### Changed
+- **Updated extraction defaults** - Changed `MAX_TRIPLETS_PER_CHUNK` and `MAX_PATHS_PER_CHUNK` defaults from 100 to 20
+  - Updated `config.py` lines 172-173: `max_triplets_per_chunk: int = 20`, `max_paths_per_chunk: int = 20`
+  - Updated `SAMPLE_SCHEMA` in `config.py` line 509: `"max_triplets_per_chunk": 20`
+  - Updated `docs/SCHEMA-EXAMPLES.md` recommendations with 20 as standard default
+  - Testing showed 20 provides good balance: captures most entities (e.g., gpt-oss:20b extracted 30 entities vs 34 with limit of 100)
+  - Faster processing during ingestion while maintaining extraction quality for typical documents
+  - Users can increase to 50-100 for dense/complex content via environment variables
+- **Updated Ollama embedding default** - Changed default embedding model from `all-minilm` to `nomic-embed-text` in `config.py` line 209
+  - `all-minilm` has 512-token context limit causing "input length exceeds context length" errors when embedding graph nodes (combined entity + relationship text)
+  - `nomic-embed-text` has 8192-token context and 768 dimensions (vs 384 for all-minilm), providing better quality and reliability
+  - Updated `env-sample.txt` lines 387-392 with warning about `all-minilm` limitations and recommendation to use `nomic-embed-text`
+
+### Documentation
+- Updated `flexible-graphrag/env-sample.txt` with `OLLAMA_TIMEOUT=900.0` documentation and notes about ReadTimeout errors
+- Added Windows installation note in `README.md` about Microsoft C++ Build Tools requirement for compiling Docling dependencies (tree-sitter-java-orchard)
+- Added warning in `env-sample.txt` about `all-minilm` context limitations for graph node embeddings
+- Updated `docs/LLM-TESTING-RESULTS.md` to reflect restored functionality:
+  - Ollama models (llama3.1:8b, llama3.2:3b, gpt-oss:20b) now work with full entity/relationship extraction
+  - Anthropic Claude (sonnet-4-5, haiku-4-5) now creates proper entities/relationships (not just chunk nodes)
+  - Updated test summary table and recommendations reflecting event loop fixes
+
 ## [2026-01-08] - Gemini async compatibility fixes
 
 ### Fixed

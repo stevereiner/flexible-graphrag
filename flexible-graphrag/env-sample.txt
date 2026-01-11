@@ -357,7 +357,9 @@ OPENAI_MODEL=gpt-4o-mini
 # See docs/OLLAMA-CONFIGURATION.md for detailed setup and optimization
 #OLLAMA_MODEL=llama3.2:3b              # 3B params - good balance, recommended default
 #OLLAMA_BASE_URL=http://localhost:11434
-# OLLAMA_TIMEOUT=300.0  # Higher default for local processing
+#OLLAMA_TIMEOUT=900.0  # 15 minutes timeout for graph extraction (default: 900.0)
+# Note: Graph extraction with Ollama can be slow (5-15 minutes per document)
+# Increase OLLAMA_TIMEOUT if you get ReadTimeout errors during processing
 
 # ====================================================================
 # EMBEDDING CONFIGURATION (Independent of LLM Provider)
@@ -382,10 +384,12 @@ EMBEDDING_MODEL=text-embedding-3-small
 
 # Ollama Embeddings (if using Ollama embeddings)
 # See docs/LLM-EMBEDDING-CONFIG.md for detailed model options
+# WARNING: all-minilm (384 dims, 512 context) is NOT recommended - its 512-token limit causes errors
+# when embedding graph nodes (combined entity + relationship text). Use nomic-embed-text instead.
 # EMBEDDING_KIND=ollama
-#EMBEDDING_MODEL=nomic-embed-text       # 768 dims - good balance (default)
-#EMBEDDING_MODEL=all-minilm             # 384 dims - fastest
-#EMBEDDING_MODEL=mxbai-embed-large      # 1024 dims - highest quality
+#EMBEDDING_MODEL=nomic-embed-text       # 768 dims, 8192 context - recommended default
+#EMBEDDING_MODEL=mxbai-embed-large      # 1024 dims, 512 context - higher quality but limited context
+#EMBEDDING_MODEL=all-minilm             # 384 dims, 512 context - NOT RECOMMENDED (context too small)
 
 # ====================================================================
 # 5. CONTENT SOURCES CONFIGURATION
@@ -469,6 +473,9 @@ OPENSEARCH_PASSWORD=
 CHUNK_SIZE=1024
 CHUNK_OVERLAP=128
 
+#CHUNK_SIZE=512
+#CHUNK_OVERLAP=64
+
 # Knowledge Graph Extraction Limits (configurable for different content densities)
 # MAX_TRIPLETS_PER_CHUNK: Used by DynamicLLMPathExtractor and SchemaLLMPathExtractor - controls how many entity-relationship triplets can be extracted per text chunk
 # MAX_PATHS_PER_CHUNK: Used by SimpleLLMPathExtractor - controls how many relationship paths can be extracted per text chunk
@@ -476,8 +483,11 @@ CHUNK_OVERLAP=128
 # Lower values are faster but may miss entities/relationships in complex documents
 # These values are higher than the usual 20-25 seen in examples, are more to rule out
 # that this is what is limiting extraction.
-MAX_TRIPLETS_PER_CHUNK=100
-MAX_PATHS_PER_CHUNK=100
+#MAX_TRIPLETS_PER_CHUNK=100
+#MAX_PATHS_PER_CHUNK=100
+
+MAX_TRIPLETS_PER_CHUNK=20
+MAX_PATHS_PER_CHUNK=20
 
 # Timeout configurations moved to docs/TIMEOUT-CONFIGURATIONS.md
 # Uncomment and adjust these if you need custom timeout values:
