@@ -115,7 +115,7 @@ an aristocratic family that rules the planet Caladan, the rainy planet, since 10
     embedding_dimension: Optional[int] = Field(None, description="Embedding dimension (for configurable models)")
     
     # Schema system
-    schema_name: str = Field("default", description="Name of schema to use: 'none', 'default', or custom name")
+    schema_name: str = Field("default", description="Name of schema to use: 'default' (internal), 'sample' (project), or custom name")
     schemas: Optional[List[Dict[str, Any]]] = Field(default_factory=list, description="Array of named schemas")
     
     @field_validator('schemas', mode='before')
@@ -418,7 +418,12 @@ an aristocratic family that rules the planet Caladan, the rainy planet, since 10
                 }
     
     def get_active_schema(self) -> Optional[Dict[str, Any]]:
-        """Get the currently active schema based on schema_name"""
+        """Get the currently active schema based on schema_name
+        
+        Returns:
+            None - Use LlamaIndex internal schema
+            Dict - Use specified schema (SAMPLE_SCHEMA or custom)
+        """
         import logging
         logger = logging.getLogger(__name__)
         
@@ -428,23 +433,37 @@ an aristocratic family that rules the planet Caladan, the rainy planet, since 10
         for i, schema_def in enumerate(schemas_list):
             logger.info(f"  Schema {i}: name='{schema_def.get('name')}', has_schema={bool(schema_def.get('schema'))}")
         
-        if self.schema_name == "none":
-            logger.info("Schema name is 'none' - returning None")
+        # Handle unset/empty schema name - use internal schema
+        if not self.schema_name or self.schema_name.strip() == "":
+            logger.info("Schema name is empty/unset - returning None (use internal LlamaIndex schema)")
             return None
-        elif self.schema_name == "default":
-            logger.info("Schema name is 'default' - returning SAMPLE_SCHEMA")
+        
+        # Handle explicit "none" - use internal schema
+        if self.schema_name.lower() == "none":
+            logger.info("Schema name is 'none' - returning None (use internal LlamaIndex schema)")
+            return None
+        
+        # Handle "default" - use internal schema
+        if self.schema_name == "default":
+            logger.info("Schema name is 'default' - returning None (use internal LlamaIndex schema)")
+            return None
+        
+        # Handle "sample" - use project's SAMPLE_SCHEMA
+        if self.schema_name == "sample":
+            logger.info("Schema name is 'sample' - returning SAMPLE_SCHEMA")
             return SAMPLE_SCHEMA
-        else:
-            # Look for named schema in schemas array
-            for schema_def in schemas_list:
-                if schema_def.get("name") == self.schema_name:
-                    schema_data = schema_def.get("schema", {})
-                    logger.info(f"Found schema '{self.schema_name}' with {len(schema_data)} keys")
-                    return schema_data
-            
-            # If named schema not found, log warning and return None
-            logger.warning(f"Schema '{self.schema_name}' not found in schemas array. Available schemas: {[s.get('name') for s in schemas_list]}")
-            return None
+        
+        # Look for custom named schema in schemas array
+        for schema_def in schemas_list:
+            if schema_def.get("name") == self.schema_name:
+                schema_data = schema_def.get("schema", {})
+                logger.info(f"Found custom schema '{self.schema_name}' with {len(schema_data)} keys")
+                return schema_data
+        
+        # If named schema not found, log warning and return None (fallback to internal)
+        logger.warning(f"Schema '{self.schema_name}' not found in schemas array. Available schemas: {[s.get('name') for s in schemas_list]}")
+        logger.warning("Falling back to internal LlamaIndex schema")
+        return None
 
     @property
     def schema_config(self) -> Optional[Dict[str, Any]]:
@@ -460,8 +479,8 @@ an aristocratic family that rules the planet Caladan, the rainy planet, since 10
 
 # Sample schema configuration - comprehensive schema with permissive validation for maximum flexibility
 SAMPLE_SCHEMA = {
-    "entities": Literal["PERSON", "ORGANIZATION", "LOCATION", "PLACE", "TECHNOLOGY", "PROJECT"],
-    "relations": Literal["WORKS_FOR", "LOCATED_IN", "USES", "COLLABORATES_WITH", "DEVELOPS", "HAS", "PART_OF", "WORKED_ON", "WORKED_WITH", "WORKED_AT"],
+    "entities": ["PERSON", "ORGANIZATION", "LOCATION", "PLACE", "TECHNOLOGY", "PROJECT"],
+    "relations": ["WORKS_FOR", "LOCATED_IN", "USES", "COLLABORATES_WITH", "DEVELOPS", "HAS", "PART_OF", "WORKED_ON", "WORKED_WITH", "WORKED_AT"],
     "validation_schema": [
         # Person relationships
         ("PERSON", "WORKS_FOR", "ORGANIZATION"),

@@ -32,6 +32,7 @@ logger = logging.getLogger(__name__)
 def count_extracted_entities_and_relations(nodes: List[BaseNode]) -> tuple[int, int]:
     """
     Count entities and relations from node metadata after extraction.
+    Also sanitizes/validates entity and relation labels to prevent empty/invalid labels.
     
     KG_NODES_KEY contains only entity nodes (not chunks), so this gives accurate counts.
     
@@ -51,8 +52,41 @@ def count_extracted_entities_and_relations(nodes: List[BaseNode]) -> tuple[int, 
         entities = node.metadata.get(KG_NODES_KEY, [])
         relations = node.metadata.get(KG_RELATIONS_KEY, [])
         
+        # Sanitize entities: filter out those with empty/whitespace labels
+        valid_entities = []
+        filtered_entity_count = 0
+        for entity in entities:
+            # Check if entity has a valid label (non-empty, non-whitespace)
+            label = getattr(entity, 'label', None) or getattr(entity, 'type', None)
+            if label and str(label).strip():
+                valid_entities.append(entity)
+            else:
+                filtered_entity_count += 1
+                if i < 3:  # Log first few filtered entities
+                    logger.warning(f"Filtered entity with empty/invalid label: {entity}")
+        
+        # Sanitize relations: filter out those with empty/whitespace labels
+        valid_relations = []
+        filtered_relation_count = 0
+        for relation in relations:
+            # Check if relation has a valid label (non-empty, non-whitespace)
+            label = getattr(relation, 'label', None) or getattr(relation, 'type', None)
+            if label and str(label).strip():
+                valid_relations.append(relation)
+            else:
+                filtered_relation_count += 1
+                if i < 3:  # Log first few filtered relations
+                    logger.warning(f"Filtered relation with empty/invalid label: {relation}")
+        
+        # Update node metadata with sanitized lists
+        node.metadata[KG_NODES_KEY] = valid_entities
+        node.metadata[KG_RELATIONS_KEY] = valid_relations
+        
+        if filtered_entity_count > 0 or filtered_relation_count > 0:
+            logger.warning(f"Node {i}: Filtered {filtered_entity_count} entities and {filtered_relation_count} relations with invalid labels")
+        
         if i < 3:  # Log first 3 nodes for debugging
-            logger.info(f"Node {i}: {len(entities)} entities, {len(relations)} relations in metadata")
+            logger.info(f"Node {i}: {len(valid_entities)} entities, {len(valid_relations)} relations in metadata (after validation)")
             logger.info(f"Node {i} metadata keys: {list(node.metadata.keys())}")
             
             # Log all metadata content for analysis
@@ -74,8 +108,8 @@ def count_extracted_entities_and_relations(nodes: List[BaseNode]) -> tuple[int, 
                     # For simple values, show directly
                     logger.info(f"  {key}: {value}")
         
-        entity_count += len(entities)
-        relation_count += len(relations)
+        entity_count += len(valid_entities)
+        relation_count += len(valid_relations)
     
     logger.info(f"Total: {entity_count} entities, {relation_count} relations from all {len(nodes)} nodes")
     return entity_count, relation_count
@@ -90,10 +124,12 @@ class SchemaManager:
         self.schema_config = schema_config or {}
         self.app_config = app_config
     
-    def create_extractor(self, llm, use_schema: bool = True, llm_provider=None, extractor_type: str = "schema"):
+    def create_extractor(self, llm, llm_provider=None, extractor_type: str = "schema"):
         """Create knowledge graph extractor with optional schema enforcement
         
         Args:
+            llm: The LLM instance to use
+            llm_provider: The LLM provider enum (for provider-specific handling)
             extractor_type: "simple", "schema", or "dynamic"
         """
         
@@ -107,24 +143,50 @@ class SchemaManager:
         if is_ollama:
             logger.info(f"OLLAMA PARALLEL PROCESSING: Using {workers} workers with OLLAMA_NUM_PARALLEL=4 configuration")
         
-        # Get configurable values
-        max_triplets = getattr(self.app_config, 'max_triplets_per_chunk', 100) if self.app_config else 100
-        max_paths = getattr(self.app_config, 'max_paths_per_chunk', 100) if self.app_config else 100
+        # CRITICAL: Bedrock, Groq, and Fireworks have SchemaLLMPathExtractor LlamaIndex issue
+        # Switch to DynamicLLMPathExtractor if SchemaLLMPathExtractor for these providers
+        problematic_providers = ["bedrock", "groq", "fireworks"]
+        llm_provider_str = str(llm_provider).lower() if llm_provider else None
+        logger.info(f"Checking if provider '{llm_provider_str}' is in problematic list: {problematic_providers}")
+        if llm_provider_str in problematic_providers:
+            if extractor_type == "schema":
+                logger.warning(f"Provider {llm_provider} has SchemaLLMPathExtractor LlamaIndex issue ")
+                logger.warning(f"Switching to DynamicLLMPathExtractor for reliable extraction")
+                extractor_type = "dynamic"
+        
+        # Get configurable values - environment variable has priority, schema provides defaults
+        schema_max_triplets = self.schema_config.get('max_triplets_per_chunk', 20) if self.schema_config else 20
+        schema_max_paths = self.schema_config.get('max_paths_per_chunk', 20) if self.schema_config else 20
+        
+        # Environment variable overrides schema value if set
+        max_triplets = getattr(self.app_config, 'max_triplets_per_chunk', schema_max_triplets) if self.app_config else schema_max_triplets
+        max_paths = getattr(self.app_config, 'max_paths_per_chunk', schema_max_paths) if self.app_config else schema_max_paths
+        
+        logger.info(f"Extraction limits: max_triplets_per_chunk={max_triplets}, max_paths_per_chunk={max_paths}")
+        
+        # DEBUG: Log the actual extractor_type value
+        logger.info(f"create_extractor called with: extractor_type='{extractor_type}'")
         
         # Handle dynamic extractor type
         if extractor_type == "dynamic":
             logger.info("Using DynamicLLMPathExtractor for flexible relationship discovery")
-            logger.info(f"Using max_triplets_per_chunk={max_triplets}")
             # DynamicLLMPathExtractor can work with or without initial schema guidance
             if self.schema_config:
                 logger.info("Providing initial ontology guidance to DynamicLLMPathExtractor")
+                
+                # Extract entity and relation types from schema
+                entities = self.schema_config.get("entities", [])
+                relations = self.schema_config.get("relations", [])
+                
+                logger.info(f"Dynamic extractor with {len(entities)} entity types, {len(relations)} relation types")
+                
                 # With initial ontology - provide starting guidance but allow expansion
                 return DynamicLLMPathExtractor(
                     llm=llm,
                     max_triplets_per_chunk=max_triplets,
                     num_workers=workers,
-                    allowed_entity_types=self.schema_config.get("entities", []),
-                    allowed_relation_types=self.schema_config.get("relations", [])
+                    allowed_entity_types=entities,
+                    allowed_relation_types=relations
                 )
             else:
                 logger.info("Using DynamicLLMPathExtractor without initial ontology - full LLM freedom")
@@ -135,14 +197,17 @@ class SchemaManager:
                     num_workers=workers
                 )
         
-        # Use schema if explicitly requested
-        if not use_schema:
-            logger.info(f"Using SimpleLLMPathExtractor with max_paths_per_chunk={max_paths}")
+        # Handle simple extractor type
+        if extractor_type == "simple":
+            logger.info(f"Using SimpleLLMPathExtractor (extractor_type=simple)")
             return SimpleLLMPathExtractor(
                 llm=llm,
                 max_paths_per_chunk=max_paths,
                 num_workers=workers
             )
+        
+        # If we reach here, use SchemaLLMPathExtractor (either with user schema or internal schema)
+        # This handles both extractor_type="schema" and the default case
         
         # Always use user's configured schema - no special Kuzu schema
         schema_to_use = self.schema_config
@@ -155,27 +220,31 @@ class SchemaManager:
             logger.info(f"Schema validation_schema type: {type(validation_schema)}")
             if isinstance(validation_schema, list) and len(validation_schema) > 0:
                 logger.info(f"First validation rule: {validation_schema[0]}")
-
+        else:
+            logger.info("No user schema configured - SchemaLLMPathExtractor will use its internal schema")
         
-        if not schema_to_use:
-            logger.info(f"Using SimpleLLMPathExtractor (no schema) with max_paths_per_chunk={max_paths}")
-            return SimpleLLMPathExtractor(
+        # Create schema-guided extractor (with user schema or internal schema)
+        strict_mode = schema_to_use.get("strict", False) if schema_to_use else False
+        logger.info(f"Using SchemaLLMPathExtractor with strict={strict_mode}")
+        
+        if schema_to_use:
+            return SchemaLLMPathExtractor(
                 llm=llm,
-                max_paths_per_chunk=max_paths,
+                possible_entities=schema_to_use.get("entities", []),
+                possible_relations=schema_to_use.get("relations", []),
+                kg_validation_schema=schema_to_use.get("validation_schema"),
+                strict=strict_mode,
+                max_triplets_per_chunk=max_triplets,
                 num_workers=workers
             )
-        
-        # Create schema-guided extractor
-        logger.info(f"Using SchemaLLMPathExtractor with max_triplets_per_chunk={max_triplets}")
-        return SchemaLLMPathExtractor(
-            llm=llm,
-            possible_entities=schema_to_use.get("entities", []),
-            possible_relations=schema_to_use.get("relations", []),
-            kg_validation_schema=schema_to_use.get("validation_schema"),
-            strict=schema_to_use.get("strict", True),
-            max_triplets_per_chunk=max_triplets,
-            num_workers=workers
-        )
+        else:
+            # No user schema - let SchemaLLMPathExtractor use its internal schema
+            return SchemaLLMPathExtractor(
+                llm=llm,
+                strict=strict_mode,
+                max_triplets_per_chunk=max_triplets,
+                num_workers=workers
+            )
 
 class HybridSearchSystem:
     """Configurable hybrid search system with full-text, vector, and graph search"""
@@ -183,29 +252,10 @@ class HybridSearchSystem:
     def __init__(self, config: AppSettings):
         self.config = config
         
-        # CRITICAL: Validate LLM + Embedding compatibility
-        # Google embeddings (async SDK) only work with Gemini/Vertex AI LLMs (also async)
-        # Mixing async embeddings with sync LLMs causes "attached to different loop" errors during search
+        # NOTE: Log mixed LLM + Embedding configuration for informational purposes
         embedding_kind = getattr(config, 'embedding_kind', None)
         if embedding_kind in ['google', 'vertex'] and config.llm_provider not in [LLMProvider.GEMINI, LLMProvider.VERTEX_AI]:
-            logger.error("=" * 80)
-            logger.error("INCOMPATIBLE CONFIGURATION DETECTED!")
-            logger.error(f"LLM Provider: {config.llm_provider}")
-            logger.error(f"Embedding Kind: {embedding_kind}")
-            logger.error("")
-            logger.error("Google/Vertex embeddings use async SDK and ONLY work with Gemini/Vertex LLMs.")
-            logger.error("Mixing async embeddings with non-Gemini LLMs causes event loop conflicts during search.")
-            logger.error("")
-            logger.error("Supported combinations:")
-            logger.error("  OK: Gemini LLM + Google embeddings")
-            logger.error("  OK: OpenAI LLM + OpenAI embeddings")
-            logger.error("  OK: Ollama LLM + Ollama embeddings")
-            logger.error("  FAIL: OpenAI/Ollama/etc LLM + Google embeddings")
-            logger.error("")
-            logger.error("Please change EMBEDDING_KIND to match your LLM provider or use Gemini LLM.")
-            logger.error("=" * 80)
-            raise ValueError(f"Incompatible configuration: {config.llm_provider} LLM with {embedding_kind} embeddings. "
-                           f"Google/Vertex embeddings require Gemini/Vertex AI LLM due to async SDK requirements.")
+            logger.info(f"Using {config.llm_provider} LLM with {embedding_kind} embeddings")
         
         # Initialize DocumentProcessor with configured parser type
         # Handle both Enum and string values
@@ -595,22 +645,20 @@ class HybridSearchSystem:
             if has_schema:
                 kg_extractor = self.schema_manager.create_extractor(
                     self.llm, 
-                    use_schema=True,
                     llm_provider=self.config.llm_provider,
                     extractor_type=self.config.kg_extractor_type
                 )
                 kg_extractors = [kg_extractor]
                 logger.info(f"Using knowledge graph extraction with '{self.config.schema_name}' schema and LLM: {llm_model_name}")
             else:
-                # Use simple extractor for Neo4j without schema
+                # No schema configured - will use extractor's internal schema if applicable
                 kg_extractor = self.schema_manager.create_extractor(
                     self.llm, 
-                    use_schema=False,
                     llm_provider=self.config.llm_provider,
                     extractor_type=self.config.kg_extractor_type
                 )
                 kg_extractors = [kg_extractor]
-                logger.info(f"Using simple knowledge graph extraction (no schema) with LLM: {llm_model_name}")
+                logger.info(f"Using knowledge graph extraction (no user schema) with LLM: {llm_model_name}")
             
             kg_setup_duration = time.time() - kg_setup_start_time
             logger.info(f"Knowledge graph extractor setup completed in {kg_setup_duration:.2f}s")
@@ -1659,20 +1707,18 @@ class HybridSearchSystem:
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
         
-        # CRITICAL: For Gemini/Vertex, run extractors directly (not in executor)
-        # Reason: Gemini SDK is async and needs to use the MAIN event loop
-        # Running in executor causes Gemini to create event loops in worker threads,
-        # then during search, Futures from those threads cause "attached to different loop" errors
-        is_gemini = self.config.llm_provider in [LLMProvider.GEMINI, LLMProvider.VERTEX_AI]
-        logger.info(f"LLM Provider: {self.config.llm_provider}, Is Gemini/Vertex: {is_gemini}")
-        
-        if is_gemini:
-            logger.info("Running extractor in main async context (Gemini/Vertex AI)")
-            nodes = extractor(nodes, show_progress=True)
-        else:
-            logger.info("Running extractor in executor (non-Gemini LLMs)")
-            extract_func = functools.partial(extractor, nodes, show_progress=True)
-            nodes = await loop.run_in_executor(None, extract_func)
+        # CRITICAL: Run extractors synchronously for ALL providers
+        # Reason 1 (Gemini/Vertex): Gemini SDK is async and needs to use the MAIN event loop
+        #          Running in executor causes Gemini to create event loops in worker threads,
+        #          then during search, Futures from those threads cause "attached to different loop" errors
+        # Reason 2 (Bedrock/Fireworks/Groq/Others): SchemaLLMPathExtractor is synchronous but wrapping
+        #          it in run_in_executor can interfere with OpenAI-like client state, especially for
+        #          providers that use async or thread-locals internally. This can cause "second run
+        #          only gets Chunk nodes" issues. Running sync avoids extractor state pollution.
+        # Reference: https://github.com/run-llama/llama_index/issues/14211
+        logger.info(f"LLM Provider: {self.config.llm_provider}")
+        logger.info("Running extractor synchronously (all providers) to avoid state pollution")
+        nodes = extractor(nodes, show_progress=True)
         
         logger.info("Extractor completed")
         
@@ -1811,21 +1857,20 @@ class HybridSearchSystem:
             if self.config.schema_config is not None:
                 kg_extractor = self.schema_manager.create_extractor(
                     self.llm, 
-                    use_schema=True,
                     llm_provider=self.config.llm_provider,
                     extractor_type=self.config.kg_extractor_type
                 )
                 kg_extractors = [kg_extractor]
                 logger.info(f"Using knowledge graph extraction with schema and LLM: {llm_model_name}")
             else:
+                # No schema configured - will use extractor's internal schema if applicable
                 kg_extractor = self.schema_manager.create_extractor(
                     self.llm, 
-                    use_schema=False,
                     llm_provider=self.config.llm_provider,
                     extractor_type=self.config.kg_extractor_type
                 )
                 kg_extractors = [kg_extractor]
-                logger.info(f"Using simple knowledge graph extraction (no schema) with LLM: {llm_model_name}")
+                logger.info(f"Using knowledge graph extraction (no user schema) with LLM: {llm_model_name}")
             
             kg_setup_duration = time.time() - kg_setup_start_time
             logger.info(f"Knowledge graph extractor setup completed in {kg_setup_duration:.2f}s")
@@ -1883,21 +1928,12 @@ class HybridSearchSystem:
                         logger.info("Neptune Analytics detected: Setting embed_kg_nodes=False to avoid vector index atomicity issues")
                         logger.info("Knowledge graph structure will be created without vector embeddings (use separate VECTOR_DB for embeddings)")
                     
-                    # CRITICAL: For Gemini/Vertex, create PropertyGraphIndex directly (not in executor)
-                    # Even though we pass empty kg_extractors, PropertyGraphIndex still does internal
-                    # async operations that need the main event loop
-                    if self.config.llm_provider in [LLMProvider.GEMINI, LLMProvider.VERTEX_AI]:
-                        logger.info("Creating new PropertyGraphIndex directly in main context (Gemini/Vertex AI)")
-                        # Run synchronously in main context - PropertyGraphIndex.__init__ is not async
-                        # but it internally uses asyncio.run() which needs to be in main loop
-                        self.graph_index = PropertyGraphIndex(**graph_kwargs)
-                        logger.info("PropertyGraphIndex creation completed")
-                    else:
-                        # For other LLMs, use executor as before
-                        logger.info("Creating new PropertyGraphIndex in executor")
-                        create_graph_index = functools.partial(PropertyGraphIndex, **graph_kwargs)
-                        self.graph_index = await loop.run_in_executor(None, create_graph_index)
-                        logger.info("PropertyGraphIndex creation completed")
+                    # Create PropertyGraphIndex directly for all providers (not run_in_executor)
+                    # Direct execution is required for Gemini/Vertex (async SDK needs main event loop)
+                    # and works well for all other providers since we pass pre-extracted nodes with empty extractors
+                    logger.info("Creating new PropertyGraphIndex with pre-extracted nodes")
+                    self.graph_index = PropertyGraphIndex(**graph_kwargs)
+                    logger.info("PropertyGraphIndex creation completed")
                     
                     graph_creation_duration = time.time() - graph_creation_start_time
                     logger.info(f"PropertyGraphIndex creation completed in {graph_creation_duration:.2f}s")
@@ -1906,6 +1942,7 @@ class HybridSearchSystem:
                     # Record metrics if available
                     if graph_span:
                         graph_span.set_attribute("graph.extraction_latency_ms", graph_creation_duration * 1000)
+                        graph_span.set_attribute("graph.num_nodes", len(nodes))
                         graph_span.set_attribute("graph.num_entities", num_entities)
                         graph_span.set_attribute("graph.num_relations", num_relations)
                         graph_span.set_attribute("graph.status", "success")
@@ -1937,18 +1974,22 @@ class HybridSearchSystem:
             else:
                 # Update existing graph index
                 graph_update_start_time = time.time()
-                logger.info(f"Adding {len(nodes)} nodes to existing graph index...")
+                logger.info(f"Adding new documents to existing graph index...")
                 
                 # Create tracer span for graph update if observability is enabled
                 if OBSERVABILITY_AVAILABLE:
                     tracer = get_tracer(__name__)
                     graph_span = tracer.start_span("rag.graph_extraction.update")
-                    graph_span.set_attribute("graph.num_nodes", len(nodes))
+                    graph_span.set_attribute("graph.num_documents", len(documents))
                     graph_span.set_attribute("graph.database_type", graph_store_type)
                 else:
                     graph_span = None
                 
                 try:
+                    # All providers now use the same method (Method 1): Direct insert_nodes()
+                    # Bedrock, Groq, and Fireworks now work correctly with SimpleLLMPathExtractor
+                    # (forced in create_extractor() method above)
+                    
                     # Run extractors and count entities/relations (reuse common logic)
                     nodes, num_entities, num_relations = await self._run_kg_extractors_on_nodes(nodes, kg_extractors)
                     logger.info(f"Inserting nodes with {num_entities} entities and {num_relations} relationships...")
@@ -1960,30 +2001,13 @@ class HybridSearchSystem:
                     self.graph_index._kg_extractors = []
                     
                     try:
-                        # CRITICAL: For Gemini/Vertex, run insert_nodes directly (not in executor)
-                        # Reason: Gemini SDK is async and needs to use the MAIN event loop
-                        # Running in executor causes Gemini to create event loops in worker threads,
-                        # then during embeddings, Futures from those threads cause "attached to different loop" errors
-                        is_gemini = self.config.llm_provider in [LLMProvider.GEMINI, LLMProvider.VERTEX_AI]
-                        
-                        if is_gemini:
-                            logger.info(f"Calling graph_index.insert_nodes() with {len(nodes)} nodes directly (Gemini/Vertex AI)")
-                            self.graph_index.insert_nodes(nodes)
-                        else:
-                            # For other LLMs (OpenAI, Ollama, Claude, Bedrock, etc.), use executor
-                            # insert_nodes is synchronous but uses asyncio.run() internally
-                            # This causes event loop conflicts when called from async context
-                            import asyncio
-                            import functools
-                            try:
-                                loop = asyncio.get_running_loop()
-                            except RuntimeError:
-                                loop = asyncio.new_event_loop()
-                                asyncio.set_event_loop(loop)
-                            
-                            logger.info(f"Calling graph_index.insert_nodes() with {len(nodes)} nodes in executor")
-                            insert_func = functools.partial(self.graph_index.insert_nodes, nodes)
-                            await loop.run_in_executor(None, insert_func)
+                        # Call insert_nodes() directly for all providers (not run_in_executor)
+                        # Direct execution is required for Gemini/Vertex (async SDK needs main event loop to avoid
+                        # "Future attached to different loop" errors) and works well for all other providers since
+                        # we've already run extractors above and cleared _kg_extractors, making this just a simple
+                        # data store operation with no async conflicts
+                        logger.info(f"Calling graph_index.insert_nodes() with {len(nodes)} nodes")
+                        self.graph_index.insert_nodes(nodes)
                     finally:
                         # Restore original extractors
                         self.graph_index._kg_extractors = original_extractors
@@ -1995,6 +2019,7 @@ class HybridSearchSystem:
                     
                     if graph_span:
                         graph_span.set_attribute("graph.update_latency_ms", graph_creation_duration * 1000)
+                        graph_span.set_attribute("graph.num_nodes", len(nodes))
                         graph_span.set_attribute("graph.num_entities", num_entities)
                         graph_span.set_attribute("graph.num_relations", num_relations)
                         graph_span.set_attribute("graph.status", "success")

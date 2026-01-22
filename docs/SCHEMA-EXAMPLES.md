@@ -5,15 +5,35 @@ This document provides examples for configuring knowledge graph schemas in Flexi
 ## 🏗️ **Schema Overview**
 
 Schemas control how entities and relationships are extracted from your documents. You can use:
-- **No schema** (`SCHEMA_NAME=none`) - Natural language extraction
-- **Default schema** (`SCHEMA_NAME=default`) - Built-in comprehensive schema
+- **Internal schema** (`SCHEMA_NAME=default` + `KG_EXTRACTOR_TYPE=schema`) - LlamaIndex built-in schema (recommended)
+- **Sample schema** (`SCHEMA_NAME=sample`) - Project's SAMPLE_SCHEMA
 - **Custom schemas** - Define your own entity types and relationships
+
+**📖 For detailed information about extractors and internal schema, see: `docs/KNOWLEDGE-GRAPH-EXTRACTORS.md`**
 
 ## 📋 **Built-in Schemas**
 
-### **Default Schema (SAMPLE_SCHEMA)**
+### **Internal Schema (Recommended)**
 ```bash
 SCHEMA_NAME=default
+KG_EXTRACTOR_TYPE=schema
+```
+
+**Features**:
+- Uses LlamaIndex's built-in comprehensive schema
+- 10 entity types: PRODUCT, MARKET, TECHNOLOGY, EVENT, CONCEPT, ORGANIZATION, PERSON, LOCATION, TIME, MISCELLANEOUS
+- 10 relationship types: USED_BY, USED_FOR, LOCATED_IN, PART_OF, WORKED_ON, HAS, IS_A, BORN_IN, DIED_IN, HAS_ALIAS
+- 27 validation rules for consistent extraction
+- Excellent type labeling for business/technology content
+- **Recommended for most projects**
+
+**📖 See `docs/KNOWLEDGE-GRAPH-EXTRACTORS.md` for complete internal schema details**
+
+---
+
+### **Sample Schema (SAMPLE_SCHEMA)**
+```bash
+SCHEMA_NAME=sample
 ```
 
 **Entities**: `PERSON`, `ORGANIZATION`, `LOCATION`, `TECHNOLOGY`, `PROJECT`, `DOCUMENT`
@@ -23,17 +43,6 @@ SCHEMA_NAME=default
 **Features**: 
 - `strict: false` - Allows additional entities beyond the schema
 - Best of both worlds: structured + flexible extraction
-
-### **No Schema**
-```bash
-SCHEMA_NAME=none
-```
-
-**Features**:
-- Uses `SimpleLLMPathExtractor` 
-- Natural language entity and relationship discovery
-- No constraints or validation
-- Good for exploration and content analysis
 
 ## 🎨 **Custom Schema Examples**
 
@@ -147,8 +156,32 @@ Defines which entities can connect with which relationships:
 ```
 
 ### **strict**
-- `true`: Only extract entities/relations defined in schema
-- `false`: Allow additional entities beyond schema (recommended)
+- `true`: Only extract entities/relations defined in schema (hard constraint)
+- `false`: Allow additional entities beyond schema (guidance, **recommended**)
+
+**Impact:**
+- **`strict: false`** (Recommended):
+  - Schema provides guidance, LLM can discover additional types
+  - More flexible and comprehensive extraction
+  - May extract: "PERSON", "ORG", plus "LOCATION", "EVENT" (not in schema)
+  - Best for: General use, when schema may not cover all possibilities
+  
+- **`strict: true`** (Restrictive):
+  - Schema enforces hard constraints, LLM cannot go beyond schema
+  - Only extracts exactly what's defined
+  - Ignores entities/relationships not in schema
+  - Best for: Compliance, legal, highly controlled domains
+
+**Example:**
+```bash
+# Flexible extraction (recommended)
+"strict": false  # ← Can extract beyond schema
+
+# Strict extraction (controlled)
+"strict": true   # ← Only extracts schema-defined types
+```
+
+**See `docs/KNOWLEDGE-GRAPH-EXTRACTORS.md` for detailed strict mode comparison**
 
 ### **max_triplets_per_chunk**
 Maximum number of entity-relationship-entity triplets to extract per text chunk.
@@ -190,24 +223,34 @@ Maximum number of relationship paths to extract per text chunk.
 
 ## 🔄 **Schema Switching**
 
-You can easily switch between schemas by changing the `SCHEMA_NAME`:
+You can easily switch between schemas by changing the `SCHEMA_NAME` and `KG_EXTRACTOR_TYPE`:
 
 ```bash
-# Use built-in comprehensive schema
+# Use LlamaIndex internal schema (recommended for most projects)
 SCHEMA_NAME=default
+KG_EXTRACTOR_TYPE=schema
 
-# Use natural extraction  
-SCHEMA_NAME=none
+# Use project sample schema
+SCHEMA_NAME=sample
+KG_EXTRACTOR_TYPE=schema
+
+# Use simple extraction (fastest, less structured)
+KG_EXTRACTOR_TYPE=simple
 
 # Use your custom business schema
 SCHEMA_NAME=business
+KG_EXTRACTOR_TYPE=schema
 ```
 
 This allows you to test different extraction approaches on the same content and choose the best fit for your use case.
 
+**📖 For extractor comparison and recommendations, see: `docs/KNOWLEDGE-GRAPH-EXTRACTORS.md`**
+
 ## 📚 **Related Documentation**
 
+- **Extractor Guide**: `docs/KNOWLEDGE-GRAPH-EXTRACTORS.md` - Comprehensive extractor types and internal schema details
 - **Environment setup**: `docs/ENVIRONMENT-CONFIGURATION.md` - Complete configuration guide
+- **LLM Testing**: `docs/LLM-TESTING-RESULTS.md` - Provider compatibility with extractors
 - **Source paths**: `docs/SOURCE-PATH-EXAMPLES.md` - File path configuration  
 - **Timeout settings**: `docs/TIMEOUT-CONFIGURATIONS.md` - Performance tuning
 - **Neo4j setup**: `docs/Neo4j-URLs.md` - Database connection details

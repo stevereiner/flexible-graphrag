@@ -130,15 +130,15 @@ GRAPH_DB=neo4j
 ENABLE_KNOWLEDGE_GRAPH=true
 
 # Knowledge graph extractor type: "simple", "schema", or "dynamic"
-# simple: Basic extraction without schema constraints (uses SimpleLLMPathExtractor)
-# schema: Uses predefined schema for structured extraction (uses SchemaLLMPathExtractor) - default
+# simple: Basic extraction without schema constraints (uses SimpleLLMPathExtractor) 
+# schema: Uses provided or buitlin schema for structured extraction (uses SchemaLLMPathExtractor) - default
 # Use SchemaLLMPathExtractor with strict=True when you have a well-defined domain and want to ensure consistency
-# Use SchemaLLMPathExtractor with strict=False when you want some flexibility while still being guided by a base schema
-# dynamic: Flexible extraction that can expand beyond initial schema (uses DynamicLLMPathExtractor)
-# (DynamicLLMPathExtractor currently openai only, doesn't work on ollama)
-# Use DynamicLLMPathExtractor when you want a balance between structure and flexibility, 
-# especially for discovering new entity and relation types
+# Use SchemaLLMPathExtractor with strict=False when you want some flexibility while still being guided by a schema
+# (for bedrock, fireworks, groq DynamicLLMPathExtractor is used instead of SchemaLLMPathExtractor to avoid a LlamaIndex issue)
+# dynamic: More flexible extraction that can expand more beyond initial schema or no provided schema (uses DynamicLLMPathExtractor)
 KG_EXTRACTOR_TYPE=schema
+#KG_EXTRACTOR_TYPE=dynamic
+#KG_EXTRACTOR_TYPE=simple
 
 # Graph Database Connection Configurations:
 
@@ -201,14 +201,17 @@ GRAPH_DB_CONFIG={"url": "bolt://localhost:7687", "username": "neo4j", "password"
 # SCHEMA CONFIGURATION - Controls entity and relationship extraction
 # ====================================================================
 
-# Schema set to default uses SAMPLE_SCHEMA in config.py
-# "entities": Literal["PERSON", "ORGANIZATION", "LOCATION", "TECHNOLOGY", "PROJECT", "DOCUMENT"],
-# "relations": Literal["WORKS_FOR", "LOCATED_IN", "USES", "COLLABORATES_WITH", "DEVELOPS", "MENTIONS"],
+# default uses schema builtin into LlamaIndex (no schema passed to SchemaLLMPathExtractor or DynamicLLMPathExtractor)
 SCHEMA_NAME=default
-#SCHEMA_NAME=none
-#SCHEMA_NAME=cmis_press
+
+# Schema set to sample uses SAMPLE_SCHEMA in config.py
+# "entities": ["PERSON", "ORGANIZATION", "LOCATION", "PLACE", "TECHNOLOGY", "PROJECT"],
+# "relations": ["WORKS_FOR", "LOCATED_IN", "USES", "COLLABORATES_WITH", "DEVELOPS", "HAS", "PART_OF", "WORKED_ON", "WORKED_WITH", "WORKED_AT"],
+# "validation_schema": [ bunch of type relation-type type triplets ]
+#SCHEMA_NAME=sample
 
 # Custom schema example for SchemaLLMPathExtractor (and DynamicLLMPathExtractor)
+#SCHEMA_NAME=cmis_press
 #SCHEMAS=[{"name": "cmis_press", "schema": {"entities": ["PERSON", "ORGANIZATION", "TECHNOLOGY", "SPECIFICATION", "CONCEPT"], "relations": ["WORKS_FOR", "DEVELOPS", "SUPPORTS", "IMPLEMENTS", "COLLABORATES_WITH", "ANNOUNCES"], "validation_schema": [["PERSON", "WORKS_FOR", "ORGANIZATION"], ["PERSON", "DEVELOPS", "TECHNOLOGY"], ["ORGANIZATION", "SUPPORTS", "SPECIFICATION"], ["ORGANIZATION", "IMPLEMENTS", "TECHNOLOGY"], ["ORGANIZATION", "COLLABORATES_WITH", "ORGANIZATION"], ["ORGANIZATION", "ANNOUNCES", "SPECIFICATION"]], "strict": false}}]
 
 # ====================================================================

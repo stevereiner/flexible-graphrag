@@ -2,6 +2,35 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2026-01-22] - Knowledge graph extractor improvements and schema naming updates
+
+### Added
+- **New extractor documentation** - Added `docs/KNOWLEDGE-GRAPH-EXTRACTORS.md` with complete coverage of SimpleLLMPathExtractor, SchemaLLMPathExtractor, and DynamicLLMPathExtractor including internal schema details, strict mode explanation, and provider-specific behaviors
+- **Entity/relationship validation** - Added filtering in `count_extracted_entities_and_relations()` to remove entities/relationships with empty labels, preventing Neo4j `'' is not a valid token name` errors
+
+### Changed
+- **Schema naming simplification** - `SCHEMA_NAME=default` now uses internal schema (was `none`), `SCHEMA_NAME=sample` uses SAMPLE_SCHEMA (was `default`). Updated `config.py`, `env-sample.txt`, and all docs
+- **SAMPLE_SCHEMA format** - Changed from `Literal` types to plain lists to fix DynamicLLMPathExtractor validation errors
+- **Provider extractor switching** - Bedrock/Groq/Fireworks now auto-switch from `schema` to `dynamic` extractor (was `simple`) for better structured extraction while avoiding tool-calling issues
+- **Extraction limit defaults** - Changed `MAX_TRIPLETS_PER_CHUNK` and `MAX_PATHS_PER_CHUNK` defaults from 100 to 20 in `config.py` and `SAMPLE_SCHEMA` for better balance of speed and quality
+- **Environment variable priority** - `MAX_TRIPLETS_PER_CHUNK` and `MAX_PATHS_PER_CHUNK` from `.env` now take priority over values in schema configuration
+- **Strict mode default** - `strict` parameter now defaults to `false` for better flexibility in extraction
+- **Google embeddings flexibility** - Google embedding models (text-embedding-004, text-multilingual-embedding-002) can now be used with any LLM provider, not just Google LLMs
+- **Synchronous extraction for all providers** - Pre-extraction and `insert_nodes()` now run synchronously for all LLM providers (not just Gemini) to avoid async event loop conflicts and state pollution
+- **Enhanced observability** - `graph_span` now tracks `num_documents` in addition to `num_nodes` for better insight into batch operations
+
+### Fixed
+- **"2nd ingest chunk only" bug for Bedrock/Groq/Fireworks (#12)** - Fixed issue where these providers only created chunk nodes (no entities/relationships) on incremental ingests by auto-switching from SchemaLLMPathExtractor (which has tool-calling bugs) to DynamicLLMPathExtractor
+- **DynamicLLMPathExtractor with default schema** - Fixed `pydantic.ValidationError` by converting SAMPLE_SCHEMA from Literal to list format
+- **Empty label errors** - Added filtering to remove entities/relationships with empty labels before Neo4j insertion, fixing DynamicLLMPathExtractor reliability issues on incremental ingests
+
+### Documentation
+- Added `docs/KNOWLEDGE-GRAPH-EXTRACTORS.md` - 568-line comprehensive extractor guide
+- Updated `docs/SCHEMA-EXAMPLES.md` - New naming convention and reordered to highlight internal schema
+- Updated `docs/LLM-TESTING-RESULTS.md` - Provider-specific auto-switching behavior, more models now working with dynamic extractor
+- Updated `env-sample.txt` - Clearer KG_EXTRACTOR_TYPE descriptions and new SCHEMA_NAME defaults
+
+
 ## [2026-01-10] - Knowledge graph extractor refactoring
 
 ### Changed
