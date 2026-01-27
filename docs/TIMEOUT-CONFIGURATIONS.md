@@ -31,7 +31,7 @@ GEMINI_TIMEOUT=120.0
 
 ### **2. Document Processing Timeouts**
 
-Controls Docling document conversion timeouts (NEW - configurable since recent update)
+Controls Docling document conversion timeouts
 
 **Used during**: PDF/DOCX/etc. conversion to text before LLM processing
 
@@ -41,14 +41,16 @@ Controls Docling document conversion timeouts (NEW - configurable since recent u
 # - Large PDFs (10MB+): May take 2-5 minutes 
 # - Complex documents: Up to 5-10 minutes
 # - Set higher for large documents or slower hardware
-DOCLING_TIMEOUT=300  # Default: 5 minutes (300 seconds)
+DOCLING_TIMEOUT=600  # Default: 10 minutes (600 seconds)
 
 # DOCLING_CANCEL_CHECK_INTERVAL: How often to check for user cancellation during Docling
 # - Lower values (0.1-0.5s): More responsive cancellation, slightly higher CPU
 # - Higher values (1.0-2.0s): Less responsive but lower overhead  
-# - This is NEW - enables cancelling during single file processing
+# - This enables cancelling during single file processing
 DOCLING_CANCEL_CHECK_INTERVAL=0.5  # Default: 0.5 seconds
 ```
+
+**Note**: For GPU/device configuration and output saving options, see [DOCLING-GPU-CONFIGURATION.md](DOCLING-GPU-CONFIGURATION.md)
 
 ### **3. Knowledge Graph Extraction Timeouts**
 

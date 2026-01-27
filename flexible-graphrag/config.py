@@ -173,8 +173,11 @@ an aristocratic family that rules the planet Caladan, the rainy planet, since 10
     max_paths_per_chunk: int = 20
     
     # Document processing timeouts (in seconds) - DIFFERENT from LLM timeouts
-    docling_timeout: int = Field(300, description="Timeout for single document Docling conversion in seconds (default: 5 minutes) - separate from LLM request timeouts")
+    docling_timeout: int = Field(600, description="Timeout for single document Docling conversion in seconds (default: 10 minutes) - separate from LLM request timeouts")
     docling_cancel_check_interval: float = Field(0.5, description="How often to check for cancellation during Docling processing in seconds - enables mid-file cancellation")
+    docling_device: str = Field("auto", description="Device for Docling processing: 'auto' (default - GPU if available), 'cpu', 'cuda', 'mps' (Mac)")
+    save_parsing_output: bool = Field(False, description="Save intermediate parsing results (markdown/text) from both Docling and LlamaParse to files for inspection")
+    parser_format_for_extraction: str = Field("auto", description="Format to use for knowledge graph extraction: 'auto' (markdown if tables, else plaintext), 'markdown' (always), 'plaintext' (always)")
     
     # Knowledge graph extraction timeouts and progress
     kg_extraction_timeout: int = Field(3600, description="Timeout for knowledge graph extraction per document in seconds (default: 1 hour for large documents)")

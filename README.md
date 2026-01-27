@@ -146,8 +146,14 @@ All data sources support two document parser options:
 **Docling (Default)**:
 - Open-source, local processing
 - Free with no API costs
+- **GPU acceleration** supported (CUDA/Apple Silicon) for 5-10x faster processing
 - Built-in OCR for images and scanned documents
+- Multi-language support (English, German, French, Spanish, Czech, Russian, Chinese, Japanese, etc.)
 - Configured via: `DOCUMENT_PARSER=docling`
+- **New**: `DOCLING_DEVICE=auto|cpu|cuda|mps` - Control GPU vs CPU processing
+- **New**: `SAVE_PARSING_OUTPUT=true` - Save intermediate parsing results for inspection (works for both parsers)
+- **New**: `PARSER_FORMAT_FOR_EXTRACTION=auto|markdown|plaintext` - Control format used for knowledge graph extraction
+- See [Docling GPU Configuration Guide](docs/DOCLING-GPU-CONFIGURATION.md) for setup details | [Quick Reference](DOCLING-QUICK-REFERENCE.md)
 
 **LlamaParse**:
 - Cloud-based API service with advanced AI
@@ -158,6 +164,8 @@ All data sources support two document parser options:
   - `parse_page_with_agent` - 10-90 credits/page
 - Configured via: `DOCUMENT_PARSER=llamaparse` + `LLAMAPARSE_API_KEY`
 - Get your API key from [LlamaCloud](https://cloud.llamaindex.ai/)
+- **New**: `SAVE_PARSING_OUTPUT=true` - Save parsed output and metadata for inspection
+- **New**: `PARSER_FORMAT_FOR_EXTRACTION=auto|markdown|plaintext` - Control format used for knowledge graph extraction
 
 ## Supported File Formats
 
@@ -193,7 +201,7 @@ All data sources support two document parser options:
   - **Docling** (default, free): Local processing with specialized CV models (DocLayNet layout analysis, TableFormer for tables), configurable OCR backends (EasyOCR/Tesseract/RapidOCR), optional local VLM support (Granite-Docling, SmolDocling, Qwen2.5-VL, Pixtral)
   - **LlamaParse** (cloud API, 3 credits/page): Automatic OCR in parsing pipeline, supports hundreds of file formats, fast mode (OCR-only), default mode (proprietary LlamaCloud model), premium mode (proprietary VLM mixture), multimodal mode (bring your own API keys: OpenAI GPT-4o, Anthropic Claude 3.5/4.5 Sonnet, Google Gemini 1.5/2.0, Azure OpenAI)
 - **Output Formats**: 
-  - **Flexible GraphRAG** uses **Markdown output** (default) from both parsers for optimal entity extraction
+  - **Flexible GraphRAG** saves both markdown and plaintext, then automatically selects which to use for processing (knowledge graph extraction, vector embeddings, and search indexing) - defaults to markdown for tables, plaintext for text-heavy docs - override with `PARSER_FORMAT_FOR_EXTRACTION`
   - **Docling** supports: Markdown, JSON (lossless with bounding boxes and provenance), HTML, plain text, and DocTags (specialized markup preserving multi-column layouts, mathematical formulas, and code blocks)
   - **LlamaParse** supports: Markdown, plain text, raw JSON, XLSX (extracted tables), PDF, images (extracted separately), and structured output (beta - enforces custom JSON schema for strict data model extraction)
 - **Format Detection**: Automatic routing based on file extension and content analysis

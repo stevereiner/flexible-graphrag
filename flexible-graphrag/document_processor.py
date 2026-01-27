@@ -42,11 +42,35 @@ class DocumentProcessor:
         logger.info(f"DocumentProcessor initialized with {self.parser_type} parser")
     
     def _init_docling(self):
-        """Initialize Docling parser"""
+        """Initialize Docling parser with GPU/device configuration"""
         try:
             from docling.document_converter import DocumentConverter, PdfFormatOption
             from docling.datamodel.base_models import InputFormat
             from docling.datamodel.pipeline_options import PdfPipelineOptions, TableStructureOptions
+            from docling.datamodel.accelerator_options import AcceleratorDevice, AcceleratorOptions
+            
+            # Get device configuration from environment or config
+            # Options: "auto" (default - uses GPU if available), "cpu", "cuda", "mps" (Mac)
+            device_str = os.getenv('DOCLING_DEVICE', 'auto')
+            if self.config:
+                device_str = getattr(self.config, 'docling_device', 'auto')
+            
+            # Map string to Docling's AcceleratorDevice enum
+            device_mapping = {
+                'auto': AcceleratorDevice.AUTO,
+                'cpu': AcceleratorDevice.CPU,
+                'cuda': AcceleratorDevice.CUDA,
+                'mps': AcceleratorDevice.MPS,
+            }
+            
+            accelerator_device = device_mapping.get(device_str.lower(), AcceleratorDevice.AUTO)
+            logger.info(f"Docling device configuration: {device_str} -> {accelerator_device}")
+            
+            # Create accelerator options with device selection
+            accelerator_options = AcceleratorOptions(
+                num_threads=8,  # Reasonable default for parallel processing
+                device=accelerator_device
+            )
             
             # Configure Docling for optimal PDF processing
             pdf_options = PdfPipelineOptions(
@@ -55,7 +79,8 @@ class DocumentProcessor:
                 do_formula_enrichment=True,
                 table_structure_options=TableStructureOptions(
                     do_cell_matching=True
-                )
+                ),
+                accelerator_options=accelerator_options  # Apply device configuration
             )
             
             # Configure all supported Docling formats
@@ -75,7 +100,20 @@ class DocumentProcessor:
                     InputFormat.PDF: PdfFormatOption(pipeline_options=pdf_options)
                 }
             )
-            logger.info("Docling converter initialized")
+            
+            # Log device info
+            try:
+                import torch
+                if torch.cuda.is_available():
+                    device_name = torch.cuda.get_device_name(0)
+                    logger.info(f"Docling converter initialized - CUDA available: {device_name}")
+                elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
+                    logger.info("Docling converter initialized - MPS (Apple Metal) available")
+                else:
+                    logger.info("Docling converter initialized - Running on CPU")
+            except ImportError:
+                logger.info("Docling converter initialized - PyTorch not available, using CPU")
+                
         except ImportError as e:
             logger.error(f"Failed to import Docling: {e}")
             raise ImportError("Please install docling: pip install docling")
@@ -106,9 +144,8 @@ class DocumentProcessor:
             # Get parse mode from environment or config, default to "parse_page_with_llm"
             parse_mode = os.getenv('LLAMAPARSE_MODE', 'parse_page_with_llm')
             
-            # Set result_type based on parse_mode
-            # parse_page_without_llm only produces text, not markdown
-            result_type = "text" if parse_mode == "parse_page_without_llm" else "markdown"
+            # Use JSON mode to get both markdown and plaintext natively
+            result_type = "json"
             
             # Build parser kwargs
             parser_kwargs = {
@@ -274,12 +311,74 @@ class DocumentProcessor:
                     # Smart format selection: use markdown if tables detected, otherwise plain text
                     has_tables = "|" in markdown_content and "---" in markdown_content  # Simple table detection
                     
-                    if has_tables:
+                    # Determine which format to use for extraction
+                    format_config = getattr(self.config, 'parser_format_for_extraction', 'auto') if self.config else 'auto'
+                    
+                    if format_config == 'markdown':
                         content_to_use = markdown_content
-                        format_used = "markdown (tables detected)"
-                    else:
+                        format_used = "markdown (forced by config)"
+                    elif format_config == 'plaintext':
                         content_to_use = plain_text
-                        format_used = "plain text (better for entities)"
+                        format_used = "plaintext (forced by config)"
+                    else:  # auto
+                        if has_tables:
+                            content_to_use = markdown_content
+                            format_used = "markdown (tables detected)"
+                        else:
+                            content_to_use = plain_text
+                            format_used = "plaintext (no tables)"
+                    
+                    # Save parsing output if configured (works for both Docling and LlamaParse)
+                    if self.config and getattr(self.config, 'save_parsing_output', False):
+                        try:
+                            output_dir = Path("./parsing_output")
+                            output_dir.mkdir(exist_ok=True)
+                            
+                            # Create output filename
+                            base_name = path_obj.stem
+                            markdown_file = output_dir / f"{base_name}_docling_markdown.md"
+                            plaintext_file = output_dir / f"{base_name}_docling_plaintext.txt"
+                            metadata_file = output_dir / f"{base_name}_docling_metadata.json"
+                            
+                            # Save both formats
+                            with open(markdown_file, 'w', encoding='utf-8') as f:
+                                f.write(markdown_content)
+                            logger.info(f"Saved Docling markdown output to: {markdown_file}")
+                            
+                            with open(plaintext_file, 'w', encoding='utf-8') as f:
+                                f.write(plain_text)
+                            logger.info(f"Saved Docling plain text output to: {plaintext_file}")
+                            
+                            # Save metadata as JSON
+                            import json
+                            docling_metadata = {
+                                "source": str(file_path),
+                                "file_type": path_obj.suffix,
+                                "file_name": path_obj.name,
+                                "conversion_method": "docling",
+                                "markdown_length": len(markdown_content),
+                                "plaintext_length": len(plain_text),
+                                "has_tables": has_tables,
+                                "format_used_for_processing": "markdown" if has_tables else "plaintext",
+                            }
+                            with open(metadata_file, 'w', encoding='utf-8') as f:
+                                json.dump(docling_metadata, f, indent=2, ensure_ascii=False)
+                            logger.info(f"Saved Docling metadata to: {metadata_file}")
+                            
+                            # Check for parser errors in content
+                            error_indicators = ['Parser Error', 'ParserError', 'Failed to parse', 'ERROR:', 'Exception:']
+                            for indicator in error_indicators:
+                                if indicator in markdown_content or indicator in plain_text:
+                                    logger.warning(f"Possible parser error detected in {markdown_file} - content contains '{indicator}'")
+                            
+                            # Check for LaTeX/KaTeX rendering issues that might appear in preview
+                            latex_issues = ['\\[', '\\]', '$$', '\\begin{', '\\end{']
+                            has_latex = any(indicator in markdown_content for indicator in latex_issues)
+                            if has_latex:
+                                logger.info(f"Note: {markdown_file} contains LaTeX/math expressions - may show rendering errors in preview")
+                            
+                        except Exception as e:
+                            logger.warning(f"Failed to save Docling parsing output: {e}")
                     
                     logger.info(f"Using {format_used} for {file_path}")
                     
@@ -345,7 +444,9 @@ class DocumentProcessor:
         return documents
     
     async def _process_with_llamaparse(self, file_paths: List[Union[str, Path]], check_cancellation, original_filenames: Dict[str, str] = None) -> List[Document]:
-        """Process documents using LlamaParse
+        """Process documents using LlamaParse with JSON mode for markdown + plaintext + metadata
+        
+        Creates ONE Document per file (combining all pages) for proper document-level tracking.
         
         Args:
             file_paths: List of file paths to process (temp files already have meaningful names)
@@ -365,44 +466,140 @@ class DocumentProcessor:
             logger.error(error_msg)
             raise RuntimeError(error_msg)
         
-        logger.info(f"Processing {len(file_paths)} files with LlamaParse...")
-        
-        # Convert paths to strings
-        str_paths = [str(p) for p in file_paths]
+        logger.info(f"Processing {len(file_paths)} files with LlamaParse in JSON mode...")
         
         try:
-            # Use LlamaParse async loading - temp files already have meaningful names
-            # so LlamaCloud will display them correctly
-            parsed_docs = await self.parser.aload_data(str_paths)
-            
-            # Check for cancellation after parsing
-            if check_cancellation and check_cancellation():
-                logger.info("Document processing cancelled after LlamaParse conversion")
-                raise RuntimeError("Processing cancelled by user")
-            
-            # Convert LlamaParse documents to LlamaIndex Documents
-            for i, parsed_doc in enumerate(parsed_docs):
-                file_path = Path(file_paths[i]) if i < len(file_paths) else Path("unknown")
+            # Process each file with LlamaParse JSON mode
+            for file_path in file_paths:
+                # Check for cancellation before each file
+                if check_cancellation and check_cancellation():
+                    logger.info("Document processing cancelled by user")
+                    raise RuntimeError("Processing cancelled by user")
                 
-                # Log content length for debugging
-                content = parsed_doc.text
-                logger.info(f"LlamaParse extracted {len(content)} characters from {file_path.name}")
-                logger.debug(f"First 200 chars: {content[:200]}...")
+                file_path_str = str(file_path)
+                logger.info(f"Processing {file_path} with LlamaParse...")
                 
-                # Create LlamaIndex Document with LlamaParse metadata
-                doc = Document(
-                    text=content,
-                    metadata={
-                        **parsed_doc.metadata,  # Include metadata from LlamaParse first
-                        "source": str(file_path),  # Then override with corrected values
-                        "conversion_method": "llamaparse",
-                        "file_type": file_path.suffix,
-                        "file_name": file_path.name,
-                    }
-                )
-                documents.append(doc)
+                # Get JSON results from LlamaParse (returns list of dicts, one per file)
+                json_results = await self.parser.aget_json(file_path_str)
+                
+                # Check for cancellation after parsing
+                if check_cancellation and check_cancellation():
+                    logger.info("Document processing cancelled after LlamaParse conversion")
+                    raise RuntimeError("Processing cancelled by user")
+                
+                # Process each JSON result (usually one per file)
+                for json_result in json_results:
+                    # Extract pages and metadata from JSON result
+                    pages = json_result.get("pages", [])
+                    job_metadata = json_result.get("job_metadata", {})
+                    
+                    logger.info(f"LlamaParse returned {len(pages)} pages for {Path(file_path).name}")
+                    
+                    # Extract markdown and plaintext from all pages
+                    markdown_parts = []
+                    plaintext_parts = []
+                    
+                    for page in pages:
+                        if "md" in page:
+                            markdown_parts.append(page["md"])
+                        if "text" in page:
+                            plaintext_parts.append(page["text"])
+                    
+                    # Combine all pages into single content
+                    markdown_content = "\n\n".join(markdown_parts)
+                    plaintext_content = "\n\n".join(plaintext_parts)
+                    
+                    logger.info(f"LlamaParse extracted {len(markdown_content)} chars (markdown), {len(plaintext_content)} chars (plaintext) from {Path(file_path).name}")
+                    
+                    # Determine which format to use for the Document text
+                    # (This will be chunked by SentenceSplitter downstream)
+                    format_config = getattr(self.config, 'parser_format_for_extraction', 'auto') if self.config else 'auto'
+                    
+                    # Use markdown as the primary format (can be overridden by config)
+                    if format_config == 'plaintext':
+                        content_to_use = plaintext_content
+                        format_used = "plaintext"
+                    else:  # markdown or auto
+                        content_to_use = markdown_content
+                        format_used = "markdown"
+                    
+                    logger.info(f"Using {format_used} format for document processing (config: {format_config})")
+                    
+                    # Save parsing output if configured
+                    if self.config and getattr(self.config, 'save_parsing_output', False):
+                        try:
+                            output_dir = Path("./parsing_output")
+                            output_dir.mkdir(exist_ok=True)
+                            
+                            base_name = Path(file_path).stem
+                            markdown_file = output_dir / f"{base_name}_llamaparse_output.md"
+                            plaintext_file = output_dir / f"{base_name}_llamaparse_output.txt"
+                            metadata_file = output_dir / f"{base_name}_llamaparse_metadata.json"
+                            
+                            # Save markdown
+                            with open(markdown_file, 'w', encoding='utf-8') as f:
+                                f.write(markdown_content)
+                            logger.info(f"Saved LlamaParse markdown output to: {markdown_file}")
+                            
+                            # Save plaintext (native from LlamaParse, not regex-stripped)
+                            with open(plaintext_file, 'w', encoding='utf-8') as f:
+                                f.write(plaintext_content)
+                            logger.info(f"Saved LlamaParse plaintext output to: {plaintext_file}")
+                            
+                            # Build comprehensive metadata
+                            import json
+                            llamaparse_metadata = {
+                                "source": file_path_str,
+                                "file_name": Path(file_path).name,
+                                "file_type": Path(file_path).suffix,
+                                "total_pages": len(pages),
+                                "markdown_length": len(markdown_content),
+                                "plaintext_length": len(plaintext_content),
+                                "job_metadata": job_metadata,
+                                "pages_with_markdown": sum(1 for p in pages if "md" in p),
+                                "pages_with_text": sum(1 for p in pages if "text" in p),
+                                "total_images": sum(len(p.get("images", [])) for p in pages),
+                                "format_used_for_processing": format_used,
+                            }
+                            
+                            with open(metadata_file, 'w', encoding='utf-8') as f:
+                                json.dump(llamaparse_metadata, f, indent=2, ensure_ascii=False)
+                            logger.info(f"Saved LlamaParse metadata to: {metadata_file}")
+                            
+                            # Check for parser errors in content
+                            error_indicators = ['Parser Error', 'ParserError', 'Failed to parse', 'ERROR:', 'Exception:']
+                            for indicator in error_indicators:
+                                if indicator in markdown_content:
+                                    logger.warning(f"Possible parser error detected in {markdown_file} - content contains '{indicator}'")
+                            
+                            # Check for LaTeX/KaTeX rendering issues that might appear in preview
+                            latex_issues = ['\\[', '\\]', '$$', '\\begin{', '\\end{']
+                            has_latex = any(indicator in markdown_content for indicator in latex_issues)
+                            if has_latex:
+                                logger.info(f"Note: {markdown_file} contains LaTeX/math expressions - may show rendering errors in preview")
+                            
+                        except Exception as e:
+                            logger.warning(f"Failed to save LlamaParse parsing output: {e}")
+                    
+                    # Create ONE LlamaIndex Document per file (combining all pages)
+                    # SentenceSplitter will chunk this downstream with proper overlap
+                    doc = Document(
+                        text=content_to_use,
+                        metadata={
+                            "source": file_path_str,
+                            "conversion_method": "llamaparse",
+                            "file_type": Path(file_path).suffix,
+                            "file_name": Path(file_path).name,
+                            "total_pages": len(pages),
+                            "format_used": format_used,
+                            # Add job metadata for tracking
+                            "job_id": json_result.get("job_id"),
+                        }
+                    )
+                    documents.append(doc)
+                    logger.info(f"Created 1 Document for {Path(file_path).name} ({len(pages)} pages, {len(content_to_use)} chars)")
             
-            logger.info(f"Successfully processed {len(file_paths)} files ({len(documents)} chunks) with LlamaParse")
+            logger.info(f"Successfully processed {len(file_paths)} files ({len(documents)} documents) with LlamaParse")
             return documents
             
         except Exception as e:

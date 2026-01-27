@@ -2,6 +2,47 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2026-01-26] - Document parser improvements and parsing output inspection
+
+### Added
+- **Parser output file saving** - Added `SAVE_PARSING_OUTPUT` to save parsing results to `./parsing_output/` for inspection
+  - Both parsers save: markdown (`.md`), plaintext (`.txt`), and metadata JSON (`.json`)
+- **LlamaParse plaintext and metadata** - LlamaParse now provides native plaintext in addition to markdown, and rich metadata (pages, images, job info)
+  - Changed how LlamaParse is called to get plaintext directly from the parser (not regex-stripped) for higher accuracy
+  - Metadata JSON includes page counts, character counts, image counts, and job information
+- **Format control for extraction** - Added `PARSER_FORMAT_FOR_EXTRACTION` to control format used for processing
+  - `auto` (default): markdown if tables, plaintext otherwise
+  - `markdown`: always use markdown
+  - `plaintext`: always use plaintext
+- **Docling GPU documentation** - Added comprehensive GPU setup guide with CUDA, Metal (Mac), and CPU configuration
+- **Error detection** - Automatic detection and logging in saved output files:
+  - Parser errors (both parsers): checks for error strings in output
+  - LaTeX/math expressions (both parsers): detects LaTeX that causes markdown preview rendering issues
+    - Note: Docling passes LaTeX directly to output (visible as parse errors in VS Code/Cursor markdown viewer)
+    - LlamaParse processes LaTeX differently (converts/modifies the output)
+- **Chunking visibility** - Added detailed pre/post-chunking logging showing:
+  - Document count and character lengths before SentenceSplitter
+  - Node count, chunk sizes, and metadata preservation after chunking
+  - Relationship tracking between chunks (SOURCE, PREVIOUS, NEXT)
+
+### Changed
+- Changed to call LlamaParse differently to get plaintext, metadata json, in addition to markdown
+
+### Fixed
+- **Issue #8: Long document processing** - Fixed processing failures with long PDFs
+  - Tested with user document (7-8 page PDF with lots of tables - Docling CPU mode was taking forever)
+  - Verified Docling GPU mode works correctly (NVIDIA RTX 5090 - significantly faster)
+  - Successfully tested with 80+ page 10-K PDF
+  - Added `DOCLING_TIMEOUT` configuration (default: 600s per document)
+  - Verified LlamaParse works with user files
+
+### Documentation
+- Added `docs/DOCLING-GPU-CONFIGURATION.md` - GPU setup and troubleshooting guide
+- Added `docs/PARSER-OUTPUT-FILES.md` - Parser output documentation
+- Added `docs/DOCUMENT-GRANULARITY.md` - Document processing pipeline and chunking behavior
+- Updated `README.md` and `env-sample.txt` with new configuration options
+
+
 ## [2026-01-22] - Knowledge graph extractor improvements and schema naming updates
 
 ### Added

@@ -507,6 +507,14 @@ class HybridSearchSystem:
             logger.info(f"New doc {i}: {content_preview}")
             logger.info(f"New doc {i} metadata: {doc.metadata}")
         
+        # Log detailed document info before chunking (sample first 5)
+        logger.info(f"=== PRE-CHUNKING: {len(documents)} Documents ===")
+        for i, doc in enumerate(documents[:5]):
+            logger.info(f"  Doc[{i}] length: {len(doc.text)} chars, metadata: {doc.metadata}")
+        
+        if len(documents) > 5:
+            logger.info(f"  ... and {len(documents)-5} more documents")
+        
         # Conditional transformations based on LLM provider for performance
         transformations = [
             SentenceSplitter(
@@ -550,6 +558,21 @@ class HybridSearchSystem:
         
         pipeline_duration = time.time() - start_time
         logger.info(f"IngestionPipeline completed in {pipeline_duration:.2f}s - Generated {len(nodes)} nodes from {len(documents)} documents")
+        
+        # Log detailed node info after chunking
+        logger.info(f"=== POST-CHUNKING: {len(nodes)} Nodes from {len(documents)} Documents ===")
+        logger.info(f"  Chunk size config: {self.config.chunk_size}, overlap: {self.config.chunk_overlap}")
+        logger.info(f"  Average nodes per document: {len(nodes)/len(documents):.2f}")
+        
+        # Sample first 5 nodes to show metadata preservation
+        for i, node in enumerate(nodes[:5]):
+            logger.info(f"  Node[{i}] length: {len(node.text)} chars")
+            logger.info(f"  Node[{i}] metadata: {node.metadata}")
+            if hasattr(node, 'relationships') and node.relationships:
+                logger.info(f"  Node[{i}] relationships: {list(node.relationships.keys())}")
+        
+        if len(nodes) > 5:
+            logger.info(f"  ... and {len(nodes)-5} more nodes")
         
         # Log embedding model details for performance analysis
         embed_model_name = getattr(self.embed_model, 'model_name', str(type(self.embed_model).__name__))
@@ -1747,6 +1770,14 @@ class HybridSearchSystem:
         self._last_ingested_documents.extend(documents)
         logger.info(f"Added {len(documents)} documents to collection. Total documents: {len(self._last_ingested_documents)}")
         
+        # Log detailed document info before chunking (sample first 5)
+        logger.info(f"=== PRE-CHUNKING: {len(documents)} Documents ===")
+        for i, doc in enumerate(documents[:5]):
+            logger.info(f"  Doc[{i}] length: {len(doc.text)} chars, metadata: {doc.metadata}")
+        
+        if len(documents) > 5:
+            logger.info(f"  ... and {len(documents)-5} more documents")
+        
         # Helper function to check cancellation
         def _check_cancellation():
             if processing_id:
@@ -1790,6 +1821,21 @@ class HybridSearchSystem:
         
         pipeline_duration = time.time() - pipeline_start_time
         logger.info(f"IngestionPipeline completed in {pipeline_duration:.2f}s - Generated {len(nodes)} nodes from {len(documents)} documents")
+        
+        # Log detailed node info after chunking
+        logger.info(f"=== POST-CHUNKING: {len(nodes)} Nodes from {len(documents)} Documents ===")
+        logger.info(f"  Chunk size config: {self.config.chunk_size}, overlap: {self.config.chunk_overlap}")
+        logger.info(f"  Average nodes per document: {len(nodes)/len(documents):.2f}")
+        
+        # Sample first 5 nodes to show metadata preservation
+        for i, node in enumerate(nodes[:5]):
+            logger.info(f"  Node[{i}] length: {len(node.text)} chars")
+            logger.info(f"  Node[{i}] metadata: {node.metadata}")
+            if hasattr(node, 'relationships') and node.relationships:
+                logger.info(f"  Node[{i}] relationships: {list(node.relationships.keys())}")
+        
+        if len(nodes) > 5:
+            logger.info(f"  ... and {len(nodes)-5} more nodes")
         
         # Check for cancellation after node processing
         if _check_cancellation():

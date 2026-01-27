@@ -1,10 +1,45 @@
 # Flexible GraphRAG Configuration
 
+# =============================================================================
+# Document Parser Configuration (Docling / LlamaParse)
+# =============================================================================
+
 # Document Parser Configuration
 # DOCUMENT_PARSER can be "docling" (default, open-source) or "llamaparse" (cloud-based, requires API key)
 # Docling: Free, open-source, runs locally, good for most document types
 # LlamaParse: Cloud-based parsing service from LlamaIndex, advanced multimodal parsing, requires API key
 DOCUMENT_PARSER=docling
+#DOCUMENT_PARSER=llamaparse
+
+# Docling Device Configuration (only used if DOCUMENT_PARSER=docling)
+# Options:
+#   "auto" (default) - Automatically uses GPU if available, falls back to CPU
+#   "cpu" - Force CPU-only processing
+#   "cuda" - Force CUDA/GPU processing (requires CUDA-capable GPU and PyTorch with CUDA)
+#   "mps" - Force Apple Metal Performance Shaders (Mac with Apple Silicon)
+# Note: GPU processing significantly speeds up PDF/document conversion with tables
+#DOCLING_DEVICE=auto
+#DOCLING_DEVICE=cpu
+#DOCLING_DEVICE=cuda
+
+# Save parsing results to files for inspection (works for both Docling and LlamaParse)
+# When enabled, saves parsing outputs to ./parsing_output/
+# - Docling: Saves both markdown (.md) and plaintext (.txt) outputs + metadata JSON
+# - LlamaParse: Saves both markdown (.md) and plaintext (.txt) outputs + metadata JSON
+# Useful for debugging and understanding how parsers interpret documents
+#SAVE_PARSING_OUTPUT=false
+#SAVE_PARSING_OUTPUT=true
+
+# Format to use for knowledge graph extraction (what gets sent to LLM for entity/relation extraction)
+# Applies to both Docling and LlamaParse
+# Options:
+#   "auto" (default) - Use markdown if tables detected, otherwise use plaintext
+#   "markdown" - Always use markdown format (better for documents with tables/structure)
+#   "plaintext" - Always use plaintext format (better for text-heavy documents)
+# Note: Both formats are always saved to disk when SAVE_PARSING_OUTPUT=true
+#PARSER_FORMAT_FOR_EXTRACTION=auto
+#PARSER_FORMAT_FOR_EXTRACTION=markdown
+#PARSER_FORMAT_FOR_EXTRACTION=plaintext
 
 # =============================================================================
 # OBSERVABILITY CONFIGURATION (OpenTelemetry Traces and Metrics)
@@ -494,7 +529,14 @@ MAX_PATHS_PER_CHUNK=20
 
 # Timeout configurations moved to docs/TIMEOUT-CONFIGURATIONS.md
 # Uncomment and adjust these if you need custom timeout values:
-# DOCLING_TIMEOUT=300
-# KG_EXTRACTION_TIMEOUT=3600  
+# 
+# DOCLING_TIMEOUT=600  # Docling conversion timeout per document (seconds, default: 10 minutes)
+# DOCLING_CANCEL_CHECK_INTERVAL=0.5  # How often to check for cancellation (seconds)
+#   - We wrap Docling in background executor with periodic polling for cancellation
+#   - Lower = more responsive, higher = less CPU overhead
+# 
+# KG_EXTRACTION_TIMEOUT=3600  # Knowledge graph extraction timeout per document
+# KG_CANCEL_CHECK_INTERVAL=2.0  # How often to check for cancellation during KG extraction
+# 
 # OPENAI_TIMEOUT=120.0  # For OpenAI LLM requests
 # OLLAMA_TIMEOUT=300.0  # For Ollama LLM requests

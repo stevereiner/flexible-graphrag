@@ -172,6 +172,10 @@ kuzu_db/
 chroma_db/
 lancedb/
 
+# Document processing output directories
+flexible-graphrag/parsing_output/
+parsing_output/
+
 
 # Cursor  
 #  Cursor is an AI-powered code editor.`.cursorignore` specifies files/directories to 
