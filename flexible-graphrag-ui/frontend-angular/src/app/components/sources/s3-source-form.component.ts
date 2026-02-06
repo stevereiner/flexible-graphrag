@@ -5,6 +5,8 @@ export interface S3SourceConfig {
   prefix?: string;
   access_key: string;
   secret_key: string;
+  region_name: string;
+  sqs_queue_url?: string;
 }
 
 @Component({
@@ -33,6 +35,32 @@ export interface S3SourceConfig {
                placeholder="documents/reports/"
                autocomplete="off" />
         <mat-hint>Optional: folder path prefix within bucket</mat-hint>
+      </mat-form-field>
+
+      <mat-form-field appearance="outline" class="full-width">
+        <mat-label>AWS Region *</mat-label>
+        <input matInput
+               [(ngModel)]="regionName"
+               (ngModelChange)="onRegionNameChange()"
+               placeholder="us-east-1"
+               required
+               autocomplete="off" />
+        <mat-hint>AWS region where the bucket is located (e.g., us-east-1, us-east-2, eu-west-1)</mat-hint>
+      </mat-form-field>
+
+      <mat-form-field appearance="outline" class="full-width">
+        <mat-label>SQS Queue URL (Optional)</mat-label>
+        <input matInput
+               type="url"
+               name="sqs-endpoint-url"
+               [(ngModel)]="sqsQueueUrl"
+               (ngModelChange)="onSqsQueueUrlChange()"
+               placeholder="https://sqs.us-east-2.amazonaws.com/123456789/my-queue"
+               autocomplete="url"
+               data-lpignore="true"
+               data-form-type="other"
+               data-1p-ignore="true" />
+        <mat-hint>Optional: SQS queue URL for real-time event-based sync (leave empty for periodic polling)</mat-hint>
       </mat-form-field>
 
       <div class="form-row">
@@ -87,6 +115,8 @@ export class S3SourceFormComponent implements OnInit, OnDestroy {
 
   bucketName: string = '';
   prefix: string = '';
+  regionName: string = 'us-east-1';
+  sqsQueueUrl: string = '';
 
   ngOnInit() {
     this.updateValidationAndConfig();
@@ -99,13 +129,16 @@ export class S3SourceFormComponent implements OnInit, OnDestroy {
   private updateValidationAndConfig() {
     const isValid = this.bucketName.trim() !== '' && 
                    this.accessKey.trim() !== '' && 
-                   this.secretKey.trim() !== '';
+                   this.secretKey.trim() !== '' &&
+                   this.regionName.trim() !== '';
     
     const config: S3SourceConfig = {
       bucket_name: this.bucketName,
       prefix: this.prefix || undefined,
       access_key: this.accessKey,
-      secret_key: this.secretKey
+      secret_key: this.secretKey,
+      region_name: this.regionName,
+      sqs_queue_url: this.sqsQueueUrl || undefined
     };
     
     this.validationChange.emit(isValid);
@@ -117,6 +150,14 @@ export class S3SourceFormComponent implements OnInit, OnDestroy {
   }
 
   onPrefixChange(): void {
+    this.updateValidationAndConfig();
+  }
+
+  onRegionNameChange(): void {
+    this.updateValidationAndConfig();
+  }
+
+  onSqsQueueUrlChange(): void {
     this.updateValidationAndConfig();
   }
 

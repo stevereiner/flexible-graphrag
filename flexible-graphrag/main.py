@@ -2,6 +2,7 @@ import os
 import logging
 import sys
 from datetime import datetime
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, Depends, status, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -41,13 +42,13 @@ try:
             service_namespace=temp_settings.otel_service_namespace,
             backend=temp_settings.observability_backend  # Already a string, not .value needed
         )
-        logger.info("✅ Observability initialized successfully")
+        logger.info("Observability initialized successfully")
     else:
-        logger.info("ℹ️ Observability disabled (ENABLE_OBSERVABILITY=false)")
+        logger.info("Observability disabled (ENABLE_OBSERVABILITY=false)")
 except ImportError:
-    logger.warning("⚠️ Observability dependencies not installed. Install with: pip install openinference-instrumentation-llama-index opentelemetry-exporter-otlp opentelemetry-sdk openlit")
+    logger.info("Observability dependencies not installed (optional feature)")
 except Exception as e:
-    logger.error(f"❌ Failed to initialize observability: {e}")
+    logger.error(f"Failed to initialize observability: {e}")
     import traceback
     traceback.print_exc()
 
@@ -101,11 +102,84 @@ logger.info(f"Starting application with log file: {log_filename}")
 file_handler.flush()
 console_handler.flush()
 
-# Initialize FastAPI app
+# Global references for incremental system
+incremental_manager = None
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """
+    Application startup/shutdown lifecycle.
+    Initialize incremental system at startup.
+    """
+    global incremental_manager
+    
+    # === STARTUP ===
+    logger.info("Application startup...")
+    
+    # Initialize backend (hybrid_system lazy-loaded)
+    backend = get_backend()
+    logger.info("Backend initialized")
+    
+    # Check if incremental updates enabled
+    enable_incremental = os.getenv('ENABLE_INCREMENTAL_UPDATES', 'false').lower() == 'true'
+    postgres_url = os.getenv('POSTGRES_INCREMENTAL_URL')
+    
+    if enable_incremental:
+        if not postgres_url:
+            logger.warning("WARNING: ENABLE_INCREMENTAL_UPDATES=true but POSTGRES_INCREMENTAL_URL not set")
+            logger.warning("   Incremental updates disabled - set POSTGRES_INCREMENTAL_URL in .env")
+        else:
+            try:
+                # Import incremental system
+                from incremental_system import IncrementalSystemManager
+                
+                # Create singleton instance
+                incremental_manager = IncrementalSystemManager.get_instance()
+                
+                # Initialize (reuses backend's indexes!)
+                # Indexes are connected to existing data at startup via _initialize_indexes()
+                # Engine can access them immediately for both search and incremental updates
+                await incremental_manager.initialize(
+                    postgres_url=postgres_url,
+                    vector_index=backend.system.vector_index,  # Connected to existing vector data
+                    graph_index=backend.system.graph_index,    # Connected to existing graph data
+                    search_index=None,  # HybridSearchSystem doesn't expose search_index directly
+                    doc_processor=backend.system.document_processor,  # Correct attribute name
+                    app_config=backend.system.config,
+                    hybrid_system=backend.system,  # Engine uses this for insert operations
+                    backend=backend  # NEW: Pass backend for detector ADD/MODIFY processing
+                )
+                
+                # Start background monitoring
+                await incremental_manager.start_monitoring()
+                
+                logger.info("SUCCESS: Incremental updates enabled and monitoring started")
+            except Exception as e:
+                logger.error(f"ERROR: Failed to initialize incremental updates: {e}")
+                import traceback
+                traceback.print_exc()
+    else:
+        logger.info("INFO: Incremental updates disabled (set ENABLE_INCREMENTAL_UPDATES=true to enable)")
+    
+    yield
+    
+    # === SHUTDOWN ===
+    logger.info("Shutting down application...")
+    if incremental_manager:
+        try:
+            await incremental_manager.stop_monitoring()
+            logger.info("SUCCESS: Incremental system stopped")
+        except Exception as e:
+            logger.error(f"Error stopping incremental system: {e}")
+    
+    logger.info("SUCCESS: Shutdown complete")
+
+# Initialize FastAPI app with lifespan
 app = FastAPI(
     title="Flexible GraphRAG API",
     description="API for processing documents with configurable hybrid search (vector, graph, full-text)",
-    version="1.0.0"
+    version="1.0.0",
+    lifespan=lifespan
 )
 
 # CORS middleware
@@ -136,7 +210,7 @@ class AlfrescoConfig(BaseModel):
     username: str
     password: str
     path: str
-    nodeRefs: Optional[List[str]] = None  # Array of node IDs for multi-select
+    nodeIds: Optional[List[str]] = None  # Array of node IDs (UUIDs from REST API) for multi-select
     nodeDetails: Optional[List[NodeDetail]] = None  # Array of node details with metadata
     recursive: Optional[bool] = False  # Whether to recursively process subfolders (default: False)
 
@@ -161,11 +235,13 @@ class S3Config(BaseModel):
     aws_secret_access_key: Optional[str] = None
     aws_session_token: Optional[str] = None
     region_name: Optional[str] = None  # Will use S3_REGION_NAME env var or S3Source default
+    sqs_queue_url: Optional[str] = None  # Optional: SQS queue URL for event-based sync
 
 class GCSConfig(BaseModel):
     bucket_name: str
     credentials: str
     prefix: Optional[str] = None
+    pubsub_subscription: Optional[str] = None  # Optional: Pub/Sub subscription for event-based sync
 
 class AzureBlobConfig(BaseModel):
     container_name: str
@@ -216,6 +292,7 @@ class IngestRequest(BaseModel):
     paths: Optional[List[str]] = None  # overrides config
     data_source: Optional[str] = None  # filesystem, cmis, alfresco, web, wikipedia, youtube, s3, gcs, azure_blob, onedrive, sharepoint, box, google_drive
     skip_graph: Optional[bool] = False  # Per-ingest flag to skip knowledge graph step (doesn't persist)
+    enable_sync: Optional[bool] = False  # Enable incremental sync monitoring for this datasource
     cmis_config: Optional[CmisConfig] = None
     alfresco_config: Optional[AlfrescoConfig] = None
     web_config: Optional[WebConfig] = None
@@ -257,6 +334,18 @@ async def shutdown_event():
 @app.get("/api/health")
 async def health_check():
     return {"status": "ok"}
+async def _create_document_states_after_ingestion(processing_id: str, config_id: str, paths: List[str], data_source: str = "filesystem"):
+    """
+    Background task to create document_state records after ingestion completes.
+    Delegates to PostIngestionStateManager for cleaner code organization.
+    """
+    from post_ingestion_state import PostIngestionStateManager
+    
+    state_manager = PostIngestionStateManager(incremental_manager.state_manager.postgres_url)
+    await state_manager.create_document_states_after_ingestion(
+        processing_id, config_id, paths, data_source
+    )
+
 
 @app.post("/api/ingest")
 async def ingest(request: IngestRequest):
@@ -308,7 +397,112 @@ async def ingest(request: IngestRequest):
         if request.google_drive_config:
             kwargs['google_drive_config'] = request.google_drive_config.dict()
         
+        # Generate config_id BEFORE ingestion if sync enabled
+        # This allows backend to use stable doc_id format: config_id:filename
+        config_id = None
+        if request.enable_sync:
+            import uuid
+            config_id = str(uuid.uuid4())
+            kwargs['config_id'] = config_id
+            logger.info(f"Generated config_id for sync: {config_id}")
+        
         result = await backend_instance.ingest_documents(data_source=data_source, paths=paths, **kwargs)
+        
+        # If enable_sync is True and incremental system is initialized, add datasource for monitoring
+        if request.enable_sync and incremental_manager and incremental_manager.is_initialized():
+            try:
+                import time
+                
+                # Determine source path based on data source type
+                source_path = None
+                connection_params = {}
+                
+                if data_source == "filesystem":
+                    # Check if paths are full paths (MCP/local) or just filenames (file upload UI)
+                    if paths and os.path.isabs(paths[0]):
+                        # MCP or local filesystem path - monitor the actual paths
+                        connection_params = {'paths': paths}
+                        source_path = paths[0] if len(paths) == 1 else os.path.commonpath(paths)
+                    else:
+                        # File uploads - monitor the uploads directory
+                        uploads_dir = os.path.join(os.path.dirname(__file__), "uploads")
+                        connection_params = {'paths': [uploads_dir]}
+                        source_path = uploads_dir
+                    
+                elif data_source == "s3" and request.s3_config:
+                    connection_params = request.s3_config.dict(exclude_none=True)
+                    # Ensure region_name is set - use env var or default to us-east-1
+                    if not connection_params.get('region_name'):
+                        connection_params['region_name'] = os.getenv('S3_REGION_NAME', 'us-east-1')
+                        logger.info(f"Set S3 region_name to: {connection_params['region_name']}")
+                    source_path = f"s3://{connection_params.get('bucket_name', 'unknown')}"
+                    
+                elif data_source == "alfresco" and request.alfresco_config:
+                    connection_params = request.alfresco_config.dict(exclude_none=True)
+                    source_path = connection_params.get('path', '/unknown')
+                    
+                elif data_source == "google_drive" and request.google_drive_config:
+                    connection_params = request.google_drive_config.dict(exclude_none=True)
+                    source_path = f"google_drive://{connection_params.get('folder_id', 'root')}"
+                    
+                elif data_source == "gcs" and request.gcs_config:
+                    connection_params = request.gcs_config.dict(exclude_none=True)
+                    source_path = f"gs://{connection_params.get('bucket_name', 'unknown')}"
+                    
+                elif data_source == "azure_blob" and request.azure_blob_config:
+                    connection_params = request.azure_blob_config.dict(exclude_none=True)
+                    source_path = f"azure://{connection_params.get('container_name', 'unknown')}"
+                    
+                elif data_source == "box" and request.box_config:
+                    connection_params = request.box_config.dict(exclude_none=True)
+                    source_path = f"box://{connection_params.get('folder_id', '0')}"
+                    
+                elif data_source == "onedrive" and request.onedrive_config:
+                    connection_params = request.onedrive_config.dict(exclude_none=True)
+                    source_path = f"onedrive://{connection_params.get('user_principal_name', 'unknown')}"
+                    
+                elif data_source == "sharepoint" and request.sharepoint_config:
+                    connection_params = request.sharepoint_config.dict(exclude_none=True)
+                    source_path = f"sharepoint://{connection_params.get('site_name', 'unknown')}"
+                    
+                # Add datasource for incremental sync
+                if connection_params and config_id:
+                    # Use the config_id we already generated (for stable doc_id)
+                    await incremental_manager.add_datasource_for_sync(
+                        source_type=data_source,
+                        source_name=f"{data_source}_{int(time.time())}",
+                        connection_params=connection_params,
+                        config_id=config_id,  # Pass our pre-generated config_id
+                        skip_graph=request.skip_graph  # Pass skip_graph flag
+                    )
+                    
+                    logger.info(f"SUCCESS: Enabled incremental sync for {data_source}: {config_id}, skip_graph={request.skip_graph}")
+                    result['sync_enabled'] = True
+                    result['config_id'] = config_id
+                    
+                    # CRITICAL: Create document_state records SYNCHRONOUSLY (not background task)
+                    # This ensures records exist BEFORE periodic refresh runs, preventing race condition duplicates
+                    # We must await this to block periodic refresh from processing these files
+                    processing_id = result['processing_id']
+                    logger.info(f"Creating document_state records synchronously for {data_source} to prevent duplicates...")
+                    await _create_document_states_after_ingestion(
+                        processing_id=processing_id,
+                        config_id=config_id,  # Same config_id used throughout
+                        paths=paths or [],
+                        data_source=data_source  # Pass data source type for proper handling
+                    )
+                    logger.info(f"Document_state records created synchronously for {data_source}")
+                else:
+                    logger.warning(f"Could not enable sync for {data_source}: missing configuration")
+                    result['sync_enabled'] = False
+                    
+            except Exception as e:
+                logger.error(f"Error enabling incremental sync: {e}")
+                import traceback
+                traceback.print_exc()
+                result['sync_enabled'] = False
+        else:
+            result['sync_enabled'] = False
         
         logger.info(f"Document ingestion started with ID: {result['processing_id']}")
         return result
@@ -751,6 +945,494 @@ async def python_info():
         "in_virtualenv": in_virtualenv,
         "requirements": req_status
     }
+
+# === Incremental Sync API Endpoints ===
+
+async def ensure_config_manager_ready():
+    """Ensure config_manager pool is open, reinitialize if needed"""
+    if not incremental_manager or not incremental_manager.is_initialized():
+        raise HTTPException(status_code=400, detail="Incremental system not initialized")
+    
+    if incremental_manager.config_manager.pool is None or incremental_manager.config_manager.pool._closed:
+        logger.warning("Config manager pool is closed, reinitializing...")
+        await incremental_manager.config_manager.initialize()
+
+@app.get("/api/sync/datasources")
+async def list_datasources():
+    """List all configured datasources for incremental sync"""
+    try:
+        await ensure_config_manager_ready()
+        
+        configs = await incremental_manager.config_manager.get_all_active_configs()
+        
+        datasources = []
+        for config in configs:
+            datasources.append({
+                "config_id": config.config_id,
+                "source_type": config.source_type,
+                "source_name": config.source_name,
+                "is_active": config.is_active,
+                "sync_status": config.sync_status,
+                "last_sync_at": config.last_sync_completed_at.isoformat() if config.last_sync_completed_at else None,
+                "refresh_interval_seconds": config.refresh_interval_seconds,
+                "skip_graph": config.skip_graph
+            })
+        
+        return {"status": "success", "datasources": datasources}
+    
+    except Exception as e:
+        logger.error(f"Error listing datasources: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/sync/sync-now/{config_id}")
+async def sync_now_single(config_id: str):
+    """
+    Trigger an immediate sync for a specific datasource.
+    Useful for testing without waiting for periodic refresh.
+    """
+    try:
+        if not incremental_manager or not incremental_manager.is_initialized():
+            raise HTTPException(status_code=400, detail="Incremental system not initialized")
+        
+        if not incremental_manager.orchestrator:
+            raise HTTPException(status_code=400, detail="Orchestrator not running")
+        
+        logger.info(f"API: Triggering sync-now for config_id: {config_id}")
+        
+        result = await incremental_manager.orchestrator.trigger_sync(config_id)
+        
+        return {
+            "status": "success",
+            "message": f"Sync completed for {result['source_name']}",
+            "config_id": config_id
+        }
+    
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error triggering sync-now: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.patch("/api/sync/datasources/{config_id}/interval")
+async def update_refresh_interval(config_id: str, interval_seconds: int = None, hours: int = None, minutes: int = None, seconds: int = None):
+    """
+    Update the periodic refresh interval for a datasource.
+    
+    Args:
+        config_id: UUID of the datasource
+        interval_seconds: Direct seconds value (takes precedence)
+        hours: Number of hours (combined with minutes/seconds)
+        minutes: Number of minutes (combined with hours/seconds)
+        seconds: Number of seconds (combined with hours/minutes)
+        
+    Examples:
+        ?interval_seconds=3600  (1 hour)
+        ?hours=1  (1 hour)
+        ?hours=2&minutes=30  (2.5 hours)
+        ?minutes=90  (1.5 hours)
+        ?hours=24  (24 hours)
+    """
+    try:
+        if not incremental_manager or not incremental_manager.is_initialized():
+            raise HTTPException(status_code=400, detail="Incremental system not initialized")
+        
+        # Calculate total seconds
+        if interval_seconds is not None:
+            total_seconds = interval_seconds
+        else:
+            total_seconds = 0
+            if hours:
+                total_seconds += hours * 3600
+            if minutes:
+                total_seconds += minutes * 60
+            if seconds:
+                total_seconds += seconds
+            
+            if total_seconds == 0:
+                raise HTTPException(status_code=400, detail="Must provide interval_seconds or at least one time unit (hours/minutes/seconds)")
+        
+        if total_seconds < 60 and total_seconds != 0:
+            raise HTTPException(status_code=400, detail="Interval must be at least 60 seconds or 0 to disable")
+        
+        # Update the config in database
+        async with incremental_manager.config_manager.pool.acquire() as conn:
+            await conn.execute("""
+                UPDATE datasource_config 
+                SET refresh_interval_seconds = $1, updated_at = NOW()
+                WHERE config_id = $2
+            """, total_seconds, config_id)
+        
+        # Restart the updater to apply new interval
+        if incremental_manager.orchestrator and config_id in incremental_manager.orchestrator.active_updaters:
+            await incremental_manager.orchestrator._stop_updater(config_id)
+            config = await incremental_manager.config_manager.get_config(config_id)
+            if config:
+                await incremental_manager.orchestrator._start_updater(config)
+        
+        logger.info(f"API: Updated refresh interval for {config_id} to {total_seconds}s")
+        
+        return {
+            "status": "success",
+            "message": f"Refresh interval updated to {total_seconds} seconds",
+            "config_id": config_id,
+            "interval_seconds": total_seconds
+        }
+    
+    except Exception as e:
+        logger.error(f"Error updating refresh interval: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/sync/status")
+async def get_sync_status():
+    """Get overall incremental sync system status"""
+    try:
+        if not incremental_manager:
+            return {
+                "status": "disabled",
+                "message": "Incremental system not configured"
+            }
+        
+        return {
+            "status": "active" if incremental_manager.is_monitoring() else "initialized",
+            "initialized": incremental_manager.is_initialized(),
+            "monitoring": incremental_manager.is_monitoring(),
+            "active_updaters": len(incremental_manager.orchestrator.active_updaters) if incremental_manager.orchestrator else 0
+        }
+    
+    except Exception as e:
+        logger.error(f"Error getting sync status: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/sync/start-monitoring")
+async def start_monitoring():
+    """
+    Manually start the orchestrator monitoring (debug/recovery endpoint).
+    Use if monitoring stopped for some reason.
+    """
+    try:
+        if not incremental_manager or not incremental_manager.is_initialized():
+            raise HTTPException(status_code=400, detail="Incremental system not initialized")
+        
+        if incremental_manager.is_monitoring():
+            return {
+                "status": "already_running",
+                "message": "Monitoring is already active"
+            }
+        
+        logger.info("API: Manually starting orchestrator monitoring...")
+        await incremental_manager.start_monitoring()
+        
+        return {
+            "status": "success",
+            "message": "Monitoring started",
+            "active_updaters": len(incremental_manager.orchestrator.active_updaters) if incremental_manager.orchestrator else 0
+        }
+    
+    except Exception as e:
+        logger.error(f"Error starting monitoring: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/sync/disable-all")
+async def disable_all_syncing():
+    """
+    Disable automatic syncing for ALL datasources by setting is_active=false.
+    Useful for testing or maintenance without deleting configurations.
+    """
+    try:
+        if not incremental_manager or not incremental_manager.is_initialized():
+            raise HTTPException(status_code=400, detail="Incremental system not initialized")
+        
+        logger.info("API: Disabling all datasources...")
+        
+        # Get all active configs
+        configs = await incremental_manager.config_manager.get_all_active_configs()
+        
+        if not configs:
+            return {
+                "status": "success",
+                "message": "No active datasources to disable",
+                "disabled_count": 0
+            }
+        
+        # Disable each config
+        disabled_count = 0
+        async with incremental_manager.config_manager.pool.acquire() as conn:
+            for config in configs:
+                await conn.execute("""
+                    UPDATE datasource_config 
+                    SET is_active = false, updated_at = NOW()
+                    WHERE config_id = $1
+                """, config.config_id)
+                disabled_count += 1
+        
+        logger.info(f"API: Disabled {disabled_count} datasource(s)")
+        
+        return {
+            "status": "success",
+            "message": f"Disabled {disabled_count} datasource(s)",
+            "disabled_count": disabled_count,
+            "note": "Datasources will stop syncing. Use /api/sync/enable-all to re-enable."
+        }
+    
+    except Exception as e:
+        logger.error(f"Error disabling all syncing: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/sync/enable-all")
+async def enable_all_syncing():
+    """
+    Enable automatic syncing for ALL datasources by setting is_active=true.
+    """
+    try:
+        if not incremental_manager or not incremental_manager.is_initialized():
+            raise HTTPException(status_code=400, detail="Incremental system not initialized")
+        
+        logger.info("API: Enabling all datasources...")
+        
+        # Get all inactive configs
+        async with incremental_manager.config_manager.pool.acquire() as conn:
+            rows = await conn.fetch("""
+                SELECT config_id FROM datasource_config 
+                WHERE is_active = false
+            """)
+        
+        if not rows:
+            return {
+                "status": "success",
+                "message": "No disabled datasources to enable",
+                "enabled_count": 0
+            }
+        
+        # Enable each config
+        enabled_count = 0
+        async with incremental_manager.config_manager.pool.acquire() as conn:
+            for row in rows:
+                await conn.execute("""
+                    UPDATE datasource_config 
+                    SET is_active = true, updated_at = NOW()
+                    WHERE config_id = $1
+                """, row['config_id'])
+                enabled_count += 1
+        
+        logger.info(f"API: Enabled {enabled_count} datasource(s)")
+        
+        return {
+            "status": "success",
+            "message": f"Enabled {enabled_count} datasource(s)",
+            "enabled_count": enabled_count,
+            "note": "Datasources will resume syncing automatically"
+        }
+    
+    except Exception as e:
+        logger.error(f"Error enabling all syncing: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/sync/sync-now")
+async def sync_now_all():
+    """
+    Trigger immediate sync for ALL active datasources.
+    Syncs run sequentially to avoid overwhelming the system.
+    Useful for testing or immediate sync after bulk changes.
+    """
+    try:
+        if not incremental_manager or not incremental_manager.is_initialized():
+            raise HTTPException(status_code=400, detail="Incremental system not initialized")
+        
+        # Auto-start monitoring if not running
+        if not incremental_manager.is_monitoring():
+            logger.info("API: Monitoring not active, starting automatically...")
+            await incremental_manager.start_monitoring()
+            # Give it a moment to initialize
+            await asyncio.sleep(1)
+        
+        if not incremental_manager.orchestrator:
+            raise HTTPException(status_code=400, detail="Orchestrator not running")
+        
+        logger.info("API: Triggering sync-now for all datasources (sequential)...")
+        
+        # Get all active updaters
+        active_updaters = incremental_manager.orchestrator.active_updaters
+        
+        if not active_updaters:
+            return {
+                "status": "success",
+                "message": "No active datasources to sync",
+                "synced_count": 0,
+                "results": [],
+                "note": "Check that datasources exist and are active in database"
+            }
+        
+        # Trigger sync for each SEQUENTIALLY to avoid overwhelming system
+        results = []
+        synced_count = 0
+        failed_count = 0
+        
+        for config_id, updater in active_updaters.items():
+            try:
+                logger.info(f"API: Syncing datasource {config_id}...")
+                result = await updater.trigger_manual_sync()
+                results.append({
+                    "config_id": config_id,
+                    "source_name": result['source_name'],
+                    "status": "success"
+                })
+                synced_count += 1
+                logger.info(f"API: Completed sync for {config_id}")
+            except Exception as e:
+                logger.error(f"Failed to sync {config_id}: {e}")
+                results.append({
+                    "config_id": config_id,
+                    "status": "failed",
+                    "error": str(e)
+                })
+                failed_count += 1
+        
+        logger.info(f"API: Completed sync-now - {synced_count} succeeded, {failed_count} failed")
+        
+        return {
+            "status": "success" if failed_count == 0 else "partial",
+            "message": f"Synced {synced_count} datasource(s), {failed_count} failed",
+            "synced_count": synced_count,
+            "failed_count": failed_count,
+            "results": results,
+            "note": "Datasources synced sequentially to avoid system overload"
+        }
+    
+    except Exception as e:
+        logger.error(f"Error triggering sync-now: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.patch("/api/sync/interval")
+async def update_all_refresh_intervals(interval_seconds: int = None, hours: int = None, minutes: int = None, seconds: int = None):
+    """
+    Update the periodic refresh interval for ALL datasources.
+    
+    Args:
+        interval_seconds: Direct seconds value (takes precedence)
+        hours: Number of hours (combined with minutes/seconds)
+        minutes: Number of minutes (combined with hours/seconds)
+        seconds: Number of seconds (combined with hours/minutes)
+        
+    Examples:
+        ?hours=1  (1 hour for all)
+        ?hours=24  (24 hours for all)
+        ?minutes=30  (30 minutes for all)
+    """
+    try:
+        if not incremental_manager or not incremental_manager.is_initialized():
+            raise HTTPException(status_code=400, detail="Incremental system not initialized")
+        
+        # Calculate total seconds
+        if interval_seconds is not None:
+            total_seconds = interval_seconds
+        else:
+            total_seconds = 0
+            if hours:
+                total_seconds += hours * 3600
+            if minutes:
+                total_seconds += minutes * 60
+            if seconds:
+                total_seconds += seconds
+            
+            if total_seconds == 0:
+                raise HTTPException(status_code=400, detail="Must provide interval_seconds or at least one time unit")
+        
+        if total_seconds < 60 and total_seconds != 0:
+            raise HTTPException(status_code=400, detail="Interval must be at least 60 seconds")
+        
+        # Get all configs
+        configs = await incremental_manager.config_manager.get_all_active_configs()
+        
+        if not configs:
+            return {
+                "status": "success",
+                "message": "No datasources to update",
+                "updated_count": 0
+            }
+        
+        # Update all configs
+        updated_count = 0
+        async with incremental_manager.config_manager.pool.acquire() as conn:
+            for config in configs:
+                await conn.execute("""
+                    UPDATE datasource_config 
+                    SET refresh_interval_seconds = $1, updated_at = NOW()
+                    WHERE config_id = $2
+                """, total_seconds, config.config_id)
+                
+                # Restart updater
+                if incremental_manager.orchestrator and config.config_id in incremental_manager.orchestrator.active_updaters:
+                    await incremental_manager.orchestrator._stop_updater(config.config_id)
+                    new_config = await incremental_manager.config_manager.get_config(config.config_id)
+                    if new_config:
+                        await incremental_manager.orchestrator._start_updater(new_config)
+                
+                updated_count += 1
+        
+        logger.info(f"API: Updated refresh interval for {updated_count} datasource(s) to {total_seconds}s")
+        
+        return {
+            "status": "success",
+            "message": f"Updated refresh interval to {total_seconds} seconds for {updated_count} datasource(s)",
+            "updated_count": updated_count,
+            "interval_seconds": total_seconds
+        }
+    
+    except Exception as e:
+        logger.error(f"Error updating all refresh intervals: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.patch("/api/sync/datasources/{config_id}/disable")
+async def disable_datasource(config_id: str):
+    """Disable automatic syncing for a specific datasource."""
+    try:
+        if not incremental_manager or not incremental_manager.is_initialized():
+            raise HTTPException(status_code=400, detail="Incremental system not initialized")
+        
+        async with incremental_manager.config_manager.pool.acquire() as conn:
+            await conn.execute("""
+                UPDATE datasource_config 
+                SET is_active = false, updated_at = NOW()
+                WHERE config_id = $1
+            """, config_id)
+        
+        logger.info(f"API: Disabled datasource {config_id}")
+        
+        return {
+            "status": "success",
+            "message": f"Disabled datasource {config_id}",
+            "config_id": config_id
+        }
+    
+    except Exception as e:
+        logger.error(f"Error disabling datasource: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.patch("/api/sync/datasources/{config_id}/enable")
+async def enable_datasource(config_id: str):
+    """Enable automatic syncing for a specific datasource."""
+    try:
+        if not incremental_manager or not incremental_manager.is_initialized():
+            raise HTTPException(status_code=400, detail="Incremental system not initialized")
+        
+        async with incremental_manager.config_manager.pool.acquire() as conn:
+            await conn.execute("""
+                UPDATE datasource_config 
+                SET is_active = true, updated_at = NOW()
+                WHERE config_id = $1
+            """, config_id)
+        
+        logger.info(f"API: Enabled datasource {config_id}")
+        
+        return {
+            "status": "success",
+            "message": f"Enabled datasource {config_id}",
+            "config_id": config_id
+        }
+    
+    except Exception as e:
+        logger.error(f"Error enabling datasource: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 # Backend API only - no frontend serving
 @app.get("/")

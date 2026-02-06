@@ -1,16 +1,33 @@
 <template>
   <div class="pa-4">
-    <!-- Header with Skip Graph Checkbox -->
+    <!-- Header with Checkboxes -->
     <div class="d-flex justify-space-between align-center mb-4">
       <h2>File Processing</h2>
-      <v-checkbox
-        v-model="skipGraph"
-        label="Skip graph (search + vector only) for these documents"
-        :disabled="isProcessing"
-        color="primary"
-        hide-details
-        density="compact"
-      ></v-checkbox>
+      <div class="d-flex flex-column gap-2">
+        <v-checkbox
+          v-model="skipGraph"
+          label="Skip graph (search + vector only)"
+          :disabled="isProcessing"
+          color="primary"
+          hide-details
+          density="compact"
+        ></v-checkbox>
+        <!-- Only show Enable Sync for datasources that support auto-sync -->
+        <!-- Hidden for: upload, cmis, webpage, wikipedia, youtube -->
+        <v-checkbox
+          v-if="configuredDataSource !== 'upload' && 
+                configuredDataSource !== 'cmis' && 
+                configuredDataSource !== 'web' && 
+                configuredDataSource !== 'wikipedia' && 
+                configuredDataSource !== 'youtube'"
+          v-model="enableSync"
+          label="Enable auto change sync"
+          :disabled="isProcessing"
+          color="primary"
+          hide-details
+          density="compact"
+        ></v-checkbox>
+      </div>
     </div>
 
     <!-- No Sources Configured Message -->
@@ -352,6 +369,7 @@ export default defineComponent({
     const successMessage = ref('');
     const error = ref('');
     const skipGraph = ref(false);  // Per-ingest flag to skip knowledge graph extraction
+    const enableSync = ref(false); // Enable incremental sync monitoring for this datasource
     const repositoryItemsHidden = ref(false); // Track when repository items are explicitly hidden
     const sourcesReconfiguredFlag = ref(0); // Counter to force repository items to show when reconfigured
 
@@ -834,6 +852,12 @@ export default defineComponent({
         if (skipGraph.value) {
           request.skip_graph = true;
           console.log('✓ skip_graph flag set to true - Knowledge graph extraction will be skipped');
+        }
+        
+        // Add enable_sync flag if checked
+        if (enableSync.value) {
+          request.enable_sync = true;
+          console.log('✓ enable_sync flag set to true - Incremental updates will be enabled');
         }
 
         if (props.configuredDataSource === 'upload') {

@@ -31,7 +31,7 @@ class AlfrescoSource(BaseDataSource):
         self.password = config.get("password", "")
         self.path = config.get("path", "/")
         self.node_details = config.get("nodeDetails", None)  # Multi-select from ACA/ADF
-        self.node_refs = config.get("nodeRefs", None)  # Node IDs for multi-select
+        self.node_ids = config.get("nodeIds", None)  # Node IDs for multi-select (UUID strings from REST API)
         self.recursive = config.get("recursive", False)  # Whether to recursively process subfolders (default: False)
         
         logger.info("=== INITIALIZING ALFRESCO SOURCE ===")
@@ -44,9 +44,9 @@ class AlfrescoSource(BaseDataSource):
             logger.info(f"Number of nodeDetails: {len(self.node_details)}")
             for idx, nd in enumerate(self.node_details, 1):
                 logger.info(f"  NodeDetail {idx}: {nd.get('name')} (id: {nd.get('id')}, isFile: {nd.get('isFile')}, isFolder: {nd.get('isFolder')})")
-        logger.info(f"Has nodeRefs: {self.node_refs is not None}")
-        if self.node_refs:
-            logger.info(f"Number of nodeRefs: {len(self.node_refs)}")
+        logger.info(f"Has nodeIds: {self.node_ids is not None}")
+        if self.node_ids:
+            logger.info(f"Number of nodeIds: {len(self.node_ids)}")
         
         # Initialize Alfresco client
         logger.info("--- Initializing Alfresco REST API ---")
@@ -627,10 +627,36 @@ class AlfrescoSource(BaseDataSource):
                         processed_doc.metadata.update({
                             "source": "alfresco",
                             "alfresco_id": file_info['id'],
+                            "stable_file_path": f"alfresco://{file_info['id']}",  # Stable ID-based path
                             "file_name": file_info['name'],
-                            "file_path": file_info['path'],
+                            "file_path": file_info['path'],  # Human-readable path
                             "content_type": file_info['content_type']
                         })
+                        
+                        # Extract modification timestamp from alfresco_object if available
+                        if file_info.get('alfresco_object'):
+                            alfresco_obj = file_info['alfresco_object']
+                            # Handle both dict and NodeResponse object
+                            if isinstance(alfresco_obj, dict) and 'entry' in alfresco_obj:
+                                entry = alfresco_obj['entry']
+                                if 'modifiedAt' in entry:
+                                    processed_doc.metadata['modified_at'] = entry['modifiedAt']
+                                    logger.info(f"Added modification timestamp: {entry['modifiedAt']}")
+                            elif hasattr(alfresco_obj, 'entry'):
+                                # NodeResponse object from python-alfresco-api
+                                entry = alfresco_obj.entry
+                                if hasattr(entry, 'modified_at'):
+                                    processed_doc.metadata['modified_at'] = entry.modified_at.isoformat() if hasattr(entry.modified_at, 'isoformat') else str(entry.modified_at)
+                                    logger.info(f"Added modification timestamp from NodeResponse: {processed_doc.metadata['modified_at']}")
+                        
+                        # Extract from CMIS object if available
+                        elif file_info.get('cmis_object'):
+                            cmis_obj = file_info['cmis_object']
+                            modified = cmis_obj.properties.get('cmis:lastModificationDate')
+                            if modified:
+                                processed_doc.metadata['modified_at'] = str(modified)
+                                logger.info(f"Added modification timestamp from CMIS: {modified}")
+                        
                         logger.info(f"Metadata updated: {processed_doc.metadata}")
                         
                         documents.append(processed_doc)
@@ -692,8 +718,9 @@ class AlfrescoSource(BaseDataSource):
                     processed_doc.metadata.update({
                         "source": "alfresco",
                         "alfresco_id": file_info['id'],
+                        "stable_file_path": f"alfresco://{file_info['id']}",  # Stable ID-based path
                         "file_name": file_info['name'],
-                        "file_path": file_info['path'],
+                        "file_path": file_info['path'],  # Human-readable path
                         "content_type": file_info['content_type']
                     })
                     

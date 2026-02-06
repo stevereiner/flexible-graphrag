@@ -1,3 +1,5 @@
+**NEW!** Flexible GraphRAG supports **automatic incremental updates** (Optional) from most data sources, keeping your Vector, Search and Graph databases synchronized in real-time or near real-time.
+
 **New!** - [KG Spaces Integration of Flexible GraphRAG in Alfresco ACA Client](https://github.com/stevereiner/kg-spaces-aca)
 
 # Flexible GraphRAG
@@ -138,6 +140,64 @@ Each data source includes:
 - **Configuration Forms**: Easy-to-use interfaces for credentials and settings
 - **Progress Tracking**: Real-time per-file progress indicators
 - **Flexible Authentication**: Support for various auth methods (API keys, OAuth, service accounts)
+
+### Incremental Updates & Auto-Sync
+
+**NEW!** Flexible GraphRAG supports **automatic incremental updates** (Optional) from most data sources, keeping your Vector, Search and Graph databases synchronized in real-time or near real-time:
+
+| Data Source | Auto-Sync Support | Detection Method | Status | Notes |
+|-------------|-------------------|------------------|--------|-------|
+| **Alfresco** | ✅ Real-time | Community ActiveMQ | Ready | Enterprise Event Gateway planned |
+| **Amazon S3** | ✅ Real-time | SQS event notifications | Ready | |
+| **Azure Blob Storage** | ✅ Real-time | Change feed | Ready | |
+| **Google Cloud Storage** | ✅ Real-time | Pub/Sub notifications | Ready | |
+| **Google Drive** | ✅ Near real-time | Changes API (polling) | Ready | |
+| **OneDrive** | ✅ Near real-time | Polling | Ready | Delta query support planned |
+| **SharePoint** | ✅ Near real-time | Polling | Ready | Delta query support planned |
+| **Box** | ✅ Near real-time | Events API (polling) | Ready | |
+| **Local Filesystem** | ✅ Real-time | OS events (watchdog) | Ready | REST API and MCP Server only |
+| **File Upload UI** | ➖ Not supported | - | - | No support for incremental updates |
+| **CMIS** | ➖ Not supported | - | - | No support for incremental updates |
+| **Web Pages** | ➖ Not supported | - | - | No support for incremental updates |
+| **Wikipedia** | ➖ Not supported | - | - | No support for incremental updates |
+| **YouTube** | ➖ Not supported | - | - | No support for incremental updates |
+
+**Features**:
+- **Modification Date Tracking**: Uses file modification timestamps (ordinal) to detect changes
+- **Content Hash Optimization**: Skips reprocessing when file modification date changed but content hasn't
+- **Dual Mechanism**: Event-driven streams (real-time) + periodic polling fallback
+- **LlamaIndex Integration**: Uses proper abstractions for all databases
+- **UI, REST API, MCP Server**: Setting up an auto update data source location can be done thru the 3 UIs, with the REST API, or with the MCP server
+
+**Setup Requirements**:
+
+Enable incremental updates in your `.env` file:
+```bash
+ENABLE_INCREMENTAL_UPDATES=true
+
+# PostgreSQL database for state management
+# By default, uses the pgvector database from docker-compose.yaml
+POSTGRES_INCREMENTAL_URL=postgresql://postgres:password@localhost:5433/postgres
+```
+
+**Note**: The incremental updates system uses PostgreSQL to track document state. The `docker-compose.yaml` includes a pgvector container that can be used both as a vector database option and for incremental updates state management. The database connection creates the necessary tables automatically on first use.
+
+**Usage**: 
+- Check the **"Enable auto change sync"** checkbox in the Processing tab when configuring your data source
+- For **S3**: Also provide the "SQS Queue URL" for event notifications
+- For **GCS**: Also provide the "Pub/Sub Subscription Name" for real-time updates
+
+**Documentation**:
+- System overview: [`flexible-graphrag/incremental_updates/README.md`](./flexible-graphrag/incremental_updates/README.md)
+- Quick start: [`flexible-graphrag/incremental_updates/QUICKSTART.md`](./flexible-graphrag/incremental_updates/QUICKSTART.md)
+- Detailed setup: [`flexible-graphrag/incremental_updates/SETUP-GUIDE.md`](./flexible-graphrag/incremental_updates/SETUP-GUIDE.md)
+- API reference: [`flexible-graphrag/incremental_updates/API-REFERENCE.md`](./flexible-graphrag/incremental_updates/API-REFERENCE.md)
+
+**Scripts**:
+- `scripts/incremental/sync-now.sh|.ps1|.bat` - Trigger immediate synchronization
+- `scripts/incremental/set-refresh-interval.sh|.ps1|.bat` - Configure polling interval
+- `scripts/incremental/TIMING-CONFIGURATION.md` - Timing configuration details
+- `scripts/incremental/README.md` - Script usage documentation
 
 ### Document Processing Options
 
@@ -1106,6 +1166,10 @@ The MCP server provides 9 specialized tools for document intelligence workflows:
 - `/scripts`: Utility scripts
   - `create_opensearch_pipeline.py`: OpenSearch hybrid search pipeline setup
   - `setup-opensearch-pipeline.sh/.bat`: Cross-platform pipeline creation
+  - `/incremental`: Incremental updates control scripts
+    - `sync-now.sh/.ps1/.bat`: Trigger immediate synchronization
+    - `set-refresh-interval.sh/.ps1/.bat`: Configure polling interval
+    - `README.md`: Script usage documentation
 
 - `/tests`: Test suite
   - `test_bm25_*.py`: BM25 configuration and integration tests

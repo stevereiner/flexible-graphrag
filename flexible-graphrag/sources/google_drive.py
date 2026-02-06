@@ -141,12 +141,11 @@ class GoogleDriveSource(BaseDataSource):
             
             # Add Google Drive metadata
             for doc in documents:
-                doc.metadata.update({
-                    "source": "google_drive",
-                    "folder_id": self.folder_id,
-                    "query": self.query,
-                    "source_type": "google_drive_file"
-                })
+                # Preserve existing metadata (including 'file id') and add new fields
+                doc.metadata["source"] = "google_drive"
+                doc.metadata["folder_id"] = self.folder_id
+                doc.metadata["query"] = self.query
+                doc.metadata["source_type"] = "google_drive_file"
             
             logger.info(f"GoogleDriveSource processed {len(documents)} documents from {len(placeholder_docs)} placeholders")
             return documents
@@ -249,14 +248,14 @@ class GoogleDriveSource(BaseDataSource):
             
             logger.info(f"Found {len(documents)} files in Google Drive")
             
-            # Add Google Drive metadata to processed documents
+            # Add Google Drive metadata to processed documents (preserve existing metadata like 'file id')
             for doc in documents:
-                doc.metadata.update({
-                    "source": "google_drive",
-                    "folder_id": self.folder_id,
-                    "query": self.query,
-                    "source_type": "google_drive_file"
-                })
+                # Preserve all existing metadata and add new fields
+                # Don't use update() as it might overwrite; instead add fields individually
+                doc.metadata["source"] = "google_drive"
+                doc.metadata["folder_id"] = self.folder_id
+                doc.metadata["query"] = self.query
+                doc.metadata["source_type"] = "google_drive_file"
             
             if progress_callback:
                 gdrive_display = "Google Drive"

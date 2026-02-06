@@ -1,6 +1,14 @@
-# OpenSearch Pipeline Management Scripts
+# Flexible GraphRAG Scripts
 
-This directory contains scripts for managing OpenSearch hybrid search pipelines.
+This directory contains utility scripts for managing various aspects of Flexible GraphRAG.
+
+## Subdirectories
+
+### incremental/
+Scripts for managing incremental updates and auto-sync functionality. See [incremental/README.md](./incremental/README.md) for details.
+
+- **set-refresh-interval** - Set polling interval for auto-sync datasources (supports hours, minutes, seconds)
+- **sync-now** - Trigger immediate synchronization for datasources
 
 ## Scripts
 
@@ -91,3 +99,28 @@ The created pipeline integrates with the Flexible GraphRAG system when using:
 - `SEARCH_DB=opensearch`
 
 The system will automatically use the `hybrid-search-pipeline` for hybrid search queries.
+
+---
+
+## Legacy Scripts (Top-level)
+
+The following scripts exist at the top level of the scripts directory for backward compatibility:
+
+### set-refresh-interval.ps1 / set-refresh-interval.sh
+
+**Note:** These are legacy versions. For enhanced functionality including hours/minutes/seconds support and sync-now capabilities, use the scripts in the [incremental/](./incremental/) subdirectory.
+
+**Legacy Usage:**
+```bash
+# PowerShell
+.\set-refresh-interval.ps1 -Seconds 60
+
+# Bash
+./set-refresh-interval.sh 60
+```
+
+**Migration:** Consider using the new scripts in `scripts/incremental/` which support:
+- Hours, minutes, and seconds (can be combined)
+- Batch file version for Windows
+- Better output formatting
+- Additional sync-now functionality

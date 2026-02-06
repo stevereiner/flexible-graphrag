@@ -112,6 +112,9 @@ export const ProcessingTab: React.FC<ProcessingTabProps> = ({
 
   // Skip graph state
   const [skipGraph, setSkipGraph] = useState<boolean>(false);
+  
+  // Enable sync state (for incremental updates)
+  const [enableSync, setEnableSync] = useState<boolean>(false);
 
   // File upload state
   const [uploadProgress, setUploadProgress] = useState<number>(0);
@@ -451,6 +454,12 @@ export const ProcessingTab: React.FC<ProcessingTabProps> = ({
         request.skip_graph = true;
         console.log('✓ skip_graph flag set to true - Knowledge graph extraction will be skipped');
       }
+      
+      // Add enable_sync flag if checked
+      if (enableSync) {
+        request.enable_sync = true;
+        console.log('✓ enable_sync flag set to true - Incremental updates will be enabled');
+      }
 
       if (configuredDataSource === 'upload') {
         const uploadedPaths = await uploadFiles();
@@ -608,8 +617,26 @@ export const ProcessingTab: React.FC<ProcessingTabProps> = ({
               disabled={isProcessing}
             />
           }
-          label="Skip graph (search + vector only) for these documents"
+          label="Skip graph (search + vector only)"
         />
+        {/* Only show Enable Sync for datasources that support auto-sync */}
+        {/* Hidden for: upload, cmis, webpage, wikipedia, youtube */}
+        {configuredDataSource !== 'upload' && 
+         configuredDataSource !== 'cmis' && 
+         configuredDataSource !== 'web' && 
+         configuredDataSource !== 'wikipedia' && 
+         configuredDataSource !== 'youtube' && (
+          <FormControlLabel
+            control={
+              <Checkbox
+                checked={enableSync}
+                onChange={(e) => setEnableSync(e.target.checked)}
+                disabled={isProcessing}
+              />
+            }
+            label="Enable auto change sync"
+          />
+        )}
       </Box>
       
       {/* Show prompt only when not configured */}

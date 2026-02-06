@@ -162,6 +162,10 @@ logs/
 lerna-debug.log*
 *.local
 
+# API log files (flexible-graphrag)
+flexible-graphrag/flexible-graphrag-api-*.log
+flexible-graphrag-api-*.log
+
 # Uploads directory - contains user uploaded files
 flexible-graphrag/uploads/
 uploads/
@@ -181,9 +185,15 @@ parsing_output/
 #  Cursor is an AI-powered code editor.`.cursorignore` specifies files/directories to 
 #  exclude from AI features like autocomplete and code analysis. Recommended for sensitive data
 #  refer to https://docs.cursor.com/context/ignore-files
+.cursor/
 .cursorignore
 .cursorindexingignore
+.cursorrules
 *.cursormemory
 .cursormemory
 memory-bank/
+
+# Claude AI settings (local configuration)
+flexible-graphrag/.claude/settings.local.json
+.claude/settings.local.json
 

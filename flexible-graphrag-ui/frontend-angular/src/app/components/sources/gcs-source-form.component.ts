@@ -4,6 +4,7 @@ export interface GCSSourceConfig {
   bucket_name: string;
   credentials: string;
   prefix?: string;
+  pubsub_subscription?: string;
 }
 
 @Component({
@@ -40,7 +41,16 @@ export interface GCSSourceConfig {
                   placeholder='{"type": "service_account", "project_id": "...", ...}'
                   rows="4"
                   required></textarea>
-        <mat-hint>JSON service account key (required)</mat-hint>
+        <mat-hint>JSON service account key (includes project_id)</mat-hint>
+      </mat-form-field>
+
+      <mat-form-field appearance="outline" class="full-width">
+        <mat-label>Pub/Sub Subscription (Optional)</mat-label>
+        <input matInput
+               [(ngModel)]="pubsubSubscription"
+               (ngModelChange)="onPubsubSubscriptionChange()"
+               placeholder="gcs-notifications-sub" />
+        <mat-hint>Pub/Sub subscription name for real-time change detection (leave empty for periodic polling)</mat-hint>
       </mat-form-field>
     </app-base-source-form>
   `,
@@ -55,13 +65,15 @@ export interface GCSSourceConfig {
 export class GCSSourceFormComponent implements OnInit, OnDestroy {
   @Input() bucketName: string = '';
   @Input() credentials: string = '';
+  @Input() prefix: string = '';
+  @Input() pubsubSubscription: string = '';
   
   @Output() bucketNameChange = new EventEmitter<string>();
   @Output() credentialsChange = new EventEmitter<string>();
+  @Output() prefixChange = new EventEmitter<string>();
+  @Output() pubsubSubscriptionChange = new EventEmitter<string>();
   @Output() configurationChange = new EventEmitter<GCSSourceConfig>();
   @Output() validationChange = new EventEmitter<boolean>();
-
-  prefix: string = '';
 
   ngOnInit() {
     this.updateValidationAndConfig();
@@ -78,7 +90,8 @@ export class GCSSourceFormComponent implements OnInit, OnDestroy {
     const config: GCSSourceConfig = {
       bucket_name: this.bucketName,
       credentials: this.credentials,
-      prefix: this.prefix || undefined
+      prefix: this.prefix || undefined,
+      pubsub_subscription: this.pubsubSubscription || undefined
     };
     
     this.validationChange.emit(isValid);
@@ -96,6 +109,12 @@ export class GCSSourceFormComponent implements OnInit, OnDestroy {
   }
 
   onPrefixChange(): void {
+    this.prefixChange.emit(this.prefix);
+    this.updateValidationAndConfig();
+  }
+
+  onPubsubSubscriptionChange(): void {
+    this.pubsubSubscriptionChange.emit(this.pubsubSubscription);
     this.updateValidationAndConfig();
   }
 }

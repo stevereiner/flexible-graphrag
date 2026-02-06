@@ -163,10 +163,34 @@ class PassthroughExtractor(BaseReader):
                     # Continue with original path if rename fails
             
             try:
+                # Prepare metadata to pass to DocumentProcessor (preserve cloud source metadata like file id)
+                # Filter out internal fields that shouldn't be passed
+                metadata_to_pass = {k: v for k, v in (extra_info or {}).items() if not k.startswith('_')}
+                
+                # For Box, construct stable file_path from path_collection + name instead of temp path
+                if extra_info and extra_info.get('path_collection') and extra_info.get('name'):
+                    # Box: Use stable path
+                    path_collection = extra_info.get('path_collection', '')
+                    name = extra_info.get('name', file_name)
+                    if not path_collection.endswith('/'):
+                        path_collection += '/'
+                    stable_file_path = f"{path_collection}{name}"
+                    metadata_to_pass['file_path'] = stable_file_path
+                    logger.info(f"Using Box stable file_path: {stable_file_path} (temp was: {actual_file_path})")
+                else:
+                    # Other sources: Use actual file path
+                    metadata_to_pass['file_path'] = str(actual_file_path)
+                
+                metadata_to_pass['file_name'] = file_name
+                metadata_to_pass['file_size'] = file_size
+                metadata_dict = {str(actual_file_path): metadata_to_pass}
+                
                 # Process the file right now while it still exists in temp directory
-                # process_documents is async and takes a list of paths
+                # process_documents is async and takes a list of paths + optional metadata
                 import asyncio
-                processed_docs = asyncio.run(self.doc_processor.process_documents([str(actual_file_path)]))
+                processed_docs = asyncio.run(
+                    self.doc_processor.process_documents([str(actual_file_path)], original_metadata=metadata_dict)
+                )
                 
                 # Rename back to original ugly name so reader's cleanup works
                 if renamed_path:
@@ -194,8 +218,23 @@ class PassthroughExtractor(BaseReader):
         
         # Return placeholder document with file path and fs object
         # DocumentProcessor will handle downloading if fs is provided
+        
+        # For Box, use stable path instead of temp path
+        if extra_info and extra_info.get('path_collection') and extra_info.get('name'):
+            # Box: Construct stable file_path
+            path_collection = extra_info.get('path_collection', '')
+            name = extra_info.get('name', file_name)
+            if not path_collection.endswith('/'):
+                path_collection += '/'
+            stable_file_path = f"{path_collection}{name}"
+            logger.info(f"Placeholder: Using Box stable file_path: {stable_file_path}")
+            file_path_to_store = stable_file_path
+        else:
+            # Other sources: Use actual file path
+            file_path_to_store = str(file_path)
+        
         metadata = {
-            "file_path": str(file_path),  # Path (could be S3 path or local path)
+            "file_path": file_path_to_store,  # Stable path for Box, temp/actual path for others
             "file_name": file_name,
             "file_size": file_size,
             **(extra_info or {})  # Merge in metadata from SimpleDirectoryReader

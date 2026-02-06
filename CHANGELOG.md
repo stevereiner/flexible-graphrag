@@ -2,6 +2,128 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2026-02-05] - Async Client Fixes for Weaviate and Elasticsearch
+
+### Fixed
+- **Weaviate async client integration**
+  - Fixed "Async method called without WeaviateAsyncClient" by using `weaviate.use_async_with_custom()`
+  - Added connection state management for async client throughout search, ingestion, and deletion operations
+  - Fixed deletion using async `adelete()` method instead of sync `delete_ref_doc()`
+
+- **Elasticsearch async operations**
+  - Fixed `RuntimeError: Timeout context manager should be used inside a task` by calling `async_add()` directly
+  - Fixed deletion query to use `match` instead of `term` (no keyword mapping) and `metadata.ref_doc_id` path
+  - Multiple sequential ingests now work correctly with async client
+
+- **Error handling improvements**
+  - Friendly messages instead of errors when using search and AI query before ingestion (all vector/search stores)
+  - Graceful handling for missing collections/indexes with user-friendly messages
+
+### Added
+- `check_elasticsearch.py` - Diagnostic tool to inspect Elasticsearch document structure and test queries
+- `cleanup.py` - Unified cleanup script for all databases (vector, search, graph) with async client support
+
+## [2026-01-23] - Incremental Updates (Auto-Sync) System
+
+### Added - Core Infrastructure
+- **Complete incremental update system** for automatic synchronization of data sources
+- **Auto-sync support for 9 data sources**:
+  - ✅ Filesystem (watchdog - real-time) **NEW**
+  - ✅ Amazon S3 (SQS events - real-time, polling fallback) **NEW**
+  - ✅ Alfresco (ActiveMQ, Event Gateway planned) - real-time, polling fallback) **NEW**
+  - ✅ Azure Blob Storage (change feed - real-time, polling fallback) **NEW**
+  - ✅ Google Cloud Storage (Pub/Sub - real-time, polling fallback) **NEW**
+  - ✅ Google Drive (Changes API - polling) **NEW**
+  - ✅ Box (Events API - polling) **NEW**
+  - ✅ OneDrive (Microsoft Graph - polling) **NEW**
+  - ✅ SharePoint (Microsoft Graph - polling) **NEW**
+  - **Note**: Delta query support is planned but not fully implemented - all sources use polling for now
+
+- **Auto-sync configuration supported via**:
+  - 3 UI clients (Angular, React, Vue) - "Enable Auto-Sync" checkbox
+  - MCP Server - `auto_sync` parameter in ingestion tools
+  - REST API - `auto_sync` parameter in ingestion endpoints
+  - **Note**: MCP Server and REST APIs already supported one-shot manual ingestion from all 13 data sources
+
+### Added - UI Enhancements
+- **Auto-sync configuration in UI** (Angular, React, Vue):
+  - "Enable Auto-Sync" checkbox for all data sources
+  - S3: "SQS Queue URL" field for event notifications
+  - GCS: "Pub/Sub Subscription Name" field for real-time updates
+
+### Added - MCP Server and REST API Support
+- **Auto-sync support via MCP Server and REST APIs**:
+  - `auto_sync` parameter added to ingestion endpoints
+  - Configure auto-sync data sources programmatically
+  - Supports all 9 auto-sync enabled data sources
+  - Complements existing manual ingestion support for all 13 data sources
+
+### Added - REST APIs
+- **Incremental update control endpoints**:
+  - Trigger immediate sync for configured data sources
+  - Set and query polling intervals
+  - Query sync status and history
+  - Manage auto-sync configurations
+- See `incremental_updates/API-REFERENCE.md` for complete API documentation
+
+### Added - Documentation
+- `incremental_updates/README.md` - System overview and architecture
+- `incremental_updates/QUICKSTART.md` - Quick setup guide
+- `incremental_updates/SETUP-GUIDE.md` - Detailed configuration guide
+- `incremental_updates/API-REFERENCE.md` - API endpoints and usage
+- `incremental_updates/GCS-SETUP.md` - Google Cloud Storage configuration
+- `incremental_updates/S3-SETUP.md` - Amazon S3 SQS configuration
+- `incremental_updates/detectors/README.md` - Detector implementation details
+
+### Added - Scripts
+- `scripts/incremental/sync-now.sh|.ps1|.bat` - Trigger immediate sync
+- `scripts/incremental/set-refresh-interval.sh|.ps1|.bat` - Configure polling interval
+- `scripts/incremental/README.md` - Script usage guide
+- `scripts/incremental/TIMING-CONFIGURATION.md` - Timing configuration details
+
+### Added - Docker Configuration
+- **PostgreSQL/pgvector** (`docker/docker-compose.yaml`):
+  - Added `includes/postgres-pgvector.yaml` enabled by default
+  - Used for both vector database option and incremental updates state management
+
+- **Alfresco real-time events** (`docker/includes/alfresco.yaml`):
+  - Enabled OpenWire (61616) and STOMP (61613) ports on ActiveMQ service
+  - Enabled messaging subsystem auto-start: `-Dmessaging.subsystem.autoStart=true`
+  - Enabled Event2 API: `-Drepo.event2.enabled=true`
+  - Supports real-time incremental updates via CloudEvents
+
+### Features
+- **Real-time change detection** via event streams (S3 SQS, Alfresco ActiveMQ, GCS Pub/Sub)
+- **Polling fallback** for all sources when events unavailable
+- **Configurable refresh intervals** (default: 300 seconds)
+- **Automatic deletion handling** - Removes deleted files from all indexes
+- **Content-based deduplication** - Hash comparison prevents re-processing unchanged files
+- **Timestamp optimization** - Skips downloads for files with unchanged timestamps (30x faster)
+- **PostgreSQL state management**:
+  - `datasource_config` table: Stores data source locations configured for auto-sync
+  - `document_state` table: Tracks sync status, content hashes, and timestamps per document
+- **Concurrent processing** - Parallel ingestion with configurable worker limits
+
+## [2026-02-01] - Box Auto-Sync Fixes
+
+### Fixed
+- Fixed Box path storage to use stable paths instead of temporary file paths
+- Fixed incomplete document_state records for Box files
+- Fixed DELETE operations not removing legacy temp-path entries from indexes
+
+## [2026-01-20] - Alfresco Real-time Events and Download Optimization
+
+### Added
+- **Real-time Alfresco event handling via direct STOMP connection**
+  - Direct subscription to ActiveMQ on port 61613 for <1 second latency
+  - Smart event-type-specific filtering for CREATE/UPDATE/DELETE
+  - Thread-safe queue bridges STOMP callbacks to async processing
+
+- **Download optimization**
+  - Timestamp-based change detection skips downloads for unchanged files
+  - 30x faster for unchanged files with zero network transfer
+  - Migration script: `incremental_updates/migration_add_modified_timestamp.sql`
+
 ## [2026-01-26] - Document parser improvements and parsing output inspection
 
 ### Added
@@ -375,7 +497,7 @@ All notable changes to this project will be documented in this file.
 ### Enhanced
 - **Alfresco multi-select support** - Enhanced `/api/ingest` endpoint to support multi-select of files and folders from Alfresco ACA/ADF Angular client
   - Added `nodeDetails` array parameter to `AlfrescoConfig` model with node metadata (id, name, path, isFile, isFolder)
-  - Added `nodeRefs` array parameter to `AlfrescoConfig` model with node IDs
+  - Added `nodeIds` array parameter to `AlfrescoConfig` model with node IDs (UUID strings from REST API)
   - Enhanced `AlfrescoSource.list_files()` to process specific files and folders from `nodeDetails`
   - Maintained backward compatibility with single `path` parameter for existing integrations
   - Support for mixed selections (files and folders together)

@@ -2,6 +2,7 @@ export interface IngestRequest {
   data_source: string;
   paths?: string[];
   skip_graph?: boolean;  // Per-ingest flag to skip knowledge graph step (doesn't persist)
+  enable_sync?: boolean; // Enable incremental sync monitoring for this datasource
   cmis_config?: {
     url: string;
     username: string;

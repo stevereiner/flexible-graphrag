@@ -754,7 +754,7 @@ class DatabaseFactory:
                 dim=embed_dim,
                 embedding_field=config.get("embedding_field", "embedding"),
                 text_field=config.get("text_field", "content"),
-                search_pipeline=config.get("search_pipeline", "hybrid-search-pipeline"),  # Enable hybrid search pipeline
+                search_pipeline=config.get("search_pipeline"),  # Optional pipeline (None by default)
                 http_auth=(config.get("username"), config.get("password")) if config.get("username") else None
             )
             
@@ -808,16 +808,17 @@ class DatabaseFactory:
         elif db_type == VectorDBType.WEAVIATE:
             from llama_index.vector_stores.weaviate import WeaviateVectorStore
             import weaviate
+            import asyncio
             
             url = config.get("url", "http://localhost:8081")
             index_name = config.get("index_name", "HybridSearch")  # Must start with capital letter
             logger.info(f"Creating Weaviate vector store - URL: {url}, Index: {index_name}, Embed dim: {embed_dim}")
             
-            # Create Weaviate client using v4 API
+            # Create Weaviate ASYNC client using v4 API for async operations
             if config.get("api_key"):
-                # For authenticated instances, use connect_to_custom (REST-only)
+                # For authenticated instances, use use_async_with_custom (REST-only async)
                 from weaviate.classes.init import Auth, AdditionalConfig, Timeout
-                client = weaviate.connect_to_custom(
+                async_client = weaviate.use_async_with_custom(
                     http_host=url.replace("http://", "").replace("https://", "").replace(":8081", ""),
                     http_port=8081,
                     http_secure=False,
@@ -832,9 +833,9 @@ class DatabaseFactory:
                     headers=config.get("additional_headers", {})
                 )
             else:
-                # For local unauthenticated instances (REST-only)
+                # For local unauthenticated instances (REST-only async)
                 from weaviate.classes.init import AdditionalConfig, Timeout
-                client = weaviate.connect_to_custom(
+                async_client = weaviate.use_async_with_custom(
                     http_host=url.replace("http://", "").replace("https://", "").replace(":8081", ""),
                     http_port=8081,
                     http_secure=False,
@@ -848,8 +849,23 @@ class DatabaseFactory:
                     headers=config.get("additional_headers", {})
                 )
             
+            # Connect the async client synchronously during initialization
+            # This is safe because we're not in an async context yet
+            try:
+                # Try to get existing event loop
+                try:
+                    loop = asyncio.get_running_loop()
+                    # Loop is running - we can't block, will connect lazily on first use
+                    logger.warning("Event loop already running during Weaviate init - async client will connect on first use")
+                except RuntimeError:
+                    # No running loop - safe to create one
+                    asyncio.run(async_client.connect())
+                    logger.info("Weaviate async client connected successfully")
+            except Exception as e:
+                logger.warning(f"Could not pre-connect Weaviate async client: {e} - will connect on first use")
+            
             return WeaviateVectorStore(
-                weaviate_client=client,
+                weaviate_client=async_client,
                 index_name=index_name,
                 text_key=config.get("text_key", "content")
             )
@@ -1380,12 +1396,6 @@ class DatabaseFactory:
             )
         
         elif db_type == SearchDBType.OPENSEARCH:
-            # Only create OpenSearch search store if vector DB is NOT OpenSearch (to avoid hybrid mode conflicts)
-            if vector_db_type == VectorDBType.OPENSEARCH:
-                logger.info("OpenSearch search store skipped - vector DB is also OpenSearch (using native hybrid search)")
-                return None
-            
-            # Create OpenSearch vector store for fulltext-only search
             from llama_index.vector_stores.opensearch import OpensearchVectorStore, OpensearchVectorClient
             
             # Create OpenSearch vector client for fulltext search

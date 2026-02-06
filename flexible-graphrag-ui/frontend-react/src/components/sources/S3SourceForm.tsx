@@ -20,17 +20,21 @@ export const S3SourceForm: React.FC<S3SourceFormProps> = ({
 }) => {
   const [bucketName, setBucketName] = useState('');
   const [prefix, setPrefix] = useState('');
+  const [regionName, setRegionName] = useState('us-east-1');
+  const [sqsQueueUrl, setSqsQueueUrl] = useState('');
 
   const isValid = useMemo(() => {
-    return bucketName.trim() !== '' && accessKey.trim() !== '' && secretKey.trim() !== '';
-  }, [bucketName, accessKey, secretKey]);
+    return bucketName.trim() !== '' && accessKey.trim() !== '' && secretKey.trim() !== '' && regionName.trim() !== '';
+  }, [bucketName, accessKey, secretKey, regionName]);
 
   const config = useMemo(() => ({
     bucket_name: bucketName,  // Use modern bucket_name field
     prefix: prefix || undefined,
     access_key: accessKey,
-    secret_key: secretKey
-  }), [bucketName, prefix, accessKey, secretKey]);
+    secret_key: secretKey,
+    region_name: regionName,
+    sqs_queue_url: sqsQueueUrl || undefined  // Optional: for event-based sync
+  }), [bucketName, prefix, accessKey, secretKey, regionName, sqsQueueUrl]);
 
   useEffect(() => {
     onValidationChange(isValid);
@@ -70,6 +74,40 @@ export const S3SourceForm: React.FC<S3SourceFormProps> = ({
           autoComplete: 'off',
           'data-lpignore': 'true', // LastPass ignore
           'data-form-type': 'other' // Prevent autofill
+        }}
+      />
+      <TextField
+        fullWidth
+        label="AWS Region *"
+        variant="outlined"
+        value={regionName}
+        onChange={(e) => setRegionName(e.target.value)}
+        size="small"
+        sx={{ mb: 2 }}
+        placeholder="us-east-1"
+        helperText="AWS region where the bucket is located (e.g., us-east-1, us-east-2, eu-west-1)"
+        required
+        autoComplete="off"
+      />
+      <TextField
+        fullWidth
+        label="SQS Queue URL (Optional)"
+        variant="outlined"
+        value={sqsQueueUrl}
+        onChange={(e) => setSqsQueueUrl(e.target.value)}
+        size="small"
+        sx={{ mb: 2 }}
+        placeholder="https://sqs.us-east-2.amazonaws.com/123456789/my-queue"
+        helperText="Optional: SQS queue URL for real-time event-based sync (leave empty for periodic polling)"
+        autoComplete="url"
+        type="url"
+        name="sqs-endpoint-url"
+        inputProps={{
+          autoComplete: 'url',
+          name: 'sqs-endpoint-url',
+          'data-lpignore': 'true',
+          'data-form-type': 'other',
+          'data-1p-ignore': 'true'
         }}
       />
       <Box sx={{ display: 'flex', gap: 2, mb: 2 }}>

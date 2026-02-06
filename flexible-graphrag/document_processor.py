@@ -118,54 +118,59 @@ class DocumentProcessor:
             logger.error(f"Failed to import Docling: {e}")
             raise ImportError("Please install docling: pip install docling")
     
+    def _create_llamaparse_parser(self):
+        """Create a fresh LlamaParse parser instance.
+        
+        This is needed because LlamaParse creates async locks/events that get bound
+        to the event loop at creation time. If the event loop changes, we need a new instance.
+        """
+        from llama_parse import LlamaParse
+        
+        # Get API key from config or environment
+        api_key = None
+        if self.config:
+            api_key = getattr(self.config, 'llamaparse_api_key', None)
+        
+        if not api_key:
+            api_key = os.getenv('LLAMAPARSE_API_KEY')
+        
+        if not api_key:
+            raise ValueError("LLAMAPARSE_API_KEY not found in config or environment variables")
+        
+        parse_mode = os.getenv('LLAMAPARSE_MODE', 'parse_page_with_llm')
+        result_type = "json"
+        
+        parser_kwargs = {
+            "api_key": api_key,
+            "result_type": result_type,
+            "verbose": True,
+            "language": "en",
+            "parse_mode": parse_mode,
+            "show_progress": True
+        }
+        
+        if parse_mode == "parse_page_with_agent":
+            model_name = os.getenv('LLAMAPARSE_AGENT_MODEL', 'openai-gpt-4-1-mini')
+            parser_kwargs["model"] = model_name
+        
+        return LlamaParse(**parser_kwargs)
+    
     def _init_llamaparse(self):
         """Initialize LlamaParse parser"""
         try:
-            from llama_parse import LlamaParse
-            
-            # Get API key from config or environment
-            api_key = None
-            if self.config:
-                api_key = getattr(self.config, 'llamaparse_api_key', None)
-            
-            if not api_key:
-                api_key = os.getenv('LLAMAPARSE_API_KEY')
-            
-            if not api_key:
-                raise ValueError("LLAMAPARSE_API_KEY not found in config or environment variables")
-            
-            # Initialize LlamaParse with configurable mode and model
-            # Parsing mode options (credits per page):
-            # 1. parse_mode="parse_page_without_llm" - 1 credit/page (cheapest, text-only)
-            # 2. parse_mode="parse_page_with_llm" - 3 credits/page (no model param needed) - DEFAULT
-            # 3. parse_mode="parse_page_with_agent" + model="openai-gpt-4-1-mini" - 10 credits/page
-            #    (range: 10-90 credits/page depending on model chosen)
-            
-            # Get parse mode from environment or config, default to "parse_page_with_llm"
+            # parse_page_without_llm only produces text, not markdown
             parse_mode = os.getenv('LLAMAPARSE_MODE', 'parse_page_with_llm')
+            if parse_mode == "parse_page_without_llm":
+                logger.warning("parse_page_without_llm only produces text, no markdown - will use plaintext in the pipeline")
             
-            # Use JSON mode to get both markdown and plaintext natively
-            result_type = "json"
+            self.parser = self._create_llamaparse_parser()
             
-            # Build parser kwargs
-            parser_kwargs = {
-                "api_key": api_key,
-                "result_type": result_type,
-                "verbose": True,
-                "language": "en",
-                "parse_mode": parse_mode,
-                "show_progress": True
-            }
-            
-            # If using agent mode, add model parameter
+            # Log initialization
             if parse_mode == "parse_page_with_agent":
                 model_name = os.getenv('LLAMAPARSE_AGENT_MODEL', 'openai-gpt-4-1-mini')
-                parser_kwargs["model"] = model_name
-                logger.info(f"LlamaParse parser initialized with parse_mode={parse_mode}, model={model_name}, result_type={result_type}")
+                logger.info(f"LlamaParse parser initialized with parse_mode={parse_mode}, model={model_name}, result_type=json")
             else:
-                logger.info(f"LlamaParse parser initialized with parse_mode={parse_mode}, result_type={result_type}")
-            
-            self.parser = LlamaParse(**parser_kwargs)
+                logger.info(f"LlamaParse parser initialized with parse_mode={parse_mode}, result_type=json")
         except ImportError as e:
             logger.error(f"Failed to import LlamaParse: {e}")
             raise ImportError("Please install llama-parse: pip install llama-parse")
@@ -209,8 +214,14 @@ class DocumentProcessor:
         
         return await future
     
-    async def process_documents(self, file_paths: List[Union[str, Path]], processing_id: str = None) -> List[Document]:
-        """Convert documents to markdown using selected parser, then create LlamaIndex Documents"""
+    async def process_documents(self, file_paths: List[Union[str, Path]], processing_id: str = None, original_metadata: Dict[str, Dict] = None) -> List[Document]:
+        """Convert documents to markdown using selected parser, then create LlamaIndex Documents
+        
+        Args:
+            file_paths: List of file paths to process
+            processing_id: Optional processing ID for cancellation checks
+            original_metadata: Optional dict mapping file paths to original metadata (e.g., from cloud sources)
+        """
         documents = []
         
         # Helper function to check cancellation
@@ -224,23 +235,30 @@ class DocumentProcessor:
                     return False
             return False
         
+        if original_metadata is None:
+            original_metadata = {}
+        
         if self.parser_type == "docling":
-            return await self._process_with_docling(file_paths, _check_cancellation, {})
+            return await self._process_with_docling(file_paths, _check_cancellation, {}, original_metadata)
         elif self.parser_type == "llamaparse":
-            return await self._process_with_llamaparse(file_paths, _check_cancellation, {})
+            return await self._process_with_llamaparse(file_paths, _check_cancellation, {}, original_metadata)
     
-    async def _process_with_docling(self, file_paths: List[Union[str, Path]], check_cancellation, original_filenames: Dict[str, str] = None) -> List[Document]:
+    async def _process_with_docling(self, file_paths: List[Union[str, Path]], check_cancellation, original_filenames: Dict[str, str] = None, original_metadata: Dict[str, Dict] = None) -> List[Document]:
         """Process documents using Docling
         
         Args:
             file_paths: List of file paths to process
             check_cancellation: Function to check if processing should be cancelled
             original_filenames: Optional dict mapping temp paths to original filenames
+            original_metadata: Optional dict mapping file paths to original metadata from placeholder docs
         """
         documents = []
         
         if original_filenames is None:
             original_filenames = {}
+        
+        if original_metadata is None:
+            original_metadata = {}
         
         # Provide a default no-op cancellation check if None
         if check_cancellation is None:
@@ -386,11 +404,15 @@ class DocumentProcessor:
                     logger.info(f"Docling extracted {len(content_to_use)} characters from {file_path}")
                     logger.debug(f"First 200 chars: {content_to_use[:200]}...")
                     
-                    # Create LlamaIndex Document
+                    # Get original metadata if available (from cloud sources)
+                    orig_meta = original_metadata.get(str(file_path), {})
+                    
+                    # Create LlamaIndex Document - merge original metadata with new fields
                     doc = Document(
                         text=content_to_use,
                         metadata={
-                            "source": str(file_path),
+                            **orig_meta,  # Include original metadata first (contains file id, etc.)
+                            "source": str(file_path),  # Then override with processing metadata
                             "conversion_method": "docling",
                             "file_type": path_obj.suffix,
                             "file_name": path_obj.name
@@ -408,10 +430,15 @@ class DocumentProcessor:
                     logger.info(f"Direct read extracted {len(content)} characters from {file_path}")
                     logger.debug(f"First 200 chars: {content[:200]}...")
                     
+                    # Get original metadata if available (from cloud sources)
+                    orig_meta = original_metadata.get(str(file_path), {})
+                    
+                    # Create LlamaIndex Document - merge original metadata with new fields
                     doc = Document(
                         text=content,
                         metadata={
-                            "source": str(file_path),
+                            **orig_meta,  # Include original metadata first (contains file id, etc.)
+                            "source": str(file_path),  # Then override with processing metadata
                             "conversion_method": "direct",
                             "file_type": path_obj.suffix,
                             "file_name": path_obj.name
@@ -443,7 +470,7 @@ class DocumentProcessor:
         logger.info(f"Successfully processed {len(documents)} documents with Docling in parallel")
         return documents
     
-    async def _process_with_llamaparse(self, file_paths: List[Union[str, Path]], check_cancellation, original_filenames: Dict[str, str] = None) -> List[Document]:
+    async def _process_with_llamaparse(self, file_paths: List[Union[str, Path]], check_cancellation, original_filenames: Dict[str, str] = None, original_metadata: Dict[str, Dict] = None) -> List[Document]:
         """Process documents using LlamaParse with JSON mode for markdown + plaintext + metadata
         
         Creates ONE Document per file (combining all pages) for proper document-level tracking.
@@ -452,8 +479,12 @@ class DocumentProcessor:
             file_paths: List of file paths to process (temp files already have meaningful names)
             check_cancellation: Optional function to check if processing should be cancelled
             original_filenames: Optional dict (kept for backward compatibility, but not needed anymore)
+            original_metadata: Optional dict mapping file paths to original metadata from placeholder docs
         """
         documents = []
+        
+        if original_metadata is None:
+            original_metadata = {}
         
         # Check for cancellation before starting
         if check_cancellation and check_cancellation():
@@ -468,6 +499,15 @@ class DocumentProcessor:
         
         logger.info(f"Processing {len(file_paths)} files with LlamaParse in JSON mode...")
         
+        # Recreate parser to avoid event loop conflicts
+        # LlamaParse creates async locks that get bound to the event loop at creation time
+        # If the event loop changes between calls, we need a fresh parser instance
+        try:
+            self.parser = self._create_llamaparse_parser()
+            logger.debug("Recreated LlamaParse parser instance for this processing batch")
+        except Exception as e:
+            logger.warning(f"Could not recreate LlamaParse parser: {e} - using existing instance")
+        
         try:
             # Process each file with LlamaParse JSON mode
             for file_path in file_paths:
@@ -479,8 +519,28 @@ class DocumentProcessor:
                 file_path_str = str(file_path)
                 logger.info(f"Processing {file_path} with LlamaParse...")
                 
+                # Log file size for debugging
+                try:
+                    file_size = Path(file_path).stat().st_size
+                    logger.info(f"File size: {file_size} bytes")
+                except Exception as e:
+                    logger.warning(f"Could not determine file size: {e}")
+                
                 # Get JSON results from LlamaParse (returns list of dicts, one per file)
-                json_results = await self.parser.aget_json(file_path_str)
+                try:
+                    json_results = await self.parser.aget_json(file_path_str)
+                except Exception as e:
+                    logger.error(f"LlamaParse error for {Path(file_path).name}: {e}")
+                    if "event loop" in str(e).lower():
+                        logger.error("Event loop conflict detected - LlamaParse parser needs recreation")
+                    logger.warning(f"Skipping {Path(file_path).name}")
+                    continue  # Skip to next file
+                
+                # Check if LlamaParse returned empty results list
+                if not json_results:
+                    logger.warning(f"Parser returned empty results list for {Path(file_path).name}")
+                    logger.warning(f"Skipping {Path(file_path).name}")
+                    continue  # Skip to next file
                 
                 # Check for cancellation after parsing
                 if check_cancellation and check_cancellation():
@@ -494,6 +554,12 @@ class DocumentProcessor:
                     job_metadata = json_result.get("job_metadata", {})
                     
                     logger.info(f"LlamaParse returned {len(pages)} pages for {Path(file_path).name}")
+                    
+                    # Check if parser returned empty result
+                    if len(pages) == 0:
+                        logger.warning(f"Parser returned 0 pages for {Path(file_path).name}")
+                        logger.warning(f"Skipping {Path(file_path).name}")
+                        continue  # Skip this file, don't create a Document
                     
                     # Extract markdown and plaintext from all pages
                     markdown_parts = []
@@ -511,17 +577,40 @@ class DocumentProcessor:
                     
                     logger.info(f"LlamaParse extracted {len(markdown_content)} chars (markdown), {len(plaintext_content)} chars (plaintext) from {Path(file_path).name}")
                     
+                    # Check if both markdown and plaintext are empty (failed extraction)
+                    if not markdown_content.strip() and not plaintext_content.strip():
+                        logger.warning(f"Parser extracted empty content for {Path(file_path).name}")
+                        logger.warning(f"Skipping {Path(file_path).name}")
+                        continue  # Skip this file, don't create a Document
+                    
                     # Determine which format to use for the Document text
                     # (This will be chunked by SentenceSplitter downstream)
                     format_config = getattr(self.config, 'parser_format_for_extraction', 'auto') if self.config else 'auto'
                     
-                    # Use markdown as the primary format (can be overridden by config)
-                    if format_config == 'plaintext':
+                    # Get parse_mode to check if using parse_page_without_llm
+                    parse_mode = os.getenv('LLAMAPARSE_MODE', 'parse_page_with_llm')
+                    
+                    # Force plaintext for parse_page_without_llm (produces no markdown) - overrides config
+                    if parse_mode == "parse_page_without_llm":
                         content_to_use = plaintext_content
-                        format_used = "plaintext"
-                    else:  # markdown or auto
+                        format_used = "plaintext (parse_page_without_llm - forced)"
+                        logger.info(f"Forcing plaintext format because parse_page_without_llm produces no markdown")
+                    # Handle explicit config settings
+                    elif format_config == 'plaintext':
+                        content_to_use = plaintext_content
+                        format_used = "plaintext (config)"
+                    elif format_config == 'markdown':
                         content_to_use = markdown_content
-                        format_used = "markdown"
+                        format_used = "markdown (config)"
+                    else:  # auto mode - smart selection based on content
+                        # Smart selection: use markdown if tables detected, otherwise plaintext
+                        has_tables = "|" in markdown_content and "---" in markdown_content
+                        if has_tables:
+                            content_to_use = markdown_content
+                            format_used = "markdown (tables detected)"
+                        else:
+                            content_to_use = plaintext_content
+                            format_used = "plaintext (no tables)"
                     
                     logger.info(f"Using {format_used} format for document processing (config: {format_config})")
                     
@@ -581,11 +670,15 @@ class DocumentProcessor:
                         except Exception as e:
                             logger.warning(f"Failed to save LlamaParse parsing output: {e}")
                     
+                    # Get original metadata if available (from cloud sources)
+                    orig_meta = original_metadata.get(file_path_str, {})
+                    
                     # Create ONE LlamaIndex Document per file (combining all pages)
                     # SentenceSplitter will chunk this downstream with proper overlap
                     doc = Document(
                         text=content_to_use,
                         metadata={
+                            **orig_meta,  # Include original metadata first (contains file id, etc.)
                             "source": file_path_str,
                             "conversion_method": "llamaparse",
                             "file_type": Path(file_path).suffix,
@@ -600,6 +693,12 @@ class DocumentProcessor:
                     logger.info(f"Created 1 Document for {Path(file_path).name} ({len(pages)} pages, {len(content_to_use)} chars)")
             
             logger.info(f"Successfully processed {len(file_paths)} files ({len(documents)} documents) with LlamaParse")
+            
+            # Warn if some files failed to produce documents
+            if len(documents) < len(file_paths):
+                failed_count = len(file_paths) - len(documents)
+                logger.warning(f"Processing incomplete: {failed_count}/{len(file_paths)} files produced no documents")
+            
             return documents
             
         except Exception as e:
@@ -634,6 +733,7 @@ class DocumentProcessor:
         """
         temp_files = []  # Track temp files for cleanup
         original_filenames = {}  # Map temp paths to original filenames
+        original_metadata = {}  # Map file paths to original metadata from placeholder docs
         
         try:
             # Process each placeholder document
@@ -646,6 +746,10 @@ class DocumentProcessor:
                 if not file_path:
                     logger.warning("Placeholder document missing file_path in metadata")
                     continue
+                
+                # Store original metadata (excluding internal fields)
+                # Filter out internal fields like _fs
+                original_meta = {k: v for k, v in doc.metadata.items() if not k.startswith('_')}
                 
                 # If remote filesystem, download to temp
                 if fs:
@@ -670,10 +774,13 @@ class DocumentProcessor:
                             
                             file_paths_to_process.append(temp_path)
                             temp_files.append(temp_path)
+                            # Map temp path to original metadata
+                            original_metadata[temp_path] = original_meta
                             logger.info(f"Downloaded {file_path} to {temp_path} (preserving original name: {file_name})")
                         else:
                             # Local filesystem - use path as-is
                             file_paths_to_process.append(file_path)
+                            original_metadata[file_path] = original_meta
                     except Exception as e:
                         logger.error(f"Failed to download {file_path}: {e}")
                         # Skip this file but continue with others
@@ -681,6 +788,7 @@ class DocumentProcessor:
                 else:
                     # No fs object - assume local path
                     file_paths_to_process.append(file_path)
+                    original_metadata[file_path] = original_meta
             
             if not file_paths_to_process:
                 logger.warning("No files to process after download phase")
@@ -690,9 +798,9 @@ class DocumentProcessor:
             
             # Process files based on parser type
             if self.parser_type == "docling":
-                documents = await self._process_with_docling(file_paths_to_process, check_cancellation, original_filenames)
+                documents = await self._process_with_docling(file_paths_to_process, check_cancellation, original_filenames, original_metadata)
             elif self.parser_type == "llamaparse":
-                documents = await self._process_with_llamaparse(file_paths_to_process, check_cancellation, original_filenames)
+                documents = await self._process_with_llamaparse(file_paths_to_process, check_cancellation, original_filenames, original_metadata)
             else:
                 raise ValueError(f"Unknown parser type: {self.parser_type}")
             

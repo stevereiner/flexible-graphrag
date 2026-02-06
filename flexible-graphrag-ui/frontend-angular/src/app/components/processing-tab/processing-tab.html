@@ -1,14 +1,30 @@
 <div class="processing-tab-container">
-  <!-- Header with Skip Graph Checkbox -->
+  <!-- Header with Checkboxes -->
   <div class="processing-header">
     <h2>File Processing</h2>
-    <mat-checkbox 
-      [(ngModel)]="skipGraph"
-      [disabled]="isProcessing"
-      color="primary"
-      class="skip-graph-checkbox">
-      Skip graph (search + vector only) for these documents
-    </mat-checkbox>
+    <div class="checkbox-group">
+      <mat-checkbox 
+        [(ngModel)]="skipGraph"
+        [disabled]="isProcessing"
+        color="primary"
+        class="skip-graph-checkbox">
+        Skip graph (search + vector only)
+      </mat-checkbox>
+      <!-- Only show Enable Sync for datasources that support auto-sync -->
+      <!-- Hidden for: upload, cmis, webpage, wikipedia, youtube -->
+      <mat-checkbox 
+        *ngIf="configuredDataSource !== 'upload' && 
+               configuredDataSource !== 'cmis' && 
+               configuredDataSource !== 'web' && 
+               configuredDataSource !== 'wikipedia' && 
+               configuredDataSource !== 'youtube'"
+        [(ngModel)]="enableSync"
+        [disabled]="isProcessing"
+        color="primary"
+        class="enable-sync-checkbox">
+        Enable auto change sync
+      </mat-checkbox>
+    </div>
   </div>
 
   <!-- No Sources Configured Message -->

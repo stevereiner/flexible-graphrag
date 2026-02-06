@@ -51,6 +51,7 @@ async def get_system_status() -> Dict[str, Any]:
 async def ingest_documents(
     data_source: str = "filesystem", 
     paths: Optional[str] = None,
+    enable_sync: Optional[bool] = False,
     skip_graph: Optional[bool] = False,
     cmis_config: Optional[str] = None,
     alfresco_config: Optional[str] = None,
@@ -66,37 +67,14 @@ async def ingest_documents(
     google_drive_config: Optional[str] = None
 ) -> Dict[str, Any]:
     """
-    Ingest documents from a data source
+    Ingest documents from filesystem, web, or cloud sources.
     
     Args:
-        data_source: Type of data source (filesystem, cmis, alfresco, web, wikipedia, youtube, s3, gcs, azure_blob, onedrive, sharepoint, box, google_drive)
-        paths: Single file path or JSON array of paths (for filesystem source)
-        skip_graph: Skip knowledge graph extraction for faster processing (vector + search only)
-        cmis_config: CMIS configuration as JSON string (url, username, password, folder_path)
-        alfresco_config: Alfresco configuration as JSON string (url, username, password, path, nodeRefs, nodeDetails, recursive)
-        web_config: Web page configuration as JSON string (url)
-        wikipedia_config: Wikipedia configuration as JSON string (query, language, max_docs)
-        youtube_config: YouTube configuration as JSON string (url, chunk_size_seconds)
-        s3_config: Amazon S3 configuration as JSON string (bucket_name, prefix, access_key, secret_key, region_name)
-        gcs_config: Google Cloud Storage configuration as JSON string (bucket_name, credentials, prefix)
-        azure_blob_config: Azure Blob Storage configuration as JSON string (container_name, account_url, blob, prefix, account_name, account_key)
-        onedrive_config: Microsoft OneDrive configuration as JSON string (user_principal_name, client_id, client_secret, tenant_id, folder_path, folder_id)
-        sharepoint_config: Microsoft SharePoint configuration as JSON string (client_id, client_secret, tenant_id, site_name, site_id, folder_path, folder_id)
-        box_config: Box configuration as JSON string (folder_id, client_id, client_secret, developer_token, enterprise_id, user_id)
-        google_drive_config: Google Drive configuration as JSON string (folder_id, file_ids, credentials, credentials_path)
-    
-    Example alfresco_config with nodeDetails for multi-select:
-    {
-        "url": "https://alfresco.example.com",
-        "username": "admin",
-        "password": "password",
-        "path": "/Shared/GraphRAG",
-        "nodeDetails": [
-            {"id": "abc123", "name": "doc1.pdf", "path": "/Shared/GraphRAG/doc1.pdf", "isFile": true, "isFolder": false},
-            {"id": "def456", "name": "Reports", "path": "/Shared/GraphRAG/Reports", "isFile": false, "isFolder": true}
-        ],
-        "recursive": false
-    }
+        data_source: Source type (filesystem, web, wikipedia, youtube, s3, gcs, azure_blob, etc.)
+        paths: File path(s) as JSON array for filesystem source
+        enable_sync: Enable automatic change detection and incremental updates
+        skip_graph: Skip knowledge graph extraction (faster, vector+search only)
+        *_config: JSON configuration string for the selected data source
     """
     try:
         import json
@@ -107,19 +85,43 @@ async def ingest_documents(
         if skip_graph:
             request_data["skip_graph"] = skip_graph
         
+        # Add enable_sync flag if set
+        if enable_sync:
+            request_data["enable_sync"] = enable_sync
+        
         # Add paths if provided
         if paths:
-            # Handle both single path string and JSON array string
+            # Handle multiple formats:
+            # 1. JSON array string: "[\"path1\", \"path2\"]"
+            # 2. Comma-separated string: "path1,path2"
+            # 3. Single path string: "path"
             try:
                 # Try to parse as JSON array first
                 parsed_paths = json.loads(paths)
                 if isinstance(parsed_paths, list):
                     request_data["paths"] = parsed_paths
+                    import sys
+                    sys.stderr.write(f"DEBUG: Parsed JSON array: {request_data['paths']}\n")
+                    sys.stderr.flush()
                 else:
                     request_data["paths"] = [str(parsed_paths)]
+                    import sys
+                    sys.stderr.write(f"DEBUG: Wrapped single JSON value: {request_data['paths']}\n")
+                    sys.stderr.flush()
             except json.JSONDecodeError:
-                # If JSON parsing fails, treat as single path
-                request_data["paths"] = [paths]
+                # If JSON parsing fails, check for comma-separated paths
+                if ',' in paths:
+                    # Split by comma and strip whitespace
+                    request_data["paths"] = [p.strip() for p in paths.split(',') if p.strip()]
+                    import sys
+                    sys.stderr.write(f"DEBUG: Split comma-separated: {request_data['paths']}\n")
+                    sys.stderr.flush()
+                else:
+                    # Single path
+                    request_data["paths"] = [paths]
+                    import sys
+                    sys.stderr.write(f"DEBUG: Single path: {request_data['paths']}\n")
+                    sys.stderr.flush()
         
         # Add data source configurations if provided (parse JSON strings)
         config_mappings = {
@@ -295,7 +297,7 @@ def main():
     
     sys.stderr.write("🛠️  Available tools:\n")
     sys.stderr.write("   • get_system_status\n")
-    sys.stderr.write("   • ingest_documents (supports paths, skip_graph, nodeDetails, all 13 data sources)\n")
+    sys.stderr.write("   • ingest_documents (supports paths, skip_graph, enable_sync, nodeDetails, all 13 data sources)\n")
     sys.stderr.write("   • search_documents\n") 
     sys.stderr.write("   • query_documents\n")
     sys.stderr.write("   • test_with_sample\n")

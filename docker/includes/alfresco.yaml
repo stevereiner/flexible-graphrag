@@ -40,6 +40,8 @@ services:
         -Dcsrf.filter.enabled=false
         -Daos.baseUrlOverwrite=http://localhost:8080/alfresco/aos
         -Dmessaging.broker.url="failover:(nio://activemq:61616)?timeout=3000&jms.useCompression=true"
+        -Dmessaging.subsystem.autoStart=true
+        -Drepo.event2.enabled=true    
         -Ddeployment.method=DOCKER_COMPOSE
         -DlocalTransform.core-aio.url=http://transform-core-aio:8090/
         -XX:MinRAMPercentage=50
@@ -145,8 +147,8 @@ services:
     ports:
       - "8161:8161" # Web Console
       #- "5672:5672" # AMQP
-      #- "61616:61616" # OpenWire
-      #- "61613:61613" # STOMP
+      - "61616:61616" # OpenWire
+      - "61613:61613" # STOMP - Required for Alfresco event monitoring
     healthcheck:
       test: ["CMD", "/opt/activemq/bin/activemq", "query", "--objname", "type=Broker,brokerName=*,service=Health", "|", "grep", "Good"]
       interval: 10s

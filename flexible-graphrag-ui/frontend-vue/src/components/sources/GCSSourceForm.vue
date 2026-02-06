@@ -16,7 +16,8 @@
     />
     
     <v-text-field
-      v-model="prefix"
+      :model-value="localPrefix"
+      @update:model-value="handlePrefixChange"
       label="Prefix (Optional)"
       variant="outlined"
       class="mb-2"
@@ -32,10 +33,21 @@
       variant="outlined"
       class="mb-2"
       placeholder='{"type": "service_account", "project_id": "...", ...}'
-      hint="JSON service account key (required)"
+      hint="JSON service account key (includes project_id)"
       persistent-hint
       rows="4"
       required
+    />
+    
+    <v-text-field
+      :model-value="localPubsubSubscription"
+      @update:model-value="handlePubsubSubscriptionChange"
+      label="Pub/Sub Subscription (Optional)"
+      variant="outlined"
+      class="mb-2"
+      placeholder="gcs-notifications-sub"
+      hint="Pub/Sub subscription name for real-time change detection (leave empty for periodic polling)"
+      persistent-hint
     />
   </BaseSourceForm>
 </template>
@@ -57,14 +69,33 @@ export default defineComponent({
     credentials: {
       type: String,
       default: ''
+    },
+    prefix: {
+      type: String,
+      default: ''
+    },
+    pubsubSubscription: {
+      type: String,
+      default: ''
     }
   },
   emits: [
     'update:bucketName', 'update:credentials', 
+    'update:prefix', 'update:pubsubSubscription',
     'configuration-change', 'validation-change'
   ],
   setup(props, { emit }) {
-    const prefix = ref('');
+    const localPrefix = ref(props.prefix);
+    const localPubsubSubscription = ref(props.pubsubSubscription);
+
+    // Sync local state with props
+    watch(() => props.prefix, (newVal) => {
+      localPrefix.value = newVal;
+    });
+
+    watch(() => props.pubsubSubscription, (newVal) => {
+      localPubsubSubscription.value = newVal;
+    });
 
     const isValid = computed(() => {
       return props.bucketName.trim() !== '' && 
@@ -74,7 +105,8 @@ export default defineComponent({
     const config = computed(() => ({
       bucket_name: props.bucketName,
       credentials: props.credentials,
-      prefix: prefix.value || undefined
+      prefix: localPrefix.value || undefined,
+      pubsub_subscription: localPubsubSubscription.value || undefined
     }));
 
     // Emit validation and configuration changes
@@ -91,10 +123,23 @@ export default defineComponent({
       emit('update:credentials', value);
     };
 
+    const handlePrefixChange = (value: string) => {
+      localPrefix.value = value;
+      emit('update:prefix', value);
+    };
+
+    const handlePubsubSubscriptionChange = (value: string) => {
+      localPubsubSubscription.value = value;
+      emit('update:pubsubSubscription', value);
+    };
+
     return {
-      prefix,
+      localPrefix,
+      localPubsubSubscription,
       handleBucketNameChange,
       handleCredentialsChange,
+      handlePrefixChange,
+      handlePubsubSubscriptionChange,
     };
   },
 });

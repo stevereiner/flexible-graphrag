@@ -201,7 +201,10 @@ class FlexibleGraphRAGBackend:
         if file_progress:
             status_update["individual_files"] = file_progress
         
-        PROCESSING_STATUS[processing_id] = status_update
+        # Update existing status dict instead of replacing it (preserves documents field)
+        existing = PROCESSING_STATUS.get(processing_id, {})
+        existing.update(status_update)
+        PROCESSING_STATUS[processing_id] = existing
         if total_files > 0:
             # Handle both in-progress (0-based) and completion (actual count) scenarios
             if status == "completed" or files_completed >= total_files:
@@ -316,15 +319,22 @@ class FlexibleGraphRAGBackend:
             )
     
     async def _process_modular_data_source(self, processing_id: str, data_source: str, config_key: str, 
-                                         display_name: str, connect_message: str, process_message: str, **kwargs):
+                                         display_name: str, connect_message: str, process_message: str, 
+                                         config_id: str = None, skip_graph: bool = False, **kwargs):
         """Generic method to process modular data sources with proper progress tracking"""
         # Get configuration
         config = kwargs.get(config_key)
         if not config:
             raise ValueError(f"{data_source.title()} configuration is required for {data_source} data source")
         
-        # Get skip_graph flag from kwargs
-        skip_graph = kwargs.get('skip_graph', False)
+        # DEBUG: Log skip_graph extraction
+        logger.info(f"=== _process_modular_data_source DEBUG ===")
+        logger.info(f"  data_source: {data_source}")
+        logger.info(f"  skip_graph parameter (explicit): {skip_graph} (type: {type(skip_graph)})")
+        logger.info(f"  kwargs keys: {list(kwargs.keys())}")
+        logger.info(f"  'skip_graph' in kwargs: {'skip_graph' in kwargs}")
+        logger.info(f"  config_id: {config_id}")
+        logger.info(f"=== END _process_modular_data_source DEBUG ===")
         
         # Log the config for debugging
         logger.info(f"Processing {data_source} with config: {config}")
@@ -377,10 +387,14 @@ class FlexibleGraphRAGBackend:
             status_callback=status_callback
         )
         
+        # Store documents in PROCESSING_STATUS for document_state creation
+        PROCESSING_STATUS[processing_id]["documents"] = documents
+        logger.info(f"Stored {len(documents)} documents in PROCESSING_STATUS for incremental sync (data_source={data_source})")
+        
         # Store data source type for completion message
         PROCESSING_STATUS[processing_id]["data_source"] = data_source
         
-        await self.system._process_documents_direct(documents, processing_id=processing_id, status_callback=status_callback, skip_graph=skip_graph)
+        await self.system._process_documents_direct(documents, processing_id=processing_id, status_callback=status_callback, skip_graph=skip_graph, config_id=config_id)
     
     def _update_file_progress(self, processing_id: str, file_index: int, status: str = None, 
                              progress: int = None, phase: str = None, message: str = None, error: str = None):
@@ -734,11 +748,12 @@ class FlexibleGraphRAGBackend:
     
     # Core business logic methods
     
-    async def ingest_documents(self, data_source: str = None, paths: List[str] = None, skip_graph: bool = False, **kwargs) -> Dict[str, Any]:
+    async def ingest_documents(self, data_source: str = None, paths: List[str] = None, skip_graph: bool = False, config_id: str = None, **kwargs) -> Dict[str, Any]:
         """Start async document ingestion and return processing ID
         
         Args:
             skip_graph: If True, skip knowledge graph extraction for this ingest (temporary, doesn't persist)
+            config_id: Optional stable config_id for incremental sync (generates stable doc_id format)
         """
         processing_id = self._create_processing_id()
         
@@ -751,7 +766,7 @@ class FlexibleGraphRAGBackend:
         )
         
         # Start background task
-        asyncio.create_task(self._process_documents_async(processing_id, data_source, paths, skip_graph, **kwargs))
+        asyncio.create_task(self._process_documents_async(processing_id, data_source, paths, skip_graph, config_id, **kwargs))
         
         estimated_time = self._estimate_processing_time(data_source, paths)
         
@@ -762,7 +777,7 @@ class FlexibleGraphRAGBackend:
             "estimated_time": estimated_time
         }
     
-    async def _process_documents_async(self, processing_id: str, data_source: str = None, paths: List[str] = None, skip_graph: bool = False, **kwargs):
+    async def _process_documents_async(self, processing_id: str, data_source: str = None, paths: List[str] = None, skip_graph: bool = False, config_id: str = None, **kwargs):
         """Background task for document processing"""
         try:
             data_source = data_source or self.settings.data_source
@@ -770,6 +785,10 @@ class FlexibleGraphRAGBackend:
             # Log skip_graph flag if set
             if skip_graph:
                 logger.info(f"skip_graph=True for processing_id={processing_id} - Knowledge graph extraction will be skipped for this ingest")
+            
+            # Log config_id if set (for stable doc_id)
+            if config_id:
+                logger.info(f"config_id={config_id} for processing_id={processing_id} - Using stable doc_id format for incremental sync")
             
             # Check for cancellation before starting
             if self._is_processing_cancelled(processing_id):
@@ -783,7 +802,9 @@ class FlexibleGraphRAGBackend:
             )
             
             if data_source == "filesystem":
-                file_paths = paths or self.settings.source_paths
+                # Extract filesystem_config from kwargs if provided (used by detectors)
+                filesystem_config = kwargs.get('filesystem_config', {})
+                file_paths = paths or filesystem_config.get('paths') or self.settings.source_paths
                 if not file_paths:
                     self._update_processing_status(
                         processing_id, 
@@ -896,7 +917,14 @@ class FlexibleGraphRAGBackend:
                         message="Documents loaded, starting pipeline processing..."
                     )
                 
-                await self.system._process_documents_direct(documents, processing_id=processing_id, status_callback=filesystem_status_callback, skip_graph=skip_graph)
+                # Store documents in PROCESSING_STATUS for document_state creation
+                PROCESSING_STATUS[processing_id]["documents"] = documents
+                if config_id:
+                    logger.info(f"Stored {len(documents)} documents in PROCESSING_STATUS for incremental sync (data_source=filesystem, config_id={config_id})")
+                else:
+                    logger.info(f"Stored {len(documents)} documents in PROCESSING_STATUS for one-time ingestion (data_source=filesystem)")
+                
+                await self.system._process_documents_direct(documents, processing_id=processing_id, status_callback=filesystem_status_callback, skip_graph=skip_graph, config_id=config_id)
                 
             elif data_source == "cmis":
                 self._update_processing_status(
@@ -938,7 +966,11 @@ class FlexibleGraphRAGBackend:
                     processing_id=processing_id,
                     status_callback=lambda **cb_kwargs: self._update_processing_status(**cb_kwargs)
                 )
-                await self.system._process_documents_direct(documents, processing_id=processing_id, status_callback=lambda **cb_kwargs: self._update_processing_status(**cb_kwargs), skip_graph=skip_graph)
+                
+                # Store documents in PROCESSING_STATUS for document_state creation
+                PROCESSING_STATUS[processing_id]["documents"] = documents
+                
+                await self.system._process_documents_direct(documents, processing_id=processing_id, status_callback=lambda **cb_kwargs: self._update_processing_status(**cb_kwargs), skip_graph=skip_graph, config_id=config_id)
                 
             elif data_source == "alfresco":
                 self._update_processing_status(
@@ -980,7 +1012,11 @@ class FlexibleGraphRAGBackend:
                     processing_id=processing_id,
                     status_callback=lambda **cb_kwargs: self._update_processing_status(**cb_kwargs)
                 )
-                await self.system._process_documents_direct(documents, processing_id=processing_id, status_callback=lambda **cb_kwargs: self._update_processing_status(**cb_kwargs), skip_graph=skip_graph)
+                
+                # Store documents in PROCESSING_STATUS for document_state creation
+                PROCESSING_STATUS[processing_id]["documents"] = documents
+                
+                await self.system._process_documents_direct(documents, processing_id=processing_id, status_callback=lambda **cb_kwargs: self._update_processing_status(**cb_kwargs), skip_graph=skip_graph, config_id=config_id)
                 
             elif data_source == "web":
                 # Initialize progress tracking for web source
@@ -1037,7 +1073,11 @@ class FlexibleGraphRAGBackend:
                     processing_id=processing_id,
                     status_callback=web_status_callback
                 )
-                await self.system._process_documents_direct(documents, processing_id=processing_id, status_callback=web_status_callback, skip_graph=skip_graph)
+                
+                # Store documents in PROCESSING_STATUS for document_state creation
+                PROCESSING_STATUS[processing_id]["documents"] = documents
+                
+                await self.system._process_documents_direct(documents, processing_id=processing_id, status_callback=web_status_callback, skip_graph=skip_graph, config_id=config_id)
                 
             elif data_source == "youtube":
                 # Initialize progress tracking for YouTube source
@@ -1108,7 +1148,11 @@ class FlexibleGraphRAGBackend:
                     processing_id=processing_id,
                     status_callback=youtube_status_callback
                 )
-                await self.system._process_documents_direct(documents, processing_id=processing_id, status_callback=youtube_status_callback, skip_graph=skip_graph)
+                
+                # Store documents in PROCESSING_STATUS for document_state creation
+                PROCESSING_STATUS[processing_id]["documents"] = documents
+                
+                await self.system._process_documents_direct(documents, processing_id=processing_id, status_callback=youtube_status_callback, skip_graph=skip_graph, config_id=config_id)
                 
             elif data_source == "wikipedia":
                 # Initialize progress tracking for Wikipedia source
@@ -1179,7 +1223,11 @@ class FlexibleGraphRAGBackend:
                     processing_id=processing_id,
                     status_callback=wikipedia_status_callback
                 )
-                await self.system._process_documents_direct(documents, processing_id=processing_id, status_callback=wikipedia_status_callback, skip_graph=skip_graph)
+                
+                # Store documents in PROCESSING_STATUS for document_state creation
+                PROCESSING_STATUS[processing_id]["documents"] = documents
+                
+                await self.system._process_documents_direct(documents, processing_id=processing_id, status_callback=wikipedia_status_callback, skip_graph=skip_graph, config_id=config_id)
                 
             elif data_source == "s3":
                 # Initialize progress tracking for S3 source
@@ -1244,7 +1292,11 @@ class FlexibleGraphRAGBackend:
                     processing_id=processing_id,
                     status_callback=s3_status_callback
                 )
-                await self.system._process_documents_direct(documents, processing_id=processing_id, status_callback=s3_status_callback, skip_graph=skip_graph)
+                
+                # Store documents in PROCESSING_STATUS for document_state creation
+                PROCESSING_STATUS[processing_id]["documents"] = documents
+                
+                await self.system._process_documents_direct(documents, processing_id=processing_id, status_callback=s3_status_callback, skip_graph=skip_graph, config_id=config_id)
                 
             elif data_source == "gcs":
                 gcs_config = kwargs.get('gcs_config', {})
@@ -1256,6 +1308,8 @@ class FlexibleGraphRAGBackend:
                     display_name=bucket_name,
                     connect_message="Connecting to Google Cloud Storage...",
                     process_message="Processing GCS documents...",
+                    config_id=config_id,
+                    skip_graph=skip_graph,  # Pass explicitly as named parameter
                     **kwargs
                 )
                 
@@ -1281,6 +1335,8 @@ class FlexibleGraphRAGBackend:
                     display_name=display_name,
                     connect_message="Connecting to Azure Blob Storage...",
                     process_message="Processing Azure Blob Storage documents...",
+                    config_id=config_id,
+                    skip_graph=skip_graph,  # Pass explicitly as named parameter
                     **kwargs
                 )
                 
@@ -1308,6 +1364,8 @@ class FlexibleGraphRAGBackend:
                     display_name=display_name,
                     connect_message="Connecting to Microsoft OneDrive...",
                     process_message="Processing OneDrive documents...",
+                    config_id=config_id,
+                    skip_graph=skip_graph,  # Pass explicitly as named parameter
                     **kwargs
                 )
                 
@@ -1338,6 +1396,8 @@ class FlexibleGraphRAGBackend:
                     display_name=display_name,
                     connect_message="Connecting to Microsoft SharePoint...",
                     process_message="Processing SharePoint documents...",
+                    config_id=config_id,
+                    skip_graph=skip_graph,  # Pass explicitly as named parameter
                     **kwargs
                 )
                 
@@ -1351,6 +1411,8 @@ class FlexibleGraphRAGBackend:
                     display_name=folder_id,
                     connect_message="Connecting to Box...",
                     process_message="Processing Box documents...",
+                    config_id=config_id,
+                    skip_graph=skip_graph,  # Pass explicitly as named parameter
                     **kwargs
                 )
                 
@@ -1369,6 +1431,8 @@ class FlexibleGraphRAGBackend:
                     display_name=display_name,
                     connect_message="Connecting to Google Drive...",
                     process_message="Processing Google Drive documents...",
+                    config_id=config_id,
+                    skip_graph=skip_graph,  # Pass explicitly as named parameter
                     **kwargs
                 )
                 
@@ -1456,10 +1520,39 @@ class FlexibleGraphRAGBackend:
         logger.info(f"Q&A query started at {start_time.strftime('%H:%M:%S.%f')[:-3]} - Query: '{query}'")
         
         try:
+            # Ensure Weaviate async client is connected before Q&A query
+            if self.system.vector_store and type(self.system.vector_store).__name__ == "WeaviateVectorStore":
+                if hasattr(self.system.vector_store, '_aclient') and self.system.vector_store._aclient is not None:
+                    if not self.system.vector_store._aclient.is_connected():
+                        await self.system.vector_store._aclient.connect()
+                        logger.info("Connected Weaviate async client for Q&A query")
+            
             query_engine = self.system.get_query_engine()
             
             # Use async method directly (nest_asyncio.apply() called at module level)
-            response = await query_engine.aquery(query)
+            try:
+                response = await query_engine.aquery(query)
+            except Exception as e:
+                error_msg = str(e)
+                # Handle index/collection not found errors gracefully
+                if ('index_not_found_exception' in error_msg or 
+                    'no such index' in error_msg or 
+                    "doesn't exist" in error_msg or
+                    'Not found' in error_msg or
+                    'could not find class' in error_msg or  # Weaviate collection not found
+                    'NotFoundError' in str(type(e))):
+                    logger.warning(f"Collection/Index not found during Q&A query: {error_msg}")
+                    end_time = datetime.now()
+                    duration = (end_time - start_time).total_seconds()
+                    return {
+                        "success": True,  # Don't show as error in UI
+                        "answer": "No documents have been indexed yet.",
+                        "query_time": f"{duration:.3f}s",
+                        "sources": []
+                    }
+                else:
+                    # Re-raise other exceptions
+                    raise
             
             end_time = datetime.now()
             duration = (end_time - start_time).total_seconds()
@@ -1512,8 +1605,29 @@ class FlexibleGraphRAGBackend:
             query_engine = self.system.get_query_engine()
             
             # Use async method directly (nest_asyncio.apply() called at module level)
-            response = await query_engine.aquery(query)
-            
+            try:
+                response = await query_engine.aquery(query)
+            except Exception as e:
+                error_msg = str(e)
+                # Handle index/collection not found errors gracefully
+                if ('index_not_found_exception' in error_msg or 
+                    'no such index' in error_msg or 
+                    "doesn't exist" in error_msg or
+                    'Not found' in error_msg or
+                    'NotFoundError' in str(type(e))):
+                    logger.warning(f"Collection/Index not found during document query: {error_msg}")
+                    end_time = datetime.now()
+                    duration = (end_time - start_time).total_seconds()
+                    return {
+                        "success": True,  # Don't show as error in UI
+                        "answer": "No documents have been indexed yet.",
+                        "query_time": f"{duration:.3f}s",
+                        "sources": []
+                    }
+                else:
+                    # Re-raise other exceptions
+                    raise
+
             end_time = datetime.now()
             duration = (end_time - start_time).total_seconds()
             answer = str(response)
@@ -1697,6 +1811,19 @@ class FlexibleGraphRAGBackend:
         has_graph = str(self.settings.graph_db) != "none" and self.settings.enable_knowledge_graph
         has_search = str(self.settings.search_db) != "none"
         
+        # Map database names to proper capitalization
+        db_name_map = {
+            "opensearch": "OpenSearch",
+            "elasticsearch": "Elasticsearch",
+            "qdrant": "Qdrant",
+            "chroma": "Chroma",
+            "neo4j": "Neo4j",
+            "kuzu": "Kuzu",
+            "falkordb": "FalkorDB",
+            "nebula": "NebulaGraph",
+            "bm25": "BM25"
+        }
+        
         # Build feature list
         features = []
         if has_vector:
@@ -1704,10 +1831,9 @@ class FlexibleGraphRAGBackend:
         if has_graph:
             features.append("knowledge graph")
         if has_search:
-            if self.settings.search_db == "bm25":
-                features.append("BM25 search")
-            else:
-                features.append(f"{self.settings.search_db} search")
+            search_db = str(self.settings.search_db).lower()
+            search_name = db_name_map.get(search_db, search_db.title())
+            features.append(f"{search_name} search")
         
         # Create appropriate message
         if features:

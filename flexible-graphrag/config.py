@@ -300,8 +300,8 @@ an aristocratic family that rules the planet Caladan, the rainy planet, since 10
                     "username": os.getenv("OPENSEARCH_USERNAME"),
                     "password": os.getenv("OPENSEARCH_PASSWORD"),
                     "embedding_field": "embedding",
-                    "text_field": "content",
-                    "search_pipeline": "hybrid-search-pipeline"
+                    "text_field": "content"
+                    # "search_pipeline": "hybrid-search-pipeline"  # Optional - must be created via scripts/create_opensearch_pipeline.py
                 }
             elif self.vector_db == VectorDBType.CHROMA:
                 self.vector_db_config = {

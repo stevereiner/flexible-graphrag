@@ -82,7 +82,7 @@ class GCSSource(BaseDataSource):
         reader_kwargs = {
             "bucket": self.bucket,
             "file_extractor": file_extractor,
-            "recursive": False,  # Don't recursively descend into subdirectories
+            "recursive": True,  # Recursively descend into subdirectories to find all files
         }
         
         # Use 'prefix' parameter (not 'key') to filter objects in the bucket
@@ -95,7 +95,7 @@ class GCSSource(BaseDataSource):
         elif self.service_account_key_path:
             reader_kwargs["service_account_key_path"] = self.service_account_key_path
         
-        logger.info(f"Initializing GCSReader with bucket={self.bucket}, prefix={self.prefix or '(root)'}, recursive=False, has_credentials={bool(self.service_account_key)}")
+        logger.info(f"Initializing GCSReader with bucket={self.bucket}, prefix={self.prefix or '(root)'}, recursive=True, has_credentials={bool(self.service_account_key)}")
         reader = GCSReader(**reader_kwargs)
         
         return reader, passthrough
@@ -176,7 +176,19 @@ class GCSSource(BaseDataSource):
                 logger.info(f"Calling GCSReader.load_data() for bucket: {self.bucket}")
                 placeholder_docs = reader.load_data()
                 logger.info(f"GCSReader.load_data() returned {len(placeholder_docs) if placeholder_docs else 0} documents")
+            except ValueError as ve:
+                # GCSReader raises ValueError when no files match the criteria
+                # This is not an error - just means no files to process right now
+                # The incremental detector will handle discovery via periodic refresh
+                logger.warning(f"GCS initial scan found no matching files")
+                logger.info(f"  Bucket: {self.bucket}, Prefix: '{self.prefix or '(none)'}', Recursive: {reader_kwargs.get('recursive', False)}")
+                logger.info(f"  Files will be discovered via incremental detector's periodic refresh")
+                logger.debug(f"  Exception details: {ve}")
+                if progress_callback:
+                    progress_callback(1, 1, "No files found - incremental updates will handle discovery", "")
+                return []  # Return empty list, don't fail the entire ingest
             except Exception as e:
+                # Other exceptions are real errors
                 logger.error(f"Error loading data from GCS: {str(e)}", exc_info=True)
                 raise
             
@@ -199,21 +211,52 @@ class GCSSource(BaseDataSource):
                     current_file=bucket_display
                 )
             
+            # CRITICAL: GCSReader returns file_path with bucket/object_key format
+            # But DocumentProcessor will change it to temp path, so we need to map back
+            # Extract actual GCS paths and file names BEFORE processing
+            gcs_path_mapping = {}  # Map file_name -> correct_gcs_path
+            for placeholder_doc in placeholder_docs:
+                # GCSReader stores file_path as 'bucket/object_key'
+                # Example: 'stevereiner-gcs-bucket-1/sample-docs/cmispress.txt'
+                gcs_full_path = placeholder_doc.metadata.get('file_path', '')
+                file_name = placeholder_doc.metadata.get('file_name', '')
+                
+                if gcs_full_path and file_name:
+                    # Map by filename so we can find it after DocumentProcessor changes file_path
+                    gcs_path_mapping[file_name] = gcs_full_path
+                    logger.debug(f"GCS path mapping: {file_name} -> {gcs_full_path}")
+            
+            logger.info(f"Extracted {len(gcs_path_mapping)} GCS path mappings")
+            
             # Process with DocumentProcessor (downloads from GCS and parses)
             parser_type = get_parser_type_from_env()
             doc_processor = DocumentProcessor(parser_type=parser_type)
             
             documents = await doc_processor.process_documents_from_metadata(placeholder_docs)
             
-            # Add GCS metadata
+            # Add GCS metadata and CORRECT the file_path to use bucket/object_key format
             for doc in documents:
-                doc.metadata.update({
+                # Look up the correct GCS path using file_name
+                file_name = doc.metadata.get('file_name', '')
+                correct_gcs_path = gcs_path_mapping.get(file_name, None)
+                
+                # Update metadata with correct GCS path and metadata
+                update_dict = {
                     "source": "gcs",
                     "bucket": self.bucket,
                     "prefix": self.prefix,
                     "project_id": self.project_id,
                     "source_type": "gcs_object"
-                })
+                }
+                
+                # CRITICAL: Override file_path with correct GCS path (bucket/object_key format)
+                if correct_gcs_path:
+                    update_dict["file_path"] = correct_gcs_path
+                    logger.debug(f"Corrected file_path for '{file_name}' to '{correct_gcs_path}'")
+                else:
+                    logger.warning(f"Could not find GCS path mapping for file_name: {file_name}")
+                
+                doc.metadata.update(update_dict)
             
             if progress_callback:
                 progress_callback(

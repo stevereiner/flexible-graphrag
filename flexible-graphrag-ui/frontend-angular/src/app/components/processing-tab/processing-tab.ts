@@ -49,6 +49,7 @@ export class ProcessingTabComponent implements OnInit, OnChanges {
   successMessage = '';
   error = '';
   skipGraph = false;  // Per-ingest flag to skip knowledge graph extraction
+  enableSync = false; // Enable incremental sync monitoring for this datasource
 
   // Expose Math to template
   Math = Math;
@@ -486,6 +487,12 @@ export class ProcessingTabComponent implements OnInit, OnChanges {
         console.log('✓ skip_graph flag set to true - Knowledge graph extraction will be skipped');
       }
       
+      // Add enable_sync flag to processing data
+      if (this.enableSync) {
+        processingData.enable_sync = true;
+        console.log('✓ enable_sync flag set to true - Incremental updates will be enabled');
+      }
+      
       this.apiService.ingestDocuments(processingData).subscribe({
         next: (response: AsyncProcessingResponse) => {
           console.log('Processing started:', response);
@@ -584,7 +591,7 @@ export class ProcessingTabComponent implements OnInit, OnChanges {
             console.log('Processing completed successfully');
             this.isProcessing = false;
             this.currentProcessingId = null;
-            this.successMessage = status.message || 'Successfully ingested document(s)! Vector Index And Knowledge Graph And Elasticsearch Search ready.';
+            this.successMessage = status.message || 'Successfully ingested document(s)!';
             clearInterval(pollInterval);
           } else if (status.status === 'failed') {
             console.log('Processing failed');

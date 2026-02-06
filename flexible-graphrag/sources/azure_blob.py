@@ -151,20 +151,17 @@ class AzureBlobSource(BaseDataSource):
         """
         try:
             from llama_index.readers.azstorage_blob import AzStorageBlobReader
+            from document_processor import DocumentProcessor, get_parser_type_from_env
             
             logger.info(f"Loading documents from Azure Blob Storage container '{self.container_name}' with progress tracking")
             
             if progress_callback:
                 progress_callback(0, 1, f"Connecting to Azure Blob Storage container: {self.container_name}")
             
-            # Get DocumentProcessor for immediate processing
-            doc_processor = self._get_document_processor()
-            
-            # Create PassthroughExtractor with BOTH progress callback AND doc_processor
-            # This allows PassthroughExtractor to process files immediately as they're downloaded
+            # Create PassthroughExtractor WITHOUT doc_processor (return placeholders)
+            # We'll process all files together after correcting paths
             extractor = PassthroughExtractor(
-                progress_callback=progress_callback,
-                doc_processor=doc_processor  # Process files immediately!
+                progress_callback=progress_callback
             )
             
             # Define file extractor mapping once
@@ -201,17 +198,56 @@ class AzureBlobSource(BaseDataSource):
             
             # Use AzStorageBlobReader to load and process documents
             # PassthroughExtractor will process each file immediately and return processed docs
-            documents = reader.load_data()
-            logger.info(f"Loaded and processed {len(documents)} Azure Blob files from container: {self.container_name}")
+            placeholder_docs = reader.load_data()
+            logger.info(f"Loaded {len(placeholder_docs)} Azure Blob files from container: {self.container_name}")
             
-            # Add Azure Blob Storage metadata to processed documents
+            # CRITICAL: AzStorageBlobReader returns file_path with blob_name
+            # But DocumentProcessor will change it to temp path, so we need to map back
+            # Extract actual Azure paths and file names BEFORE processing
+            azure_path_mapping = {}  # Map file_name -> correct_azure_path
+            for placeholder_doc in placeholder_docs:
+                # AzStorageBlobReader stores blob name in metadata['file_path']
+                # Example: 'cmispress.txt' or 'folder/cmispress.txt' (relative to container)
+                blob_name = placeholder_doc.metadata.get('file_path', '')
+                file_name = placeholder_doc.metadata.get('file_name', '')
+                
+                if blob_name and file_name:
+                    # Construct full Azure path (container/blob_name format)
+                    azure_full_path = f"{self.container_name}/{blob_name}"
+                    # Map by filename so we can find it after DocumentProcessor changes file_path
+                    azure_path_mapping[file_name] = azure_full_path
+                    logger.debug(f"Azure path mapping: {file_name} -> {azure_full_path}")
+            
+            logger.info(f"Extracted {len(azure_path_mapping)} Azure path mappings")
+            
+            # Now process the documents with DocumentProcessor
+            parser_type = get_parser_type_from_env()
+            doc_processor = DocumentProcessor(parser_type=parser_type)
+            
+            documents = await doc_processor.process_documents_from_metadata(placeholder_docs)
+            
+            # Add Azure Blob Storage metadata to processed documents and CORRECT file_path
             for doc in documents:
-                doc.metadata.update({
+                # Look up the correct Azure path using file_name
+                file_name = doc.metadata.get('file_name', '')
+                correct_azure_path = azure_path_mapping.get(file_name, None)
+                
+                # Update metadata with correct Azure path and metadata
+                update_dict = {
                     "source": "azure_blob",
                     "container_name": self.container_name,
                     "account_name": self.account_name,
                     "source_type": "azure_blob_object"
-                })
+                }
+                
+                # CRITICAL: Override file_path with correct Azure path (container/blob_name format)
+                if correct_azure_path:
+                    update_dict["file_path"] = correct_azure_path
+                    logger.debug(f"Corrected file_path for '{file_name}' to '{correct_azure_path}'")
+                else:
+                    logger.warning(f"Could not find Azure path mapping for file_name: {file_name}")
+                
+                doc.metadata.update(update_dict)
             
             logger.info(f"AzureBlobSource processed {len(documents)} documents from Azure Blob Storage")
             return (len(documents), documents)  # Return tuple: (file_count, documents)

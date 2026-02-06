@@ -162,6 +162,51 @@ class S3Source(BaseDataSource):
             logger.error(f"Error loading documents from S3 bucket '{self.bucket_name}': {str(e)}")
             raise
     
+    def _get_s3_metadata(self) -> Dict[str, Dict]:
+        """
+        Fetch S3 object metadata (LastModified, ETag, Size, etc.) for all objects.
+        Returns dict mapping object key -> metadata dict.
+        """
+        try:
+            import boto3
+            
+            # Create S3 client
+            session_kwargs = {}
+            if self.aws_access_key_id and self.aws_secret_access_key:
+                session_kwargs['aws_access_key_id'] = self.aws_access_key_id
+                session_kwargs['aws_secret_access_key'] = self.aws_secret_access_key
+            session_kwargs['region_name'] = self.region_name
+            
+            s3_client = boto3.client('s3', **session_kwargs)
+            
+            # List all objects and collect metadata
+            metadata_map = {}
+            paginator = s3_client.get_paginator('list_objects_v2')
+            
+            for page in paginator.paginate(Bucket=self.bucket_name, Prefix=self.prefix or ''):
+                for obj in page.get('Contents', []):
+                    key = obj['Key']
+                    
+                    # Skip folders
+                    if key.endswith('/'):
+                        continue
+                    
+                    # Extract metadata
+                    metadata_map[key] = {
+                        'last_modified': obj['LastModified'].isoformat(),
+                        'etag': obj['ETag'].strip('"'),
+                        'size': obj['Size'],
+                        's3_key': key,
+                        's3_uri': f"s3://{self.bucket_name}/{key}"
+                    }
+            
+            logger.info(f"Fetched S3 metadata for {len(metadata_map)} objects")
+            return metadata_map
+            
+        except Exception as e:
+            logger.warning(f"Could not fetch S3 metadata: {e}. Document state will have limited metadata.")
+            return {}
+    
     async def get_documents_with_progress(self, progress_callback=None) -> List[Document]:
         """
         Retrieve documents from Amazon S3 with progress tracking.
@@ -185,6 +230,9 @@ class S3Source(BaseDataSource):
                 )
             
             logger.info(f"Loading documents from S3 bucket: {self.bucket_name} with progress tracking")
+            
+            # Fetch S3 object metadata first
+            s3_metadata_map = self._get_s3_metadata()
             
             # Create S3Reader with progress-enabled passthrough extractor
             reader, passthrough = self._create_s3_reader(progress_callback=progress_callback)
@@ -247,15 +295,35 @@ class S3Source(BaseDataSource):
             
             documents = await doc_processor.process_documents_from_metadata(placeholder_docs)
             
-            # Add S3 metadata
+            # Add S3 metadata including object-specific metadata (LastModified, ETag, etc.)
             for doc in documents:
-                doc.metadata.update({
+                # Extract S3 key from file_path (format: "bucket_name/key")
+                file_path = doc.metadata.get('file_path', '')
+                # Remove bucket prefix to get the key
+                s3_key = file_path.replace(f"{self.bucket_name}/", "", 1) if file_path.startswith(f"{self.bucket_name}/") else file_path
+                
+                # Base S3 metadata
+                s3_meta = {
                     "source": "s3",
                     "bucket_name": self.bucket_name,
                     "prefix": self.prefix,
                     "region": self.region_name,
                     "source_type": "s3_object"
-                })
+                }
+                
+                # Add object-specific metadata if available
+                if s3_key in s3_metadata_map:
+                    obj_meta = s3_metadata_map[s3_key]
+                    s3_meta.update({
+                        "s3_key": obj_meta['s3_key'],
+                        "s3_uri": obj_meta['s3_uri'],
+                        "last_modified": obj_meta['last_modified'],
+                        "etag": obj_meta['etag'],
+                        "modified_at": obj_meta['last_modified']  # Alias for document_state
+                    })
+                    logger.debug(f"Added S3 metadata for {s3_key}: last_modified={obj_meta['last_modified']}")
+                
+                doc.metadata.update(s3_meta)
             
             if progress_callback:
                 progress_callback(

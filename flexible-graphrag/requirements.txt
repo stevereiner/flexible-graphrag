@@ -119,4 +119,16 @@ azure-storage-blob  # Azure SDK (used by AzStorageBlobReader)
 # # OpenLIT - Token/cost metrics (requires OpenAI 1.x)
 # openlit
 
+# Incremental Updates dependencies
+asyncpg>=0.29.0  # PostgreSQL async driver for state management
+watchdog>=4.0.0  # Filesystem change detection (MIT license)
+# boto3 already included above for S3Reader
+
+# Additional auto-sync dependencies for new detectors
+google-cloud-pubsub>=2.18.0  # GCS Pub/Sub notifications (Apache 2.0)
+azure-storage-blob-changefeed>=12.0.0b5  # Azure Blob change feed (beta, MIT license)
+# box-sdk-gen already included above for BoxReader
+msgraph-sdk  # Microsoft Graph SDK for OneDrive/SharePoint (MIT license)
+azure-identity  # Azure AD authentication for Microsoft Graph (MIT license)
+
 

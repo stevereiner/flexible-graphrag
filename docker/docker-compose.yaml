@@ -21,7 +21,7 @@ include:
    #- includes/milvus.yaml          # Milvus vector database with Attu dashboard
    #- includes/weaviate.yaml        # Weaviate vector database
    #- includes/pinecone.yaml        # Pinecone managed vector database
-   #- includes/postgres-pgvector.yaml  # PostgreSQL with pgvector extension
+   - includes/postgres-pgvector.yaml  # PostgreSQL with pgvector extension
    #- includes/lancedb.yaml         # LanceDB embedded vector database  
    - includes/elasticsearch-dev.yaml  # Elasticsearch with security disabled
    - includes/kibana-simple.yaml      # Kibana working configuration

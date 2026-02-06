@@ -11,17 +11,6 @@
 DOCUMENT_PARSER=docling
 #DOCUMENT_PARSER=llamaparse
 
-# Docling Device Configuration (only used if DOCUMENT_PARSER=docling)
-# Options:
-#   "auto" (default) - Automatically uses GPU if available, falls back to CPU
-#   "cpu" - Force CPU-only processing
-#   "cuda" - Force CUDA/GPU processing (requires CUDA-capable GPU and PyTorch with CUDA)
-#   "mps" - Force Apple Metal Performance Shaders (Mac with Apple Silicon)
-# Note: GPU processing significantly speeds up PDF/document conversion with tables
-#DOCLING_DEVICE=auto
-#DOCLING_DEVICE=cpu
-#DOCLING_DEVICE=cuda
-
 # Save parsing results to files for inspection (works for both Docling and LlamaParse)
 # When enabled, saves parsing outputs to ./parsing_output/
 # - Docling: Saves both markdown (.md) and plaintext (.txt) outputs + metadata JSON
@@ -42,39 +31,21 @@ DOCUMENT_PARSER=docling
 #PARSER_FORMAT_FOR_EXTRACTION=plaintext
 
 # =============================================================================
-# OBSERVABILITY CONFIGURATION (OpenTelemetry Traces and Metrics)
-# =============================================================================
-# Enable observability with OpenTelemetry, Prometheus, Grafana, Jaeger
-# Set to "true" to enable automatic instrumentation of LlamaIndex operations
-ENABLE_OBSERVABILITY=false
+# Docling Config
 
-# Observability Backend Mode (choose your telemetry producer)
+# Docling Device Configuration (only used if DOCUMENT_PARSER=docling)
 # Options:
-#   "openinference" - Default, trace-focused, requires spanmetrics connector for token metrics
-#   "openlit" - Alternative with built-in token metrics (gen_ai_usage_*_tokens_total)
-#   "both" - DUAL MODE (recommended!) - Best of both worlds!
-#     - OpenInference: Detailed traces with full LlamaIndex operation visibility
-#     - OpenLIT: Token metrics, cost tracking, VectorDB metrics out-of-the-box
-#     - Custom metrics: Graph extraction, retrieval, document processing
-# Recommendation: Use "both" for complete observability with all metrics
-OBSERVABILITY_BACKEND=both
-
-# OTLP (OpenTelemetry Protocol) exporter endpoint
-# Default: http://localhost:4318 (OTLP HTTP receiver)
-# For gRPC: use http://localhost:4317
-# For cloud services (SigNoz, Langfuse, etc.), use their endpoint
-OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
-
-# Service metadata for traces
-OTEL_SERVICE_NAME=flexible-graphrag
-OTEL_SERVICE_VERSION=1.0.0
-OTEL_SERVICE_NAMESPACE=llm-apps
-
-# Enable automatic LlamaIndex instrumentation (captures all LlamaIndex operations)
-# Set to "false" if you only want manual tracing with custom decorators
-ENABLE_LLAMA_INDEX_INSTRUMENTATION=true
+#   "auto" (default) - Automatically uses GPU if available, falls back to CPU
+#   "cpu" - Force CPU-only processing
+#   "cuda" - Force CUDA/GPU processing (requires CUDA-capable GPU and PyTorch with CUDA)
+#   "mps" - Force Apple Metal Performance Shaders (Mac with Apple Silicon)
+# Note: GPU processing significantly speeds up PDF/document conversion with tables
+#DOCLING_DEVICE=auto
+#DOCLING_DEVICE=cpu
+#DOCLING_DEVICE=cuda
 
 # =============================================================================
+# LlamaParse Config
 
 # LlamaParse API Key (only needed if DOCUMENT_PARSER=llamaparse)
 # Get your API key from https://cloud.llamaindex.ai/  bottom left "API Keys", then "Generate New Key"
@@ -94,6 +65,11 @@ ENABLE_LLAMA_INDEX_INSTRUMENTATION=true
 #   Other models available - check LlamaCloud for full list / credit cost
 #LLAMAPARSE_AGENT_MODEL=openai-gpt-4-1-mini
 
+
+# =============================================================================
+# Data Source Configuration
+# =============================================================================
+
 # Example configurations for different data sources:
 # WEB_CONFIG={"url": "https://example.com/page"}
 # WIKIPEDIA_CONFIG={"query": "artificial intelligence", "language": "en", "max_docs": 1}
@@ -112,6 +88,12 @@ ENABLE_LLAMA_INDEX_INSTRUMENTATION=true
 # Required: bucket_name, project_id, credentials (service account JSON as string)
 # Optional: prefix (folder path), folder_name, service_account_key_path (alternative to credentials string)
 # Note: credentials should be JSON service account key from GCP Console as a string
+
+# Google Drive Configuration
+# GOOGLE_DRIVE_CONFIG={"credentials": "{\"type\":\"service_account\",\"project_id\":\"my-project\",...}", "folder_id": "1A2B3C4D5E6F7G8H9I0J", "file_ids": ["file1-id", "file2-id"], "query": "name contains 'report'"}
+# Required: Either credentials (service account JSON string) OR credentials_path OR token_path
+# Optional: folder_id, file_ids (specific files), query (search query), credentials_path, token_path
+# Note: credentials should be service account JSON key or OAuth credentials file path
 
 # Azure Blob Storage Configuration
 # AZURE_BLOB_CONFIG={"container_name": "documents", "account_url": "https://myaccount.blob.core.windows.net", "account_name": "myaccount", "account_key": "base64key==", "prefix": "folder/"}
@@ -136,12 +118,6 @@ ENABLE_LLAMA_INDEX_INSTRUMENTATION=true
 # Client Credentials Grant (production, long-lived):
 # BOX_CONFIG={"folder_id": "0", "client_id": "abc123", "client_secret": "xyz789", "user_id": "12345678"}
 # For detailed setup instructions, see docs/DATA-SOURCE-CONFIGURATION.md
-
-# Google Drive Configuration
-# GOOGLE_DRIVE_CONFIG={"credentials": "{\"type\":\"service_account\",\"project_id\":\"my-project\",...}", "folder_id": "1A2B3C4D5E6F7G8H9I0J", "file_ids": ["file1-id", "file2-id"], "query": "name contains 'report'"}
-# Required: Either credentials (service account JSON string) OR credentials_path OR token_path
-# Optional: folder_id, file_ids (specific files), query (search query), credentials_path, token_path
-# Note: credentials should be service account JSON key or OAuth credentials file path
 
 # Sample Text for Testing (optional - overrides default Dune text)
 # SAMPLE_TEXT="Luke Skywalker is a Jedi Knight from Tatooine. His father is Darth Vader, formerly known as Anakin Skywalker."
@@ -540,3 +516,71 @@ MAX_PATHS_PER_CHUNK=20
 # 
 # OPENAI_TIMEOUT=120.0  # For OpenAI LLM requests
 # OLLAMA_TIMEOUT=300.0  # For Ollama LLM requests
+
+# ====================================================================
+# 6. INCREMENTAL UPDATES CONFIGURATION (Optional - for auto-sync monitoring)
+# ====================================================================
+
+# Enable incremental updates system (automatic monitoring and sync)
+# Set to "true" to enable auto-sync capabilities
+# Requires PostgreSQL for state management
+# Default: false (incremental updates disabled)
+ENABLE_INCREMENTAL_UPDATES=false
+
+# PostgreSQL connection for state management (required if ENABLE_INCREMENTAL_UPDATES=true)
+# Recommended: Reuse existing postgres-pgvector service on port 5433
+# Create database: flexible_graphrag_incremental (separate from pgvector database)
+# Setup: See flexible-graphrag/incremental_updates/schema.sql
+# POSTGRES_INCREMENTAL_URL=postgresql://postgres:password@localhost:5433/flexible_graphrag_incremental
+
+# Optional: Periodic refresh interval (seconds) - how often to scan datasources
+# Default: 3600 (1 hour) - datasources refresh automatically every hour
+# Individual datasources can override this via API
+# INCREMENTAL_REFRESH_INTERVAL=3600
+
+# Optional: Watchdog filesystem delay (seconds) - debounce for file changes
+# Default: 60 (1 minute) - filesystem changes are processed after 1 minute of inactivity
+# Individual datasources can override this via API
+# INCREMENTAL_WATCHDOG_DELAY=60
+
+# Note: Individual datasources created via UI "Enable Sync" checkbox can override
+# these defaults with custom refresh intervals and watchdog delays per datasource
+
+# Setup Instructions: See flexible-graphrag/incremental_updates/SETUP-GUIDE.md
+# - PostgreSQL schema setup
+# - Database creation steps
+# - Configuration details
+# - Troubleshooting guide
+
+# =============================================================================
+# 7. OBSERVABILITY CONFIGURATION (OpenTelemetry Traces and Metrics)
+# =============================================================================
+# Enable observability with OpenTelemetry, Prometheus, Grafana, Jaeger
+# Set to "true" to enable automatic instrumentation of LlamaIndex operations
+ENABLE_OBSERVABILITY=false
+
+# Observability Backend Mode (choose your telemetry producer)
+# Options:
+#   "openinference" - Default, trace-focused, requires spanmetrics connector for token metrics
+#   "openlit" - Alternative with built-in token metrics (gen_ai_usage_*_tokens_total)
+#   "both" - DUAL MODE (recommended!) - Best of both worlds!
+#     - OpenInference: Detailed traces with full LlamaIndex operation visibility
+#     - OpenLIT: Token metrics, cost tracking, VectorDB metrics out-of-the-box
+#     - Custom metrics: Graph extraction, retrieval, document processing
+# Recommendation: Use "both" for complete observability with all metrics
+OBSERVABILITY_BACKEND=both
+
+# OTLP (OpenTelemetry Protocol) exporter endpoint
+# Default: http://localhost:4318 (OTLP HTTP receiver)
+# For gRPC: use http://localhost:4317
+# For cloud services (SigNoz, Langfuse, etc.), use their endpoint
+OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
+
+# Service metadata for traces
+OTEL_SERVICE_NAME=flexible-graphrag
+OTEL_SERVICE_VERSION=1.0.0
+OTEL_SERVICE_NAMESPACE=llm-apps
+
+# Enable automatic LlamaIndex instrumentation (captures all LlamaIndex operations)
+# Set to "false" if you only want manual tracing with custom decorators
+ENABLE_LLAMA_INDEX_INSTRUMENTATION=true

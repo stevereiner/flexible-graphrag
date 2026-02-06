@@ -1,4 +1,4 @@
-from llama_index.core import VectorStoreIndex, PropertyGraphIndex, StorageContext, Settings, QueryBundle
+from llama_index.core import VectorStoreIndex, PropertyGraphIndex, StorageContext, Settings, QueryBundle, Document
 from llama_index.core.retrievers import QueryFusionRetriever
 from llama_index.retrievers.bm25 import BM25Retriever
 from llama_index.core.ingestion import IngestionPipeline
@@ -33,6 +33,7 @@ def count_extracted_entities_and_relations(nodes: List[BaseNode]) -> tuple[int, 
     """
     Count entities and relations from node metadata after extraction.
     Also sanitizes/validates entity and relation labels to prevent empty/invalid labels.
+    Also propagates doc_id and ref_doc_id from source nodes to their extracted entities AS PROPERTIES.
     
     KG_NODES_KEY contains only entity nodes (not chunks), so this gives accurate counts.
     
@@ -51,6 +52,44 @@ def count_extracted_entities_and_relations(nodes: List[BaseNode]) -> tuple[int, 
         # Get entities from this node (KG_NODES_KEY doesn't include chunks)
         entities = node.metadata.get(KG_NODES_KEY, [])
         relations = node.metadata.get(KG_RELATIONS_KEY, [])
+        
+        # Propagate doc_id and ref_doc_id from source node to all extracted entities
+        # Set as PROPERTIES (not just metadata) so they appear in Neo4j
+        for entity in entities:
+            # Add ref_doc_id from node attribute
+            ref_doc_id_value = None
+            if hasattr(node, 'ref_doc_id') and node.ref_doc_id:
+                ref_doc_id_value = node.ref_doc_id
+                # Set as property on EntityNode
+                if hasattr(entity, 'properties'):
+                    if entity.properties is None:
+                        entity.properties = {}
+                    entity.properties['ref_doc_id'] = node.ref_doc_id
+            
+            # Add doc_id - check both as node attribute and in metadata
+            doc_id_value = None
+            if hasattr(node, 'doc_id') and node.doc_id:
+                # doc_id as node attribute
+                doc_id_value = node.doc_id
+            elif 'doc_id' in node.metadata:
+                # doc_id in metadata
+                doc_id_value = node.metadata['doc_id']
+            
+            if doc_id_value:
+                # Set as property on EntityNode
+                if hasattr(entity, 'properties'):
+                    if entity.properties is None:
+                        entity.properties = {}
+                    entity.properties['doc_id'] = doc_id_value
+            
+            # Also set in metadata for backward compatibility
+            if hasattr(entity, 'metadata'):
+                if entity.metadata is None:
+                    entity.metadata = {}
+                if ref_doc_id_value:
+                    entity.metadata['ref_doc_id'] = ref_doc_id_value
+                if doc_id_value:
+                    entity.metadata['doc_id'] = doc_id_value
         
         # Sanitize entities: filter out those with empty/whitespace labels
         valid_entities = []
@@ -89,6 +128,25 @@ def count_extracted_entities_and_relations(nodes: List[BaseNode]) -> tuple[int, 
             logger.info(f"Node {i}: {len(valid_entities)} entities, {len(valid_relations)} relations in metadata (after validation)")
             logger.info(f"Node {i} metadata keys: {list(node.metadata.keys())}")
             
+            # Log ref_doc_id
+            if hasattr(node, 'ref_doc_id') and node.ref_doc_id:
+                logger.info(f"Node {i} ref_doc_id (attribute): {node.ref_doc_id}")
+            
+            # Log doc_id - check both as attribute and in metadata
+            if hasattr(node, 'doc_id') and node.doc_id:
+                logger.info(f"Node {i} doc_id (attribute): {node.doc_id}")
+            if 'doc_id' in node.metadata:
+                logger.info(f"Node {i} doc_id (metadata): {node.metadata['doc_id']}")
+            
+            # Log sample entity properties
+            if entities and len(entities) > 0:
+                sample_entity = entities[0]
+                logger.info(f"Node {i} sample entity type: {type(sample_entity).__name__}")
+                if hasattr(sample_entity, 'properties') and sample_entity.properties:
+                    logger.info(f"Node {i} sample entity properties: {sample_entity.properties}")
+                if hasattr(sample_entity, 'name'):
+                    logger.info(f"Node {i} sample entity name: {sample_entity.name}")
+            
             # Log all metadata content for analysis
             logger.info(f"Node {i} full metadata:")
             for key, value in node.metadata.items():
@@ -112,6 +170,7 @@ def count_extracted_entities_and_relations(nodes: List[BaseNode]) -> tuple[int, 
         relation_count += len(valid_relations)
     
     logger.info(f"Total: {entity_count} entities, {relation_count} relations from all {len(nodes)} nodes")
+    logger.info(f"Propagated doc_id and ref_doc_id as properties to all extracted entities")
     return entity_count, relation_count
 
 
@@ -339,10 +398,8 @@ class HybridSearchSystem:
         # Initialize database connections
         self._setup_databases()
         
-        # Initialize indexes
-        self.vector_index = None
-        self.graph_index = None
-        self.hybrid_retriever = None
+        # Initialize indexes - reconnect to existing data if databases already populated
+        self._initialize_indexes()
         
         # Track whether graph was intentionally skipped (for per-ingest skip_graph flag)
         self.graph_intentionally_skipped = False
@@ -429,6 +486,83 @@ class HybridSearchSystem:
                 f"Current config: VECTOR_DB={self.config.vector_db}, "
                 f"GRAPH_DB={self.config.graph_db}, SEARCH_DB={self.config.search_db}"
             )
+    
+    def _initialize_indexes(self):
+        """
+        Initialize indexes by reconnecting to existing databases.
+        
+        This allows search/query to work immediately without requiring
+        a prior ingestion, as long as the databases already contain data.
+        
+        Creates empty LlamaIndex indexes that connect to existing data stores:
+        - VectorStoreIndex → connects to existing vector embeddings
+        - PropertyGraphIndex → connects to existing graph nodes
+        """
+        from llama_index.core import VectorStoreIndex, StorageContext
+        from llama_index.core.indices.property_graph import PropertyGraphIndex
+        
+        logger.info("=== INITIALIZING INDEXES ===")
+        
+        # Initialize vector index (reconnect to existing data)
+        if self.vector_store is not None:
+            logger.info("Reconnecting to vector store...")
+            storage_context = StorageContext.from_defaults(vector_store=self.vector_store)
+            # Empty nodes list - just creates connection to existing data
+            self.vector_index = VectorStoreIndex(
+                nodes=[],
+                storage_context=storage_context,
+                show_progress=False
+            )
+            logger.info("  Vector index ready (connected to existing data)")
+        else:
+            logger.info("Vector index disabled")
+            self.vector_index = None
+        
+        # Initialize graph index (reconnect to existing data)
+        if self.graph_store is not None and self.config.enable_knowledge_graph:
+            logger.info("Reconnecting to graph store...")
+            # Empty nodes list - just creates connection to existing data
+            self.graph_index = PropertyGraphIndex(
+                nodes=[],
+                property_graph_store=self.graph_store,
+                llm=self.llm,
+                embed_model=self.embed_model,
+                show_progress=False
+            )
+            logger.info("  Graph index ready (connected to existing data)")
+        else:
+            logger.info("Graph index disabled")
+            self.graph_index = None
+        
+        # Initialize search index (LlamaIndex will handle index creation during first ingestion)
+        if self.search_store is not None and self.config.search_db not in [SearchDBType.NONE, SearchDBType.BM25]:
+            logger.info("Initializing search store...")
+            try:
+                # Create VectorStoreIndex - LlamaIndex will create the index structure on first add
+                search_storage_context = StorageContext.from_defaults(vector_store=self.search_store)
+                self.search_index = VectorStoreIndex([], storage_context=search_storage_context)
+                logger.info("  Search index ready (will be created on first ingestion if needed)")
+                
+            except Exception as e:
+                logger.warning(f"  Could not initialize search index: {e}")
+                self.search_index = None
+        else:
+            logger.info("Search index disabled or using BM25 (no external store)")
+            self.search_index = None
+        
+        # Hybrid retriever will be created on-demand during search
+        self.hybrid_retriever = None
+        
+        logger.info("=== INDEXES READY ===")
+        if self.vector_index and self.graph_index:
+            logger.info("System ready for search (vector + graph)")
+        elif self.vector_index:
+            logger.info("System ready for search (vector only)")
+        elif self.graph_index:
+            logger.info("System ready for search (graph only)")
+        else:
+            logger.info("System ready (search-only mode)")
+
         
         logger.info("Database connections established")
     
@@ -562,7 +696,7 @@ class HybridSearchSystem:
         # Log detailed node info after chunking
         logger.info(f"=== POST-CHUNKING: {len(nodes)} Nodes from {len(documents)} Documents ===")
         logger.info(f"  Chunk size config: {self.config.chunk_size}, overlap: {self.config.chunk_overlap}")
-        logger.info(f"  Average nodes per document: {len(nodes)/len(documents):.2f}")
+        logger.info(f"  Average nodes per document: {len(nodes)/len(documents) if len(documents) > 0 else 0:.2f}")
         
         # Sample first 5 nodes to show metadata preservation
         for i, node in enumerate(nodes[:5]):
@@ -583,49 +717,93 @@ class HybridSearchSystem:
             logger.info("Processing cancelled during node generation")
             raise RuntimeError("Processing cancelled by user")
         
-        # Step 3: Create vector index from processed nodes (if vector search enabled)
+        # Step 3: Update vector index with processed nodes (if vector search enabled)
         if self.vector_store is not None:
             vector_start_time = time.time()
             vector_store_type = type(self.vector_store).__name__
-            logger.info(f"Creating vector index from {len(nodes)} nodes using {vector_store_type}...")
+            logger.info(f"Updating vector index with {len(nodes)} nodes using {vector_store_type}...")
             _update_progress("Building vector index...", 50, current_phase="indexing")
             
-            vector_storage_context = StorageContext.from_defaults(vector_store=self.vector_store)
-            logger.info("Starting VectorStoreIndex creation - this stores embeddings in the vector database")
-            
-            # Use run_in_executor for consistent async handling like other LlamaIndex operations
-            import asyncio
-            import functools
-            
-            try:
-                loop = asyncio.get_running_loop()
-            except RuntimeError:
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-            
-            create_vector_index = functools.partial(
-                VectorStoreIndex,
-                nodes=nodes,
-                storage_context=vector_storage_context,
-                show_progress=True
-            )
-            self.vector_index = await loop.run_in_executor(None, create_vector_index)
+            # If index doesn't exist yet, create it (shouldn't happen since __init__ creates it)
+            if self.vector_index is None:
+                logger.info("Creating initial vector index...")
+                vector_storage_context = StorageContext.from_defaults(vector_store=self.vector_store)
+                
+                # Use run_in_executor for consistent async handling like other LlamaIndex operations
+                import asyncio
+                import functools
+                
+                try:
+                    loop = asyncio.get_running_loop()
+                except RuntimeError:
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                
+                create_vector_index = functools.partial(
+                    VectorStoreIndex,
+                    nodes=nodes,
+                    storage_context=vector_storage_context,
+                    show_progress=True
+                )
+                self.vector_index = await loop.run_in_executor(None, create_vector_index)
+            else:
+                # Refresh existing index with new nodes
+                logger.info("Refreshing existing vector index with new nodes...")
+                self.vector_index.refresh_ref_docs([Document(text=n.text, metadata=n.metadata) for n in nodes if hasattr(n, 'text')])
             
             vector_duration = time.time() - vector_start_time
-            logger.info(f"Vector index creation completed in {vector_duration:.2f}s using {vector_store_type}")
+            logger.info(f"Vector index update completed in {vector_duration:.2f}s using {vector_store_type}")
         else:
             logger.info("Vector search disabled - skipping vector index creation")
             _update_progress("Vector search disabled - skipping vector index...", 50, current_phase="indexing")
-            self.vector_index = None
         
         # Check for cancellation after vector index creation
         if _check_cancellation():
             logger.info("Processing cancelled during vector index creation")
             raise RuntimeError("Processing cancelled by user")
         
+        # Step 3.5: Update search index if configured (separate from vector)
+        if self.search_store is not None:
+            search_start_time = time.time()
+            search_store_type = type(self.search_store).__name__
+            logger.info(f"Updating search index with {len(nodes)} nodes using {search_store_type}...")
+            _update_progress("Building search index...", 55, current_phase="search_indexing")
+            
+            # Create or update search index
+            if not hasattr(self, 'search_index') or self.search_index is None:
+                logger.info("Creating initial search index...")
+                search_storage_context = StorageContext.from_defaults(vector_store=self.search_store)
+                
+                create_search_index = functools.partial(
+                    VectorStoreIndex,
+                    nodes=nodes,
+                    storage_context=search_storage_context,
+                    show_progress=True
+                )
+                self.search_index = await loop.run_in_executor(None, create_search_index)
+            else:
+                # Refresh existing search index with new nodes
+                logger.info("Refreshing existing search index with new nodes...")
+                self.search_index.refresh_ref_docs([Document(text=n.text, metadata=n.metadata) for n in nodes if hasattr(n, 'text')])
+            
+            search_duration = time.time() - search_start_time
+            logger.info(f"Search index update completed in {search_duration:.2f}s using {search_store_type}")
+        else:
+            logger.info("Search database not configured - skipping search index")
+        
+        # Check for cancellation after search index creation
+        if _check_cancellation():
+            logger.info("Processing cancelled during search index creation")
+            raise RuntimeError("Processing cancelled by user")
+        
         # Step 4: Create graph index using the same nodes (only if knowledge graph is enabled)
         # Check both global config AND per-ingest skip_graph flag
-        should_skip_graph = skip_graph or not self.config.enable_knowledge_graph
+        # IMPORTANT: If GRAPH_DB=none, graph processing is ALWAYS skipped regardless of other settings
+        should_skip_graph = (
+            str(self.config.graph_db) == "none" or 
+            skip_graph or 
+            not self.config.enable_knowledge_graph
+        )
         
         if should_skip_graph:
             if skip_graph and self.config.enable_knowledge_graph:
@@ -1033,7 +1211,6 @@ class HybridSearchSystem:
         if self.config.schema_config is not None:
             kg_extractor = self.schema_manager.create_extractor(
                 self.llm, 
-                use_schema=True,
                 llm_provider=self.config.llm_provider,
                 extractor_type=self.config.kg_extractor_type
             )
@@ -1043,7 +1220,6 @@ class HybridSearchSystem:
             # Use simple extractor if no schema provided
             kg_extractor = self.schema_manager.create_extractor(
                 self.llm, 
-                use_schema=False,
                 llm_provider=self.config.llm_provider,
                 extractor_type=self.config.kg_extractor_type
             )
@@ -1083,6 +1259,38 @@ class HybridSearchSystem:
             logger.info("Processing cancelled during text graph index creation")
             raise RuntimeError("Processing cancelled by user")
         
+        # Update search index (Elasticsearch/OpenSearch)
+        if self.search_store is not None:
+            import time
+            search_start_time = time.time()
+            search_store_type = type(self.search_store).__name__
+            logger.info(f"Updating search index with {len(nodes)} nodes using {search_store_type}...")
+            
+            # Create or update search index
+            if not hasattr(self, 'search_index') or self.search_index is None:
+                logger.info("Creating initial search index...")
+                search_storage_context = StorageContext.from_defaults(vector_store=self.search_store)
+                
+                create_search_index = functools.partial(
+                    VectorStoreIndex,
+                    nodes=nodes,
+                    storage_context=search_storage_context,
+                    show_progress=True
+                )
+                self.search_index = await loop.run_in_executor(None, create_search_index)
+            else:
+                # Refresh existing search index with new nodes
+                logger.info("Refreshing existing search index with new nodes...")
+                self.search_index.refresh_ref_docs([Document(text=n.text, metadata=n.metadata) for n in nodes if hasattr(n, 'text')])
+            
+            search_duration = time.time() - search_start_time
+            logger.info(f"Search index update completed in {search_duration:.2f}s using {search_store_type}")
+        
+        # Check for cancellation after search index update
+        if _check_cancellation():
+            logger.info("Processing cancelled during text search index update")
+            raise RuntimeError("Processing cancelled by user")
+        
         # Setup hybrid retriever
         self._setup_hybrid_retriever()
         
@@ -1103,40 +1311,60 @@ class HybridSearchSystem:
         
         # Vector retriever (optional)
         vector_retriever = None
-        opensearch_hybrid_retriever = None
         if has_vector:
-            # Configure vector retriever based on database type
-            if self.config.vector_db == VectorDBType.OPENSEARCH:
-                # Check if we should use OpenSearch native hybrid search
-                if has_search and self.config.search_db == SearchDBType.OPENSEARCH:
-                    # Use OpenSearch native hybrid search with required parameters
-                    from llama_index.core.vector_stores.types import VectorStoreQueryMode
-                    opensearch_hybrid_retriever = self.vector_index.as_retriever(
-                        similarity_top_k=10,
-                        embed_model=self.embed_model,
-                        vector_store_query_mode=VectorStoreQueryMode.HYBRID,
-                        # Add required parameters for OpenSearch hybrid search
-                        search_pipeline="hybrid-search-pipeline"  # Use hybrid search pipeline
-                    )
-                    logger.info("OpenSearch native hybrid retriever created (vector + fulltext) with required parameters")
-                    # Skip individual vector retriever when using hybrid
-                    vector_retriever = None
+            # First, check if the vector collection/index actually exists
+            # Simplified approach: if vector_index exists and is properly initialized, assume data exists
+            vector_collection_exists = False
+            try:
+                # If vector_index exists, check if it has data
+                if self.vector_index is not None:
+                    # For OpenSearch and other vector stores, assume if index object exists, data may exist
+                    # The retriever will handle empty results gracefully
+                    vector_collection_exists = True
+                    logger.info(f"Vector index object exists - will attempt to create retriever")
                 else:
-                    # OpenSearch vector-only mode
-                    from llama_index.core.vector_stores.types import VectorStoreQueryMode
+                    logger.info(f"Vector index object not initialized")
+                    vector_collection_exists = False
+            except Exception as check_error:
+                logger.warning(f"Could not check vector collection existence: {check_error} - will attempt to create retriever")
+                vector_collection_exists = True  # Assume exists and let the retriever creation handle errors
+            
+            # Only create vector retriever if collection exists
+            if not vector_collection_exists:
+                logger.info(f"Vector collection does not exist yet - skipping vector retriever creation (will be created during first ingestion)")
+                vector_retriever = None
+            else:
+                # Configure vector retriever based on database type
+                if self.config.vector_db == VectorDBType.OPENSEARCH:
+                    # Check if we should use OpenSearch native hybrid search
+                    if has_search and self.config.search_db == SearchDBType.OPENSEARCH:
+                        # OpenSearch HYBRID mode requires lexical_query and search_pipeline which complicates things
+                        # Instead, use DEFAULT (vector-only) mode here and let the text search be handled separately
+                        # The QueryFusionRetriever will combine vector + text results
+                        from llama_index.core.vector_stores.types import VectorStoreQueryMode
+                        
+                        vector_retriever = self.vector_index.as_retriever(
+                            similarity_top_k=10,
+                            embed_model=self.embed_model,
+                            vector_store_query_mode=VectorStoreQueryMode.DEFAULT  # Vector search only
+                        )
+                        logger.info("OpenSearch vector retriever created with DEFAULT mode (vector search)")
+                    else:
+                        # OpenSearch vector-only mode
+                        from llama_index.core.vector_stores.types import VectorStoreQueryMode
+                        vector_retriever = self.vector_index.as_retriever(
+                            similarity_top_k=10,
+                            embed_model=self.embed_model,
+                            vector_store_query_mode=VectorStoreQueryMode.DEFAULT  # Pure vector search
+                        )
+                        logger.info("OpenSearch vector retriever created with DEFAULT mode")
+                else:
+                    # Other databases use standard retriever configuration
                     vector_retriever = self.vector_index.as_retriever(
                         similarity_top_k=10,
-                        embed_model=self.embed_model,
-                        vector_store_query_mode=VectorStoreQueryMode.DEFAULT  # Pure vector search
+                        embed_model=self.embed_model
                     )
-                    logger.info("OpenSearch vector retriever created with DEFAULT mode")
-            else:
-                # Other databases use standard retriever configuration
-                vector_retriever = self.vector_index.as_retriever(
-                    similarity_top_k=10,
-                    embed_model=self.embed_model
-                )
-                logger.info(f"{self.config.vector_db} vector retriever created")
+                    logger.info(f"{self.config.vector_db} vector retriever created")
         else:
             logger.info("Vector search disabled - no vector retriever")
         
@@ -1200,20 +1428,55 @@ class HybridSearchSystem:
         
         # Create search retriever if configured (Elasticsearch or OpenSearch fulltext-only mode)
         search_retriever = None
-        if self.search_store is not None and opensearch_hybrid_retriever is None:
+        
+        # Create search retriever from separate search_store if available
+        if self.search_store is not None:
+            # First, check if the index actually exists before trying to create a retriever
+            index_exists = False
             try:
-                # Create search index using the same documents from ingestion
-                from llama_index.core import VectorStoreIndex, StorageContext
-                
-                # Use the documents from the last ingestion (stored during ingestion)
-                if hasattr(self, '_last_ingested_documents') and self._last_ingested_documents:
-                    documents = self._last_ingested_documents
+                # Check index existence based on database type
+                if self.config.search_db == SearchDBType.OPENSEARCH:
+                    # OpenSearch check
+                    if hasattr(self.search_store, '_client') and hasattr(self.search_store._client, 'client'):
+                        client = self.search_store._client.client
+                        index_name = self.config.search_db_config.get('index_name', 'hybrid_search_fulltext')
+                        if hasattr(client, 'indices') and hasattr(client.indices, 'exists'):
+                            index_exists = client.indices.exists(index=index_name)
+                            logger.info(f"OpenSearch index '{index_name}' exists: {index_exists}")
+                elif self.config.search_db == SearchDBType.ELASTICSEARCH:
+                    # Elasticsearch check
+                    if hasattr(self.search_store, '_client') and hasattr(self.search_store._client, 'client'):
+                        client = self.search_store._client.client
+                        index_name = self.config.search_db_config.get('index_name', 'hybrid_search_fulltext')
+                        if hasattr(client, 'indices') and hasattr(client.indices, 'exists'):
+                            index_exists = client.indices.exists(index=index_name)
+                            logger.info(f"Elasticsearch index '{index_name}' exists: {index_exists}")
+                else:
+                    # For other databases, assume exists (they might create on first query)
+                    index_exists = True
+            except Exception as check_error:
+                logger.warning(f"Could not check index existence: {check_error} - will attempt to create retriever")
+                index_exists = True  # Assume exists and let the retriever creation handle errors
+            
+            # Only create retriever if index exists
+            if not index_exists:
+                logger.info(f"Search index does not exist yet - skipping retriever creation (will be created during first ingestion)")
+                search_retriever = None
+            else:
+                try:
+                    # Create search index by connecting to existing search_store
+                    from llama_index.core import VectorStoreIndex, StorageContext
+                    
+                    # Connect to existing search data (similar to vector index initialization)
                     search_storage_context = StorageContext.from_defaults(vector_store=self.search_store)
-                    search_index = VectorStoreIndex.from_documents(
-                        documents,
+                    
+                    # Create index - use empty nodes list to connect to existing data
+                    search_index = VectorStoreIndex(
+                        nodes=[],  # Connect to existing data, don't recreate
                         storage_context=search_storage_context,
                         embed_model=self.embed_model
                     )
+                    
                     # Configure retriever based on search database type
                     if self.config.search_db == SearchDBType.OPENSEARCH:
                         # OpenSearch uses query modes for different search types
@@ -1227,43 +1490,20 @@ class HybridSearchSystem:
                         # Elasticsearch uses strategy-based approach
                         search_retriever = search_index.as_retriever(similarity_top_k=10)
                         logger.info(f"Created {self.config.search_db} retriever with BM25 scoring for full-text search")
-                # Fallback: try to get documents from vector index docstore  
-                elif self.vector_index and self.vector_index.docstore.docs:
-                    documents = list(self.vector_index.docstore.docs.values())
-                    search_storage_context = StorageContext.from_defaults(vector_store=self.search_store)
-                    search_index = VectorStoreIndex.from_documents(
-                        documents,
-                        storage_context=search_storage_context,
-                        embed_model=self.embed_model
-                    )
-                    # Configure retriever based on search database type
-                    if self.config.search_db == SearchDBType.OPENSEARCH:
-                        # OpenSearch uses query modes for different search types
-                        from llama_index.core.vector_stores.types import VectorStoreQueryMode
-                        search_retriever = search_index.as_retriever(
-                            similarity_top_k=10,
-                            vector_store_query_mode=VectorStoreQueryMode.TEXT_SEARCH  # BM25 equivalent
-                        )
-                        logger.info(f"Created OpenSearch retriever with TEXT_SEARCH mode for BM25 fulltext search (from docstore)")
+                        
+                except Exception as e:
+                    error_msg = str(e)
+                    if 'index_not_found_exception' in error_msg or 'no such index' in error_msg:
+                        logger.warning(f"Search index does not exist yet - will be created during first ingestion")
                     else:
-                        # Elasticsearch uses strategy-based approach
-                        search_retriever = search_index.as_retriever(similarity_top_k=10)
-                        logger.info(f"Created {self.config.search_db} retriever with BM25 scoring (from docstore)")
-                else:
-                    logger.warning(f"No documents available for {self.config.search_db} indexing")
-            except Exception as e:
-                logger.warning(f"Failed to create {self.config.search_db} retriever: {str(e)} - continuing without it")
-                search_retriever = None
+                        logger.warning(f"Failed to create {self.config.search_db} retriever: {error_msg} - continuing without it")
+                    search_retriever = None
         
         # Combine retrievers with fusion
         retrievers = []
         
-        # Add OpenSearch hybrid retriever if available (combines vector + fulltext)
-        if opensearch_hybrid_retriever is not None:
-            retrievers.append(opensearch_hybrid_retriever)
-            logger.info("Added OpenSearch hybrid retriever (vector + fulltext) to fusion")
         # Add vector retriever if available
-        elif vector_retriever is not None:
+        if vector_retriever is not None:
             retrievers.append(vector_retriever)
             logger.info("Added vector retriever to fusion")
         else:
@@ -1288,9 +1528,7 @@ class HybridSearchSystem:
         
         # Build descriptive log message
         retriever_types = []
-        if opensearch_hybrid_retriever is not None:
-            retriever_types.append("OpenSearch-hybrid")
-        elif vector_retriever is not None:
+        if vector_retriever is not None:
             retriever_types.append("vector")
         if bm25_retriever is not None:
             retriever_types.append("BM25")
@@ -1358,9 +1596,21 @@ class HybridSearchSystem:
         """Execute hybrid search across all modalities"""
         from datetime import datetime
         
-        # Check for complete system initialization
+        # Ensure Weaviate async client is connected before search
+        if self.vector_store and type(self.vector_store).__name__ == "WeaviateVectorStore":
+            if hasattr(self.vector_store, '_aclient') and self.vector_store._aclient is not None:
+                if not self.vector_store._aclient.is_connected():
+                    await self.vector_store._aclient.connect()
+                    logger.info("Connected Weaviate async client for search operation")
+        
+        # Initialize retriever if not already done (lazy initialization)
         if not self.hybrid_retriever:
-            raise ValueError("System not initialized. Please ingest documents first.")
+            logger.info("Hybrid retriever not initialized - setting up now...")
+            self._setup_hybrid_retriever()
+            
+            # Check again after setup attempt
+            if not self.hybrid_retriever:
+                raise ValueError("No search indexes available. The databases may be empty or disconnected.")
         
         logger.info(f"Searching for query: '{query}' with top_k={top_k}")
         logger.info(f"Available documents: {len(self._last_ingested_documents) if hasattr(self, '_last_ingested_documents') else 0}")
@@ -1372,7 +1622,23 @@ class HybridSearchSystem:
         query_bundle = QueryBundle(query_str=query)
         
         # Use async method directly - nest_asyncio.apply() already called in backend.py/main.py
-        raw_results = await self.hybrid_retriever.aretrieve(query_bundle)
+        try:
+            raw_results = await self.hybrid_retriever.aretrieve(query_bundle)
+        except Exception as e:
+            error_msg = str(e)
+            # Handle index/collection not found errors gracefully
+            if ('index_not_found_exception' in error_msg or 
+                'no such index' in error_msg or 
+                "doesn't exist" in error_msg or
+                'Not found' in error_msg or
+                'could not find class' in error_msg or  # Weaviate collection not found
+                'NotFoundError' in str(type(e))):
+                logger.warning(f"Collection/Index not found: {error_msg}")
+                logger.info("Databases may be empty or collection/index not created yet. Please ingest documents first.")
+                return []  # Return empty results instead of crashing
+            else:
+                # Re-raise other exceptions
+                raise
         
         retrieval_end = datetime.now()
         retrieval_duration = (retrieval_end - retrieval_start).total_seconds()
@@ -1659,9 +1925,21 @@ class HybridSearchSystem:
     def get_query_engine(self, **kwargs):
         """Get query engine for Q&A"""
         
-        # Check for complete system initialization
+        # Ensure Weaviate async client is connected before creating query engine
+        if self.vector_store and type(self.vector_store).__name__ == "WeaviateVectorStore":
+            if hasattr(self.vector_store, '_aclient') and self.vector_store._aclient is not None:
+                # Check connection in a sync context (will connect on first query if needed)
+                # This is a check, actual connection happens in async query
+                logger.info("Weaviate async client will be connected on first query")
+        
+        # Initialize retriever if not already done (lazy initialization)
         if not self.hybrid_retriever:
-            raise ValueError("System not initialized. Please ingest documents first.")
+            logger.info("Hybrid retriever not initialized - setting up now...")
+            self._setup_hybrid_retriever()
+            
+            # Check again after setup attempt
+            if not self.hybrid_retriever:
+                raise ValueError("No search indexes available. The databases may be empty or disconnected.")
         
         # Check for partial initialization state - only require indexes that should be enabled
         missing_required = False
@@ -1730,20 +2008,27 @@ class HybridSearchSystem:
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
         
-        # CRITICAL: Run extractors synchronously for ALL providers
-        # Reason 1 (Gemini/Vertex): Gemini SDK is async and needs to use the MAIN event loop
-        #          Running in executor causes Gemini to create event loops in worker threads,
-        #          then during search, Futures from those threads cause "attached to different loop" errors
-        # Reason 2 (Bedrock/Fireworks/Groq/Others): SchemaLLMPathExtractor is synchronous but wrapping
-        #          it in run_in_executor can interfere with OpenAI-like client state, especially for
-        #          providers that use async or thread-locals internally. This can cause "second run
-        #          only gets Chunk nodes" issues. Running sync avoids extractor state pollution.
+        # CRITICAL: For Gemini/Vertex AI providers ONLY - run extractors synchronously
+        # Reason: Gemini SDK is async and needs to use the MAIN event loop.
+        #         Running in executor causes Gemini to create event loops in worker threads,
+        #         then during search, Futures from those threads cause "attached to different loop" errors.
         # Reference: https://github.com/run-llama/llama_index/issues/14211
+        # Other providers (OpenAI, Anthropic, Bedrock, etc.) run async in executor for better progress feedback
         logger.info(f"LLM Provider: {self.config.llm_provider}")
-        logger.info("Running extractor synchronously (all providers) to avoid state pollution")
-        nodes = extractor(nodes, show_progress=True)
         
-        logger.info("Extractor completed")
+        if self.config.llm_provider in ['gemini', 'vertexai']:
+            logger.info("Running extractor synchronously (Gemini/Vertex AI) to avoid event loop conflicts")
+            logger.info(f"Processing {len(nodes)} nodes for entity and relationship extraction...")
+            logger.info("Note: Progress bar may appear stuck - extraction is running, typically takes 15-30 seconds per document")
+            nodes = extractor(nodes, show_progress=True)
+            logger.info("Knowledge graph extraction completed")
+        else:
+            logger.info(f"Running extractor asynchronously ({self.config.llm_provider}) in executor")
+            # Use functools.partial to pass show_progress parameter correctly
+            import functools
+            extractor_with_progress = functools.partial(extractor, show_progress=True)
+            nodes = await loop.run_in_executor(None, extractor_with_progress, nodes)
+            logger.info("Knowledge graph extraction completed")
         
         # Count entities and relations from node metadata (after extraction)
         num_entities, num_relations = count_extracted_entities_and_relations(nodes)
@@ -1752,11 +2037,12 @@ class HybridSearchSystem:
         return nodes, num_entities, num_relations
     
     
-    async def _process_documents_direct(self, documents: List, processing_id: str = None, status_callback=None, skip_graph: bool = False):
+    async def _process_documents_direct(self, documents: List, processing_id: str = None, status_callback=None, skip_graph: bool = False, config_id: str = None):
         """Process documents directly without file paths (for web, YouTube, Wikipedia sources)
         
         Args:
             skip_graph: If True, skip knowledge graph extraction for this ingest (temporary override)
+            config_id: Optional stable config_id for incremental sync (generates stable doc_id format)
         """
         logger.info(f"Processing {len(documents)} documents directly...")
         
@@ -1764,11 +2050,151 @@ class HybridSearchSystem:
         import time
         start_time = time.time()
         
-        # Store documents for later use in search store indexing
-        if not hasattr(self, '_last_ingested_documents') or self._last_ingested_documents is None:
-            self._last_ingested_documents = []
-        self._last_ingested_documents.extend(documents)
-        logger.info(f"Added {len(documents)} documents to collection. Total documents: {len(self._last_ingested_documents)}")
+        # If config_id provided (sync enabled), set stable doc_id for each document
+        # This ensures consistent doc_id across backend and incremental system
+        if config_id:
+            import os
+            logger.info(f"Setting stable doc_id for {len(documents)} documents using config_id: {config_id}")
+            for doc in documents:
+                # Skip if doc already has a proper doc_id set (from incremental system)
+                if hasattr(doc, 'id_') and doc.id_ and ':' in str(doc.id_):
+                    logger.info(f"  Document already has doc_id: {doc.id_} - skipping")
+                    continue
+                    
+                # Get filename from metadata for stable doc_id
+                # Prefer file_path (full path) for hierarchical sources like Alfresco/filesystem
+                # For Google Drive, use file_id since paths may not be stable or available
+                file_name = doc.metadata.get('file_name', '')
+                file_path = doc.metadata.get('file_path', '')
+                
+                # For Google Drive, prefer file_id for stability (file path may change if file is moved)
+                google_drive_file_id = doc.metadata.get('file id', '')  # Google Drive file ID
+                google_drive_path = doc.metadata.get('file path', '')  # Google Drive original path (for display)
+                source_type = doc.metadata.get('source', '')
+                
+                # Debug: Log what we found
+                logger.info(f"  DEBUG: doc.id_={getattr(doc, 'id_', None)}, file_name={file_name}, file_path={file_path}")
+                logger.info(f"  DEBUG: metadata keys: {list(doc.metadata.keys())}")
+                
+                # For Google Drive, use file_id as primary key (stable across renames/moves)
+                if source_type == 'google_drive' and google_drive_file_id:
+                    # Use file ID as path (stable and unique)
+                    stable_doc_id = f"{config_id}:{google_drive_file_id}"
+                    logger.info(f"  Using Google Drive file_id: {google_drive_file_id}")
+                
+                # For Azure Blob, use container/blob_name format (from incremental detector)
+                elif source_type == 'azure_blob' or doc.metadata.get('container_name'):
+                    container_name = doc.metadata.get('container', doc.metadata.get('container_name', ''))
+                    blob_name = doc.metadata.get('name', '')  # 'name' is the blob name
+                    if container_name and blob_name:
+                        stable_doc_id = f"{config_id}:{container_name}/{blob_name}"
+                        logger.info(f"  Using Azure Blob path: {container_name}/{blob_name}")
+                    elif file_path:
+                        stable_doc_id = f"{config_id}:{file_path}"
+                    else:
+                        stable_doc_id = f"{config_id}:{file_name}"
+                
+                # For S3, use s3_uri format (s3://bucket/key)
+                elif source_type == 's3' or doc.metadata.get('s3_uri'):
+                    s3_uri = doc.metadata.get('s3_uri', '')
+                    if s3_uri:
+                        stable_doc_id = f"{config_id}:{s3_uri}"
+                        logger.info(f"  Using S3 URI: {s3_uri}")
+                    else:
+                        # Fallback: construct from bucket_name and s3_key
+                        bucket_name = doc.metadata.get('bucket_name', '')
+                        s3_key = doc.metadata.get('s3_key', file_name)
+                        if bucket_name and s3_key:
+                            stable_doc_id = f"{config_id}:s3://{bucket_name}/{s3_key}"
+                            logger.info(f"  Using S3 path: s3://{bucket_name}/{s3_key}")
+                        elif file_path:
+                            stable_doc_id = f"{config_id}:{file_path}"
+                        else:
+                            stable_doc_id = f"{config_id}:{file_name}"
+                
+                # For GCS, use bucket/object_key format (from incremental detector)
+                elif source_type == 'gcs' or doc.metadata.get('bucket_name'):
+                    bucket_name = doc.metadata.get('bucket_name', '')
+                    # For GCS, file_path IS the object key (without bucket prefix)
+                    object_key = file_path if file_path else file_name
+                    if bucket_name and object_key:
+                        stable_doc_id = f"{config_id}:{bucket_name}/{object_key}"
+                        logger.info(f"  Using GCS path: {bucket_name}/{object_key}")
+                    elif file_path:
+                        stable_doc_id = f"{config_id}:{file_path}"
+                    else:
+                        stable_doc_id = f"{config_id}:{file_name}"
+                
+                # For Box, construct stable path from path_collection + name
+                elif source_type == 'box':
+                    path_collection = doc.metadata.get('path_collection', '')
+                    name = doc.metadata.get('name', file_name)
+                    if path_collection and name:
+                        # Ensure proper separator
+                        if not path_collection.endswith('/'):
+                            path_collection += '/'
+                        stable_doc_id = f"{config_id}:{path_collection}{name}"
+                        logger.info(f"  Using Box stable path: {path_collection}{name}")
+                    elif name:
+                        stable_doc_id = f"{config_id}:{name}"
+                    else:
+                        stable_doc_id = f"{config_id}:{file_name}"
+                
+                # For Alfresco, use stable_file_path (alfresco://node_id) for doc_id
+                # Keep file_path as human-readable for display, but use stable_file_path for identity
+                elif source_type == 'alfresco':
+                    stable_file_path = doc.metadata.get('stable_file_path', '')  # alfresco://node_id
+                    if stable_file_path:
+                        stable_doc_id = f"{config_id}:{stable_file_path}"
+                        logger.info(f"  Using Alfresco stable_file_path: {stable_file_path}")
+                    else:
+                        # Fallback: try alfresco_id directly
+                        alfresco_id = doc.metadata.get('alfresco_id')
+                        if alfresco_id:
+                            stable_doc_id = f"{config_id}:alfresco://{alfresco_id}"
+                            logger.info(f"  Using Alfresco ID: alfresco://{alfresco_id}")
+                        elif file_path:
+                            # Fallback if stable_file_path not set
+                            stable_doc_id = f"{config_id}:{file_path}"
+                            logger.warning(f"  Alfresco: stable_file_path not found, using file_path: {file_path}")
+                        else:
+                            stable_doc_id = f"{config_id}:{file_name}"
+                            logger.warning(f"  Alfresco: No stable_file_path, alfresco_id, or file_path, using file_name: {file_name}")
+                
+                # For OneDrive/SharePoint, use stable_file_path (onedrive://file_id) for doc_id
+                # Keep file_path as human-readable for display, but use stable_file_path for identity
+                elif source_type in ['onedrive', 'sharepoint']:
+                    stable_file_path = doc.metadata.get('stable_file_path', '')  # onedrive://file_id
+                    if stable_file_path:
+                        stable_doc_id = f"{config_id}:{stable_file_path}"
+                        logger.info(f"  Using OneDrive/SharePoint stable_file_path: {stable_file_path}")
+                    elif file_path:
+                        # Fallback if stable_file_path not set
+                        stable_doc_id = f"{config_id}:{file_path}"
+                        logger.warning(f"  OneDrive/SharePoint: stable_file_path not found, using file_path: {file_path}")
+                    else:
+                        stable_doc_id = f"{config_id}:{file_name}"
+                        logger.warning(f"  OneDrive/SharePoint: No stable_file_path or file_path, using file_name: {file_name}")
+                
+                elif file_path:
+                    # Use full path for hierarchical sources (Alfresco, filesystem, S3, etc.)
+                    stable_doc_id = f"{config_id}:{file_path}"
+                elif file_name:
+                    # Fall back to filename for flat sources
+                    stable_doc_id = f"{config_id}:{file_name}"
+                else:
+                    # Fallback - should not happen
+                    logger.warning(f"  No file_name or file_path found in metadata, skipping doc_id assignment")
+                    continue
+                
+                doc.id_ = stable_doc_id  # LlamaIndex uses this as ref_doc_id
+                doc.metadata['doc_id'] = stable_doc_id
+                logger.info(f"  Set stable doc_id: {stable_doc_id}")
+        
+        # Store documents for current processing (replace, don't accumulate)
+        # This is used for search store indexing below
+        self._last_ingested_documents = documents
+        logger.info(f"Processing {len(documents)} document(s)")
         
         # Log detailed document info before chunking (sample first 5)
         logger.info(f"=== PRE-CHUNKING: {len(documents)} Documents ===")
@@ -1825,7 +2251,7 @@ class HybridSearchSystem:
         # Log detailed node info after chunking
         logger.info(f"=== POST-CHUNKING: {len(nodes)} Nodes from {len(documents)} Documents ===")
         logger.info(f"  Chunk size config: {self.config.chunk_size}, overlap: {self.config.chunk_overlap}")
-        logger.info(f"  Average nodes per document: {len(nodes)/len(documents):.2f}")
+        logger.info(f"  Average nodes per document: {len(nodes)/len(documents) if len(documents) > 0 else 0:.2f}")
         
         # Sample first 5 nodes to show metadata preservation
         for i, node in enumerate(nodes[:5]):
@@ -1861,7 +2287,21 @@ class HybridSearchSystem:
                 self.vector_index = await loop.run_in_executor(None, create_vector_index)
             else:
                 # Add to existing index
-                self.vector_index.insert_nodes(nodes)
+                vector_store_type_name = type(self.vector_store).__name__
+                
+                # For Weaviate async client, use async add method directly
+                if vector_store_type_name == "WeaviateVectorStore" and hasattr(self.vector_store, '_aclient') and self.vector_store._aclient is not None:
+                    # Ensure async client is connected
+                    if not self.vector_store._aclient.is_connected():
+                        await self.vector_store._aclient.connect()
+                        logger.info("Connected Weaviate async client for insert operation")
+                    # Use async add method directly on the vector store
+                    node_ids = await self.vector_store.async_add(nodes)
+                    logger.info(f"Added {len(node_ids)} nodes to Weaviate using async_add")
+                    # Note: VectorStoreIndex internal state is maintained automatically
+                else:
+                    # For sync clients, run insert in executor
+                    await loop.run_in_executor(None, self.vector_index.insert_nodes, nodes)
             
             vector_duration = time.time() - vector_start_time
             logger.info(f"Vector index creation completed in {vector_duration:.2f}s using {vector_store_type}")
@@ -1873,9 +2313,61 @@ class HybridSearchSystem:
             logger.info("Processing cancelled during vector index creation")
             raise RuntimeError("Processing cancelled by user")
         
+        # Step 2.5: Update search index if configured (separate from vector)
+        search_duration = 0
+        if self.search_store is not None:
+            search_start_time = time.time()
+            search_store_type = type(self.search_store).__name__
+            logger.info(f"Creating search index from {len(nodes)} nodes using {search_store_type}...")
+            
+            if not hasattr(self, 'search_index') or self.search_index is None:
+                search_storage_context = StorageContext.from_defaults(vector_store=self.search_store)
+                
+                create_search_index = functools.partial(
+                    VectorStoreIndex.from_documents,
+                    documents=documents,
+                    storage_context=search_storage_context,
+                    embed_model=self.embed_model
+                )
+                self.search_index = await loop.run_in_executor(None, create_search_index)
+            else:
+                # Add to existing search index
+                # For Elasticsearch and OpenSearch, use async_add directly to avoid executor issues
+                # (Both use async clients internally that conflict with thread pool executors)
+                search_store_type_name = type(self.search_store).__name__
+                node_ids = await self.search_store.async_add(nodes)
+                logger.info(f"Added {len(node_ids)} nodes to {search_store_type_name} using async_add")
+            
+            search_duration = time.time() - search_start_time
+            logger.info(f"Search index creation completed in {search_duration:.2f}s using {search_store_type}")
+        else:
+            logger.info("Search database not configured - skipping search index")
+        
+        # Check for cancellation after search index creation
+        if _check_cancellation():
+            logger.info("Processing cancelled during search index creation")
+            raise RuntimeError("Processing cancelled by user")
+        
         # Step 3: Create or update graph index (if knowledge graph extraction is enabled)
         # Check both global config AND per-ingest skip_graph flag
-        should_skip_graph = skip_graph or not self.config.enable_knowledge_graph
+        # IMPORTANT: If GRAPH_DB=none, graph processing is ALWAYS skipped regardless of other settings
+        
+        # DEBUG: Log the values before evaluation
+        logger.info(f"=== SKIP_GRAPH DEBUG ===")
+        logger.info(f"  skip_graph parameter: {skip_graph} (type: {type(skip_graph)})")
+        logger.info(f"  self.config.graph_db: {self.config.graph_db}")
+        logger.info(f"  str(self.config.graph_db): {str(self.config.graph_db)}")
+        logger.info(f"  self.config.enable_knowledge_graph: {self.config.enable_knowledge_graph}")
+        
+        should_skip_graph = (
+            str(self.config.graph_db) == "none" or 
+            skip_graph or 
+            not self.config.enable_knowledge_graph
+        )
+        
+        logger.info(f"  should_skip_graph: {should_skip_graph}")
+        logger.info(f"=== END SKIP_GRAPH DEBUG ===")
+        
         graph_creation_duration = 0
         
         if should_skip_graph:
@@ -2194,20 +2686,39 @@ class HybridSearchSystem:
         has_graph = str(self.config.graph_db) != "none" and self.config.enable_knowledge_graph and not skip_graph
         has_search = str(self.config.search_db) != "none"
         
+        # Map database names to proper capitalization
+        db_name_map = {
+            "opensearch": "OpenSearch",
+            "elasticsearch": "Elasticsearch",
+            "qdrant": "Qdrant",
+            "chroma": "Chroma",
+            "pinecone": "Pinecone",
+            "weaviate": "Weaviate",
+            "milvus": "Milvus",
+            "neo4j": "Neo4j",
+            "kuzu": "Kuzu",
+            "falkordb": "FalkorDB",
+            "nebula": "NebulaGraph",
+            "neptune": "Neptune",
+            "memgraph": "Memgraph",
+            "arcadedb": "ArcadeDB",
+            "bm25": "BM25"
+        }
+        
         # Build feature list in logical order: vector, search, knowledge graph
         features = []
         if has_vector:
-            vector_type = str(self.config.vector_db).title()
-            features.append(f"{vector_type} vector index")
+            vector_db = str(self.config.vector_db).lower()
+            vector_name = db_name_map.get(vector_db, vector_db.title())
+            features.append(f"{vector_name} vector index")
         if has_search:
-            if self.config.search_db == "bm25":
-                features.append("BM25 search")
-            else:
-                search_type = str(self.config.search_db).title()
-                features.append(f"{search_type} search")
+            search_db = str(self.config.search_db).lower()
+            search_name = db_name_map.get(search_db, search_db.title())
+            features.append(f"{search_name} search")
         if has_graph:
-            graph_type = str(self.config.graph_db).title()
-            features.append(f"{graph_type} knowledge graph")
+            graph_db = str(self.config.graph_db).lower()
+            graph_name = db_name_map.get(graph_db, graph_db.title())
+            features.append(f"{graph_name} knowledge graph")
         
         # Create appropriate message with proper grammar
         if features:
