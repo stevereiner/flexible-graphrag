@@ -63,11 +63,9 @@ DESCRIBE SPACE flexible_graphrag;
 
 ## Step 3: Select the Working Space
 
-Before creating any schema, always select your space:
+Before creating any schema, always select your space using the **"Please select Graph Space"** dropdown/combobox in Nebula Studio interface.
 
-```nGQL
-USE flexible_graphrag;
-```
+**Important**: Do NOT use `USE flexible_graphrag;` in the console - Nebula Studio shows a warning: "DO NOT switch between graph spaces with nGQL statements in the console." Always use the dropdown selector instead.
 
 ## Step 4: Configure Vertex Schema (Props__ Tag)
 
@@ -95,15 +93,31 @@ CREATE TAG Props__(
     `file_path` STRING,
     `file_size` INT,
     `creation_date` STRING,
-    `last_modified_date` STRING
+    `last_modified_date` STRING,
+    `alfresco_id` STRING,
+    `stable_file_path` STRING,
+    `content_type` STRING,
+    `modified_at` STRING
 );
 ```
 
+**Note**: The last 4 properties (`alfresco_id`, `stable_file_path`, `content_type`, `modified_at`) are specific to Alfresco data sources. Include them if you plan to use Alfresco, or omit them if only using file uploads.
+
 ### Alternative: Add Missing Columns
-If the tag exists but is missing `source` and `conversion_method`:
+
+If the tag exists but is missing columns, add them:
 
 ```nGQL
+-- Add basic required columns
 ALTER TAG Props__ ADD (`source` STRING, `conversion_method` STRING);
+
+-- Add Alfresco-specific columns (if using Alfresco data source)
+ALTER TAG Props__ ADD (
+    `alfresco_id` STRING,
+    `stable_file_path` STRING,
+    `content_type` STRING,
+    `modified_at` STRING
+);
 ```
 
 ### Verify Props__ Schema
@@ -112,9 +126,10 @@ DESCRIBE TAG Props__;
 ```
 
 Expected output should include all columns:
-- `source`, `conversion_method`, `file_type`, `file_name`
-- `_node_content`, `_node_type`, `document_id`, `doc_id`, `ref_doc_id`
-- `triplet_source_id`, `file_path`, `file_size`, `creation_date`, `last_modified_date`
+- **Basic properties**: `source`, `conversion_method`, `file_type`, `file_name`
+- **Node properties**: `_node_content`, `_node_type`, `document_id`, `doc_id`, `ref_doc_id`
+- **File properties**: `triplet_source_id`, `file_path`, `file_size`, `creation_date`, `last_modified_date`
+- **Alfresco properties** (if using Alfresco): `alfresco_id`, `stable_file_path`, `content_type`, `modified_at`
 
 ## Step 5: Configure Edge Schema (Relation__ Edge)
 
@@ -143,15 +158,31 @@ CREATE EDGE Relation__(
     `_node_type` STRING,
     `document_id` STRING,
     `doc_id` STRING,
-    `ref_doc_id` STRING
+    `ref_doc_id` STRING,
+    `alfresco_id` STRING,
+    `stable_file_path` STRING,
+    `content_type` STRING,
+    `modified_at` STRING
 );
 ```
 
+**Note**: The last 4 properties are specific to Alfresco data sources. Include them if you plan to use Alfresco.
+
 ### Alternative: Add Missing Columns
-If the edge exists but is missing `source` and `conversion_method`:
+
+If the edge exists but is missing columns, add them:
 
 ```nGQL
+-- Add basic required columns
 ALTER EDGE Relation__ ADD (`source` STRING, `conversion_method` STRING);
+
+-- Add Alfresco-specific columns (if using Alfresco data source)
+ALTER EDGE Relation__ ADD (
+    `alfresco_id` STRING,
+    `stable_file_path` STRING,
+    `content_type` STRING,
+    `modified_at` STRING
+);
 ```
 
 ### Verify Relation__ Schema
@@ -203,20 +234,37 @@ Run your Flexible GraphRAG application to test the integration. You should see s
    - Add missing columns to Props__ tag and Relation__ edge
    - Use the ALTER commands provided above
 
-4. **"Space was not chosen" Error**
-   - Always run `USE flexible_graphrag;` before schema operations
+4. **"Unknown column 'alfresco_id' (or other property) in schema" Error**
+   - Different data sources add their own metadata properties
+   - **Quick fix**: Add the missing column(s):
+   ```nGQL
+   ALTER TAG Props__ ADD (`alfresco_id` STRING);
+   ALTER EDGE Relation__ ADD (`alfresco_id` STRING);
+   ```
+   - **Common data source properties**:
+     - Alfresco: `alfresco_id`, `stable_file_path`, `content_type`, `modified_at`, `node_id`
+     - S3: `bucket_name`, `prefix`, `region`, `s3_key`, `s3_uri`, `etag`
+     - Box: `folder_id`, `box_file_id`, `path_collection`
+     - OneDrive/SharePoint: `user_principal_name`, `client_id`, `tenant_id`, `site_name`, `site_id`, `folder_id`, `human_file_path`, `last_modified_datetime`
+     - Google Drive: `query` (note: GDrive uses spaces in property names like `file id`, `file path`, `modified at`)
+     - GCS: `bucket`, `project_id`
+     - Azure Blob: `container_name`, `account_name`
+   - Add only the properties you need for your specific data sources
+
+5. **"Space was not chosen" Error**
+   - Select `flexible_graphrag` from the "Please select Graph Space" dropdown before schema operations
+   - Do NOT use `USE flexible_graphrag;` in the console
 
 ### Verification Commands
+
+**Note**: First select `flexible_graphrag` from the "Please select Graph Space" dropdown, then run:
 
 ```nGQL
 -- Check overall system status
 SHOW HOSTS;
 SHOW SPACES;
 
--- Select working space
-USE flexible_graphrag;
-
--- Verify schema
+-- Verify schema (make sure space is selected in dropdown first!)
 DESCRIBE TAG Props__;
 DESCRIBE EDGE Relation__;
 
@@ -228,16 +276,34 @@ MATCH ()-[e]->() RETURN count(e) AS edge_count;
 ## NebulaGraph Studio Navigation
 
 1. **Access Studio**: http://localhost:7001
-2. **Connect**: Use host `localhost:9669`, username `root`, password `nebula`
-3. **Select Space**: Use the dropdown in NebulaGraph Studio to select `flexible_graphrag`
+2. **Connect**: Use host `nebula-graphd`, port `9669`, username `root`, password `nebula`
+   - **Important**: Use `nebula-graphd` (not `localhost`) because Studio runs inside Docker
+3. **Select Space**: Use the **"Please select Graph Space"** dropdown/combobox to select `flexible_graphrag`
+   - **Do NOT** use `USE flexible_graphrag;` in the console - always use the dropdown selector
 4. **Run Queries**: Use the console to execute nGQL commands
+
+## Visualizing Your Knowledge Graph
+
+After processing documents, you can visualize the knowledge graph in Nebula Studio:
+
+1. In the console, run:
+   ```nGQL
+   MATCH ()-[e]->() RETURN *;
+   ```
+2. Switch the result panel from **"Table"** view to **"Graph"** view
+3. Explore the interactive graph visualization showing entities and their relationships
+
+**Tip**: For large graphs, you may want to limit results:
+```nGQL
+MATCH ()-[e]->() RETURN * LIMIT 50;
+```
 
 ## Next Steps
 
 Once NebulaGraph is working:
 - Explore the knowledge graph using NebulaGraph Studio
 - Query entities and relationships
-- Visualize the graph structure
+- Visualize the graph structure using the Graph view
 - Test search and Q&A functionality
 
 ## Success Indicators
@@ -248,6 +314,136 @@ Once NebulaGraph is working:
 ✅ Relation__ edge has all required columns including `source` and `conversion_method`  
 ✅ Document processing completes without schema errors  
 ✅ Vertices and edges successfully created in the graph  
+
+## Appendix: Comprehensive Schema for All Data Sources
+
+If you plan to use multiple data sources, you can create a comprehensive schema with all possible properties upfront:
+
+```nGQL
+-- Comprehensive Props__ tag with all data source properties
+CREATE TAG Props__(
+    -- Basic properties (all sources)
+    `source` STRING,
+    `conversion_method` STRING,
+    `file_type` STRING,
+    `file_name` STRING,
+    `file_path` STRING,
+    `file_size` INT,
+    `source_type` STRING,
+    
+    -- Node properties (LlamaIndex)
+    `_node_content` STRING,
+    `_node_type` STRING,
+    `document_id` STRING,
+    `doc_id` STRING,
+    `ref_doc_id` STRING,
+    `triplet_source_id` STRING,
+    
+    -- Timestamp properties (various formats)
+    `creation_date` STRING,
+    `last_modified_date` STRING,
+    `modified_at` STRING,
+    `last_modified_datetime` STRING,
+    
+    -- Alfresco properties
+    `alfresco_id` STRING,
+    `node_id` STRING,
+    `content_type` STRING,
+    `stable_file_path` STRING,
+    `human_file_path` STRING,
+    
+    -- S3 properties
+    `bucket_name` STRING,
+    `prefix` STRING,
+    `region` STRING,
+    `s3_key` STRING,
+    `s3_uri` STRING,
+    `etag` STRING,
+    
+    -- Box properties
+    `folder_id` STRING,
+    `box_file_id` STRING,
+    `path_collection` STRING,
+    
+    -- OneDrive/SharePoint properties
+    `user_principal_name` STRING,
+    `client_id` STRING,
+    `tenant_id` STRING,
+    `site_name` STRING,
+    `site_id` STRING,
+    
+    -- GCS properties
+    `bucket` STRING,
+    `project_id` STRING,
+    
+    -- Azure Blob properties
+    `container_name` STRING,
+    `account_name` STRING,
+    
+    -- Google Drive properties (note: GDrive uses spaces in some property names)
+    `query` STRING
+);
+
+-- Comprehensive Relation__ edge with all data source properties
+CREATE EDGE Relation__(
+    -- Edge label
+    `label` STRING,
+    
+    -- Basic properties (all sources)
+    `source` STRING,
+    `conversion_method` STRING,
+    `file_type` STRING,
+    `file_name` STRING,
+    `file_path` STRING,
+    `file_size` INT,
+    `source_type` STRING,
+    
+    -- Node properties (LlamaIndex)
+    `_node_content` STRING,
+    `_node_type` STRING,
+    `document_id` STRING,
+    `doc_id` STRING,
+    `ref_doc_id` STRING,
+    `triplet_source_id` STRING,
+    
+    -- Timestamp properties
+    `creation_date` STRING,
+    `last_modified_date` STRING,
+    `modified_at` STRING,
+    `last_modified_datetime` STRING,
+    
+    -- Data source specific properties (same as Props__)
+    `alfresco_id` STRING,
+    `node_id` STRING,
+    `content_type` STRING,
+    `stable_file_path` STRING,
+    `human_file_path` STRING,
+    `bucket_name` STRING,
+    `prefix` STRING,
+    `region` STRING,
+    `s3_key` STRING,
+    `s3_uri` STRING,
+    `etag` STRING,
+    `folder_id` STRING,
+    `box_file_id` STRING,
+    `path_collection` STRING,
+    `user_principal_name` STRING,
+    `client_id` STRING,
+    `tenant_id` STRING,
+    `site_name` STRING,
+    `site_id` STRING,
+    `bucket` STRING,
+    `project_id` STRING,
+    `container_name` STRING,
+    `account_name` STRING,
+    `query` STRING
+);
+```
+
+**Pros**: Works with all data sources without schema errors  
+**Cons**: Creates many unused properties if you only use one or two data sources
+
+**Recommendation**: Start with the minimal schema and add properties as needed based on the data sources you actually use.  
 
 ---
 

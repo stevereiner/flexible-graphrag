@@ -47,8 +47,8 @@ import os
 
 from config import LLMProvider, VectorDBType, GraphDBType, SearchDBType
 
-# Import Neptune Analytics wrapper from separate module
-from neptune_analytics_wrapper import NeptuneAnalyticsNoVectorWrapper
+# Import Neptune wrapper from separate module
+from neptune_database_wrapper import NeptuneDatabaseNoSummaryWrapper
 
 logger = logging.getLogger(__name__)
 
@@ -1256,7 +1256,7 @@ class DatabaseFactory:
             else:
                 logger.info("Using default AWS credentials and region")
             
-            return NeptuneDatabasePropertyGraphStore(
+            graph_store = NeptuneDatabasePropertyGraphStore(
                 host=host,
                 port=port,
                 client=client,  # Pass pre-configured client if we created one
@@ -1265,6 +1265,13 @@ class DatabaseFactory:
                 sign=sign,
                 use_https=use_https
             )
+            
+            # Wrap the store to handle Summary API errors gracefully
+            wrapped_store = NeptuneDatabaseNoSummaryWrapper(graph_store)
+            logger.info("Neptune Database: Store wrapped to handle Summary API limitations")
+            return wrapped_store
+            # return graph_store
+
         elif db_type == GraphDBType.NEPTUNE_ANALYTICS:
             import boto3
             from botocore.config import Config
@@ -1290,11 +1297,7 @@ class DatabaseFactory:
             # (line 143 in neptune.py: client = client instead of client = provided_client)
             # we cannot pass a pre-configured client. Instead, we set environment variables
             # and let Neptune Analytics create its own client.
-            
-            # IMPORTANT: Neptune Analytics has vector query limitations in LlamaIndex
-            # We disable vector operations and use it purely as a graph store
-            logger.warning("Neptune Analytics: Vector operations disabled due to LlamaIndex limitations. Using separate vector store is recommended.")
-            
+                        
             if access_key and secret_key:
                 logger.info(f"Using explicit AWS credentials with region: {region}")
                 
@@ -1337,16 +1340,9 @@ class DatabaseFactory:
                     region_name=region
                 )
             
-            wrapped_store = NeptuneAnalyticsNoVectorWrapper(graph_store)
-            wrapped_store.supports_vector_queries = False
-            
-            logger.info("Neptune Analytics: Vector queries disabled - use separate VECTOR_DB for embeddings")
-            logger.info(f"Neptune Analytics: Returning wrapper object of type: {type(wrapped_store)}")
-            logger.info(f"Neptune Analytics: Wrapper has upsert_nodes: {hasattr(wrapped_store, 'upsert_nodes')}")
-            logger.info(f"Neptune Analytics: Wrapper has vector_query: {hasattr(wrapped_store, 'vector_query')}")
-            logger.info(f"Neptune Analytics: Wrapper supports_vector_queries = {wrapped_store.supports_vector_queries}")
-            
-            return wrapped_store
+            logger.info("Neptune Analytics: Returning graph store object of type: {type(graph_store)}")
+            logger.info("Note: your Neptune Analytics graph database needs to be created with a vector dimension, your embedding dimension and its dimension need to match")
+            return graph_store
         
         else:
             raise ValueError(f"Unsupported graph database: {db_type}")

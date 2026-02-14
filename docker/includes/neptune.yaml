@@ -65,8 +65,8 @@ services:
       - ../neptune.env # Loads Neptune-specific AWS credentials from docker/neptune.env
     
   # Note: Within Graph Explorer UI, you can add connections to:
-  # 1. Neptune Database: https://db-neptune-1-instance-1.cuzoyae2cvjh.us-east-1.neptune.amazonaws.com (SERVICE_TYPE=neptune-db)
-  # 2. Neptune Analytics: https://g-ygfrvjpta0.us-east-1.neptune-analytics.amazonaws.com (SERVICE_TYPE=neptune-analytics)
+  # 1. Neptune Database: https://your-neptune-instance.region.neptune.amazonaws.com (SERVICE_TYPE=neptune-db)
+  # 2. Neptune Analytics: https://your-neptune-analytics-graph.region.neptune-analytics.amazonaws.com (SERVICE_TYPE=neptune-analytics)
   # 
   # Requirements:
   # 1. Network connectivity to your Neptune services

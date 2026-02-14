@@ -7,12 +7,12 @@
 **Flexible GraphRAG** is an open source platform supporting document processing (Docling or LlamaParse), knowledge graph auto-building, schemas, LlamaIndex LLMs, RAG and GraphRAG setup, hybrid search (fulltext, vector, graph), AI query, and AI chat capabilities. The backend uses Python, LlamaIndex, and FastAPI. Has Angular, React, and Vue TypeScript frontends. A MCP Server is also available. Currently supports 13 data sources, 10 vector databases, OpenSearch / Elasticsearch search, 8 graph databases, and Alfresco.  These servers and their dashboards can be configured in a provided docker compose.
 
 <p align="center">
-  <a href="./screen-shots/react/chat-webpage.png">
-    <img src="./screen-shots/react/chat-webpage.png" alt="Flexible GraphRAG AI chat tab with a web pages data source generated graph displayed in Neo4j" width="700">
+  <a href="./screen-shots/auto-sync/auto-sync.png">
+    <img src="./screen-shots/auto-sync/auto-sync.png" alt="Flexible GraphRAG data sources, processing tab, auto-sync document states in Postgres, Neo4j" width="700">
   </a>
 </p>
 
-<p align="center"><em>Flexible GraphRAG AI chat tab with a web pages data source generated graph displayed in Neo4j</em></p>
+<p align="center"><em>Flexible GraphRAG data sources, processing tab, auto-sync document states in Postgres, Neo4j</em></p>
 
 
 ## Features
@@ -156,11 +156,7 @@ Each data source includes:
 | **SharePoint** | ✅ Near real-time | Polling | Ready | Delta query support planned |
 | **Box** | ✅ Near real-time | Events API (polling) | Ready | |
 | **Local Filesystem** | ✅ Real-time | OS events (watchdog) | Ready | REST API and MCP Server only |
-| **File Upload UI** | ➖ Not supported | - | - | No support for incremental updates |
-| **CMIS** | ➖ Not supported | - | - | No support for incremental updates |
-| **Web Pages** | ➖ Not supported | - | - | No support for incremental updates |
-| **Wikipedia** | ➖ Not supported | - | - | No support for incremental updates |
-| **YouTube** | ➖ Not supported | - | - | No support for incremental updates |
+| **File Upload UI, CMIS, Web Pages, Wikipedia, YouTube** | ➖ Not supported | - | - | No support for incremental updates |
 
 **Features**:
 - **Modification Date Tracking**: Uses file modification timestamps (ordinal) to detect changes

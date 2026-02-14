@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2026-02-14] - Neptune Integration & Documentation Updates
+
+### Added
+- **docs/NEPTUNE-SETUP.md** - Comprehensive setup guide for Neptune Database and Neptune Analytics with Graph Explorer configuration
+- **neptune_database_wrapper.py** - Runtime override wrapper for T-class instances (db.t3.medium, db.t4g.medium) that lack Summary API; automatically falls back to openCypher queries
+
+### Changed
+- **docs/NEBULA-SETUP.md** - Updated with comprehensive schema configuration and troubleshooting
+- **README.md** - Consolidated unsupported data sources into single row in Incremental Updates table; updated screenshot
+- **factories.py** - Neptune Database uses `NeptuneDatabaseNoSummaryWrapper`; Neptune Analytics returns raw PropertyGraphStore
+
+### Removed
+- **neptune_analytics_wrapper.py** - Vector dimension configuration now documented in setup guide (must be set at graph creation, immutable)
+
 ## [2026-02-05] - Async Client Fixes for Weaviate and Elasticsearch
 
 ### Fixed
