@@ -328,6 +328,12 @@ class IncrementalUpdateOrchestrator:
                 detector.state_manager = self.state_manager
                 detector.config_id = config.config_id
                 detector.skip_graph = config.skip_graph  # NEW: Inject skip_graph
+                
+                # For MicrosoftGraphDetector, inject enable_change_polling from enable_change_stream
+                if hasattr(detector, 'enable_change_polling'):
+                    detector.enable_change_polling = config.enable_change_stream
+                    logger.info(f"Set enable_change_polling={config.enable_change_stream} for {config.source_name}")
+                
                 logger.info(f"Injected backend, state_manager, config_id, and skip_graph into detector")
             elif hasattr(detector, 'state_manager'):
                 # Fallback for detectors that don't support backend yet

@@ -177,6 +177,11 @@ class PassthroughExtractor(BaseReader):
                     stable_file_path = f"{path_collection}{name}"
                     metadata_to_pass['file_path'] = stable_file_path
                     logger.info(f"Using Box stable file_path: {stable_file_path} (temp was: {actual_file_path})")
+                elif extra_info and extra_info.get('file_path') and str(extra_info.get('file_path')) != str(actual_file_path):
+                    # Reader (e.g. AzStorageBlobReader) already set a stable blob-name path in extra_info.
+                    # Preserve it so DocumentProcessor metadata keeps the real blob path, not the temp path.
+                    metadata_to_pass['file_path'] = extra_info['file_path']
+                    logger.info(f"Using reader-provided stable file_path: {extra_info['file_path']} (temp was: {actual_file_path})")
                 else:
                     # Other sources: Use actual file path
                     metadata_to_pass['file_path'] = str(actual_file_path)

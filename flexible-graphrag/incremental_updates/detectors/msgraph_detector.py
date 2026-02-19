@@ -539,9 +539,9 @@ class MicrosoftGraphDetector(ChangeDetector):
                     mime_type=mime_type,
                     modified_timestamp=modified_time.isoformat(),
                     extra={
-                        # For msgraph, store the full stable_path as file_id for comparison
-                        # This ensures consistency with document_state.source_id
-                        'file_id': stable_path,  # Use full path with prefix
+                        # Store RAW file_id (without prefix) for consistency with _item_to_metadata()
+                        # This is used by engine.py to extract the file_id for processing
+                        'file_id': file_id,  # RAW ID without prefix
                         'file_name': file_name,
                         'file_path': human_readable_path,  # Human-readable path with folder
                         'folder_path': current_folder_path if current_folder_path else None,  # Just the folder part
@@ -601,9 +601,10 @@ class MicrosoftGraphDetector(ChangeDetector):
                 for deleted_id in deleted_file_ids:
                     logger.info(f"Microsoft Graph EVENT: DELETE detected for file_id {deleted_id}")
                     
-                    # deleted_id is already in stable_path format (sharepoint://ID or onedrive://ID)
-                    # from known_file_ids, which stores paths with prefix
-                    stable_path = deleted_id
+                    # deleted_id is RAW file ID (no prefix)
+                    # Need to create stable_path with prefix for document_state lookup
+                    prefix = "sharepoint" if self.data_source == 'sharepoint' else "onedrive"
+                    stable_path = f"{prefix}://{deleted_id}"
                     
                     delete_metadata = FileMetadata(
                         source_type='msgraph',
@@ -768,11 +769,15 @@ class MicrosoftGraphDetector(ChangeDetector):
                     source_config['site_name'] = self.site_name
                 if self.site_id:
                     source_config['site_id'] = self.site_id
+                # Strip prefix from file_id if present (sharepoint://file_id -> file_id)
+                raw_file_id = file_id.replace('sharepoint://', '') if file_id.startswith('sharepoint://') else file_id
                 # Pass file_ids for incremental processing (SharePointSource will handle it)
-                source_config['file_ids'] = [file_id]
+                source_config['file_ids'] = [raw_file_id]
             else:  # onedrive
+                # Strip prefix from file_id if present (onedrive://file_id -> file_id)
+                raw_file_id = file_id.replace('onedrive://', '') if file_id.startswith('onedrive://') else file_id
                 # OneDrive supports file_ids for efficient single-file processing
-                source_config['file_ids'] = [file_id]  # Process just this one file
+                source_config['file_ids'] = [raw_file_id]  # Process just this one file
                 if self.drive_id:
                     source_config['drive_id'] = self.drive_id
                 else:
@@ -838,7 +843,14 @@ class MicrosoftGraphDetector(ChangeDetector):
         
         # Create stable path with prefix (for doc_id and source_id)
         prefix = "sharepoint" if self.data_source == 'sharepoint' else "onedrive"
-        stable_path = f"{prefix}://{file_id}"
+        
+        # Strip prefix from file_id if it's already there (defensive programming)
+        raw_file_id = file_id
+        if file_id.startswith(f'{prefix}://'):
+            raw_file_id = file_id.replace(f'{prefix}://', '', 1)
+            logger.debug(f"Stripped existing prefix from file_id: {file_id} -> {raw_file_id}")
+        
+        stable_path = f"{prefix}://{raw_file_id}"
         
         # Use human-readable path for source_path if available
         if file_path:
@@ -849,8 +861,9 @@ class MicrosoftGraphDetector(ChangeDetector):
         # Use stable path as source_id (always with prefix)
         source_id = stable_path
         
-        # Get modified timestamp from document metadata
-        modified_timestamp = doc.metadata.get('last_modified_datetime') or doc.metadata.get('modified at')
+        # Get modified timestamp from document metadata and parse it
+        timestamp_str = doc.metadata.get('last_modified_datetime') or doc.metadata.get('modified at')
+        modified_timestamp = self.parse_timestamp(timestamp_str)
         
         # Create doc_id using stable path (not filename)
         doc_id = f"{self.config_id}:{stable_path}"
@@ -859,19 +872,10 @@ class MicrosoftGraphDetector(ChangeDetector):
         import hashlib
         content_hash = hashlib.sha256(doc.text.encode()).hexdigest() if doc.text else "placeholder"
         
-        # Get ordinal from modified timestamp if available
+        # Get ordinal from modified timestamp if available (already parsed to datetime)
+        ordinal = int(datetime.now(timezone.utc).timestamp() * 1_000_000)
         if modified_timestamp:
-            if isinstance(modified_timestamp, str):
-                # Parse ISO format timestamp
-                try:
-                    mod_dt = datetime.fromisoformat(modified_timestamp.replace('Z', '+00:00'))
-                    ordinal = int(mod_dt.timestamp() * 1_000_000)
-                except:
-                    ordinal = int(datetime.now(timezone.utc).timestamp() * 1_000_000)
-            else:
-                ordinal = int(datetime.now(timezone.utc).timestamp() * 1_000_000)
-        else:
-            ordinal = int(datetime.now(timezone.utc).timestamp() * 1_000_000)
+            ordinal = int(modified_timestamp.timestamp() * 1_000_000)
         
         # Get current timestamp for sync tracking
         now = datetime.now(timezone.utc)

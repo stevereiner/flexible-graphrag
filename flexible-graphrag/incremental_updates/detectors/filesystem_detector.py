@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Dict, Optional, AsyncGenerator, List
 
 from .base import ChangeDetector, ChangeType, ChangeEvent, FileMetadata
+from incremental_updates.path_utils import normalize_filesystem_path
 
 logger = logging.getLogger("flexible_graphrag.incremental.detectors.filesystem")
 
@@ -61,7 +62,7 @@ if WATCHDOG_AVAILABLE:
             
             metadata = FileMetadata(
                 source_type='filesystem',
-                path=str(path.absolute()),  # Use absolute path for consistency
+                path=normalize_filesystem_path(str(path.absolute())),  # Normalize for doc_id/lookups
                 ordinal=ordinal,
                 size_bytes=size_bytes
             )
@@ -215,22 +216,13 @@ class FilesystemDetector(ChangeDetector):
         logger.info("Filesystem detector stopped")
     
     async def _populate_known_files(self):
-        """Populate known_file_paths set with all currently existing files"""
+        """Populate known_file_paths set with all currently existing files (normalized paths)."""
         try:
             logger.info("POPULATE: Starting to populate known_file_paths...")
-            
             all_files = await self.list_all_files()
             for file_meta in all_files:
-                # Store full path for filesystem
-                for watch_path in self.paths:
-                    if watch_path.is_file():
-                        if watch_path.name == file_meta.path:
-                            self.known_file_paths.add(str(watch_path))
-                    else:
-                        full_path = watch_path / file_meta.path
-                        if full_path.exists():
-                            self.known_file_paths.add(str(full_path))
-            
+                # list_all_files already returns normalized paths
+                self.known_file_paths.add(normalize_filesystem_path(file_meta.path))
             logger.info(f"POPULATE: Populated known_file_paths with {len(self.known_file_paths)} existing files")
             
         except Exception as e:
@@ -242,22 +234,22 @@ class FilesystemDetector(ChangeDetector):
 
         for watch_path in self.paths:
             if watch_path.is_file():
-                # Single file - use full absolute path
+                # Single file - use full absolute path (normalized for consistent doc_id)
                 stat = watch_path.stat()
                 files.append(FileMetadata(
                     source_type='filesystem',
-                    path=str(watch_path.absolute()),  # Full absolute path
+                    path=normalize_filesystem_path(str(watch_path.absolute())),
                     ordinal=int(stat.st_mtime * 1_000_000),
                     size_bytes=stat.st_size
                 ))
             elif watch_path.is_dir():
-                # Directory - scan all files recursively with full paths
+                # Directory - scan all files recursively with full paths (normalized)
                 for path in watch_path.rglob('*'):
                     if path.is_file():
                         stat = path.stat()
                         files.append(FileMetadata(
                             source_type='filesystem',
-                            path=str(path.absolute()),  # Full absolute path
+                            path=normalize_filesystem_path(str(path.absolute())),
                             ordinal=int(stat.st_mtime * 1_000_000),
                             size_bytes=stat.st_size
                         ))
@@ -294,11 +286,11 @@ class FilesystemDetector(ChangeDetector):
                     
                     logger.info(f"Filesystem event: {event.change_type.value} - {event.metadata.path}")
                     
-                    # Resolve full path for the event
+                    # Resolve full path for the event (metadata.path is already normalized from _create_event)
                     full_path = None
                     for watch_path in self.paths:
                         if watch_path.is_file():
-                            if watch_path.name == event.metadata.path:
+                            if watch_path.name == Path(event.metadata.path).name or normalize_filesystem_path(str(watch_path.absolute())) == event.metadata.path:
                                 full_path = str(watch_path)
                                 break
                         else:
@@ -306,6 +298,8 @@ class FilesystemDetector(ChangeDetector):
                             if candidate_path.exists() or event.change_type == ChangeType.DELETE:
                                 full_path = str(candidate_path)
                                 break
+                    if full_path:
+                        full_path = normalize_filesystem_path(full_path)
                     
                     if not full_path:
                         logger.warning(f"Could not resolve full path for: {event.metadata.path}")
@@ -347,7 +341,7 @@ class FilesystemDetector(ChangeDetector):
                             
                             delete_metadata = FileMetadata(
                                 source_type='filesystem',
-                                path=event.metadata.path,
+                                path=full_path,  # Normalized so engine doc_id matches document_state
                                 ordinal=event.metadata.ordinal,
                                 extra={}
                             )
@@ -390,7 +384,7 @@ class FilesystemDetector(ChangeDetector):
                             
                             delete_metadata = FileMetadata(
                                 source_type='filesystem',
-                                path=event.metadata.path,
+                                path=full_path,  # Normalized so engine doc_id matches document_state
                                 ordinal=event.metadata.ordinal,
                                 extra={}
                             )
@@ -494,23 +488,47 @@ class FilesystemDetector(ChangeDetector):
         
         # Use filesystem path as source_id
         source_id = full_path
-        modified_timestamp = doc.metadata.get('modified at')
+        modified_timestamp = self.parse_timestamp(doc.metadata.get('modified at'))
         
         # Create doc_id using full_path for consistency
         doc_id = f"{self.config_id}:{full_path}"
         
-        # Compute content hash (placeholder)
-        content_hash = "placeholder"
+        # Compute actual content hash from document text (not placeholder)
+        content_hash = None
+        if hasattr(doc, 'text') and doc.text:
+            from incremental_updates.state_manager import StateManager
+            content_hash = StateManager.compute_content_hash(doc.text)
+        
+        # Use document's ordinal (modification timestamp) if available
+        ordinal = doc.metadata.get('ordinal')
+        if not ordinal and modified_timestamp:
+            try:
+                from datetime import datetime
+                # modified_timestamp is already a datetime object now
+                if isinstance(modified_timestamp, datetime):
+                    ordinal = int(modified_timestamp.timestamp() * 1_000_000)
+                else:
+                    ordinal = int(datetime.now(timezone.utc).timestamp() * 1_000_000)
+            except:
+                ordinal = int(datetime.now(timezone.utc).timestamp() * 1_000_000)
+        elif not ordinal:
+            ordinal = int(datetime.now(timezone.utc).timestamp() * 1_000_000)
+        
+        # Record synced timestamps (document is already in vector/search stores after initial ingest)
+        now = datetime.now(timezone.utc)
         
         # Create document state
         doc_state = DocumentState(
             doc_id=doc_id,
             config_id=self.config_id,
-            source_path=filename,
-            ordinal=int(datetime.now(timezone.utc).timestamp() * 1_000_000),
+            source_path=full_path,  # Use full path, not just filename
+            ordinal=ordinal,
             content_hash=content_hash,
             source_id=source_id,
-            modified_timestamp=modified_timestamp
+            modified_timestamp=modified_timestamp,
+            vector_synced_at=now,
+            search_synced_at=now,
+            graph_synced_at=now if not getattr(self, 'skip_graph', False) else None
         )
         
         await self.state_manager.save_state(doc_state)

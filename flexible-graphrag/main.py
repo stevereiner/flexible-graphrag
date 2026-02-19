@@ -95,6 +95,11 @@ root_logger.handlers.clear()
 root_logger.addHandler(file_handler)
 root_logger.addHandler(console_handler)
 
+# Suppress verbose Azure SDK HTTP transport logging (request headers/responses every poll)
+logging.getLogger("azure.core.pipeline.policies.http_logging_policy").setLevel(logging.WARNING)
+logging.getLogger("azure.storage.blob").setLevel(logging.WARNING)
+logging.getLogger("azure.storage.blob.changefeed").setLevel(logging.WARNING)
+
 logger = logging.getLogger(__name__)
 logger.info(f"Starting application with log file: {log_filename}")
 
@@ -213,6 +218,7 @@ class AlfrescoConfig(BaseModel):
     nodeIds: Optional[List[str]] = None  # Array of node IDs (UUIDs from REST API) for multi-select
     nodeDetails: Optional[List[NodeDetail]] = None  # Array of node details with metadata
     recursive: Optional[bool] = False  # Whether to recursively process subfolders (default: False)
+    stomp_port: Optional[int] = None  # ActiveMQ STOMP port for real-time events (default: 61613, or set via ALFRESCO_STOMP_PORT env var)
 
 class WebConfig(BaseModel):
     url: str
@@ -440,6 +446,12 @@ async def ingest(request: IngestRequest):
                 elif data_source == "alfresco" and request.alfresco_config:
                     connection_params = request.alfresco_config.dict(exclude_none=True)
                     source_path = connection_params.get('path', '/unknown')
+                    # Add STOMP port if configured in environment and not already in params
+                    if 'stomp_port' not in connection_params:
+                        stomp_port = os.getenv("ALFRESCO_STOMP_PORT")
+                        if stomp_port:
+                            connection_params["stomp_port"] = int(stomp_port)
+                            logger.info(f"Added ALFRESCO_STOMP_PORT={stomp_port} to datasource config")
                     
                 elif data_source == "google_drive" and request.google_drive_config:
                     connection_params = request.google_drive_config.dict(exclude_none=True)

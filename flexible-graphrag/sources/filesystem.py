@@ -184,6 +184,15 @@ class FileSystemSource(BaseDataSource):
                     # Process single file
                     processed_docs = await doc_processor.process_documents([file_path])
                     if processed_docs:
+                        # Get file modification time
+                        import os
+                        from datetime import datetime, timezone
+                        try:
+                            mtime = os.path.getmtime(file_path)
+                            modified_at = datetime.fromtimestamp(mtime, tz=timezone.utc).isoformat()
+                        except:
+                            modified_at = None
+                        
                         for doc in processed_docs:
                             # Update metadata to include filesystem source
                             doc.metadata.update({
@@ -191,6 +200,9 @@ class FileSystemSource(BaseDataSource):
                                 "file_path": file_path,
                                 "file_name": Path(file_path).name
                             })
+                            # Add modification timestamp if available
+                            if modified_at:
+                                doc.metadata['modified at'] = modified_at
                         documents.extend(processed_docs)
                     
                 except Exception as e:

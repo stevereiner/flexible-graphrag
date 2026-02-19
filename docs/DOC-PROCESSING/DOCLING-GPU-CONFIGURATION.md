@@ -523,7 +523,7 @@ SAVE_PARSING_OUTPUT=true
 
 **User Guides (docs/):**
 - [TIMEOUT-CONFIGURATIONS.md](TIMEOUT-CONFIGURATIONS.md) - Timeout settings for Docling
-- [LLM-EMBEDDING-CONFIG.md](LLM-EMBEDDING-CONFIG.md) - LLM and embedding configuration
+- [LLM-EMBEDDING-CONFIG.md](../LLM/LLM-EMBEDDING-CONFIG.md) - LLM and embedding configuration
 - [ENVIRONMENT-CONFIGURATION.md](ENVIRONMENT-CONFIGURATION.md) - Full environment configuration
 
 ## Language Support

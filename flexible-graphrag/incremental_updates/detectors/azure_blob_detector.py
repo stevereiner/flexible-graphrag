@@ -28,6 +28,7 @@ except ImportError:
     AZURE_AVAILABLE = False
     AzureError = Exception
     ResourceNotFoundError = Exception
+    ResourceNotFoundError = Exception
     logger.warning("azure-storage-blob and/or azure-storage-blob-changefeed not installed - Azure Blob change detection unavailable")
 
 
@@ -88,6 +89,8 @@ class AzureBlobDetector(ChangeDetector):
         # Change feed state
         self.continuation_token = None
         self.last_cursor_time = None
+        # Record startup time so we ignore old change feed events replayed from history
+        self.start_time = datetime.now(timezone.utc)
         
         # Statistics
         self.events_processed = 0
@@ -100,6 +103,10 @@ class AzureBlobDetector(ChangeDetector):
         
         # Track known blobs for CREATE vs MODIFY detection
         self.known_blob_names = set()
+        # Track when each blob was last processed (for debounce)
+        # Azure Change Feed often emits 2-3 events per operation (BlobCreated + BlobPropertiesUpdated)
+        self._last_processed: dict = {}  # full_path -> datetime
+        self._debounce_seconds = 30  # ignore duplicate events within this window
         
         logger.info(f"AzureBlobDetector initialized - container={self.container_name}, "
                    f"prefix={self.prefix}, change_feed={self.enable_change_feed}")
@@ -134,7 +141,19 @@ class AzureBlobDetector(ChangeDetector):
             # Try to enable change feed if requested
             if self.enable_change_feed:
                 try:
-                    self.change_feed_client = ChangeFeedClient(self.blob_service_client)
+                    # ChangeFeedClient requires account_url string + credential, not a BlobServiceClient
+                    if self.connection_string:
+                        # Parse connection string to extract account URL and key
+                        self.change_feed_client = ChangeFeedClient.from_connection_string(
+                            self.connection_string
+                        )
+                    elif self.account_url and self.account_key:
+                        self.change_feed_client = ChangeFeedClient(
+                            account_url=self.account_url,
+                            credential=self.account_key
+                        )
+                    else:
+                        raise ValueError("Cannot create ChangeFeedClient: need connection_string or account_url+account_key")
                     logger.info("Azure Blob detector started in CHANGE FEED MODE")
                 except Exception as e:
                     logger.warning(f"Change feed not available: {e}. Falling back to periodic mode.")
@@ -258,13 +277,29 @@ class AzureBlobDetector(ChangeDetector):
         while self._running:
             try:
                 # Get change feed events
-                # If we have a continuation token, resume from there
-                change_feed = self.change_feed_client.list_changes(
-                    continuation_token=self.continuation_token,
-                    results_per_page=100
-                )
+                # If we have a continuation token, resume from where we left off.
+                # Otherwise start from detector startup time so we don't replay all history.
+                # Note: pass continuation_token to by_page(), not to list_changes(), to avoid
+                # the "got multiple values for keyword argument" error.
+                if self.continuation_token:
+                    change_feed = self.change_feed_client.list_changes(
+                        results_per_page=100
+                    )
+                    pages = change_feed.by_page(continuation_token=self.continuation_token)
+                else:
+                    change_feed = self.change_feed_client.list_changes(
+                        start_time=self.start_time,
+                        results_per_page=100
+                    )
+                    pages = change_feed.by_page()
                 
-                for change_page in change_feed.by_page():
+                for change_page in pages:
+                    # Save continuation token from the page iterator after each page.
+                    # The token lives on the 'pages' iterator, not on individual change_page items.
+                    if hasattr(pages, 'continuation_token') and pages.continuation_token:
+                        self.continuation_token = pages.continuation_token
+                        logger.debug(f"Saved continuation_token after page")
+
                     for change in change_page:
                         # Filter by container and prefix
                         if not self._should_process_change(change):
@@ -273,6 +308,17 @@ class AzureBlobDetector(ChangeDetector):
                         # Parse change event
                         event = self._parse_change_event(change)
                         if event:
+                            # Skip events that occurred before this detector started.
+                            # The change feed replays all history when there is no saved
+                            # continuation_token, so without this guard we would re-process
+                            # every historical CREATE/DELETE on every fresh start.
+                            if event.timestamp and event.timestamp < self.start_time:
+                                logger.debug(
+                                    f"Skipping historical change feed event for "
+                                    f"{event.metadata.path} (ts={event.timestamp})"
+                                )
+                                continue
+                            
                             self.events_processed += 1
                             
                             # Handle different event types
@@ -283,35 +329,48 @@ class AzureBlobDetector(ChangeDetector):
                             
                             elif event.change_type == ChangeType.CREATE:
                                 # Check if truly new (using known_blob_names)
-                                blob_name = event.metadata.path
-                                is_new = blob_name not in self.known_blob_names
+                                # event.metadata.path is now container/blob_name
+                                full_path = event.metadata.path
+                                blob_name = full_path.split('/', 1)[-1] if '/' in full_path else full_path
+                                is_new = full_path not in self.known_blob_names
                                 
                                 if is_new:
                                     # Truly new - CREATE
                                     logger.info(f"Azure Blob EVENT: CREATE for {blob_name}")
-                                    self.known_blob_names.add(blob_name)
+                                    self.known_blob_names.add(full_path)
+                                    self._last_processed[full_path] = datetime.now(timezone.utc)
                                     try:
                                         await self._process_via_backend(blob_name)
                                         logger.info(f"SUCCESS: Processed CREATE for {blob_name}")
                                     except Exception as e:
                                         logger.error(f"ERROR: Failed to process CREATE for {blob_name}: {e}")
                                 else:
-                                    # Already known - treat as UPDATE (DELETE + ADD)
+                                    # Already known - but Azure often emits duplicate CREATE events
+                                    # (e.g. BlobCreated + BlobPropertiesUpdated) within seconds.
+                                    # Debounce: skip if we processed this blob very recently.
+                                    last_proc = self._last_processed.get(full_path)
+                                    now = datetime.now(timezone.utc)
+                                    if last_proc and (now - last_proc).total_seconds() < self._debounce_seconds:
+                                        logger.info(f"Azure Blob EVENT: Debouncing duplicate CREATE for {blob_name} ({(now - last_proc).total_seconds():.1f}s since last process)")
+                                        continue
+                                    # Treat as UPDATE (DELETE + ADD)
                                     logger.info(f"Azure Blob EVENT: UPDATE (reported as CREATE) for {blob_name}")
+                                    self._last_processed[full_path] = datetime.now(timezone.utc)
                                     
-                                    async def add_callback():
-                                        logger.info(f"UPDATE: DELETE completed, now processing ADD for {blob_name}")
+                                    async def add_callback(bn=blob_name, fp=full_path):
+                                        logger.info(f"UPDATE: DELETE completed, now processing ADD for {bn}")
                                         try:
-                                            await self._process_via_backend(blob_name)
-                                            logger.info(f"SUCCESS: UPDATE completed for {blob_name}")
+                                            await self._process_via_backend(bn)
+                                            self._last_processed[fp] = datetime.now(timezone.utc)
+                                            logger.info(f"SUCCESS: UPDATE completed for {bn}")
                                         except Exception as e:
-                                            logger.error(f"ERROR: Failed to process ADD for {blob_name}: {e}")
+                                            logger.error(f"ERROR: Failed to process ADD for {bn}: {e}")
                                     
                                     delete_metadata = FileMetadata(
                                         source_type='azure_blob',
-                                        path=blob_name,
+                                        path=full_path,
                                         ordinal=event.metadata.ordinal,
-                                        extra={'container': self.container_name}
+                                        extra={'container': self.container_name, 'blob_name': full_path}
                                     )
                                     delete_event = ChangeEvent(
                                         metadata=delete_metadata,
@@ -324,16 +383,26 @@ class AzureBlobDetector(ChangeDetector):
                             
                             elif event.change_type == ChangeType.UPDATE:
                                 # UPDATE event - DELETE first, then ADD via callback
-                                blob_name = event.metadata.path
+                                full_path = event.metadata.path
+                                blob_name = full_path.split('/', 1)[-1] if '/' in full_path else full_path
+                                
+                                # Debounce: Azure emits metadata/properties events alongside content events
+                                last_proc = self._last_processed.get(full_path)
+                                now = datetime.now(timezone.utc)
+                                if last_proc and (now - last_proc).total_seconds() < self._debounce_seconds:
+                                    logger.info(f"Azure Blob EVENT: Debouncing UPDATE for {blob_name} ({(now - last_proc).total_seconds():.1f}s since last process)")
+                                    continue
+                                
                                 logger.info(f"Azure Blob EVENT: UPDATE for {blob_name}")
                                 
                                 # Check if truly known (might be false positive)
-                                is_new = blob_name not in self.known_blob_names
+                                is_new = full_path not in self.known_blob_names
                                 
                                 if is_new:
                                     # Actually new - treat as CREATE
                                     logger.info(f"Azure Blob EVENT: CREATE (reported as UPDATE) for {blob_name}")
-                                    self.known_blob_names.add(blob_name)
+                                    self.known_blob_names.add(full_path)
+                                    self._last_processed[full_path] = datetime.now(timezone.utc)
                                     try:
                                         await self._process_via_backend(blob_name)
                                         logger.info(f"SUCCESS: Processed CREATE for {blob_name}")
@@ -342,20 +411,22 @@ class AzureBlobDetector(ChangeDetector):
                                 else:
                                     # True UPDATE - DELETE + ADD
                                     logger.info(f"Azure Blob EVENT: UPDATE - emitting DELETE with callback")
+                                    self._last_processed[full_path] = datetime.now(timezone.utc)
                                     
-                                    async def add_callback():
-                                        logger.info(f"UPDATE: DELETE completed, now processing ADD for {blob_name}")
+                                    async def add_callback(bn=blob_name, fp=full_path):
+                                        logger.info(f"UPDATE: DELETE completed, now processing ADD for {bn}")
                                         try:
-                                            await self._process_via_backend(blob_name)
-                                            logger.info(f"SUCCESS: UPDATE completed for {blob_name}")
+                                            await self._process_via_backend(bn)
+                                            self._last_processed[fp] = datetime.now(timezone.utc)
+                                            logger.info(f"SUCCESS: UPDATE completed for {bn}")
                                         except Exception as e:
-                                            logger.error(f"ERROR: Failed to process ADD for {blob_name}: {e}")
+                                            logger.error(f"ERROR: Failed to process ADD for {bn}: {e}")
                                     
                                     delete_metadata = FileMetadata(
                                         source_type='azure_blob',
-                                        path=blob_name,
+                                        path=full_path,
                                         ordinal=event.metadata.ordinal,
-                                        extra={'container': self.container_name}
+                                        extra={'container': self.container_name, 'blob_name': full_path}
                                     )
                                     delete_event = ChangeEvent(
                                         metadata=delete_metadata,
@@ -366,13 +437,30 @@ class AzureBlobDetector(ChangeDetector):
                                     )
                                     yield delete_event
                     
-                    # Save continuation token for next iteration
-                    self.continuation_token = change_page.continuation_token
+                # Also save after exhausting all pages (final position)
+                if hasattr(pages, 'continuation_token') and pages.continuation_token:
+                    self.continuation_token = pages.continuation_token
                 
                 # Wait before next poll (change feed is eventually consistent)
                 await asyncio.sleep(5)
                 
-            except AzureError as e:
+            except (ResourceNotFoundError, AzureError) as e:
+                error_str = str(e)
+                # ContainerNotFound means the $blobchangefeed container doesn't exist,
+                # i.e. Change Feed is not enabled on this storage account.
+                # The error surfaces lazily from the iterator, so catch both
+                # ResourceNotFoundError (specific) and AzureError (general) here.
+                # Disable the client and fall back to periodic-only mode permanently.
+                if 'ContainerNotFound' in error_str or 'container does not exist' in error_str.lower():
+                    logger.warning(
+                        "Azure Blob Change Feed is not enabled on this storage account "
+                        "($blobchangefeed container not found). "
+                        "Falling back to periodic refresh mode. "
+                        "To enable: Azure Portal -> Storage Account -> "
+                        "Data management -> Data protection -> enable Blob change feed."
+                    )
+                    self.change_feed_client = None
+                    return  # Exit get_changes() - engine will use periodic refresh only
                 logger.error(f"Error reading Azure Blob change feed: {e}")
                 self.errors_count += 1
                 await asyncio.sleep(10)  # Back off on error
@@ -438,9 +526,12 @@ class AzureBlobDetector(ChangeDetector):
             # Get blob properties if available
             data = change.get('data', {})
             
+            # Use container/blob_path as the canonical path so it matches document_state source_id
+            full_path = f"{self.container_name}/{blob_path}"
+            
             metadata = FileMetadata(
                 source_type='azure_blob',
-                path=blob_path,
+                path=full_path,
                 ordinal=ordinal,
                 size_bytes=data.get('contentLength'),
                 mime_type=data.get('contentType'),
@@ -448,6 +539,7 @@ class AzureBlobDetector(ChangeDetector):
                 extra={
                     'etag': data.get('etag'),
                     'container': self.container_name,
+                    'blob_name': full_path,   # for source_id lookup in engine DELETE handler
                     'event_type': event_type,
                 }
             )
@@ -590,7 +682,7 @@ class AzureBlobDetector(ChangeDetector):
                             ordinal=ordinal,
                             content_hash=content_hash,
                             source_id=full_path,  # Use full path as source_id
-                            modified_timestamp=updated.isoformat(),
+                            modified_timestamp=updated,  # datetime required by PostgreSQL TIMESTAMPTZ
                             vector_synced_at=now,
                             search_synced_at=now,
                             graph_synced_at=now if not skip_graph_flag else None
@@ -639,7 +731,7 @@ class AzureBlobDetector(ChangeDetector):
         
         # Use Azure Blob URI as source_id
         source_id = f"https://{self.account_name}.blob.core.windows.net/{self.container_name}/{blob_path}"
-        modified_timestamp = doc.metadata.get('modified at')
+        modified_timestamp = self.parse_timestamp(doc.metadata.get('modified at'))
         
         # Extract filename from blob path
         filename = blob_path.split('/')[-1]
@@ -647,18 +739,41 @@ class AzureBlobDetector(ChangeDetector):
         # Create doc_id
         doc_id = f"{self.config_id}:{filename}"
         
-        # Compute content hash (placeholder)
-        content_hash = "placeholder"
+        # Compute actual content hash from document text (not placeholder)
+        content_hash = None
+        if hasattr(doc, 'text') and doc.text:
+            from incremental_updates.state_manager import StateManager
+            content_hash = StateManager.compute_content_hash(doc.text)
+        
+        # Use document's ordinal (modification timestamp) if available
+        ordinal = doc.metadata.get('ordinal')
+        if not ordinal and modified_timestamp:
+            try:
+                from datetime import datetime
+                if isinstance(modified_timestamp, datetime):
+                    ordinal = int(modified_timestamp.timestamp() * 1_000_000)
+                else:
+                    ordinal = int(datetime.now(timezone.utc).timestamp() * 1_000_000)
+            except:
+                ordinal = int(datetime.now(timezone.utc).timestamp() * 1_000_000)
+        elif not ordinal:
+            ordinal = int(datetime.now(timezone.utc).timestamp() * 1_000_000)
+        
+        # Record synced timestamps (document is already in vector/search stores after initial ingest)
+        now = datetime.now(timezone.utc)
         
         # Create document state
         doc_state = DocumentState(
             doc_id=doc_id,
             config_id=self.config_id,
             source_path=blob_path,
-            ordinal=int(datetime.now(timezone.utc).timestamp() * 1_000_000),
+            ordinal=ordinal,
             content_hash=content_hash,
             source_id=source_id,
-            modified_timestamp=modified_timestamp
+            modified_timestamp=modified_timestamp,
+            vector_synced_at=now,
+            search_synced_at=now,
+            graph_synced_at=now if not getattr(self, 'skip_graph', False) else None
         )
         
         await self.state_manager.save_state(doc_state)

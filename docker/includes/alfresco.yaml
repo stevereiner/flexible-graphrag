@@ -147,8 +147,8 @@ services:
     ports:
       - "8161:8161" # Web Console
       #- "5672:5672" # AMQP
-      - "61616:61616" # OpenWire
-      - "61613:61613" # STOMP - Required for Alfresco event monitoring
+      - "8616:61616" # OpenWire (changed from 61616 due to Windows dynamic port range conflict)
+      - "8613:61613" # STOMP - Required for Alfresco event monitoring (changed from 61613 due to Windows dynamic port range)
     healthcheck:
       test: ["CMD", "/opt/activemq/bin/activemq", "query", "--objname", "type=Broker,brokerName=*,service=Health", "|", "grep", "Good"]
       interval: 10s

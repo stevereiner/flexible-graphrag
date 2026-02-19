@@ -415,7 +415,7 @@ class DocumentProcessor:
                             "source": str(file_path),  # Then override with processing metadata
                             "conversion_method": "docling",
                             "file_type": path_obj.suffix,
-                            "file_name": path_obj.name
+                            "file_name": orig_meta.get("file_name") or path_obj.name  # Prefer original name
                         }
                     )
                     return doc
@@ -441,7 +441,7 @@ class DocumentProcessor:
                             "source": str(file_path),  # Then override with processing metadata
                             "conversion_method": "direct",
                             "file_type": path_obj.suffix,
-                            "file_name": path_obj.name
+                            "file_name": orig_meta.get("file_name") or path_obj.name  # Prefer original name
                         }
                     )
                     return doc
@@ -682,7 +682,7 @@ class DocumentProcessor:
                             "source": file_path_str,
                             "conversion_method": "llamaparse",
                             "file_type": Path(file_path).suffix,
-                            "file_name": Path(file_path).name,
+                            "file_name": orig_meta.get("file_name") or Path(file_path).name,  # Prefer original name
                             "total_pages": len(pages),
                             "format_used": format_used,
                             # Add job metadata for tracking

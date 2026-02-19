@@ -432,6 +432,9 @@ CMIS_PASSWORD=admin
 ALFRESCO_URL=http://localhost:8080
 ALFRESCO_USERNAME=admin
 ALFRESCO_PASSWORD=admin
+# ALFRESCO_STOMP_PORT: ActiveMQ STOMP port for real-time events (default: 61613)
+# Note: If you've changed the ActiveMQ STOMP port in docker-compose (e.g., to 8613), set it here
+#ALFRESCO_STOMP_PORT=8613
 
 # Amazon S3 Configuration (if using S3)
 # Note: These values serve as defaults/fallbacks when S3_CONFIG is not provided or incomplete

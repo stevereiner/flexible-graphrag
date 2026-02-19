@@ -409,7 +409,7 @@ Queries are slow or timing out
 - [Amazon Neptune Database Documentation](https://docs.aws.amazon.com/neptune/latest/userguide/intro.html)
 - [Amazon Neptune Analytics Documentation](https://docs.aws.amazon.com/neptune-analytics/latest/userguide/what-is-neptune-analytics.html)
 - [Neptune Pricing](https://aws.amazon.com/neptune/pricing/)
-- [Flexible GraphRAG Embedding Configuration](./LLM-EMBEDDING-CONFIG.md)
+- [Flexible GraphRAG Embedding Configuration](../LLM/LLM-EMBEDDING-CONFIG.md)
 
 ---
 

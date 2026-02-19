@@ -131,8 +131,8 @@ GRAPH_DB=kuzu
 - **Source paths**: `docs/SOURCE-PATH-EXAMPLES.md`
 - **Schema examples**: `docs/SCHEMA-EXAMPLES.md`
 - **Timeout configuration**: `docs/TIMEOUT-CONFIGURATIONS.md`
-- **Neo4j URLs**: `docs/Neo4j-URLs.md`
-- **Vector dimensions**: `docs/VECTOR-DIMENSIONS.md`
+- **Neo4j URLs**: `docs/GRAPH-DATABASES/Neo4j-URLs.md`
+- **Vector dimensions**: `docs/VECTOR-DATABASES/VECTOR-DIMENSIONS.md`
 
 ## 🚀 **Quick Start**
 

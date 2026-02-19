@@ -1,11 +1,11 @@
 -- Initialize pgvector extension for Flexible GraphRAG
 -- This script runs automatically when the PostgreSQL container starts
+-- Note: This runs in the default database context (flexible_graphrag)
+-- which is set by POSTGRES_DB environment variable
 
--- Create the vector extension
+-- Create the vector extension in flexible_graphrag database
+-- (NOT in flexible_graphrag_incremental - that's for state management only)
 CREATE EXTENSION IF NOT EXISTS vector;
-
--- Create a database for flexible-graphrag if it doesn't exist
--- (Note: The main database is already created via POSTGRES_DB environment variable)
 
 -- Grant necessary permissions
 GRANT ALL PRIVILEGES ON DATABASE flexible_graphrag TO postgres;
@@ -25,4 +25,4 @@ CREATE INDEX IF NOT EXISTS sample_vectors_embedding_idx ON sample_vectors
 USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100);
 
 -- Display confirmation
-SELECT 'pgvector extension initialized successfully for Flexible GraphRAG' as status;
+SELECT 'pgvector extension initialized in flexible_graphrag database' as status;

@@ -593,6 +593,16 @@ class GoogleDriveDetector(ChangeDetector):
             file_id = file.get('id')
             file_name = file.get('name', file_id)
             
+            # Build full path from parent folders (for display purposes)
+            # Note: This is best-effort - GoogleDriveReader provides better paths during actual download
+            file_path = file_name  # Default to just filename
+            parents = file.get('parents', [])
+            
+            # If monitoring a specific folder and file is in that folder, construct relative path
+            if self.folder_id and parents and self.folder_id in parents:
+                # File is directly in monitored folder
+                file_path = file_name
+            
             return FileMetadata(
                 source_type='google_drive',
                 path=file_id,  # Use file_id as path for stability
@@ -603,7 +613,8 @@ class GoogleDriveDetector(ChangeDetector):
                 extra={
                     'file_id': file_id,
                     'file_name': file_name,  # Store name for logging/display
-                    'parents': file.get('parents', []),
+                    'file_path': file_path,  # Store best-effort path
+                    'parents': parents,
                 }
             )
             
@@ -695,9 +706,13 @@ class GoogleDriveDetector(ChangeDetector):
         
         # Extract metadata
         source_id = doc.metadata.get('file id') or file_id
-        modified_timestamp = doc.metadata.get('modified at')  # Google Drive uses 'modified at' with space
+        timestamp_str = doc.metadata.get('modified at')  # Google Drive uses 'modified at' with space
+        modified_timestamp = self.parse_timestamp(timestamp_str)
         
-        # Create doc_id in stable format (using file_id as path)
+        # Get human-readable path for source_path (for database/queries)
+        human_file_path = doc.metadata.get('file path') or doc.metadata.get('file_name') or filename
+        
+        # Create doc_id in stable format (using file_id as stable path)
         doc_id = f"{self.config_id}:{file_id}"
         
         # Compute content hash from modification timestamp if available
@@ -711,13 +726,8 @@ class GoogleDriveDetector(ChangeDetector):
         # Compute ordinal from file's modification timestamp (not current time)
         ordinal = int(datetime.now(timezone.utc).timestamp() * 1_000_000)
         if modified_timestamp:
-            try:
-                from dateutil import parser as dateutil_parser
-                dt = dateutil_parser.parse(modified_timestamp)
-                ordinal = int(dt.timestamp() * 1_000_000)
-                logger.info(f"Event-added file: Using modification timestamp for ordinal: {modified_timestamp} -> {ordinal}")
-            except Exception as e:
-                logger.warning(f"Could not parse modification timestamp '{modified_timestamp}': {e}")
+            ordinal = int(modified_timestamp.timestamp() * 1_000_000)
+            logger.info(f"Event-added file: Using modification timestamp for ordinal: {modified_timestamp} -> {ordinal}")
         
         # Get current time for sync timestamps (file was just ingested)
         now = datetime.now(timezone.utc)
@@ -728,10 +738,12 @@ class GoogleDriveDetector(ChangeDetector):
         
         # Create document state with sync timestamps marked
         # (backend just ingested to vector, search, and optionally graph indexes)
+        # Use human-readable path for source_path (for UI display)
+        # Use file_id for stable identification (in doc_id and source_id)
         doc_state = DocumentState(
             doc_id=doc_id,
             config_id=self.config_id,
-            source_path=file_id,  # Use file_id as path
+            source_path=human_file_path,  # Use human-readable path for display
             ordinal=ordinal,
             content_hash=content_hash,
             source_id=source_id,
@@ -742,7 +754,7 @@ class GoogleDriveDetector(ChangeDetector):
         )
         
         await self.state_manager.save_state(doc_state)
-        logger.info(f"Created document_state for {filename}: {doc_id}")
+        logger.info(f"Created document_state for {filename}: doc_id={doc_id}, source_path={human_file_path}, source_id={source_id}")
 
     
     async def _find_file_id(self, path: str) -> Optional[str]:

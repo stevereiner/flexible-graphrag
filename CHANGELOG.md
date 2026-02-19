@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2026-02-17] - PostgreSQL Auto-Setup, Azure Blob Change Feed, Alfresco Ports, Source Path Fixes & Docs Reorganization
+
+### Added
+- **Postgres & pgAdmin auto-setup on first use** - `docker/includes/postgres-pgvector.yaml` now runs init scripts on first container start: creates `flexible_graphrag` (for optional pgvector) and `flexible_graphrag_incremental` (incremental update state management) databases with schema. pgAdmin is pre-configured with both databases registered
+- **docs/POSTGRES-SETUP.md** - New guide covering PostgreSQL for pgvector and incremental state management, pgAdmin access, and manual database operations
+- **docs/DATA-SOURCES/AZURE-BLOB-SETUP.md** - UI-only setup guide for Azure Blob Storage: storage account, container, credentials, Flexible GraphRAG form configuration, and enabling Change Feed for auto-sync
+- **Azure Blob Storage Change Feed support** - `azure_blob_detector.py` now uses the Azure Change Feed API for real-time event detection with fallback to periodic polling
+
+### Changed
+- **Alfresco OpenWire and STOMP ports updated** (`docker/includes/alfresco.yaml`) - Changed to avoid conflict with Windows dynamic port range; STOMP port now configurable via `env-sample.txt` and `main.py`
+- **`modified_timestamp` column type changed from `TEXT` to `TIMESTAMPTZ`** - All detector files updated to use timezone-aware timestamps
+- **Documentation reorganized into subfolders** (`docs/`) - Docs from `flexible-graphrag/incremental_updates/` and the backend root moved into: `DATA-SOURCES/`, `DOC-PROCESSING/`, `GRAPH-DATABASES/`, `INCREMENTAL-UPDATE-AUTO-SYNC/`, `LLM/`, `OBSERVABILITY/`, `VECTOR-DATABASES/`
+- **README.md** - Added PostgreSQL/pgAdmin auto-setup info in Incremental Updates section; doc links updated to new subfolder locations
+- **`source_path` field now human-readable** for Google Drive, OneDrive, and Azure Blob - stores filename/path instead of raw file IDs or temp paths; `doc_id` comparison logic fixed to correctly identify UUID-prefixed stable IDs vs. Windows drive letter paths
+
 ## [2026-02-14] - Neptune Integration & Documentation Updates
 
 ### Added

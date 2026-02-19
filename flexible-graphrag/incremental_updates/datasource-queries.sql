@@ -12,12 +12,18 @@ SELECT
     config_id,
     source_name,
     source_type,
+    project_id,
     is_active,
     sync_status,
+    last_sync_ordinal,
     last_sync_completed_at,
     refresh_interval_seconds,
+    watchdog_filesystem_seconds,
+    enable_change_stream,
     skip_graph,
-    created_at
+    last_error,
+    created_at,
+    updated_at
 FROM datasource_config 
 ORDER BY created_at DESC;
 
@@ -64,11 +70,15 @@ WHERE config_id = 'f57c4872-dd05-403e-a451-bb5a8ebe6d7b';
 SELECT 
     doc_id,
     source_path,
+    source_id,
+    ordinal,
     content_hash,
+    modified_timestamp,
     vector_synced_at,
     search_synced_at,
     graph_synced_at,
-    created_at
+    created_at,
+    updated_at
 FROM document_state
 WHERE config_id = 'f57c4872-dd05-403e-a451-bb5a8ebe6d7b'
 ORDER BY created_at DESC;
@@ -213,6 +223,64 @@ FROM datasource_config
 WHERE config_id = 'f57c4872-dd05-403e-a451-bb5a8ebe6d7b';
 
 -- ============================================================
+-- CLOUD SOURCE QUERIES (New Fields)
+-- ============================================================
+
+-- View documents with cloud source IDs
+SELECT 
+    doc_id,
+    config_id,
+    source_path,
+    source_id,
+    modified_timestamp,
+    content_hash,
+    ordinal,
+    updated_at
+FROM document_state
+WHERE source_id IS NOT NULL
+ORDER BY updated_at DESC;
+
+-- Find documents by source_id (e.g., Google Drive file ID)
+SELECT 
+    doc_id,
+    source_path,
+    source_id,
+    modified_timestamp,
+    vector_synced_at,
+    search_synced_at,
+    graph_synced_at
+FROM document_state
+WHERE config_id = 'YOUR_CONFIG_ID'
+  AND source_id = 'YOUR_FILE_ID';
+
+-- Documents with recent modification timestamps
+SELECT 
+    doc_id,
+    source_path,
+    source_id,
+    modified_timestamp,
+    ordinal,
+    updated_at
+FROM document_state
+WHERE modified_timestamp IS NOT NULL
+ORDER BY modified_timestamp DESC
+LIMIT 50;
+
+-- Cloud source statistics by datasource
+SELECT 
+    ds.config_id,
+    ds.source_name,
+    ds.source_type,
+    COUNT(doc.doc_id) as total_docs,
+    COUNT(doc.source_id) as docs_with_source_id,
+    COUNT(doc.modified_timestamp) as docs_with_mod_timestamp,
+    ROUND(100.0 * COUNT(doc.source_id) / NULLIF(COUNT(doc.doc_id), 0), 2) as pct_with_source_id
+FROM datasource_config ds
+LEFT JOIN document_state doc ON ds.config_id = doc.config_id
+GROUP BY ds.config_id, ds.source_name, ds.source_type
+ORDER BY total_docs DESC;
+
+-- ============================================================
 -- NOTES
 -- ============================================================
 /*
@@ -227,5 +295,9 @@ SET connection_params = connection_params || '{"sqs_queue_url": "https://sqs.us-
 WHERE config_id = 'f57c4872-dd05-403e-a451-bb5a8ebe6d7b';
 
 Then restart backend or call: curl -X POST http://localhost:8000/api/sync/start-monitoring
+
+NEW FIELDS in document_state:
+- source_id: Cloud file identifier (Google Drive file_id, S3 ETag, etc.)
+- modified_timestamp: Source modification time for quick change detection
 
 */

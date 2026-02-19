@@ -5,13 +5,22 @@
 -- 1. VIEW ALL DATASOURCES
 -- ============================================================
 SELECT 
-    config_id, 
-    source_name, 
+    config_id,
+    project_id,
     source_type,
+    source_name,
+    connection_params,
+    refresh_interval_seconds,
+    watchdog_filesystem_seconds,
+    enable_change_stream,
+    skip_graph,
     is_active,
     sync_status,
+    last_sync_ordinal,
     last_sync_completed_at,
-    created_at
+    last_error,
+    created_at,
+    updated_at
 FROM datasource_config
 ORDER BY created_at DESC;
 
@@ -22,12 +31,13 @@ SELECT
     doc_id,
     config_id,
     source_path,
+    source_id,
     ordinal,
     content_hash,
+    modified_timestamp,
     vector_synced_at,
     search_synced_at,
     graph_synced_at,
-    is_deleted,
     created_at,
     updated_at
 FROM document_state
@@ -69,6 +79,8 @@ HAVING COUNT(*) > 1;
 SELECT 
     doc_id,
     source_path,
+    source_id,
+    modified_timestamp,
     CASE 
         WHEN vector_synced_at IS NULL THEN 'Missing vector'
         WHEN search_synced_at IS NULL THEN 'Missing search'
@@ -81,6 +93,55 @@ SELECT
     updated_at
 FROM document_state
 ORDER BY updated_at DESC;
+
+-- ============================================================
+-- 6. VIEW DOCUMENTS BY SOURCE_ID (Cloud Sources)
+-- ============================================================
+-- Useful for Google Drive, OneDrive, S3 with file IDs
+SELECT 
+    doc_id,
+    config_id,
+    source_id,
+    source_path,
+    modified_timestamp,
+    content_hash,
+    vector_synced_at,
+    updated_at
+FROM document_state
+WHERE source_id IS NOT NULL
+ORDER BY updated_at DESC;
+
+-- ============================================================
+-- 7. FIND DOCUMENTS WITH RECENT MODIFICATIONS
+-- ============================================================
+-- Shows documents with modified_timestamp in the last 24 hours
+SELECT 
+    doc_id,
+    source_path,
+    source_id,
+    modified_timestamp,
+    ordinal,
+    updated_at
+FROM document_state
+WHERE modified_timestamp IS NOT NULL
+  AND modified_timestamp > (NOW() - INTERVAL '24 hours')::text
+ORDER BY modified_timestamp DESC;
+
+-- ============================================================
+-- 8. CLOUD SOURCE STATISTICS
+-- ============================================================
+-- Count documents by datasource with source_id (cloud sources)
+SELECT 
+    ds.config_id,
+    ds.source_name,
+    ds.source_type,
+    COUNT(doc.doc_id) as total_docs,
+    COUNT(doc.source_id) as docs_with_source_id,
+    COUNT(doc.modified_timestamp) as docs_with_mod_timestamp
+FROM datasource_config ds
+LEFT JOIN document_state doc ON ds.config_id = doc.config_id
+GROUP BY ds.config_id, ds.source_name, ds.source_type
+ORDER BY total_docs DESC;
 
 -- ============================================================
 -- CLEANUP QUERIES (Use carefully!)

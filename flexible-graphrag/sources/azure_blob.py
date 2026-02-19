@@ -158,10 +158,15 @@ class AzureBlobSource(BaseDataSource):
             if progress_callback:
                 progress_callback(0, 1, f"Connecting to Azure Blob Storage container: {self.container_name}")
             
-            # Create PassthroughExtractor WITHOUT doc_processor (return placeholders)
-            # We'll process all files together after correcting paths
+            # Create PassthroughExtractor WITH doc_processor so files are processed immediately
+            # while the AzStorageBlobReader temp files still exist on disk.
+            # AzStorageBlobReader downloads blobs to temp dir, calls the extractor, then deletes
+            # the temp dir - so we MUST process each file while it is still present.
+            parser_type = get_parser_type_from_env()
+            doc_processor = DocumentProcessor(parser_type=parser_type)
             extractor = PassthroughExtractor(
-                progress_callback=progress_callback
+                progress_callback=progress_callback,
+                doc_processor=doc_processor
             )
             
             # Define file extractor mapping once
@@ -220,17 +225,22 @@ class AzureBlobSource(BaseDataSource):
             
             logger.info(f"Extracted {len(azure_path_mapping)} Azure path mappings")
             
-            # Now process the documents with DocumentProcessor
-            parser_type = get_parser_type_from_env()
-            doc_processor = DocumentProcessor(parser_type=parser_type)
-            
-            documents = await doc_processor.process_documents_from_metadata(placeholder_docs)
+            # placeholder_docs are now already fully processed (PassthroughExtractor with doc_processor
+            # processes each file immediately while the temp file still exists)
+            documents = placeholder_docs
             
             # Add Azure Blob Storage metadata to processed documents and CORRECT file_path
             for doc in documents:
-                # Look up the correct Azure path using file_name
                 file_name = doc.metadata.get('file_name', '')
-                correct_azure_path = azure_path_mapping.get(file_name, None)
+                # After our PassthroughExtractor fix, file_path in doc.metadata should already
+                # be the blob name (e.g. 'cmispress.txt').  Construct container/blob_name path.
+                blob_path = doc.metadata.get('file_path', '')
+                if blob_path and not blob_path.startswith(self.container_name + '/'):
+                    # Blob path is relative (blob name only); prefix with container
+                    correct_azure_path = f"{self.container_name}/{blob_path}"
+                else:
+                    # Fallback to the pre-built mapping keyed by file_name
+                    correct_azure_path = azure_path_mapping.get(file_name, None)
                 
                 # Update metadata with correct Azure path and metadata
                 update_dict = {

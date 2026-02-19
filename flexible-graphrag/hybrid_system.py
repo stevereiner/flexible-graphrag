@@ -2056,8 +2056,10 @@ class HybridSearchSystem:
             import os
             logger.info(f"Setting stable doc_id for {len(documents)} documents using config_id: {config_id}")
             for doc in documents:
-                # Skip if doc already has a proper doc_id set (from incremental system)
-                if hasattr(doc, 'id_') and doc.id_ and ':' in str(doc.id_):
+                # Skip if doc already has a proper doc_id set (from incremental system).
+                # Must start with config_id: - a bare ':' check is insufficient because
+                # Windows paths also contain ':' (e.g. C:\Users\...\file_part_0).
+                if hasattr(doc, 'id_') and doc.id_ and str(doc.id_).startswith(f"{config_id}:"):
                     logger.info(f"  Document already has doc_id: {doc.id_} - skipping")
                     continue
                     

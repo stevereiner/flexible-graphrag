@@ -50,7 +50,7 @@ DOCLING_TIMEOUT=600  # Default: 10 minutes (600 seconds)
 DOCLING_CANCEL_CHECK_INTERVAL=0.5  # Default: 0.5 seconds
 ```
 
-**Note**: For GPU/device configuration and output saving options, see [DOCLING-GPU-CONFIGURATION.md](DOCLING-GPU-CONFIGURATION.md)
+**Note**: For GPU/device configuration and output saving options, see [DOC-PROCESSING/DOCLING-GPU-CONFIGURATION.md](DOC-PROCESSING/DOCLING-GPU-CONFIGURATION.md)
 
 ### **3. Knowledge Graph Extraction Timeouts**
 

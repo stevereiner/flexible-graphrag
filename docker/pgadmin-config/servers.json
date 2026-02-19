@@ -1,0 +1,14 @@
+{
+  "Servers": {
+    "1": {
+      "Name": "Flexible GraphRAG PostgreSQL",
+      "Group": "Servers",
+      "Host": "postgres-pgvector",
+      "Port": 5432,
+      "MaintenanceDB": "postgres",
+      "Username": "postgres",
+      "SSLMode": "prefer",
+      "Comment": "PostgreSQL with pgvector extension for Flexible GraphRAG"
+    }
+  }
+}

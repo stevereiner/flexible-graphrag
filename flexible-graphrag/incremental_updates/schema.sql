@@ -52,8 +52,10 @@ CREATE TABLE IF NOT EXISTS document_state (
     doc_id TEXT PRIMARY KEY,  -- Unique ID: config_id:source_path
     config_id TEXT NOT NULL,
     source_path TEXT NOT NULL,
+    source_id TEXT,  -- Source-specific file ID (e.g., Google Drive file ID)
     ordinal BIGINT NOT NULL,  -- Microsecond timestamp
     content_hash TEXT NOT NULL,  -- SHA-256 hash for content change detection
+    modified_timestamp TIMESTAMPTZ,  -- Source modification timestamp (for quick change detection)
     vector_synced_at TIMESTAMPTZ,  -- When vector index was last updated
     search_synced_at TIMESTAMPTZ,  -- When search index was last updated
     graph_synced_at TIMESTAMPTZ,  -- When graph index was last updated
@@ -66,6 +68,9 @@ ON document_state(config_id);
 
 CREATE INDEX IF NOT EXISTS idx_document_state_ordinal 
 ON document_state(config_id, ordinal);
+
+CREATE INDEX IF NOT EXISTS idx_document_state_source_id 
+ON document_state(config_id, source_id);
 
 -- Sample data for testing (optional)
 -- INSERT INTO datasource_configs 

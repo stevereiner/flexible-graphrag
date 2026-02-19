@@ -267,6 +267,7 @@ class AlfrescoDetector(ChangeDetector):
                 - recursive: Whether to recursively monitor subfolders (default: False)
                 - polling_interval: Seconds between checks (default: 300)
                 - event_mode: Force event mode on/off (default: auto-detect)
+                - stomp_port: ActiveMQ STOMP port (default: 61613)
         """
         super().__init__(config)
         
@@ -282,6 +283,7 @@ class AlfrescoDetector(ChangeDetector):
         # Mode configuration
         self.polling_interval = config.get('polling_interval', 300)  # 5 minutes default
         self.force_event_mode = config.get('event_mode', None)  # None = auto-detect
+        self.stomp_port = config.get('stomp_port', 61613)  # ActiveMQ STOMP port (default: 61613)
         
         # State tracking
         self._last_check_time: Optional[datetime] = None
@@ -400,7 +402,7 @@ class AlfrescoDetector(ChangeDetector):
                 alfresco_host=self.host,
                 username=self.username,
                 password=self.password,
-                community_port=61613,  # STOMP port (ActiveMQ bridges from OpenWire 61616)
+                community_port=self.stomp_port,  # STOMP port (ActiveMQ bridges from OpenWire 61616)
                 auto_detect=False,  # Disable auto-detect, we'll do it manually
                 debug=False  # Set to True for troubleshooting
             )
@@ -493,7 +495,7 @@ class AlfrescoDetector(ChangeDetector):
             logger.info("INITIALIZING SHARED STOMP CONNECTION (BROADCASTER)")
             logger.info("=" * 60)
             logger.info(f"Host: {self.host}")
-            logger.info(f"Port: 61613 (STOMP)")
+            logger.info(f"Port: {self.stomp_port} (STOMP)")
             logger.info(f"Topic: /topic/alfresco.repo.event2")
             logger.info(f"Monitored path: {self.path}")
             
@@ -503,7 +505,7 @@ class AlfrescoDetector(ChangeDetector):
             # Get or create shared broadcaster for this Alfresco instance
             self._broadcaster = await AlfrescoEventBroadcaster.get_instance(
                 host=self.host,
-                port=61613,
+                port=self.stomp_port,
                 username=self.username,
                 password=self.password
             )
@@ -1494,7 +1496,10 @@ class AlfrescoDetector(ChangeDetector):
         
         # Extract real metadata from the processed document
         source_id = doc.metadata.get('alfresco_id') or node_id
-        modified_timestamp = doc.metadata.get('modified_at')
+        modified_timestamp_raw = doc.metadata.get('modified_at')
+        
+        # Convert modified_timestamp to datetime object using base class helper
+        modified_timestamp = self.parse_timestamp(modified_timestamp_raw)
         
         # Create doc_id in stable format using alfresco://node_id (consistent with hybrid_system)
         # This is stable across renames/moves
@@ -1513,8 +1518,13 @@ class AlfrescoDetector(ChangeDetector):
         if not ordinal and modified_timestamp:
             try:
                 from datetime import datetime
-                dt = datetime.fromisoformat(modified_timestamp.replace('Z', '+00:00'))
-                ordinal = int(dt.timestamp() * 1_000_000)
+                # modified_timestamp is already a datetime object now
+                if isinstance(modified_timestamp, datetime):
+                    ordinal = int(modified_timestamp.timestamp() * 1_000_000)
+                else:
+                    # Fallback: parse if somehow still a string
+                    dt = datetime.fromisoformat(str(modified_timestamp).replace('Z', '+00:00'))
+                    ordinal = int(dt.timestamp() * 1_000_000)
             except:
                 ordinal = int(datetime.now(timezone.utc).timestamp() * 1_000_000)
         elif not ordinal:

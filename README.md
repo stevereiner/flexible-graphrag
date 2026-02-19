@@ -183,11 +183,16 @@ POSTGRES_INCREMENTAL_URL=postgresql://postgres:password@localhost:5433/postgres
 - For **S3**: Also provide the "SQS Queue URL" for event notifications
 - For **GCS**: Also provide the "Pub/Sub Subscription Name" for real-time updates
 
+**PostgreSQL for State Management**:
+
+The `docker/includes/postgres-pgvector.yaml` sets up two databases automatically on first start: `flexible_graphrag` (for optional pgvector vector storage) and `flexible_graphrag_incremental` (for incremental update state management, with its schema created automatically). pgAdmin is also configured at http://localhost:5050 with both databases pre-registered — just enter the master password `admin` when prompted, then use `password` for the server connection and save it. See [docs/POSTGRES-SETUP.md](docs/POSTGRES-SETUP.md) for details.
+
 **Documentation**:
-- System overview: [`flexible-graphrag/incremental_updates/README.md`](./flexible-graphrag/incremental_updates/README.md)
-- Quick start: [`flexible-graphrag/incremental_updates/QUICKSTART.md`](./flexible-graphrag/incremental_updates/QUICKSTART.md)
-- Detailed setup: [`flexible-graphrag/incremental_updates/SETUP-GUIDE.md`](./flexible-graphrag/incremental_updates/SETUP-GUIDE.md)
-- API reference: [`flexible-graphrag/incremental_updates/API-REFERENCE.md`](./flexible-graphrag/incremental_updates/API-REFERENCE.md)
+- System overview: [`docs/INCREMENTAL-UPDATE-AUTO-SYNC/README.md`](docs/INCREMENTAL-UPDATE-AUTO-SYNC/README.md)
+- Quick start: [`docs/INCREMENTAL-UPDATE-AUTO-SYNC/QUICKSTART.md`](docs/INCREMENTAL-UPDATE-AUTO-SYNC/QUICKSTART.md)
+- Detailed setup: [`docs/INCREMENTAL-UPDATE-AUTO-SYNC/SETUP-GUIDE.md`](docs/INCREMENTAL-UPDATE-AUTO-SYNC/SETUP-GUIDE.md)
+- API reference: [`docs/INCREMENTAL-UPDATE-AUTO-SYNC/API-REFERENCE.md`](docs/INCREMENTAL-UPDATE-AUTO-SYNC/API-REFERENCE.md)
+- PostgreSQL setup: [`docs/POSTGRES-SETUP.md`](docs/POSTGRES-SETUP.md)
 
 **Scripts**:
 - `scripts/incremental/sync-now.sh|.ps1|.bat` - Trigger immediate synchronization
@@ -209,7 +214,7 @@ All data sources support two document parser options:
 - **New**: `DOCLING_DEVICE=auto|cpu|cuda|mps` - Control GPU vs CPU processing
 - **New**: `SAVE_PARSING_OUTPUT=true` - Save intermediate parsing results for inspection (works for both parsers)
 - **New**: `PARSER_FORMAT_FOR_EXTRACTION=auto|markdown|plaintext` - Control format used for knowledge graph extraction
-- See [Docling GPU Configuration Guide](docs/DOCLING-GPU-CONFIGURATION.md) for setup details | [Quick Reference](DOCLING-QUICK-REFERENCE.md)
+- See [Docling GPU Configuration Guide](docs/DOC-PROCESSING/DOCLING-GPU-CONFIGURATION.md) for setup details | [Quick Reference](DOCLING-QUICK-REFERENCE.md)
 
 **LlamaParse**:
 - Cloud-based API service with advanced AI
@@ -312,7 +317,7 @@ Flexible GraphRAG uses three types of databases for its hybrid search capabiliti
 - **Ollama**: 384 dimensions (all-minilm, default), 768 dimensions (nomic-embed-text), or 1024 dimensions (mxbai-embed-large)
 - **Azure OpenAI**: Same as OpenAI (1536 or 3072 dimensions)
 
-**See [VECTOR-DIMENSIONS.md](VECTOR-DIMENSIONS.md) for detailed cleanup instructions for each database.**
+**See [docs/VECTOR-DATABASES/VECTOR-DIMENSIONS.md](docs/VECTOR-DATABASES/VECTOR-DIMENSIONS.md) for detailed cleanup instructions for each database.**
 
 #### Supported Vector Databases
 
@@ -491,7 +496,7 @@ ENABLE_KNOWLEDGE_GRAPH=false
 
 ## LLM Configuration
 
-**Configuration**: Set via `LLM_PROVIDER` and provider-specific environment variables. See [docs/LLM-EMBEDDING-CONFIG.md](docs/LLM-EMBEDDING-CONFIG.md) for detailed examples and all options.
+**Configuration**: Set via `LLM_PROVIDER` and provider-specific environment variables. See [docs/LLM/LLM-EMBEDDING-CONFIG.md](docs/LLM/LLM-EMBEDDING-CONFIG.md) for detailed examples and all options.
 
 ### Supported LLM Providers
 
@@ -552,7 +557,7 @@ EMBEDDING_DIMENSION=384  # Auto-detected if not specified
 - Ollama: 384 (all-minilm, default), 768 (nomic-embed-text), 1024 (mxbai-embed-large)
 - Google: 768 (text-embedding-004, configurable with output_dimensionality parameter)
 
-**Note**: When switching embedding models, you must delete existing vector indexes due to dimension incompatibility. See [VECTOR-DIMENSIONS.md](VECTOR-DIMENSIONS.md) for cleanup instructions.
+**Note**: When switching embedding models, you must delete existing vector indexes due to dimension incompatibility. See [docs/VECTOR-DATABASES/VECTOR-DIMENSIONS.md](docs/VECTOR-DATABASES/VECTOR-DIMENSIONS.md) for cleanup instructions.
 
 ### Ollama Configuration
 
@@ -563,7 +568,7 @@ When using Ollama, configure system-wide environment variables before starting t
 - `OLLAMA_NUM_PARALLEL=4` for optimal performance (or 1-2 if resource constrained)
 - Always restart Ollama service after changing environment variables
 
-See [docs/OLLAMA-CONFIGURATION.md](docs/OLLAMA-CONFIGURATION.md) for complete setup instructions including platform-specific steps and performance optimization.
+See [docs/LLM/OLLAMA-CONFIGURATION.md](docs/LLM/OLLAMA-CONFIGURATION.md) for complete setup instructions including platform-specific steps and performance optimization.
 
 
 
@@ -1027,8 +1032,8 @@ Interactive conversational interface for document Q&A:
 ### Testing Cleanup
 
 Between tests you can clean up data:
-- **Vector Indexes**: See [docs/VECTOR-DIMENSIONS.md](docs/VECTOR-DIMENSIONS.md) for vector database cleanup instructions
-- **Graph Data**: See [flexible-graphrag/README-neo4j.md](flexible-graphrag/README-neo4j.md) for graph-related cleanup commands
+- **Vector Indexes**: See [docs/VECTOR-DATABASES/VECTOR-DIMENSIONS.md](docs/VECTOR-DATABASES/VECTOR-DIMENSIONS.md) for vector database cleanup instructions
+- **Graph Data**: See [docs/GRAPH-DATABASES/README-neo4j.md](docs/GRAPH-DATABASES/README-neo4j.md) for graph-related cleanup commands
 - **Neo4j**: Use on a test Neo4j database no one else is using 
 
 ## Observability and Monitoring
@@ -1078,7 +1083,7 @@ Flexible GraphRAG includes comprehensive observability features for production m
   </a>
 </p>
 
-See [docs/OBSERVABILITY.md](docs/OBSERVABILITY.md) for complete setup, custom instrumentation, and production best practices. 
+See [docs/OBSERVABILITY/OBSERVABILITY.md](docs/OBSERVABILITY/OBSERVABILITY.md) for complete setup, custom instrumentation, and production best practices.
 
 ## MCP Tools for Claude Desktop and Other MCP Clients
 
@@ -1153,11 +1158,18 @@ The MCP server provides 9 specialized tools for document intelligence workflows:
   - `ARCHITECTURE.md`: Complete system architecture and component relationships
   - `DEPLOYMENT-CONFIGURATIONS.md`: Standalone, hybrid, and full Docker deployment guides
   - `ENVIRONMENT-CONFIGURATION.md`: Environment setup guide with database switching
-  - `VECTOR-DIMENSIONS.md`: Vector database cleanup instructions
+  - `POSTGRES-SETUP.md`: PostgreSQL setup for pgvector and incremental state management
   - `SCHEMA-EXAMPLES.md`: Knowledge graph schema examples
   - `PERFORMANCE.md`: Performance benchmarks and optimization guides
   - `DEFAULT-USERNAMES-PASSWORDS.md`: Database credentials and dashboard access
   - `PORT-MAPPINGS.md`: Complete port reference for all services
+  - `DATA-SOURCES/`: Data source setup guides (Azure Blob, S3, GCS, etc.)
+  - `DOC-PROCESSING/`: Document processing guides (Docling GPU, parser output)
+  - `GRAPH-DATABASES/`: Graph database guides (Neo4j, Neptune, Nebula, etc.)
+  - `INCREMENTAL-UPDATE-AUTO-SYNC/`: Incremental updates documentation (README, QUICKSTART, SETUP-GUIDE, API-REFERENCE)
+  - `LLM/`: LLM and embedding configuration guides
+  - `OBSERVABILITY/`: Observability and monitoring guides
+  - `VECTOR-DATABASES/`: Vector database guides (dimensions, integration, Chroma modes)
 
 - `/scripts`: Utility scripts
   - `create_opensearch_pipeline.py`: OpenSearch hybrid search pipeline setup

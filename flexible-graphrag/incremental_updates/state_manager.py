@@ -24,7 +24,7 @@ class DocumentState:
     ordinal: int  # Microsecond timestamp
     content_hash: str
     source_id: Optional[str] = None  # Source-specific file ID (e.g., Google Drive file ID)
-    modified_timestamp: Optional[str] = None  # Source modification timestamp (for quick change detection)
+    modified_timestamp: Optional[datetime] = None  # Source modification timestamp (for quick change detection)
     vector_synced_at: Optional[datetime] = None
     search_synced_at: Optional[datetime] = None
     graph_synced_at: Optional[datetime] = None
@@ -60,7 +60,7 @@ class StateManager:
                     source_id TEXT,
                     ordinal BIGINT NOT NULL,
                     content_hash TEXT NOT NULL,
-                    modified_timestamp TEXT,
+                    modified_timestamp TIMESTAMPTZ,
                     vector_synced_at TIMESTAMPTZ,
                     search_synced_at TIMESTAMPTZ,
                     graph_synced_at TIMESTAMPTZ,
@@ -164,6 +164,19 @@ class StateManager:
             
             return states
     
+    async def get_state_by_path_fallback(self, config_id: str, path: str) -> Optional[DocumentState]:
+        """
+        Find document_state by config_id and path using case-insensitive path match.
+        Used for filesystem when doc_id lookup fails due to path case mismatch.
+        """
+        from incremental_updates.path_utils import normalize_filesystem_path
+        norm_path = normalize_filesystem_path(path)
+        states = await self.get_all_states_for_config(config_id)
+        for state in states:
+            if normalize_filesystem_path(state.source_path) == norm_path:
+                return state
+        return None
+    
     async def should_process(self, doc_id: str, new_ordinal: int, 
                             new_hash: str) -> tuple[bool, str]:
         """
@@ -214,7 +227,7 @@ class StateManager:
         
         return True, "content changed"
     
-    async def _update_ordinal_only(self, doc_id: str, new_ordinal: int, modified_timestamp: Optional[str] = None):
+    async def _update_ordinal_only(self, doc_id: str, new_ordinal: int, modified_timestamp: Optional[datetime] = None):
         """Update ordinal and modified_timestamp without full reprocessing"""
         async with self.pool.acquire() as conn:
             if modified_timestamp is not None:
@@ -239,8 +252,31 @@ class StateManager:
                 WHERE doc_id = $3
             """, content_hash, new_ordinal, doc_id)
     
+    @staticmethod
+    def _ensure_datetime(value):
+        """Convert ISO timestamp string to datetime for PostgreSQL TIMESTAMPTZ."""
+        if value is None:
+            return None
+        if isinstance(value, datetime):
+            return value
+        if isinstance(value, str):
+            try:
+                return datetime.fromisoformat(value.replace("Z", "+00:00"))
+            except ValueError:
+                try:
+                    from dateutil import parser as dateutil_parser
+                    return dateutil_parser.parse(value)
+                except Exception:
+                    raise ValueError(f"Invalid timestamp string for document_state: {value!r}")
+        return value
+
     async def save_state(self, state: DocumentState):
         """Save or update document state"""
+        # Normalize timestamp fields to datetime (asyncpg expects datetime for TIMESTAMPTZ)
+        modified_ts = self._ensure_datetime(state.modified_timestamp)
+        vector_ts = self._ensure_datetime(state.vector_synced_at)
+        search_ts = self._ensure_datetime(state.search_synced_at)
+        graph_ts = self._ensure_datetime(state.graph_synced_at)
         async with self.pool.acquire() as conn:
             await conn.execute("""
                 INSERT INTO document_state 
@@ -257,8 +293,7 @@ class StateManager:
                     graph_synced_at = EXCLUDED.graph_synced_at,
                     updated_at = NOW()
             """, state.doc_id, state.config_id, state.source_path, state.source_id, state.ordinal,
-                state.content_hash, state.modified_timestamp, state.vector_synced_at, 
-                state.search_synced_at, state.graph_synced_at)
+                state.content_hash, modified_ts, vector_ts, search_ts, graph_ts)
     
     async def mark_target_synced(self, doc_id: str, target: str):
         """Mark a target database as synced (uses UTC timezone)"""

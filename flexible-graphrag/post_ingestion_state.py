@@ -18,7 +18,7 @@ import logging
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Union
 
 logger = logging.getLogger(__name__)
 
@@ -217,9 +217,15 @@ class PostIngestionStateManager:
         if 'documents' in status_dict and status_dict['documents']:
             logger.info(f"Extracting filenames and metadata from {len(status_dict['documents'])} documents for document_state creation")
             for doc in status_dict['documents']:
-                # Documents have stable doc_id format: config_id:filename
-                if hasattr(doc, 'id_') and ':' in doc.id_:
-                    filename = doc.id_.split(':', 1)[1]
+                # Documents have stable doc_id format: config_id:filename where config_id is a UUID.
+                # A bare ':' check is insufficient on Windows because drive paths (C:\...) also contain ':'.
+                # Detect the stable format by checking that the part before the first ':' looks like a UUID
+                # (36 chars with hyphens) rather than a single drive letter.
+                doc_id_str = getattr(doc, 'id_', '') or ''
+                colon_pos = doc_id_str.find(':')
+                is_stable_doc_id = colon_pos > 1 and '-' in doc_id_str[:colon_pos]
+                if is_stable_doc_id:
+                    filename = doc_id_str.split(':', 1)[1]
                     processed_files.append(filename)
                     documents_dict[filename] = doc
                 # Fallback: try metadata
@@ -318,7 +324,7 @@ class PostIngestionStateManager:
             else:
                 logger.warning(f"Alfresco: Document not found in documents_dict, using filename: {filename}")
         
-        elif data_source in ["onedrive", "sharepoint"]:
+        elif data_source == "s3":
             # For S3, filename is already the key (from S3 events or metadata)
             source_path = filename
             logger.info(f"S3: Using key as source_path: {source_path}")
@@ -345,41 +351,47 @@ class PostIngestionStateManager:
             source_path = filename
             logger.info(f"GCS: Using filename as source_path: {source_path}")
         
-        elif data_source in ["onedrive", "sharepoint"]:
-            # For OneDrive/SharePoint:
-            # - source_path (human-readable) = /Documents/file.docx (for display)
-            # - stable_path (for doc_id) = onedrive://file_id (stable across renames/moves)
+        elif data_source == "google_drive":
+            # For Google Drive:
+            # - source_path (human-readable) = filename or path (for display)
+            # - stable_path (for doc_id) = file_id (stable across renames/moves)
             if filename in documents_dict:
                 doc = documents_dict[filename]
                 if hasattr(doc, 'metadata'):
                     # Get human-readable path for source_path (display)
-                    human_file_path = doc.metadata.get('human_file_path')
-                    if human_file_path:
-                        source_path = human_file_path
-                    else:
-                        # Fallback: use filename
-                        source_path = filename
+                    # GoogleDriveReader provides 'file path' (with space) in metadata
+                    source_path = doc.metadata.get('file path') or doc.metadata.get('file_name') or filename
+                    
+                    # Get stable file_id for doc_id (identity)
+                    stable_path = doc.metadata.get('file id') or source_path
+                    
+                    logger.info(f"Google Drive: source_path={source_path}, stable_path={stable_path}")
+        
+        elif data_source in ["onedrive", "sharepoint"]:
+            # For OneDrive/SharePoint:
+            # - source_path (human-readable) = filename for display
+            # - stable_path (for doc_id) = onedrive://file_id (stable across renames/moves)
+            if filename in documents_dict:
+                doc = documents_dict[filename]
+                if hasattr(doc, 'metadata'):
+                    # Get human-readable filename for source_path (display in database/queries)
+                    # Use just the filename since OneDrive doesn't provide reliable folder paths
+                    source_path = doc.metadata.get('file_name') or filename
                     
                     # Get stable file_id path for doc_id (identity)
                     stable_file_path = doc.metadata.get('stable_file_path')
                     if stable_file_path:
                         stable_path = stable_file_path
-                        logger.info(f"{data_source.title()}: source_path={source_path}, stable_path={stable_path}")
                     else:
                         # Fallback: construct from file_id
                         file_id = doc.metadata.get('file_id')
                         if file_id:
                             prefix = "sharepoint" if data_source == "sharepoint" else "onedrive"
                             stable_path = f"{prefix}://{file_id}"
-                            logger.info(f"{data_source.title()}: source_path={source_path}, constructed stable_path={stable_path}")
                         else:
-                            # Last resort: use source_path for both
                             stable_path = source_path
-                            logger.warning(f"{data_source.title()}: Missing file_id, using source_path for both: {stable_path}")
-                else:
-                    logger.warning(f"{data_source.title()}: Document has no metadata, using filename: {filename}")
-            else:
-                logger.warning(f"{data_source.title()}: Document not found in documents_dict, using filename: {filename}")
+                    
+                    logger.info(f"{data_source.title()}: source_path={source_path}, stable_path={stable_path}")
         
         # For filesystem and others, source_path and stable_path are the same
         return source_path, stable_path
@@ -421,8 +433,22 @@ class PostIngestionStateManager:
         
         for field in timestamp_fields:
             if field in doc.metadata:
-                modified_timestamp = doc.metadata[field]
-                logger.info(f"Extracted modification timestamp: {modified_timestamp}")
+                raw_timestamp = doc.metadata[field]
+                logger.info(f"Extracted modification timestamp: {raw_timestamp}")
+                
+                # Convert string timestamp to datetime object if needed
+                if raw_timestamp:
+                    if isinstance(raw_timestamp, str):
+                        try:
+                            from dateutil import parser as dateutil_parser
+                            modified_timestamp = dateutil_parser.parse(raw_timestamp)
+                            logger.info(f"Parsed timestamp string to datetime: {modified_timestamp}")
+                        except Exception as e:
+                            logger.warning(f"Could not parse timestamp '{raw_timestamp}': {e}. Keeping as string.")
+                            modified_timestamp = raw_timestamp
+                    else:
+                        # Already a datetime object
+                        modified_timestamp = raw_timestamp
                 break
         
         # Extract source_id for cloud sources
@@ -486,7 +512,7 @@ class PostIngestionStateManager:
         filename: str,
         data_source: str,
         paths: List[str],
-        modified_timestamp: Optional[str]
+        modified_timestamp: Union[datetime, str, None]
     ) -> str:
         """
         Compute content hash based on data source.
@@ -534,7 +560,7 @@ class PostIngestionStateManager:
                 logger.info(f"No modification timestamp available, using placeholder hash")
                 return StateManager.compute_content_hash("")
     
-    def _compute_ordinal(self, modified_timestamp: Optional[str]) -> int:
+    def _compute_ordinal(self, modified_timestamp: Union[datetime, str, None]) -> int:
         """
         Compute ordinal (microseconds since epoch) from modification timestamp.
         Falls back to current time if timestamp is unavailable.
@@ -543,8 +569,14 @@ class PostIngestionStateManager:
         
         if modified_timestamp:
             try:
-                from dateutil import parser as dateutil_parser
-                dt = dateutil_parser.parse(modified_timestamp)
+                # modified_timestamp is already a datetime object (from metadata)
+                # or a string that needs parsing
+                if isinstance(modified_timestamp, str):
+                    from dateutil import parser as dateutil_parser
+                    dt = dateutil_parser.parse(modified_timestamp)
+                else:
+                    dt = modified_timestamp
+                
                 ordinal = int(dt.timestamp() * 1_000_000)
                 logger.info(f"Using file modification timestamp for ordinal: {modified_timestamp} -> {ordinal}")
             except Exception as e:

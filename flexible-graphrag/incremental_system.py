@@ -172,19 +172,25 @@ class IncrementalSystemManager:
         
         # Auto-detect enable_change_stream based on source_type if not explicitly set
         if enable_change_stream is None:
-            # Sources WITH real-time event streams
-            sources_with_events = ['google_drive', 'onedrive', 'sharepoint', 'box', 'alfresco']
+            # Sources WITH event streams (polling-based, not real-time push)
+            # Note: onedrive/sharepoint removed until Microsoft Graph delta endpoint is fully implemented
+            sources_with_events = ['google_drive', 'box', 'alfresco', 'filesystem']
             
-            # S3 has events only if queue_url is configured
-            if source_type == 's3' and connection_params.get('queue_url'):
+            # S3 has events only if sqs_queue_url is configured
+            if source_type == 's3' and connection_params.get('sqs_queue_url'):
                 enable_change_stream = True
             # GCS has events only if pubsub_subscription is configured
             elif source_type == 'gcs' and connection_params.get('pubsub_subscription'):
                 enable_change_stream = True
+            # Azure Blob: Change Feed is attempted by default in detector
+            # The detector will try change feed and fall back to periodic if not available
+            # So we enable change_stream and let the detector handle fallback
+            elif source_type == 'azure_blob':
+                enable_change_stream = True
             elif source_type in sources_with_events:
                 enable_change_stream = True
             else:
-                # Azure Blob, filesystem: periodic-only
+                # Default: periodic-only (no event stream)
                 enable_change_stream = False
             
             logger.info(f"Auto-detected enable_change_stream={enable_change_stream} for {source_type}")

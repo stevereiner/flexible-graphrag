@@ -540,7 +540,12 @@ class IncrementalUpdateEngine:
         2. Remove state from PostgreSQL (hard delete)
         """
         metadata = event.metadata
-        doc_id = StateManager.make_doc_id(config_id, metadata.path)
+        # Use normalized path for filesystem so path case (e.g. C:\ vs c:\) does not break lookups
+        path_for_doc_id = metadata.path
+        if getattr(metadata, 'source_type', None) == 'filesystem':
+            from incremental_updates.path_utils import normalize_filesystem_path
+            path_for_doc_id = normalize_filesystem_path(metadata.path)
+        doc_id = StateManager.make_doc_id(config_id, path_for_doc_id)
         
         # Load datasource config to get skip_graph setting
         datasource_config = None
@@ -582,6 +587,20 @@ class IncrementalUpdateEngine:
             if not existing_state:
                 logger.info(f"DELETE: Looking up by path: {metadata.path}")
                 existing_state = await self.state_manager.get_state(doc_id)
+                # S3: document_state uses doc_id = config_id:s3_uri and source_id = s3_uri; event path is bucket/key
+                if not existing_state and getattr(metadata, 'source_type', None) == 's3' and not (metadata.path or '').startswith('s3://'):
+                    s3_uri = f"s3://{metadata.path}"
+                    logger.info(f"DELETE: S3 fallback looking up by source_id: {s3_uri}")
+                    existing_state = await self.state_manager.get_state_by_source_id(config_id, s3_uri)
+                    if existing_state:
+                        doc_id = existing_state.doc_id
+                        logger.info(f"DELETE: Found by S3 source_id: {existing_state.source_path}")
+                # Case-insensitive path fallback for filesystem (e.g. c:\ vs C:\ on Windows)
+                if not existing_state and getattr(metadata, 'source_type', None) == 'filesystem':
+                    existing_state = await self.state_manager.get_state_by_path_fallback(config_id, metadata.path)
+                    if existing_state:
+                        doc_id = existing_state.doc_id
+                        logger.info(f"DELETE: Found by path fallback: {existing_state.source_path}")
             
             if not existing_state:
                 logger.info(f"SKIP DELETE: {metadata.path} not found in document_state (not tracked)")
@@ -593,20 +612,22 @@ class IncrementalUpdateEngine:
             
             logger.info(f"DELETE: Document found in database, proceeding with deletion...")
             
-            # Determine which ID to use for deletion:
-            # - If doc_id has stable format (config_id:filename), use it (new data)
-            # - Otherwise, use source_id if available (old data with file ID)
-            # - Fallback to doc_id (filesystem sources)
-            if ':' in doc_id and source_id:
-                # New stable format - use doc_id
+            # Determine which ID to use for index deletion (must match ref_doc_id in vector/search):
+            # - S3: pipeline indexes with config_id:s3_uri; use config_id:existing_state.source_id
+            # - Other cloud: use doc_id (stable) or source_id (old format)
+            # - Filesystem: use doc_id
+            delete_id = doc_id
+            if existing_state.source_id and str(existing_state.source_id).startswith("s3://"):
+                # Vector/search were indexed with ref_doc_id = config_id:s3_uri
+                delete_id = f"{config_id}:{existing_state.source_id}"
+                logger.info(f"DELETE: Using S3 ref_doc_id for index deletion: {delete_id}")
+            elif ':' in doc_id and source_id:
                 delete_id = doc_id
                 logger.info(f"DELETE: Using stable doc_id for index deletion: {delete_id}")
             elif source_id:
-                # Old format - use source_id (Google Drive file ID)
                 delete_id = source_id
                 logger.info(f"DELETE: Using source_id for index deletion: {delete_id}")
             else:
-                # Filesystem or fallback
                 delete_id = doc_id
                 logger.info(f"DELETE: Using doc_id for index deletion: {delete_id}")
             
@@ -673,19 +694,38 @@ class IncrementalUpdateEngine:
                 
                 # For detectors with event streams (polling or webhooks), skip NEW files in periodic refresh
                 # Let the event stream handle new file detection and processing
-                if detector_name in ['BoxDetector', 'GoogleDriveDetector', 'S3Detector', 'AlfrescoDetector', 'MicrosoftGraphDetector']:
+                # BUT: Check if the event stream is actually enabled before skipping!
+                if detector_name in ['BoxDetector', 'GoogleDriveDetector', 'S3Detector', 'AlfrescoDetector']:
                     logger.info(f"NEW FILE: {metadata.path}: Skipping in periodic refresh (will be processed by event stream)")
                     return
                 
-                # For detectors without event streams (GCS, Azure, Filesystem), process via backend
-                logger.info(f"NEW FILE: {metadata.path}: Processing via backend...")
+                # For MicrosoftGraphDetector, only skip if change polling is enabled
+                if detector_name == 'MicrosoftGraphDetector':
+                    if hasattr(detector, 'enable_change_polling') and detector.enable_change_polling:
+                        logger.info(f"NEW FILE: {metadata.path}: Skipping in periodic refresh (will be processed by change polling)")
+                        return
+                    else:
+                        logger.info(f"NEW FILE: {metadata.path}: Processing via backend (change polling disabled)...")
+                        # Fall through to process via backend
+                
+                # For other detectors without event streams (GCS, Azure, Filesystem), process via backend
+                if detector_name not in ['BoxDetector', 'GoogleDriveDetector', 'S3Detector', 'AlfrescoDetector', 'MicrosoftGraphDetector']:
+                    logger.info(f"NEW FILE: {metadata.path}: Processing via backend...")
                 
                 try:
                     if detector_name == 'FilesystemDetector':
                         # Filesystem needs full_path, relative_path
-                        import os
+                        # Filesystem needs full_path, relative_path
                         relative_path = os.path.basename(metadata.path)
                         await detector._process_via_backend(metadata.path, relative_path)
+                    elif detector_name == 'MicrosoftGraphDetector':
+                        # OneDrive/SharePoint needs file_id, filename, file_path, folder_path
+                        # Extract from metadata.extra
+                        file_id = metadata.extra.get('file_id')
+                        file_name = metadata.extra.get('file_name', os.path.basename(metadata.path))
+                        file_path = metadata.extra.get('file_path', f"/{file_name}")
+                        folder_path = metadata.extra.get('folder_path', '/')
+                        await detector._process_via_backend(file_id, file_name, file_path, folder_path)
                     else:
                         # GCS, Azure - single parameter (path/key/object_name)
                         await detector._process_via_backend(metadata.path)
@@ -852,11 +892,19 @@ class IncrementalUpdateEngine:
             identifier = None
             if hasattr(file_meta, 'extra') and file_meta.extra:
                 # Try common source ID fields
-                identifier = (file_meta.extra.get('file_id') or 
-                             file_meta.extra.get('id') or
-                             file_meta.extra.get('node_id') or
-                             file_meta.extra.get('s3_key') or
-                             file_meta.extra.get('object_name'))
+                # For S3: use s3_uri (s3://bucket/key) to match document_state.source_id
+                # For GCS: use object_name (gs://bucket/object)
+                # For msgraph (OneDrive/SharePoint): use path (stable_path with onedrive:// prefix)
+                # For others: use file_id, id, node_id
+                if file_meta.source_type == 'msgraph':
+                    # Use the stable path (onedrive:// or sharepoint://) to match document_state.source_id
+                    identifier = file_meta.path
+                else:
+                    identifier = (file_meta.extra.get('s3_uri') or
+                                 file_meta.extra.get('object_name') or
+                                 file_meta.extra.get('file_id') or 
+                                 file_meta.extra.get('id') or
+                                 file_meta.extra.get('node_id'))
             
             # Fall back to path if no source ID
             if not identifier:
@@ -923,7 +971,8 @@ class IncrementalUpdateEngine:
                     continue
                 
                 logger.info(f"Processing deletion: {state.source_path}")
-                # Create DELETE event using the stored source_path
+                # Create DELETE event using the stored source_path and source_id
+                # Include source_id in extra so engine can look it up by stable ID
                 delete_event = ChangeEvent(
                     metadata=FileMetadata(
                         source_type='deleted',  # Will be ignored for DELETE anyway
@@ -931,7 +980,7 @@ class IncrementalUpdateEngine:
                         ordinal=int(time.time() * 1_000_000),  # Current timestamp
                         size_bytes=0,
                         mime_type=None,
-                        extra=None
+                        extra={'file_id': state.source_id} if state.source_id else None
                     ),
                     change_type=ChangeType.DELETE,
                     timestamp=None

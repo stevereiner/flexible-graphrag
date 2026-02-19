@@ -1005,6 +1005,10 @@ class FlexibleGraphRAGBackend:
                         "password": os.getenv("ALFRESCO_PASSWORD", "admin"),
                         "path": os.getenv("ALFRESCO_PATH", "/")
                     }
+                    # Add STOMP port if configured
+                    stomp_port = os.getenv("ALFRESCO_STOMP_PORT")
+                    if stomp_port:
+                        config["stomp_port"] = int(stomp_port)
                 
                 documents = await self.ingestion_manager.ingest_from_source(
                     source_type="alfresco",

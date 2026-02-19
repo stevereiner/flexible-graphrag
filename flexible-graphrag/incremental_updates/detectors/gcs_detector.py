@@ -781,7 +781,7 @@ class GCSDetector(ChangeDetector):
         
         # Use GCS URI as source_id
         source_id = f"gs://{self.bucket}/{object_name}"
-        modified_timestamp = doc.metadata.get('modified at')
+        modified_timestamp = self.parse_timestamp(doc.metadata.get('modified at'))
         
         # Extract filename from object name
         filename = object_name.split('/')[-1]
@@ -789,18 +789,41 @@ class GCSDetector(ChangeDetector):
         # Create doc_id
         doc_id = f"{self.config_id}:{filename}"
         
-        # Compute content hash (placeholder)
-        content_hash = "placeholder"
+        # Compute actual content hash from document text (not placeholder)
+        content_hash = None
+        if hasattr(doc, 'text') and doc.text:
+            from incremental_updates.state_manager import StateManager
+            content_hash = StateManager.compute_content_hash(doc.text)
+        
+        # Use document's ordinal (modification timestamp) if available
+        ordinal = doc.metadata.get('ordinal')
+        if not ordinal and modified_timestamp:
+            try:
+                from datetime import datetime
+                if isinstance(modified_timestamp, datetime):
+                    ordinal = int(modified_timestamp.timestamp() * 1_000_000)
+                else:
+                    ordinal = int(datetime.now(timezone.utc).timestamp() * 1_000_000)
+            except:
+                ordinal = int(datetime.now(timezone.utc).timestamp() * 1_000_000)
+        elif not ordinal:
+            ordinal = int(datetime.now(timezone.utc).timestamp() * 1_000_000)
+        
+        # Record synced timestamps (document is already in vector/search stores after initial ingest)
+        now = datetime.now(timezone.utc)
         
         # Create document state
         doc_state = DocumentState(
             doc_id=doc_id,
             config_id=self.config_id,
             source_path=object_name,
-            ordinal=int(datetime.now(timezone.utc).timestamp() * 1_000_000),
+            ordinal=ordinal,
             content_hash=content_hash,
             source_id=source_id,
-            modified_timestamp=modified_timestamp
+            modified_timestamp=modified_timestamp,
+            vector_synced_at=now,
+            search_synced_at=now,
+            graph_synced_at=now if not getattr(self, 'skip_graph', False) else None
         )
         
         await self.state_manager.save_state(doc_state)

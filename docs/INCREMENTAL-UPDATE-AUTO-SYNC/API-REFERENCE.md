@@ -15,15 +15,17 @@ All endpoints are prefixed with `/api`.
 | Endpoint | Method | Purpose |
 |----------|--------|---------|
 | `/api/ingest` | POST | Ingest documents with optional sync enablement |
-| `/api/incremental/datasources` | GET | List all datasources |
-| `/api/incremental/datasources/{config_id}` | GET | Get single datasource details |
-| `/api/incremental/datasources` | POST | Create new datasource |
-| `/api/incremental/datasources/{config_id}` | PUT | Update datasource |
-| `/api/incremental/datasources/{config_id}` | DELETE | Delete datasource |
-| `/api/incremental/sync/{config_id}` | POST | Trigger manual sync (single source) |
-| `/api/incremental/sync-all` | POST | Trigger manual sync (all sources) |
-| `/api/incremental/status` | GET | Get system status |
-| `/api/incremental/status/{config_id}` | GET | Get datasource status |
+| `/api/sync/datasources` | GET | List all datasources |
+| `/api/sync/datasources/{config_id}/interval` | PATCH | Update refresh interval |
+| `/api/sync/datasources/{config_id}/disable` | PATCH | Disable datasource |
+| `/api/sync/datasources/{config_id}/enable` | PATCH | Enable datasource |
+| `/api/sync/sync-now/{config_id}` | POST | Trigger manual sync (single source) |
+| `/api/sync/sync-now` | POST | Trigger manual sync (all sources) |
+| `/api/sync/start-monitoring` | POST | Start incremental monitoring |
+| `/api/sync/disable-all` | POST | Disable all datasources |
+| `/api/sync/enable-all` | POST | Enable all datasources |
+| `/api/sync/interval` | PATCH | Update global sync interval |
+| `/api/sync/status` | GET | Get system status |
 
 ## Ingest with Sync
 
@@ -131,7 +133,7 @@ Ingest documents and enable automatic synchronization in one operation.
 
 Get all configured datasources for incremental sync.
 
-**Endpoint:** `GET /api/incremental/datasources`
+**Endpoint:** `GET /api/sync/datasources`
 
 **Response:**
 
@@ -160,109 +162,155 @@ Get all configured datasources for incremental sync.
 
 ### Get Single Datasource
 
-Get details for a specific datasource.
-
-**Endpoint:** `GET /api/incremental/datasources/{config_id}`
-
-**Response:**
-
-```json
-{
-  "status": "success",
-  "datasource": {
-    "config_id": "550e8400-e29b-41d4-a716-446655440000",
-    "source_name": "My Documents",
-    "source_type": "filesystem",
-    "is_active": true,
-    "sync_status": "idle",
-    "last_sync_completed_at": "2026-01-24T10:30:00Z",
-    "last_sync_ordinal": 1737716400000000,
-    "last_sync_error": null,
-    "refresh_interval_seconds": 300,
-    "enable_change_stream": true,
-    "skip_graph": true,
-    "connection_params": {
-      "paths": ["/data/documents"]
-    }
-  }
-}
-```
+**Note:** This endpoint does not currently exist. Datasource details can be retrieved using `GET /api/sync/datasources` (list all) and filtering by `config_id` on the client side.
 
 ### Create Datasource
 
-Create a new datasource configuration.
+**Note:** Datasources are currently created via the `/api/ingest` endpoint with `enable_sync: true`. Direct POST/PUT/DELETE operations for datasources are not yet implemented.
 
-**Endpoint:** `POST /api/incremental/datasources`
+To create a new monitored datasource, use:
 
-**Request Body:**
-
-```json
-{
-  "source_name": "New Documents",
-  "source_type": "filesystem",
-  "connection_params": {
-    "paths": ["/data/new-docs"]
-  },
-  "refresh_interval_seconds": 300,
-  "enable_change_stream": true,
-  "skip_graph": false,
-  "is_active": true
-}
-```
-
-**Response:**
-
-```json
-{
-  "status": "success",
-  "message": "Datasource created",
-  "config_id": "660e8400-e29b-41d4-a716-446655440000"
-}
+```bash
+curl -X POST http://localhost:8000/api/ingest \
+  -H "Content-Type: application/json" \
+  -d '{
+    "data_source": "filesystem",
+    "paths": ["/data/new-docs"],
+    "enable_sync": true,
+    "skip_graph": true,
+    "sync_config": {
+      "source_name": "New Documents",
+      "refresh_interval_seconds": 300
+    }
+  }'
 ```
 
 ### Update Datasource
 
-Update an existing datasource configuration.
+Use the specific PATCH endpoints below to update datasource properties:
 
-**Endpoint:** `PUT /api/incremental/datasources/{config_id}`
-
-**Request Body:**
-
-```json
-{
-  "refresh_interval_seconds": 60,
-  "skip_graph": true,
-  "is_active": true
-}
-```
-
-**Response:**
-
-```json
-{
-  "status": "success",
-  "message": "Datasource updated"
-}
-```
-
-**Note:** Restart backend to apply configuration changes.
+- **Update refresh interval:** `PATCH /api/sync/datasources/{config_id}/interval`
+- **Disable datasource:** `PATCH /api/sync/datasources/{config_id}/disable`
+- **Enable datasource:** `PATCH /api/sync/datasources/{config_id}/enable`
 
 ### Delete Datasource
 
-Delete a datasource configuration.
+**Note:** Direct DELETE operation is not currently implemented. To stop a datasource from syncing, use the disable endpoint:
 
-**Endpoint:** `DELETE /api/incremental/datasources/{config_id}`
+```bash
+curl -X PATCH http://localhost:8000/api/sync/datasources/{config_id}/disable
+```
+
+## Datasource Operations
+
+### Update Refresh Interval
+
+Update the periodic refresh interval for a datasource.
+
+**Endpoint:** `PATCH /api/sync/datasources/{config_id}/interval`
+
+**Query Parameters:**
+
+- `interval_seconds` (integer): Direct seconds value (takes precedence)
+- `hours` (integer): Number of hours (combined with minutes/seconds)
+- `minutes` (integer): Number of minutes (combined with hours/seconds) 
+- `seconds` (integer): Number of seconds (combined with hours/minutes)
+
+**Examples:**
+
+```bash
+# Set to 1 hour using seconds
+curl -X PATCH "http://localhost:8000/api/sync/datasources/550e8400-.../interval?interval_seconds=3600"
+
+# Set to 1 hour using hours parameter
+curl -X PATCH "http://localhost:8000/api/sync/datasources/550e8400-.../interval?hours=1"
+
+# Set to 2.5 hours
+curl -X PATCH "http://localhost:8000/api/sync/datasources/550e8400-.../interval?hours=2&minutes=30"
+
+# Disable periodic sync (set to 0)
+curl -X PATCH "http://localhost:8000/api/sync/datasources/550e8400-.../interval?interval_seconds=0"
+```
 
 **Response:**
 
 ```json
 {
   "status": "success",
-  "message": "Datasource deleted"
+  "message": "Updated refresh interval to 3600 seconds",
+  "config_id": "550e8400-e29b-41d4-a716-446655440000"
 }
 ```
 
-**Note:** This stops monitoring but does **not** delete indexed documents.
+**Notes:**
+- Minimum interval is 60 seconds (or 0 to disable)
+- If using time units (hours/minutes/seconds), at least one must be provided
+- `interval_seconds` takes precedence over time unit parameters
+
+### Disable Datasource
+
+Disable automatic syncing for a specific datasource.
+
+**Endpoint:** `PATCH /api/sync/datasources/{config_id}/disable`
+
+**Response:**
+
+```json
+{
+  "status": "success",
+  "message": "Disabled datasource 550e8400-...",
+  "config_id": "550e8400-e29b-41d4-a716-446655440000"
+}
+```
+
+### Enable Datasource
+
+Enable automatic syncing for a specific datasource.
+
+**Endpoint:** `PATCH /api/sync/datasources/{config_id}/enable`
+
+**Response:**
+
+```json
+{
+  "status": "success",
+  "message": "Enabled datasource 550e8400-...",
+  "config_id": "550e8400-e29b-41d4-a716-446655440000"
+}
+```
+
+### Disable All Datasources
+
+Disable automatic syncing for all datasources.
+
+**Endpoint:** `POST /api/sync/disable-all`
+
+**Response:**
+
+```json
+{
+  "status": "success",
+  "message": "Disabled 3 datasource(s)",
+  "disabled_count": 3,
+  "note": "Datasources will stop syncing. Use /api/sync/enable-all to re-enable."
+}
+```
+
+### Enable All Datasources
+
+Enable automatic syncing for all datasources.
+
+**Endpoint:** `POST /api/sync/enable-all`
+
+**Response:**
+
+```json
+{
+  "status": "success",
+  "message": "Enabled 2 datasource(s)",
+  "enabled_count": 2
+}
+```
 
 ## Manual Sync Operations
 
@@ -270,7 +318,7 @@ Delete a datasource configuration.
 
 Trigger immediate sync for a specific datasource.
 
-**Endpoint:** `POST /api/incremental/sync/{config_id}`
+**Endpoint:** `POST /api/sync/sync-now/{config_id}`
 
 **Response:**
 
@@ -291,7 +339,7 @@ Trigger immediate sync for a specific datasource.
 
 Trigger immediate sync for all active datasources **sequentially**.
 
-**Endpoint:** `POST /api/incremental/sync-all`
+**Endpoint:** `POST /api/sync/sync-now`
 
 **Response:**
 
@@ -322,7 +370,7 @@ Trigger immediate sync for all active datasources **sequentially**.
 
 Get overall incremental sync system status.
 
-**Endpoint:** `GET /api/incremental/status`
+**Endpoint:** `GET /api/sync/status`
 
 **Response:**
 
@@ -338,38 +386,32 @@ Get overall incremental sync system status.
 ```
 
 **Status Values:**
-- `active`: System running normally
-- `initializing`: System starting up
-- `error`: System error (check logs)
+- `active`: System running normally and monitoring active
+- `initialized`: System initialized but monitoring not started
+- `disabled`: Incremental system not configured
 
-### Get Datasource Status
+**Note:** Individual datasource status can be retrieved from the `datasources` array in the `GET /api/sync/datasources` response. There is no separate single-datasource status endpoint.
 
-Get detailed status for a specific datasource.
+## Start Monitoring
 
-**Endpoint:** `GET /api/incremental/status/{config_id}`
+Manually start the orchestrator monitoring (useful for debug/recovery).
+
+**Endpoint:** `POST /api/sync/start-monitoring`
 
 **Response:**
 
 ```json
 {
   "status": "success",
-  "datasource": {
-    "config_id": "550e8400-e29b-41d4-a716-446655440000",
-    "source_name": "My Documents",
-    "sync_status": "idle",
-    "last_sync_completed_at": "2026-01-24T10:30:00Z",
-    "last_sync_ordinal": 1737716400000000,
-    "last_sync_error": null,
-    "is_active": true,
-    "document_count": 42
-  }
+  "message": "Monitoring started",
+  "active_updaters": 2
 }
 ```
 
-**Sync Status Values:**
-- `idle`: Waiting for next interval or event
-- `syncing`: Currently processing changes
-- `error`: Last sync failed (check `last_sync_error`)
+**Use Cases:**
+- Start monitoring after system initialization
+- Restart monitoring if it stopped for some reason
+- Recovery after errors
 
 ## Data Source Specific Configuration
 
@@ -578,10 +620,10 @@ Regular health checks:
 
 ```bash
 # Check overall system
-curl http://localhost:8000/api/incremental/status
+curl http://localhost:8000/api/sync/status
 
 # Check specific datasource
-curl http://localhost:8000/api/incremental/status/{config_id}
+curl http://localhost:8000/api/sync/status/{config_id}
 ```
 
 ### 6. Handle Errors Gracefully
@@ -668,13 +710,13 @@ curl -X POST http://localhost:8000/api/ingest \
 # Response: { "config_id": "550e8400-..." }
 
 # 2. Check status
-curl http://localhost:8000/api/incremental/status/550e8400-...
+curl http://localhost:8000/api/sync/status/550e8400-...
 
 # 3. Trigger manual sync
-curl -X POST http://localhost:8000/api/incremental/sync/550e8400-...
+curl -X POST http://localhost:8000/api/sync/sync-now/550e8400-...
 
 # 4. List all datasources
-curl http://localhost:8000/api/incremental/datasources
+curl http://localhost:8000/api/sync/datasources
 ```
 
 ### Complete Workflow: S3 with SQS
@@ -698,10 +740,10 @@ curl -X POST http://localhost:8000/api/ingest \
   }'
 
 # 2. Monitor system
-curl http://localhost:8000/api/incremental/status
+curl http://localhost:8000/api/sync/status
 
 # 3. Check specific datasource
-curl http://localhost:8000/api/incremental/datasources/{config_id}
+curl http://localhost:8000/api/sync/datasources/{config_id}
 ```
 
 ## Troubleshooting
@@ -710,13 +752,14 @@ curl http://localhost:8000/api/incremental/datasources/{config_id}
 
 **Check:**
 ```bash
-curl http://localhost:8000/api/incremental/status/{config_id}
+# List all datasources and check the specific one
+curl http://localhost:8000/api/sync/datasources
 ```
 
 **Look for:**
-- `is_active: false` → Update to `true`
-- `sync_status: error` → Check `last_sync_error`
-- `last_sync_completed_at: null` → Never synced, try manual sync
+- `is_active: false` → Use PATCH `/api/sync/datasources/{config_id}/enable` to enable
+- `sync_status: error` → Check backend logs for error details
+- `last_sync_at: null` → Never synced, try manual sync with POST `/api/sync/sync-now/{config_id}`
 
 ### Changes Not Detected
 

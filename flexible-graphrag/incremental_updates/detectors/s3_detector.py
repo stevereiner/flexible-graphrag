@@ -639,7 +639,7 @@ class S3Detector(ChangeDetector):
         
         doc = documents[0]
         
-        # Use S3 URI as source_id
+        # Use S3 URI as source_id (must match ref_doc_id used when indexing to vector/search)
         source_id = f"s3://{self.bucket}/{key}"
         
         # Extract metadata from document
@@ -648,23 +648,22 @@ class S3Detector(ChangeDetector):
         
         if hasattr(doc, 'metadata'):
             # Try to get modification timestamp (use modified_at which S3Source sets)
-            modified_timestamp = doc.metadata.get('modified_at') or doc.metadata.get('last_modified')
+            timestamp_str = doc.metadata.get('modified_at') or doc.metadata.get('last_modified')
             
-            # If we have timestamp, use it for ordinal and content_hash
+            # Parse timestamp using base class helper
+            modified_timestamp = self.parse_timestamp(timestamp_str)
+            
+            # If we have timestamp, use it for ordinal
             if modified_timestamp:
-                try:
-                    from dateutil import parser as dateutil_parser
-                    dt = dateutil_parser.parse(modified_timestamp)
-                    ordinal = int(dt.timestamp() * 1_000_000)
-                    logger.info(f"Event-added file: Using modification timestamp for ordinal: {modified_timestamp} -> {ordinal}")
-                except Exception as e:
-                    logger.warning(f"Could not parse modification timestamp '{modified_timestamp}': {e}")
+                ordinal = int(modified_timestamp.timestamp() * 1_000_000)
+                logger.info(f"Event-added file: Using modification timestamp for ordinal: {modified_timestamp} -> {ordinal}")
         
-        # Use bucket/key format for source_path (consistent with initial ingest)
-        source_path = f"{self.bucket}/{key}"
+        # Use S3 URI for source_path and doc_id so they match what the pipeline stores in vector/search
+        # (backend sets stable doc_id from s3_uri; delete uses doc_id for index deletion)
+        source_path = source_id  # s3://bucket/key
         
-        # Create doc_id using bucket/key format (consistent with initial ingest)
-        doc_id = f"{self.config_id}:{source_path}"
+        # doc_id MUST match ref_doc_id in vector and search indexes (pipeline uses config_id:s3_uri)
+        doc_id = f"{self.config_id}:{source_id}"
         
         # Compute content hash from timestamp or use placeholder
         if modified_timestamp:

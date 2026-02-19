@@ -468,7 +468,7 @@ ollama pull nomic-embed-text
 
 ## See Also
 
-- [Vector Database Dimensions](VECTOR-DIMENSIONS.md)
-- [Performance Benchmarks](PERFORMANCE.md)
+- [Vector Database Dimensions](../VECTOR-DATABASES/VECTOR-DIMENSIONS.md)
+- [Performance Benchmarks](../PERFORMANCE.md)
 - [Ollama Configuration](OLLAMA-CONFIGURATION.md)
 

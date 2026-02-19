@@ -69,7 +69,15 @@ The following port conflicts were identified and resolved for new vector databas
 | Transform Core AIO | 8090 | Document transformation | http://localhost:8090/ready |
 | Alfresco PostgreSQL | 5432 | Alfresco database | - |
 | Alfresco Solr | 8083 | Search index (port 8983→8083) | http://localhost:8083 |
-| Alfresco ActiveMQ | 8161 | Message queue web console | http://localhost:8161 |
+| **Alfresco ActiveMQ Web Console** | **8161** | Message queue web console | http://localhost:8161 |
+| **Alfresco ActiveMQ STOMP** | **8613** (or 61613) | Real-time event monitoring | - |
+| **Alfresco ActiveMQ OpenWire** | **8616** (or 61616) | Internal messaging protocol | - |
+
+**ActiveMQ Port Notes**:
+- **Standard ports**: 61613 (STOMP), 61616 (OpenWire) - Use these on Linux/macOS or non-Windows systems
+- **Windows alternative ports**: 8613 (STOMP), 8616 (OpenWire) - Use these on Windows if you encounter port binding errors
+- **Why the alternatives?**: Windows reserves ports 49152-65535 as "dynamic/ephemeral ports" for outgoing connections. After Windows updates or Docker Desktop upgrades, these ports can conflict with Windows' dynamic port allocation, causing "access forbidden" errors
+- **Existing Alfresco installations**: If you have an existing external Alfresco with standard ports, keep using 61613/61616 and configure `ALFRESCO_STOMP_PORT=61613` in your `.env` file
 
 **Note**: Alfresco uses Traefik as a reverse proxy. All Alfresco services (Repository, Share, Content App, Control Center) are accessible through port 8080:
 - **Repository**: http://localhost:8080/alfresco
@@ -101,8 +109,10 @@ The following ports are currently available for future services:
 - **5051-5431**: Database services
 - **6000-6332, 6335-6378**: Specialized services
 - **7003-7473, 7475-7686, 7689-7999**: Graph services
-- **8002-8069, 8071-8079, 8082, 8084-8089, 8091-8999**: Application services
+- **8002-8069, 8071-8079, 8082, 8084-8089, 8091-8159, 8162-8612, 8614-8615, 8617-8999**: Application services
 - **9002-9199, 9202-9300, 9302-9999**: Search and storage services
+
+**Note**: Ports 8613 and 8616 are now reserved for Alfresco ActiveMQ on Windows systems.
 
 ## Configuration Updates
 
@@ -147,12 +157,16 @@ netstat -an | findstr :8001
 netstat -an | findstr :3003
 netstat -an | findstr :8081
 netstat -an | findstr :5433
+netstat -an | findstr :8613  # ActiveMQ STOMP
+netstat -an | findstr :8616  # ActiveMQ OpenWire
 
 # Linux/macOS
 lsof -i :8001
 lsof -i :3003
 lsof -i :8081
 lsof -i :5433
+lsof -i :61613  # ActiveMQ STOMP (standard port)
+lsof -i :61616  # ActiveMQ OpenWire (standard port)
 ```
 
 ### Common Conflicts
@@ -163,6 +177,50 @@ lsof -i :5433
 5. **Port 7001**: NebulaGraph Studio uses this port, Kuzu API moved to 7002
 6. **Port 8090**: Transform Core AIO uses this port for document transformation services
 7. **Service name conflicts**: Both Alfresco and pgvector define `postgres` service - pgvector renamed to `postgres-pgvector`
+8. **Windows dynamic port range (49152-65535)**: Ports 61613 and 61616 may conflict on Windows - see below
+
+### Windows Dynamic Port Conflicts
+
+**What are dynamic ports?**
+Windows reserves a range of ports (49152-65535) called "dynamic" or "ephemeral" ports for temporary outgoing network connections. When your computer makes an outgoing connection (like visiting a website), Windows randomly picks a port from this range for that connection.
+
+**Why does this cause problems?**
+- Docker tries to bind to specific ports (like 61613, 61616)
+- Windows may have already reserved these ports for dynamic allocation
+- After Windows updates or Docker Desktop upgrades (especially 4.60+), the conflict enforcement became stricter
+- You'll see errors like: `bind: An attempt was made to access a socket in a way forbidden by its access permissions`
+
+**Solutions**:
+
+**Option 1: Use alternative ports (Recommended for Windows)**
+```yaml
+# docker/includes/alfresco.yaml
+ports:
+  - "8613:61613"  # STOMP - host port 8613 instead of 61613
+  - "8616:61616"  # OpenWire - host port 8616 instead of 61616
+```
+Then configure in `.env`:
+```bash
+ALFRESCO_STOMP_PORT=8613
+```
+
+**Option 2: Exclude ports from Windows dynamic range (Advanced)**
+Run PowerShell as Administrator:
+```powershell
+# Exclude ports 61613-61616 from dynamic allocation
+netsh interface ipv4 add excludedportrange protocol=tcp startport=61613 numberofports=4
+
+# Restart Docker Desktop after running this command
+```
+
+**Option 3: Check dynamic port range**
+```powershell
+# View current dynamic port range
+netsh interface ipv4 show dynamicportrange tcp
+
+# View excluded (reserved) ports
+netsh interface ipv4 show excludedportrange protocol=tcp
+```
 
 ### Resolution Strategy
 1. **Identify conflict**: Use port checking commands above
