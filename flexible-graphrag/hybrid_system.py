@@ -1555,9 +1555,11 @@ class HybridSearchSystem:
             logger.info(f"Using single {retriever_types[0]} retriever directly (no fusion needed)")
         else:
             # Use QueryFusionRetriever for multiple retrievers (async should work fine now)
+            # relative_score mode: MinMax-scales each retriever's scores to [0,1] then
+            # combines weighted — produces meaningful 0-1 scores instead of RRF's ~0.03
             self.hybrid_retriever = QueryFusionRetriever(
                 retrievers=retrievers,
-                mode="reciprocal_rerank",
+                mode="relative_score",
                 similarity_top_k=15,
                 num_queries=1,
                 use_async=True  # Enable async - dual retriever conflicts are resolved
@@ -1644,18 +1646,36 @@ class HybridSearchSystem:
         retrieval_duration = (retrieval_end - retrieval_start).total_seconds()
         logger.info(f"Hybrid retrieval completed in {retrieval_duration:.3f}s")
         
-        # Filter out zero-relevance results with more aggressive threshold
-        # BM25 should not return docs with zero relevance, but some systems return very low scores
-        # Use a minimum threshold to filter out essentially irrelevant results
-        min_score_threshold = 0.001  # Filter anything below 0.001 (effectively zero)
-        filtered_results = [result for result in raw_results if result.score > min_score_threshold]
-        logger.info(f"Raw results: {len(raw_results)}, Filtered results (score > {min_score_threshold}): {len(filtered_results)}")
+        # Filter out zero-relevance results, but skip filtering when only the graph retriever
+        # is active — graph traversal results don't get relevance scores and always return 0.0
+        vector_only = str(self.config.vector_db) == "none"
+        search_only = str(self.config.search_db) == "none"
+        graph_only = (vector_only and search_only and 
+                      str(self.config.graph_db) != "none" and 
+                      self.config.enable_knowledge_graph)
+
+        if graph_only:
+            # Graph-only mode: don't filter by score.
+            # VectorContextRetriever scores triplets by matching entity IDs against the
+            # chunk IDs from vector_query — entities never match chunk IDs so every
+            # triplet scores 0.0. Assign a fixed relevance score so results are usable.
+            from llama_index.core.schema import NodeWithScore
+            raw_results = [
+                NodeWithScore(node=r.node, score=1.0) if (r.score is None or r.score == 0.0) else r
+                for r in raw_results
+            ]
+            filtered_results = raw_results
+            logger.info(f"Raw results: {len(raw_results)}, Filtered results (graph-only, scored 1.0): {len(filtered_results)}")
+        else:
+            min_score_threshold = 0.001  # Filter anything below 0.001 (effectively zero)
+            filtered_results = [result for result in raw_results if result.score is not None and result.score > min_score_threshold]
+            logger.info(f"Raw results: {len(raw_results)}, Filtered results (score > {min_score_threshold}): {len(filtered_results)})")
         
         # Log scores for debugging
         for i, result in enumerate(raw_results):
             # Clean text preview to avoid emoji/encoding issues
             clean_preview = result.text[:50].encode('ascii', 'ignore').decode('ascii')
-            logger.info(f"Result {i}: score={result.score:.3f}, text_preview={clean_preview}...")
+            logger.debug(f"Result {i}: score={result.score:.3f}, text_preview={clean_preview}...")
             
         # Use filtered results for final processing
         results = filtered_results[:top_k]
@@ -1686,7 +1706,22 @@ class HybridSearchSystem:
         # No need for additional async call
         
         logger.info(f"Retrieved {len(results)} results from hybrid search")
-        
+
+        # Filter out raw MENTIONS triplets — these are LlamaIndex's internal chunk→entity
+        # edges that surface when add_source_text can't resolve a TextChunk's ref_doc_id.
+        # They look like "086c1a05-... -> MENTIONS -> some entity" and have no value for
+        # end-users.  Real knowledge-graph relations (HAS, WORKED_ON, etc.) that were
+        # successfully enriched with source text are kept.
+        import re as _re
+        _mentions_pattern = _re.compile(
+            r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\s*->\s*MENTIONS\s*->',
+            _re.IGNORECASE
+        )
+        pre_filter_count = len(results)
+        results = [r for r in results if not _mentions_pattern.match(r.text.strip())]
+        if len(results) < pre_filter_count:
+            logger.info(f"Filtered {pre_filter_count - len(results)} raw MENTIONS triplets, {len(results)} results remaining")
+
         # Enhanced deduplication with multiple strategies
         seen_content = set()
         seen_sources = {}  # source -> content mapping for additional dedup

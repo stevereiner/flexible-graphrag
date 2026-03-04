@@ -527,6 +527,76 @@ def cleanup_graph_store():
                 if driver is not None:
                     driver.close()
                     print("  Neo4j driver closed")
+        elif graph_db.lower() == 'arcadedb':
+            host = config.get('host', 'localhost')
+            port = config.get('port', 2480)
+            username = config.get('username', 'root')
+            password = config.get('password', 'playwithdata')
+            database = config.get('database', 'graph')
+
+            print(f"  Connecting to ArcadeDB: {host}:{port}/{database}")
+
+            try:
+                from arcadedb_python.api.sync import SyncClient
+                from arcadedb_python.dao.database import DatabaseDao
+
+                client = SyncClient(
+                    host=host,
+                    port=port,
+                    username=username,
+                    password=password,
+                    content_type="application/json"
+                )
+                db = DatabaseDao(client, database)
+
+                # Get all vertex and edge types from schema
+                vertex_types = []
+                edge_types = []
+                try:
+                    result = db.query("sql", "SELECT name FROM schema:types WHERE type = 'vertex'")
+                    if isinstance(result, list):
+                        vertex_types = [r['name'] for r in result if isinstance(r, dict) and 'name' in r]
+                except Exception as e:
+                    print(f"  Could not query vertex types: {e}")
+
+                try:
+                    result = db.query("sql", "SELECT name FROM schema:types WHERE type = 'edge'")
+                    if isinstance(result, list):
+                        edge_types = [r['name'] for r in result if isinstance(r, dict) and 'name' in r]
+                except Exception as e:
+                    print(f"  Could not query edge types: {e}")
+
+                print(f"  Found vertex types: {vertex_types}")
+                print(f"  Found edge types: {edge_types}")
+
+                # Delete all edges first
+                total_edges = 0
+                for edge_type in edge_types:
+                    try:
+                        db.query("sql", f"DELETE FROM {edge_type}", is_command=True)
+                        print(f"  Deleted all records from edge type: {edge_type}")
+                        total_edges += 1
+                    except Exception as e:
+                        print(f"  Could not delete from {edge_type}: {e}")
+
+                # Delete all vertices
+                total_vertices = 0
+                for vertex_type in vertex_types:
+                    try:
+                        db.query("sql", f"DELETE FROM {vertex_type}", is_command=True)
+                        print(f"  Deleted all records from vertex type: {vertex_type}")
+                        total_vertices += 1
+                    except Exception as e:
+                        print(f"  Could not delete from {vertex_type}: {e}")
+
+                print(f"  Cleared {total_edges} edge types and {total_vertices} vertex types")
+                print(f"  Graph store cleanup: SUCCESS")
+
+            except Exception as e:
+                print(f"  ArcadeDB cleanup: FAILED - {e}")
+                import traceback
+                traceback.print_exc()
+
         else:
             # For other graph stores, try using LlamaIndex
             try:

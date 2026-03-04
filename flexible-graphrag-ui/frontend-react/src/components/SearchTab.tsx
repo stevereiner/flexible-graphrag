@@ -162,7 +162,7 @@ export const SearchTab: React.FC<SearchTabProps> = ({
               {searchResults.map((result, index) => (
                 <Paper key={index} sx={{ p: 2, mb: 2 }} elevation={1}>
                   <Typography variant="body2" color="text.secondary" gutterBottom>
-                    <strong>Source:</strong> {result.metadata?.source || 'Unknown'} | 
+                    <strong>Source:</strong> {result.file_name || result.metadata?.source || result.source || 'Unknown'} | 
                     <strong> Score:</strong> {result.score?.toFixed(3) || 'N/A'}
                   </Typography>
                   <Typography variant="body1">

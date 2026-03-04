@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2026-03-03] -  Search ranking low scores fixed, display search result filename, added 0.4.0 ArcadeDB packages
+
+### Fixed
+- **Search result ranking scores improved for hybrid search** (`hybrid_system.py`) - `QueryFusionRetriever` mode changed from `reciprocal_rerank` to `relative_score`; when combining vector, full-text, and graph retrievers, RRF always produced very low scores (~0.03) regardless of relevance; `relative_score` MinMax-scales each retriever's output to 0–1 giving meaningful rankings
+- **Search results "Source" field showed "Unknown" in all three UIs** - backend sends `file_name` as a top-level field (not nested under `metadata`); all three UIs (`search-tab.html`, `SearchTab.tsx`, `SearchTab.vue`, `QueryForm.vue`) updated to use `result.file_name` as primary display, falling back to `result.source`
+- **Graph search scoring fixed for graph-only** (`hybrid_system.py`) - when only graph search is active, results could scored 0.0 because `VectorContextRetriever` matches entity node IDs against TextChunk IDs (never a match); ; raw `uuid -> MENTIONS -> entity` triplets filtered before dedup
+
+### Changed
+- **`docker/includes/arcadedb.yaml` pinned to ArcadeDB 26.2.1** — changed from `latest` to ensure compatibility with the 0.4.0 arcadedb-python client
+- **`cleanup.py` — ArcadeDB-specific cleanup block added** - directly connects via `arcadedb_python`, queries all vertex/edge types from schema, and issues `DELETE FROM <type>` for each; bypasses the LlamaIndex factory which was causing "index already exists" errors and had no `clear()` implementation for ArcadeDB
+- **`arcadedb-python` and `llama-index-graph-stores-arcadedb` pinned to `>=0.4.0`** in `requirements.txt` and `pyproject.toml` — version 0.4.0 enables working vector search and correct node deletion during incremental sync updates
+- **Verbose ArcadeDB ingestion log lines moved to DEBUG level** (`hybrid_system.py`) - per-result score lines no longer appear in INFO logs; `ENTITY_TYPE_DETECTION`, `LLM_RELATION_INPUT`, `SQL_RELATION`, `Schema created successfully`, `Created LSM_VECTOR index`, `SQL_FALLBACK_SUCCESS`, and `Dynamically created VERTEX/EDGE type` moved to DEBUG in `arcadedb_property_graph.py` (part of `llama-index-graph-stores-arcadedb` 0.4.0)
+
 ## [2026-02-17] - PostgreSQL Auto-Setup, Azure Blob Change Feed, Alfresco Ports, Source Path Fixes & Docs Reorganization
 
 ### Added
@@ -16,6 +29,7 @@ All notable changes to this project will be documented in this file.
 - **Documentation reorganized into subfolders** (`docs/`) - Docs from `flexible-graphrag/incremental_updates/` and the backend root moved into: `DATA-SOURCES/`, `DOC-PROCESSING/`, `GRAPH-DATABASES/`, `INCREMENTAL-UPDATE-AUTO-SYNC/`, `LLM/`, `OBSERVABILITY/`, `VECTOR-DATABASES/`
 - **README.md** - Added PostgreSQL/pgAdmin auto-setup info in Incremental Updates section; doc links updated to new subfolder locations
 - **`source_path` field now human-readable** for Google Drive, OneDrive, and Azure Blob - stores filename/path instead of raw file IDs or temp paths; `doc_id` comparison logic fixed to correctly identify UUID-prefixed stable IDs vs. Windows drive letter paths
+
 
 ## [2026-02-14] - Neptune Integration & Documentation Updates
 

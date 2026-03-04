@@ -45,7 +45,7 @@
             variant="outlined"
           >
             <div class="text-caption text-medium-emphasis mb-2">
-              <strong>Source:</strong> {{ result.metadata?.source || 'Unknown' }} | 
+              <strong>Source:</strong> {{ result.file_name || result.metadata?.source || result.source || 'Unknown' }} | 
               <strong> Score:</strong> {{ result.score?.toFixed(3) || 'N/A' }}
             </div>
             <p>{{ result.text || result.content || 'No content available' }}</p>
