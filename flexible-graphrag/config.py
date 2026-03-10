@@ -370,12 +370,18 @@ an aristocratic family that rules the planet Caladan, the rainy planet, since 10
                 }
             elif self.graph_db == GraphDBType.ARCADEDB:
                 self.graph_db_config = {
+                    "mode": os.getenv("ARCADEDB_MODE", "remote"),
                     "host": os.getenv("ARCADEDB_HOST", "localhost"),
                     "port": int(os.getenv("ARCADEDB_PORT", "2480")),
                     "username": os.getenv("ARCADEDB_USERNAME", "root"),
                     "password": os.getenv("ARCADEDB_PASSWORD", "playwithdata"),
                     "database": os.getenv("ARCADEDB_DATABASE", "flexible_graphrag"),
-                    "include_basic_schema": os.getenv("ARCADEDB_INCLUDE_BASIC_SCHEMA", "true").lower() == "true"
+                    "include_basic_schema": os.getenv("ARCADEDB_INCLUDE_BASIC_SCHEMA", "true").lower() == "true",
+                    # Embedded mode settings (used when ARCADEDB_MODE=embedded)
+                    "db_path": os.getenv("ARCADEDB_DB_PATH", "./arcadedb_data"),
+                    "embedded_server": os.getenv("ARCADEDB_EMBEDDED_SERVER", "false").lower() == "true",
+                    "embedded_server_port": int(os.getenv("ARCADEDB_EMBEDDED_SERVER_PORT", "2482")),
+                    "embedded_server_password": os.getenv("ARCADEDB_EMBEDDED_SERVER_PASSWORD"),
                 }
             elif self.graph_db == GraphDBType.MEMGRAPH:
                 self.graph_db_config = {

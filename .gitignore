@@ -175,6 +175,10 @@ flexible-graphrag/kuzu_db/
 kuzu_db/
 chroma_db/
 lancedb/
+flexible-graphrag/arcadedb_data/
+arcadedb_data/
+# ArcadeDB embedded server log directory (written alongside db_path)
+flexible-graphrag/log/
 
 # Document processing output directories
 flexible-graphrag/parsing_output/

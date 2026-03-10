@@ -57,7 +57,8 @@ llama-index-retrievers-bm25
 
 # ArcadeDB graph database dependencies
 arcadedb-python>=0.4.0
-llama-index-graph-stores-arcadedb>=0.4.0
+llama-index-graph-stores-arcadedb>=0.4.1
+# arcadedb-embedded>=26.2.1  # Uncomment to enable embedded ArcadeDB mode (no separate server required)
 
 # Kuzu graph database dependencies
 kuzu

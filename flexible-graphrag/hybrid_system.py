@@ -1426,78 +1426,33 @@ class HybridSearchSystem:
                 include_metadata=True
             )
         
-        # Create search retriever if configured (Elasticsearch or OpenSearch fulltext-only mode)
+        # Create search retriever (Elasticsearch / OpenSearch) by reusing self.search_index.
+        # Avoids constructing a new VectorStoreIndex with an async client in a sync context.
         search_retriever = None
-        
-        # Create search retriever from separate search_store if available
         if self.search_store is not None:
-            # First, check if the index actually exists before trying to create a retriever
-            index_exists = False
             try:
-                # Check index existence based on database type
-                if self.config.search_db == SearchDBType.OPENSEARCH:
-                    # OpenSearch check
-                    if hasattr(self.search_store, '_client') and hasattr(self.search_store._client, 'client'):
-                        client = self.search_store._client.client
-                        index_name = self.config.search_db_config.get('index_name', 'hybrid_search_fulltext')
-                        if hasattr(client, 'indices') and hasattr(client.indices, 'exists'):
-                            index_exists = client.indices.exists(index=index_name)
-                            logger.info(f"OpenSearch index '{index_name}' exists: {index_exists}")
-                elif self.config.search_db == SearchDBType.ELASTICSEARCH:
-                    # Elasticsearch check
-                    if hasattr(self.search_store, '_client') and hasattr(self.search_store._client, 'client'):
-                        client = self.search_store._client.client
-                        index_name = self.config.search_db_config.get('index_name', 'hybrid_search_fulltext')
-                        if hasattr(client, 'indices') and hasattr(client.indices, 'exists'):
-                            index_exists = client.indices.exists(index=index_name)
-                            logger.info(f"Elasticsearch index '{index_name}' exists: {index_exists}")
+                # Always reuse self.search_index — avoids constructing a new VectorStoreIndex
+                # with an async ES/OpenSearch client in a sync context (raises RuntimeError).
+                # self.search_index is set by _initialize_indexes at startup and updated
+                # during ingestion, so it's always current.
+                search_index = getattr(self, 'search_index', None)
+                if search_index is None:
+                    logger.info("Search index not yet initialised - skipping retriever (will be available after first ingestion)")
                 else:
-                    # For other databases, assume exists (they might create on first query)
-                    index_exists = True
-            except Exception as check_error:
-                logger.warning(f"Could not check index existence: {check_error} - will attempt to create retriever")
-                index_exists = True  # Assume exists and let the retriever creation handle errors
-            
-            # Only create retriever if index exists
-            if not index_exists:
-                logger.info(f"Search index does not exist yet - skipping retriever creation (will be created during first ingestion)")
-                search_retriever = None
-            else:
-                try:
-                    # Create search index by connecting to existing search_store
-                    from llama_index.core import VectorStoreIndex, StorageContext
-                    
-                    # Connect to existing search data (similar to vector index initialization)
-                    search_storage_context = StorageContext.from_defaults(vector_store=self.search_store)
-                    
-                    # Create index - use empty nodes list to connect to existing data
-                    search_index = VectorStoreIndex(
-                        nodes=[],  # Connect to existing data, don't recreate
-                        storage_context=search_storage_context,
-                        embed_model=self.embed_model
-                    )
-                    
-                    # Configure retriever based on search database type
                     if self.config.search_db == SearchDBType.OPENSEARCH:
-                        # OpenSearch uses query modes for different search types
                         from llama_index.core.vector_stores.types import VectorStoreQueryMode
                         search_retriever = search_index.as_retriever(
                             similarity_top_k=10,
-                            vector_store_query_mode=VectorStoreQueryMode.TEXT_SEARCH  # BM25 equivalent
+                            vector_store_query_mode=VectorStoreQueryMode.TEXT_SEARCH
                         )
-                        logger.info(f"Created OpenSearch retriever with TEXT_SEARCH mode for BM25 fulltext search")
+                        logger.info("Created OpenSearch retriever with TEXT_SEARCH mode")
                     else:
-                        # Elasticsearch uses strategy-based approach
                         search_retriever = search_index.as_retriever(similarity_top_k=10)
-                        logger.info(f"Created {self.config.search_db} retriever with BM25 scoring for full-text search")
-                        
-                except Exception as e:
-                    error_msg = str(e)
-                    if 'index_not_found_exception' in error_msg or 'no such index' in error_msg:
-                        logger.warning(f"Search index does not exist yet - will be created during first ingestion")
-                    else:
-                        logger.warning(f"Failed to create {self.config.search_db} retriever: {error_msg} - continuing without it")
-                    search_retriever = None
+                        logger.info(f"Created {self.config.search_db} retriever")
+
+            except Exception as e:
+                logger.warning(f"Failed to create {self.config.search_db} retriever: {e} - continuing without it")
+                search_retriever = None
         
         # Combine retrievers with fusion
         retrievers = []
@@ -1538,12 +1493,25 @@ class HybridSearchSystem:
             retriever_types.append("graph")
         
         if not retrievers:
-            error_msg = (
-                "No retrievers available for fusion! This usually means all search modalities are disabled. "
-                f"Current config: VECTOR_DB={self.config.vector_db}, "
-                f"GRAPH_DB={self.config.graph_db}, SEARCH_DB={self.config.search_db}. "
-                "At least one must be enabled (not 'none')."
+            has_any_configured = (
+                str(self.config.vector_db) != "none" or
+                str(self.config.search_db) != "none" or
+                (str(self.config.graph_db) != "none" and self.config.enable_knowledge_graph)
             )
+            if has_any_configured:
+                # DBs are configured but indexes not yet populated — ingest documents first.
+                error_msg = (
+                    f"No retrievers ready yet. Configured: VECTOR_DB={self.config.vector_db}, "
+                    f"GRAPH_DB={self.config.graph_db}, SEARCH_DB={self.config.search_db}. "
+                    "Please ingest documents first."
+                )
+            else:
+                error_msg = (
+                    "No retrievers available for fusion! All search modalities are disabled. "
+                    f"Current config: VECTOR_DB={self.config.vector_db}, "
+                    f"GRAPH_DB={self.config.graph_db}, SEARCH_DB={self.config.search_db}. "
+                    "At least one must be enabled (not 'none')."
+                )
             logger.error(error_msg)
             raise ValueError(error_msg)
         
@@ -1648,28 +1616,54 @@ class HybridSearchSystem:
         
         # Filter out zero-relevance results, but skip filtering when only the graph retriever
         # is active — graph traversal results don't get relevance scores and always return 0.0
-        vector_only = str(self.config.vector_db) == "none"
-        search_only = str(self.config.search_db) == "none"
-        graph_only = (vector_only and search_only and 
+        no_vector = str(self.config.vector_db) == "none"
+        no_search = str(self.config.search_db) == "none"
+        graph_only = (no_vector and no_search and
                       str(self.config.graph_db) != "none" and 
                       self.config.enable_knowledge_graph)
 
+        # Shared helper: returns True for bare relation links (X -> REL -> Y) that have
+        # no surrounding text content.  Real TextChunks always have newlines or are long.
+        # A metadata-prefixed chunk (e.g. from some vector stores) passes because it has
+        # content beyond the single arrow line.
+        import re as _re_shared
+        _relation_link_re = _re_shared.compile(
+            r'^[^>\n]+->\s*[A-Z_]+\s*->\s*[^\n]+$'
+        )
+
+        def _is_relation_link(txt: str) -> bool:
+            """True if txt is purely a bare X -> REL -> Y relation link with no real content."""
+            if not txt:
+                return False
+            # Real TextChunks have newlines; a bare relation link is always single-line
+            if '\n' in txt:
+                return False
+            # Must be short — long single-line text is likely a sentence, not a link
+            if len(txt) > 300:
+                return False
+            return bool(_relation_link_re.match(txt))
+
         if graph_only:
-            # Graph-only mode: don't filter by score.
-            # VectorContextRetriever scores triplets by matching entity IDs against the
-            # chunk IDs from vector_query — entities never match chunk IDs so every
-            # triplet scores 0.0. Assign a fixed relevance score so results are usable.
             from llama_index.core.schema import NodeWithScore
-            raw_results = [
-                NodeWithScore(node=r.node, score=1.0) if (r.score is None or r.score == 0.0) else r
-                for r in raw_results
-            ]
-            filtered_results = raw_results
+            filtered_graph = []
+            for r in raw_results:
+                txt = (r.text or '').strip()
+                if _is_relation_link(txt):
+                    continue
+                # Reassign 0.0 scores to 1.0 for kept results
+                if r.score is None or r.score == 0.0:
+                    r = NodeWithScore(node=r.node, score=1.0)
+                filtered_graph.append(r)
+            filtered_results = filtered_graph
             logger.info(f"Raw results: {len(raw_results)}, Filtered results (graph-only, scored 1.0): {len(filtered_results)}")
         else:
             min_score_threshold = 0.001  # Filter anything below 0.001 (effectively zero)
             filtered_results = [result for result in raw_results if result.score is not None and result.score > min_score_threshold]
-            logger.info(f"Raw results: {len(raw_results)}, Filtered results (score > {min_score_threshold}): {len(filtered_results)})")
+            # Remove bare relation links (X -> REL -> Y) — these surface from the graph
+            # retriever even in hybrid mode and are never useful as search results.
+            pre_rel_count = len(filtered_results)
+            filtered_results = [r for r in filtered_results if not _is_relation_link((r.text or '').strip())]
+            logger.info(f"Raw results: {len(raw_results)}, after score filter: {pre_rel_count}, after relation link filter: {len(filtered_results)}")
         
         # Log scores for debugging
         for i, result in enumerate(raw_results):
@@ -1706,21 +1700,6 @@ class HybridSearchSystem:
         # No need for additional async call
         
         logger.info(f"Retrieved {len(results)} results from hybrid search")
-
-        # Filter out raw MENTIONS triplets — these are LlamaIndex's internal chunk→entity
-        # edges that surface when add_source_text can't resolve a TextChunk's ref_doc_id.
-        # They look like "086c1a05-... -> MENTIONS -> some entity" and have no value for
-        # end-users.  Real knowledge-graph relations (HAS, WORKED_ON, etc.) that were
-        # successfully enriched with source text are kept.
-        import re as _re
-        _mentions_pattern = _re.compile(
-            r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\s*->\s*MENTIONS\s*->',
-            _re.IGNORECASE
-        )
-        pre_filter_count = len(results)
-        results = [r for r in results if not _mentions_pattern.match(r.text.strip())]
-        if len(results) < pre_filter_count:
-            logger.info(f"Filtered {pre_filter_count - len(results)} raw MENTIONS triplets, {len(results)} results remaining")
 
         # Enhanced deduplication with multiple strategies
         seen_content = set()

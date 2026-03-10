@@ -2,6 +2,32 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.4.0] - 2026-03-09 - Search result filtering, search only mode fix, fixes for building flexible-graphrag package
+
+### Fixed
+- **Bare relation links filtered in all modes** (`hybrid_system.py`) — `X -> REL -> Y` strings now filtered in hybrid mode, not just graph-only mode; filtered before `top_k` slice
+- **Elasticsearch/OpenSearch-only ingestion crashed** (`hybrid_system.py`) — `_setup_hybrid_retriever` now reuses `self.search_index` instead of trying to rebuild it with an async client in a sync context
+- **Misleading variable names** (`hybrid_system.py`) — `vector_only`/`search_only` renamed to `no_vector`/`no_search`
+- **Clearer error when no retrievers ready** (`hybrid_system.py`) — distinguishes "not ingested yet" from "all DBs disabled"
+
+### Added
+- **`flexible-graphrag` console script** (`pyproject.toml`, `start.py`) — run backend with `flexible-graphrag` after `uv pip install flexible-graphrag`
+- **`uv build` packaging fixes** (`pyproject.toml`) — version 0.4.0; PEP 639 license format; all 14 py-modules; `incremental_updates` package included; `Dockerfile`, `env-sample.txt`, `requirements.txt`, `uv.toml` included in sdist; placeholder `README.md` added
+- **`flexible-graphrag-mcp` version aligned to 0.4.0** (`flexible-graphrag-mcp/pyproject.toml`) — Apache 2.0 license, author, readme added
+- **README.md updated** — PyPI install quickstart (Option A); MCP server quickstart section with steps and tool table; badges for PyPI versions, pepy.tech download counts, license, Python, React, Angular, Vue; project structure updated with `incremental_updates/`, `observability/`, `sources/`, `ingest/`, docs subfolders; UI Usage section moved after frontend setup; Testing Cleanup updated to mention `cleanup.py` first
+
+---
+
+## [2026-03-08] - ArcadeDB Embedded Mode
+
+### Added
+- **ArcadeDB embedded mode** (`factories.py`, `config.py`, `env-sample.txt`) — runs in-process, no separate server required; set `ARCADEDB_MODE=embedded`; optionally enable HTTP/Studio via `ARCADEDB_EMBEDDED_SERVER=true`; `arcadedb-embedded>=26.2.1` added to dependencies (commented out)
+
+### Changed
+- **`llama-index-graph-stores-arcadedb` bumped to `>=0.4.1`** (`requirements.txt`, `pyproject.toml`)
+
+---
+
 ## [2026-03-03] -  Search ranking low scores fixed, display search result filename, added 0.4.0 ArcadeDB packages
 
 ### Fixed
@@ -10,7 +36,7 @@ All notable changes to this project will be documented in this file.
 - **Graph search scoring fixed for graph-only** (`hybrid_system.py`) - when only graph search is active, results could scored 0.0 because `VectorContextRetriever` matches entity node IDs against TextChunk IDs (never a match); ; raw `uuid -> MENTIONS -> entity` triplets filtered before dedup
 
 ### Changed
-- **`docker/includes/arcadedb.yaml` pinned to ArcadeDB 26.2.1** — changed from `latest` to ensure compatibility with the 0.4.0 arcadedb-python client
+- **`docker/includes/arcadedb.yaml` pinned to ArcadeDB 26.2.1** — changed from `latest` to ensure compatibility with the 0.4.0 arcadedb-python and arcadedb-llama-index packages and to have new vector support
 - **`cleanup.py` — ArcadeDB-specific cleanup block added** - directly connects via `arcadedb_python`, queries all vertex/edge types from schema, and issues `DELETE FROM <type>` for each; bypasses the LlamaIndex factory which was causing "index already exists" errors and had no `clear()` implementation for ArcadeDB
 - **`arcadedb-python` and `llama-index-graph-stores-arcadedb` pinned to `>=0.4.0`** in `requirements.txt` and `pyproject.toml` — version 0.4.0 enables working vector search and correct node deletion during incremental sync updates
 - **Verbose ArcadeDB ingestion log lines moved to DEBUG level** (`hybrid_system.py`) - per-result score lines no longer appear in INFO logs; `ENTITY_TYPE_DETECTION`, `LLM_RELATION_INPUT`, `SQL_RELATION`, `Schema created successfully`, `Created LSM_VECTOR index`, `SQL_FALLBACK_SUCCESS`, and `Dynamically created VERTEX/EDGE type` moved to DEBUG in `arcadedb_property_graph.py` (part of `llama-index-graph-stores-arcadedb` 0.4.0)

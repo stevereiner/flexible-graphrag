@@ -4,6 +4,16 @@
 
 # Flexible GraphRAG
 
+[![PyPI - flexible-graphrag](https://img.shields.io/pypi/v/flexible-graphrag?label=flexible-graphrag&color=blue)](https://pypi.org/project/flexible-graphrag/)
+[![PyPI - flexible-graphrag-mcp](https://img.shields.io/pypi/v/flexible-graphrag-mcp?label=flexible-graphrag-mcp&color=blue)](https://pypi.org/project/flexible-graphrag-mcp/)
+[![Downloads - flexible-graphrag](https://img.shields.io/pepy/dt/flexible-graphrag)](https://pepy.tech/project/flexible-graphrag)
+[![Downloads - flexible-graphrag-mcp](https://img.shields.io/pepy/dt/flexible-graphrag-mcp)](https://pepy.tech/project/flexible-graphrag-mcp)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-green.svg)](https://opensource.org/licenses/Apache-2.0)
+[![Python](https://img.shields.io/badge/python-3.12%20%7C%203.13-blue)](https://www.python.org/)
+[![React](https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=white)](https://react.dev/)
+[![Angular](https://img.shields.io/badge/Angular-19-DD0031?logo=angular&logoColor=white)](https://angular.dev/)
+[![Vue](https://img.shields.io/badge/Vue-3-4FC08D?logo=vue.js&logoColor=white)](https://vuejs.org/)
+
 **Flexible GraphRAG** is an open source platform supporting document processing (Docling or LlamaParse), knowledge graph auto-building, schemas, LlamaIndex LLMs, RAG and GraphRAG setup, hybrid search (fulltext, vector, graph), AI query, and AI chat capabilities. The backend uses Python, LlamaIndex, and FastAPI. Has Angular, React, and Vue TypeScript frontends. A MCP Server is also available. Currently supports 13 data sources, 10 vector databases, OpenSearch / Elasticsearch search, 8 graph databases, and Alfresco.  These servers and their dashboards can be configured in a provided docker compose.
 
 <p align="center">
@@ -778,56 +788,75 @@ Edit `.env` with your database credentials and API keys.
 
 ### Python Backend Setup (Standalone)
 
+#### Option A — Install from PyPI package (Quickstart)
+
+```bash
+# 1. Create and activate a virtual environment
+uv venv venv-3.13 --python 3.13
+venv-3.13\Scripts\Activate   # Windows
+source venv-3.13/bin/activate  # Linux/macOS
+
+# 2. Install flexible-graphrag
+uv pip install flexible-graphrag
+
+# 3. Optionally install ArcadeDB embedded mode support
+uv pip install arcadedb-embedded
+
+# 4. Create .env from the sample (copy from the source repo or download env-sample.txt)
+copy env-sample.txt .env   # Windows
+cp env-sample.txt .env     # Linux/macOS
+# Edit .env with your LLM API keys and database settings
+
+# 5. Start your databases (docker compose or standalone)
+docker compose -f docker/docker-compose.yml up -d
+
+# 6. Run the backend
+flexible-graphrag
+# or: uv run start.py
+```
+
+#### Option B — Install from source (editable)
+
 1. Navigate to the backend directory:
    ```bash
    cd flexible-graphrag
    ```
 
-2. Install the package in editable mode using **pyproject.toml** (recommended):
+2. Create and activate a virtual environment, then install in editable mode:
    ```bash
-   # Option A: Manage your own virtual environment (default - managed = false in pyproject.toml)
-   uv venv venv-3.12 --python 3.12  # Python 3.12 (example with custom name)
-   uv venv venv-3.13 --python 3.13  # Python 3.13 (example with custom name)
-   # Activate it (replace venv-3.12 or venv-3.13 with your chosen name):
-   venv-3.12\Scripts\Activate  # Windows (Command Prompt/PowerShell)
-   source venv-3.12/bin/activate  # Linux/macOS
-   # Then install:
-   uv pip install -e .
-   
-   # Option B: Let uv manage the virtual environment automatically
-   # (would need to change managed = false to managed = true in pyproject.toml [tool.uv] section)
+   uv venv venv-3.13 --python 3.13
+   venv-3.13\Scripts\Activate   # Windows
+   source venv-3.13/bin/activate  # Linux/macOS
    uv pip install -e .
    ```
+
+   **uv-managed venv** (alternative): change `managed = false` to `managed = true` in `pyproject.toml` `[tool.uv]` section, then just run `uv pip install -e .`.
 
    **Windows Note**: If installation fails with "Microsoft Visual C++ 14.0 or greater is required" error, install [Microsoft C++ Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/) (required for compiling Docling dependencies). Select "Desktop development with C++" during installation.
 
    **Alternative (not recommended)**: Legacy requirements.txt approach:
    ```bash
-   # Create venv manually
    uv venv venv-3.13 --python 3.13
    venv-3.13\Scripts\Activate  # Windows
    source venv-3.13/bin/activate  # Linux/macOS
-   # Navigate to flexible-graphrar directory
    cd flexible-graphrag
-   # Install from requirements.txt
    uv pip install -r requirements.txt
    ```
 
 3. Create a `.env` file by copying the sample and customizing:
    ```bash
-   # Copy sample environment file (use appropriate command for your platform)
-   cp env-sample.txt .env  # Linux/macOS
+   cp env-sample.txt .env   # Linux/macOS
    copy env-sample.txt .env  # Windows
    ```
-   
+
    Edit `.env` with your specific configuration. See [docs/ENVIRONMENT-CONFIGURATION.md](docs/ENVIRONMENT-CONFIGURATION.md) for detailed setup guide.
 
-**Note**: The system requires Python 3.12 or 3.13 as specified in `pyproject.toml` (requires-python = ">=3.12,<3.14"). Python 3.12 and 3.13 are fully tested and working. Python 3.14 has LlamaIndex ChromaDB compatibility issues (`chromadb` and `llama-index-vector-stores-chroma` packages). Virtual environment management is controlled by `managed = false` in `pyproject.toml` [tool.uv] section (you control venv creation and naming).
+**Note**: The system requires Python 3.12 or 3.13 as specified in `pyproject.toml` (requires-python = ">=3.12,<3.14"). Python 3.12 and 3.13 are fully tested and working. Python 3.14 has LlamaIndex ChromaDB compatibility issues (`chromadb` and `llama-index-vector-stores-chroma` packages). Virtual environment management is controlled by `managed = false` in `pyproject.toml` `[tool.uv]` section (you control venv creation and naming).
 
 4. Start the backend:
    ```bash
-   python start.py
-   # or: uv run start.py
+   flexible-graphrag        # after uv pip install flexible-graphrag
+   # or: uv run start.py   # with source or after package install
    ```
 
 The backend will be available at `http://localhost:8000`.
@@ -899,53 +928,7 @@ The Angular frontend will be available at `http://localhost:4200`.
 
 The Vue frontend will be available at `http://localhost:3000`.
 
-## Backend REST API
-
-The FastAPI backend provides the following REST API endpoints:
-
-**Base URL**: `http://localhost:8000/api/`
-
-| Endpoint | Method | Purpose |
-|----------|--------|---------|
-| `/api/health` | GET | Health check - verify backend is running |
-| `/api/ingest` | POST | Ingest documents from configured data sources |
-| `/api/upload` | POST | Upload files for processing |
-| `/api/search` | POST | Hybrid search for relevant document excerpts |
-| `/api/query` | POST | AI-powered Q&A from document corpus |
-| `/api/status` | GET | Get system status and configuration |
-| `/api/processing-status/{id}` | GET | Check processing status for async operations |
-| `/api/processing-events/{id}` | GET | Server-sent events stream for real-time progress |
-| `/api/cancel-processing/{id}` | POST | Cancel ongoing processing operation |
-| `/api/ingest-text` | POST | Ingest custom text content |
-| `/api/test-sample` | POST | Test system with sample content |
-| `/api/cleanup-uploads` | POST | Clean up uploaded files |
-| `/api/info` | GET | Get system information and versions |
-| `/api/graph` | GET | Get graph data for visualization (nodes and relationships) |
-| `/api/python-info` | GET | Get Python environment diagnostics |
-| `/` | GET | Root endpoint (basic API info) |
-
-**Interactive API Documentation**:
-- **Swagger UI**: http://localhost:8000/docs
-- **ReDoc**: http://localhost:8000/redoc
-
-See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for detailed API workflow and examples.
-
-## Full-Stack Debugging (Standalone Mode)
-
-**Note**: This debugging setup is for standalone backend and frontends (Scenario A or C), not for Full Stack in Docker (Scenario B).
-
-The project includes a `sample-launch.json` file with VS Code debugging configurations for all three frontend options and the backend. Copy this file to `.vscode/launch.json` to use these configurations.
-
-Key debugging configurations include:
-
-1. **Full Stack with React and Python**: Debug both the React frontend and Python backend simultaneously
-2. **Full Stack with Angular and Python**: Debug both the Angular frontend and Python backend simultaneously
-3. **Full Stack with Vue and Python**: Debug both the Vue frontend and Python backend simultaneously
-4. Note when ending debugging, you will need to stop the Python backend and the frontend separately.
-
-Each configuration sets up the appropriate ports, source maps, and debugging tools for a seamless development experience. You may need to adjust the ports and paths in the `launch.json` file to match your specific setup.
-
-## Usage
+## UI Usage
 
 The system provides a tabbed interface for document processing and querying. Follow these steps in order:
 
@@ -1032,9 +1015,103 @@ Interactive conversational interface for document Q&A:
 ### Testing Cleanup
 
 Between tests you can clean up data:
+- **Run `cleanup.py`**: Clears vector, graph, and search indexes in one step — run from the `flexible-graphrag` directory
 - **Vector Indexes**: See [docs/VECTOR-DATABASES/VECTOR-DIMENSIONS.md](docs/VECTOR-DATABASES/VECTOR-DIMENSIONS.md) for vector database cleanup instructions
 - **Graph Data**: See [docs/GRAPH-DATABASES/README-neo4j.md](docs/GRAPH-DATABASES/README-neo4j.md) for graph-related cleanup commands
-- **Neo4j**: Use on a test Neo4j database no one else is using 
+
+## MCP Server Setup (Quickstart)
+
+The MCP server (`flexible-graphrag-mcp`) is a lightweight standalone package that connects MCP clients (Claude Desktop, Cursor, etc.) to the Flexible GraphRAG backend via its REST API.
+
+For full details see [`flexible-graphrag-mcp/README.md`](flexible-graphrag-mcp/README.md) and [`flexible-graphrag-mcp/QUICK-USAGE-GUIDE.md`](flexible-graphrag-mcp/QUICK-USAGE-GUIDE.md). For the full list of available MCP tools see [MCP Tools for Claude Desktop and Other MCP Clients](#mcp-tools-for-claude-desktop-and-other-mcp-clients) below.
+
+### Steps
+
+1. **First terminal — install and run the flexible-graphrag backend** (see [Python Backend Setup](#python-backend-setup-standalone) above) — it must be running on `http://localhost:8000`.
+
+2. **Second terminal — install and start the MCP server** in HTTP mode:
+   ```bash
+   uv venv venv-mcp --python 3.13
+   venv-mcp\Scripts\Activate   # Windows
+   source venv-mcp/bin/activate  # Linux/macOS
+   uv pip install flexible-graphrag-mcp
+   flexible-graphrag-mcp --http --port 3001
+   ```
+
+3. **Third terminal — test with MCP Inspector**:
+   ```bash
+   npx @modelcontextprotocol/inspector
+   ```
+   Open the URL printed in the console (token pre-filled), set transport to **Streamable HTTP**, URL to `http://localhost:3001/mcp`, then click **Connect**.
+
+4. **Use with Claude Desktop and other MCP clients** — see [`flexible-graphrag-mcp/README.md`](flexible-graphrag-mcp/README.md) for stdio transport config and client-specific setup.
+
+## MCP Tools for Claude Desktop and Other MCP Clients
+
+The MCP server provides 9 specialized tools for document intelligence workflows:
+
+| Tool | Purpose | Usage |
+|------|---------|-------|
+| `get_system_status()` | System health and configuration | Verify setup and database connections |
+| `ingest_documents()` | Bulk document processing | All sources support `skip_graph`; filesystem/Alfresco/CMIS use `paths`; Alfresco also supports `nodeDetails` list (13 sources have their own config: filesystem, repositories (Alfresco, SharePoint, Box, CMIS), cloud storage, web) |
+| `ingest_text(content, source_name)` | Custom text analysis | Analyze specific text content |
+| `search_documents(query, top_k)` | Hybrid document retrieval | Find relevant document excerpts |
+| `query_documents(query, top_k)` | AI-powered Q&A | Generate answers from document corpus |
+| `test_with_sample()` | System verification | Quick test with sample content |
+| `check_processing_status(id)` | Async operation monitoring | Track long-running ingestion tasks |
+| `get_python_info()` | Environment diagnostics | Debug Python environment issues |
+| `health_check()` | Backend connectivity | Verify API server connection |
+
+### Client Support
+- **Claude Desktop and other MCP clients**: Native MCP integration with stdio transport
+- **MCP Inspector**: HTTP transport for debugging and development
+- **Multiple Installation**: pipx (system-wide) or uvx (no-install) options
+
+## Backend REST API
+
+The FastAPI backend provides the following REST API endpoints:
+
+**Base URL**: `http://localhost:8000/api/`
+
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/api/health` | GET | Health check - verify backend is running |
+| `/api/ingest` | POST | Ingest documents from configured data sources |
+| `/api/upload` | POST | Upload files for processing |
+| `/api/search` | POST | Hybrid search for relevant document excerpts |
+| `/api/query` | POST | AI-powered Q&A from document corpus |
+| `/api/status` | GET | Get system status and configuration |
+| `/api/processing-status/{id}` | GET | Check processing status for async operations |
+| `/api/processing-events/{id}` | GET | Server-sent events stream for real-time progress |
+| `/api/cancel-processing/{id}` | POST | Cancel ongoing processing operation |
+| `/api/ingest-text` | POST | Ingest custom text content |
+| `/api/test-sample` | POST | Test system with sample content |
+| `/api/cleanup-uploads` | POST | Clean up uploaded files |
+| `/api/info` | GET | Get system information and versions |
+| `/api/graph` | GET | Get graph data for visualization (nodes and relationships) |
+| `/api/python-info` | GET | Get Python environment diagnostics |
+| `/` | GET | Root endpoint (basic API info) |
+
+**Interactive API Documentation**:
+- **Swagger UI**: http://localhost:8000/docs
+- **ReDoc**: http://localhost:8000/redoc
+
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for detailed API workflow and examples.
+
+## Full-Stack Debugging (Standalone Mode)
+
+**Note**: This debugging setup is for standalone backend and frontends (Scenario A or C), not for Full Stack in Docker (Scenario B).
+
+The project includes a `sample-launch.json` file with VS Code debugging configurations for all three frontend options and the backend. Copy this file to `.vscode/launch.json` to use these configurations.
+
+Key debugging configurations include:
+
+1. **Full Stack with React and Python**: Debug both the React frontend and Python backend simultaneously
+2. **Full Stack with Angular and Python**: Debug both the Angular frontend and Python backend simultaneously
+3. **Full Stack with Vue and Python**: Debug both the Vue frontend and Python backend simultaneously
+4. Note when ending debugging, you will need to stop the Python backend and the frontend separately.
+
+Each configuration sets up the appropriate ports, source maps, and debugging tools for a seamless development experience. You may need to adjust the ports and paths in the `launch.json` file to match your specific setup.
 
 ## Observability and Monitoring
 
@@ -1085,27 +1162,6 @@ Flexible GraphRAG includes comprehensive observability features for production m
 
 See [docs/OBSERVABILITY/OBSERVABILITY.md](docs/OBSERVABILITY/OBSERVABILITY.md) for complete setup, custom instrumentation, and production best practices.
 
-## MCP Tools for Claude Desktop and Other MCP Clients
-
-The MCP server provides 9 specialized tools for document intelligence workflows:
-
-| Tool | Purpose | Usage |
-|------|---------|-------|
-| `get_system_status()` | System health and configuration | Verify setup and database connections |
-| `ingest_documents()` | Bulk document processing | All sources support `skip_graph`; filesystem/Alfresco/CMIS use `paths`; Alfresco also supports `nodeDetails` list (13 sources have their own config: filesystem, repositories (Alfresco, SharePoint, Box, CMIS), cloud storage, web) |
-| `ingest_text(content, source_name)` | Custom text analysis | Analyze specific text content |
-| `search_documents(query, top_k)` | Hybrid document retrieval | Find relevant document excerpts |
-| `query_documents(query, top_k)` | AI-powered Q&A | Generate answers from document corpus |
-| `test_with_sample()` | System verification | Quick test with sample content |
-| `check_processing_status(id)` | Async operation monitoring | Track long-running ingestion tasks |
-| `get_python_info()` | Environment diagnostics | Debug Python environment issues |
-| `health_check()` | Backend connectivity | Verify API server connection |
-
-### Client Support
-- **Claude Desktop and other MCP clients**: Native MCP integration with stdio transport
-- **MCP Inspector**: HTTP transport for debugging and development
-- **Multiple Installation**: pipx (system-wide) or uvx (no-install) options
-
 ## Project Structure
 
 - `/flexible-graphrag`: Python FastAPI backend with LlamaIndex
@@ -1115,38 +1171,28 @@ The MCP server provides 9 specialized tools for document intelligence workflows:
   - `hybrid_system.py`: Main hybrid search system using LlamaIndex
   - `document_processor.py`: Document processing with Docling integration
   - `factories.py`: Factory classes for LLM and database creation
-  - `sources/`: Data source connectors (filesystem, CMIS, Alfresco, cloud storage, web sources)
+  - `post_ingestion_state.py`: Post-ingestion document state tracking
+  - `sources/`: Data source connectors (filesystem, CMIS, Alfresco, Azure Blob, S3, GCS, OneDrive, SharePoint, Google Drive, Box, web, etc.)
   - `ingest/`: Ingestion management and orchestration
-  - `pyproject.toml`: Modern Python package definition with 409 dependencies (PEP 517/518)
-  - `uv.toml`: UV package manager configuration for virtual environment management
+  - `incremental_updates/`: Auto-sync engine — detectors, orchestrator, state manager for real-time/near-real-time source sync
+  - `observability/`: OpenTelemetry instrumentation, Prometheus metrics, tracing setup
+  - `pyproject.toml`: Modern Python package definition (PEP 517/518)
+  - `uv.toml`: UV package manager configuration
   - `requirements.txt`: Legacy pip requirements file (backward compatibility)
-  - `start.py`: Startup script for uvicorn
+  - `start.py`: Startup script (`flexible-graphrag` console entry point)
   - `install.py`: Installation helper script
 
 - `/flexible-graphrag-mcp`: Standalone MCP server
   - `main.py`: HTTP-based MCP server (calls REST API)
   - `pyproject.toml`: MCP package definition with minimal dependencies
   - `README.md`: MCP server setup and installation instructions
+  - `QUICK-USAGE-GUIDE.md`: Quick usage guide
   - **Lightweight**: Only 4 dependencies (fastmcp, nest-asyncio, httpx, python-dotenv)
 
 - `/flexible-graphrag-ui`: Frontend applications
   - `/frontend-react`: React + TypeScript frontend (built with Vite)
-    - `/src`: Source code
-    - `vite.config.ts`: Vite configuration
-    - `tsconfig.json`: TypeScript configuration
-    - `package.json`: Node.js dependencies and scripts
-
   - `/frontend-angular`: Angular + TypeScript frontend (built with Angular CLI)
-    - `/src`: Source code
-    - `angular.json`: Angular configuration
-    - `tsconfig.json`: TypeScript configuration
-    - `package.json`: Node.js dependencies and scripts
-
   - `/frontend-vue`: Vue + TypeScript frontend (built with Vite)
-    - `/src`: Source code
-    - `vite.config.ts`: Vite configuration
-    - `tsconfig.json`: TypeScript configuration
-    - `package.json`: Node.js dependencies and scripts
 
 - `/docker`: Docker infrastructure
   - `docker-compose.yaml`: Main compose file with modular includes
@@ -1155,7 +1201,7 @@ The MCP server provides 9 specialized tools for document intelligence workflows:
   - `README.md`: Docker deployment documentation
 
 - `/docs`: Documentation
-  - `ARCHITECTURE.md`: Complete system architecture and component relationships
+  - `ARCHITECTURE.md`: System architecture and component relationships
   - `DEPLOYMENT-CONFIGURATIONS.md`: Standalone, hybrid, and full Docker deployment guides
   - `ENVIRONMENT-CONFIGURATION.md`: Environment setup guide with database switching
   - `POSTGRES-SETUP.md`: PostgreSQL setup for pgvector and incremental state management
@@ -1163,9 +1209,9 @@ The MCP server provides 9 specialized tools for document intelligence workflows:
   - `PERFORMANCE.md`: Performance benchmarks and optimization guides
   - `DEFAULT-USERNAMES-PASSWORDS.md`: Database credentials and dashboard access
   - `PORT-MAPPINGS.md`: Complete port reference for all services
-  - `DATA-SOURCES/`: Data source setup guides (Azure Blob, S3, GCS, etc.)
+  - `DATA-SOURCES/`: Data source setup guides (Azure Blob, S3, GCS, CMIS, etc.)
   - `DOC-PROCESSING/`: Document processing guides (Docling GPU, parser output)
-  - `GRAPH-DATABASES/`: Graph database guides (Neo4j, Neptune, Nebula, etc.)
+  - `GRAPH-DATABASES/`: Graph database guides (Neo4j, Neptune, Nebula, ArcadeDB, etc.)
   - `INCREMENTAL-UPDATE-AUTO-SYNC/`: Incremental updates documentation (README, QUICKSTART, SETUP-GUIDE, API-REFERENCE)
   - `LLM/`: LLM and embedding configuration guides
   - `OBSERVABILITY/`: Observability and monitoring guides
@@ -1174,15 +1220,11 @@ The MCP server provides 9 specialized tools for document intelligence workflows:
 - `/scripts`: Utility scripts
   - `create_opensearch_pipeline.py`: OpenSearch hybrid search pipeline setup
   - `setup-opensearch-pipeline.sh/.bat`: Cross-platform pipeline creation
-  - `/incremental`: Incremental updates control scripts
-    - `sync-now.sh/.ps1/.bat`: Trigger immediate synchronization
-    - `set-refresh-interval.sh/.ps1/.bat`: Configure polling interval
-    - `README.md`: Script usage documentation
+  - `/incremental`: Incremental updates control scripts (sync-now, set-refresh-interval)
 
 - `/tests`: Test suite
   - `test_bm25_*.py`: BM25 configuration and integration tests
   - `conftest.py`: Test configuration and fixtures
-  - `run_tests.py`: Test runner
 
 ## License
 

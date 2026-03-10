@@ -1,10 +1,10 @@
 [project]
 name = "flexible-graphrag"
-version = "0.1.0"
+version = "0.4.0"
 description = "Flexible GraphRAG system supporting multiple LLM providers, graph databases, vector stores, and data sources"
 readme = "README.md"
 requires-python = ">=3.12,<3.14"
-license = {text = "Apache-2.0"}
+license = "Apache-2.0"
 authors = [
     {name = "Steve Reiner"}
 ]
@@ -12,7 +12,6 @@ keywords = ["graphrag", "rag", "llm", "knowledge-graph", "neo4j", "kuzu", "vecto
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: Apache Software License",
     "Programming Language :: Python :: 3.12",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
@@ -76,7 +75,8 @@ dependencies = [
     "llama-index-retrievers-bm25",
     # ArcadeDB graph database dependencies
     "arcadedb-python>=0.4.0",
-    "llama-index-graph-stores-arcadedb>=0.4.0",
+    "llama-index-graph-stores-arcadedb>=0.4.1",
+    # "arcadedb-embedded>=26.2.1",  # Uncomment to enable embedded ArcadeDB mode (no separate server required)
     # Kuzu graph database dependencies
     "kuzu",
     # Search / Vector database dependencies
@@ -171,20 +171,46 @@ Homepage = "https://github.com/stevereiner/flexible-graphrag"
 Repository = "https://github.com/stevereiner/flexible-graphrag"
 Documentation = "https://github.com/stevereiner/flexible-graphrag/blob/main/README.md"
 
+[project.scripts]
+flexible-graphrag = "start:main"
+
 [build-system]
 requires = ["setuptools>=68.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
 # Flat layout - Python files are in the same directory as pyproject.toml
-py-modules = ["backend", "cmis_util", "config", "document_processor", "factories", "hybrid_system", "main", "neptune_analytics_wrapper", "start"]
+py-modules = [
+    "backend",
+    "check_elasticsearch",
+    "cleanup",
+    "cmis_util",
+    "config",
+    "document_processor",
+    "factories",
+    "hybrid_system",
+    "incremental_system",
+    "install",
+    "main",
+    "neptune_database_wrapper",
+    "post_ingestion_state",
+    "start",
+]
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["ingest*", "sources*", "observability*"]
+include = ["ingest*", "sources*", "observability*", "incremental_updates*"]
 
 [tool.setuptools.package-data]
-"*" = ["*.txt", "*.md"]
+"*" = ["*.txt", "*.md", "*.sql", "*.toml"]
+
+[tool.setuptools.data-files]
+"." = [
+    "Dockerfile",
+    "env-sample.txt",
+    "requirements.txt",
+    "uv.toml",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["../tests"]

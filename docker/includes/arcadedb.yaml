@@ -1,7 +1,9 @@
 # ArcadeDB Graph Database
 services:
   arcadedb:
-    image: arcadedata/arcadedb:26.2.1
+    #image: arcadedata/arcadedb:26.2.1
+    image: arcadedata/arcadedb:26.3.1
+    #image: arcadedata/arcadedb:latest
     container_name: flexible-graphrag-arcadedb
     ports:
       - "2480:2480"  # HTTP API (and ArcadeDB Studio browser console)

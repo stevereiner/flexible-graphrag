@@ -1135,9 +1135,32 @@ class DatabaseFactory:
                 embedding_dimension=embedding_dimension
             )
             logger.info(f"Detected embedding dimension for ArcadeDB: {embed_dim} (kind: {embedding_kind}, model: {embedding_model})")
-            
+
+            # Embedded mode — triggered by setting mode="embedded" in config
+            mode = config.get("mode", "remote")
+            if mode == "embedded":
+                db_path = config.get("db_path", "./arcadedb_data")
+                embedded_server = config.get("embedded_server", False)
+                embedded_server_port = config.get("embedded_server_port", 2482)
+                embedded_server_password = config.get("embedded_server_password", None)
+                logger.info(
+                    f"Creating ArcadeDB embedded graph store - db_path: {db_path}, "
+                    f"database: {database}, embedded_server: {embedded_server}, "
+                    f"port: {embedded_server_port}, embed_dim: {embed_dim}"
+                )
+                return ArcadeDBPropertyGraphStore(
+                    mode="embedded",
+                    db_path=db_path,
+                    database=database,
+                    embedded_server=embedded_server,
+                    embedded_server_port=embedded_server_port,
+                    embedded_server_password=embedded_server_password,
+                    embedding_dimension=embed_dim,
+                    include_basic_schema=include_basic_schema,
+                )
+
             logger.info(f"Creating ArcadeDB graph store - Host: {host}:{port}, Database: {database}, Include basic schema: {include_basic_schema}, Embed dim: {embed_dim}")
-            
+
             return ArcadeDBPropertyGraphStore(
                 host=host,
                 port=port,

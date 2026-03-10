@@ -169,8 +169,14 @@ GRAPH_DB_CONFIG={"url": "bolt://localhost:7687", "username": "neo4j", "password"
 # include_basic_schema: True (default) - initial types: PERSON, ORGANIZATION, LOCATION, PLACE + Entity, TextChunk, MENTIONS
 #                       False - initial types: Entity, TextChunk, MENTIONS only
 #                       For both settings: LlamaIndex PathExtractors/KG_EXTRACTOR_TYPE control additional types
+# Remote mode (default) — requires a running ArcadeDB server
 #GRAPH_DB_CONFIG={"host": "localhost", "port": 2480, "username": "root", "password": "playwithdata", "database": "flexible_graphrag", "include_basic_schema": true}
 #GRAPH_DB_CONFIG={"host": "localhost", "port": 2480, "username": "root", "password": "playwithdata", "database": "flexible_graphrag", "include_basic_schema": false}
+# Embedded mode — no separate server required; install arcadedb-embedded>=26.2.1 first
+# embedded_server: false (default) - pure in-process, no HTTP endpoint exposed
+# embedded_server: true - also starts an HTTP server on embedded_server_port (default 2482)
+#GRAPH_DB_CONFIG={"mode": "embedded", "db_path": "./arcadedb_data", "database": "flexible_graphrag", "include_basic_schema": true}
+#GRAPH_DB_CONFIG={"mode": "embedded", "db_path": "./arcadedb_data", "database": "flexible_graphrag", "embedded_server": true, "embedded_server_port": 2482, "embedded_server_password": "playwithdata", "include_basic_schema": true}
 
 # MemGraph (real-time graph database)
 # Basic configuration:

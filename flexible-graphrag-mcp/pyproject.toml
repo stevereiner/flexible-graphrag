@@ -4,8 +4,13 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "flexible-graphrag-mcp"
-version = "1.0.0"
+version = "0.4.0"
 description = "MCP Server for Flexible GraphRAG"
+readme = "README.md"
+license = "Apache-2.0"
+authors = [
+    {name = "Steve Reiner"}
+]
 dependencies = [
     "fastmcp",
     "nest-asyncio", 
