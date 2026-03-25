@@ -1,0 +1,65 @@
+@prefix company: <http://example.org/company/> .
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+# =============================================================
+# company_properties.ttl — Datatype Properties
+# Part 2 of 2; combine with company_classes.ttl for the full
+# company domain ontology.
+# =============================================================
+
+# RELATION ANNOTATION PROPERTIES
+# (annotate edges / RDF-star triples, not entity nodes)
+
+company:employment_role a owl:DatatypeProperty ;
+    rdfs:domain company:works_for ;
+    rdfs:range xsd:string ;
+    rdfs:label "role" ;
+    rdfs:comment "Job role or position in the employment relationship" .
+
+company:employment_start_date a owl:DatatypeProperty ;
+    rdfs:domain company:works_for ;
+    rdfs:range xsd:dateTime ;
+    rdfs:label "start date" ;
+    rdfs:comment "When the employment relationship started" .
+
+company:assignment_percentage a owl:DatatypeProperty ;
+    rdfs:domain company:assigned_to ;
+    rdfs:range xsd:decimal ;
+    rdfs:label "assignment percentage" ;
+    rdfs:comment "Percentage of time allocated to the project (0-100)" .
+
+company:proficiency_level a owl:DatatypeProperty ;
+    rdfs:domain company:has_skill ;
+    rdfs:range xsd:string ;
+    rdfs:label "proficiency level" ;
+    rdfs:comment "Level of skill proficiency: Beginner, Intermediate, Advanced, Expert" .
+
+# ENTITY DATATYPE PROPERTIES
+
+company:salary a owl:DatatypeProperty ;
+    rdfs:domain company:Employee ;
+    rdfs:range xsd:decimal ;
+    rdfs:label "salary" .
+
+company:hire_date a owl:DatatypeProperty ;
+    rdfs:domain company:Employee ;
+    rdfs:range xsd:dateTime ;
+    rdfs:label "hire date" .
+
+company:budget a owl:DatatypeProperty ;
+    rdfs:domain company:Project ;
+    rdfs:range xsd:decimal ;
+    rdfs:label "budget" .
+
+company:start_date a owl:DatatypeProperty ;
+    rdfs:domain company:Project ;
+    rdfs:range xsd:dateTime ;
+    rdfs:label "start date" .
+
+company:end_date a owl:DatatypeProperty ;
+    rdfs:domain company:Project ;
+    rdfs:range xsd:dateTime ;
+    rdfs:label "end date" .

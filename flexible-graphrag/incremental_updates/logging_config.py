@@ -120,7 +120,7 @@ def get_logger(name: str):
 # Logging helpers
 def log_operation_start(logger, operation: str, details: str = ""):
     """Log the start of an operation"""
-    msg = f"▶️  Starting {operation}"
+    msg = f"Starting {operation}"
     if details:
         msg += f": {details}"
     logger.info(msg)
@@ -128,7 +128,7 @@ def log_operation_start(logger, operation: str, details: str = ""):
 
 def log_operation_success(logger, operation: str, details: str = "", duration: float = None):
     """Log successful completion of an operation"""
-    msg = f"✅ {operation} completed"
+    msg = f"[OK] {operation} completed"
     if details:
         msg += f": {details}"
     if duration:
@@ -138,7 +138,7 @@ def log_operation_success(logger, operation: str, details: str = "", duration: f
 
 def log_operation_error(logger, operation: str, error: Exception, details: str = ""):
     """Log operation failure"""
-    msg = f"❌ {operation} failed"
+    msg = f"[FAIL] {operation} failed"
     if details:
         msg += f": {details}"
     msg += f" - {str(error)}"
@@ -147,7 +147,7 @@ def log_operation_error(logger, operation: str, error: Exception, details: str =
 
 def log_skip(logger, reason: str, details: str = ""):
     """Log skipped operation"""
-    msg = f"⏭️  Skipping: {reason}"
+    msg = f"Skipping: {reason}"
     if details:
         msg += f" ({details})"
     logger.info(msg)
@@ -155,17 +155,17 @@ def log_skip(logger, reason: str, details: str = ""):
 
 def log_processing(logger, item: str, action: str = "Processing"):
     """Log item processing"""
-    logger.info(f"🔄 {action} {item}...")
+    logger.info(f"{action} {item}...")
 
 
 def log_delete(logger, item: str):
     """Log deletion"""
-    logger.info(f"🗑️  Deleting {item}...")
+    logger.info(f"Deleting {item}...")
 
 
 def log_update(logger, target: str, item: str = ""):
     """Log update operation"""
-    msg = f"  📝 Updating {target}"
+    msg = f"  Updating {target}"
     if item:
         msg += f" for {item}"
     logger.info(msg)
@@ -173,6 +173,6 @@ def log_update(logger, target: str, item: str = ""):
 
 def log_stats(logger, stats: dict):
     """Log statistics"""
-    logger.info("📊 Statistics:")
+    logger.info("Statistics:")
     for key, value in stats.items():
         logger.info(f"    {key}: {value}")

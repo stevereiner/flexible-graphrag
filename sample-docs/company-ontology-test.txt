@@ -1,0 +1,127 @@
+Acme Corporation — Staff, Projects, Locations, and Events Directory
+====================================================================
+
+Acme Corporation is a software company headquartered in Austin, Texas, United States.
+The Austin office is located at 500 Congress Avenue, Austin, TX 78701. Acme Corporation
+is also based in San Francisco, California, where its West Coast office sits at
+101 Market Street, San Francisco, CA 94105.
+Acme Corporation has three departments: Engineering, Product Management, and Sales.
+
+---
+ENGINEERING DEPARTMENT
+---
+
+Sarah Chen joined Acme Corporation on 2019-03-15. She works for Acme Corporation as a
+Senior Software Engineer. Her salary is 145000.00 per year. Sarah manages a team of two
+engineers: Marcus Rivera and Priya Patel. Sarah is affiliated with the Austin office
+and can be reached at sarah.chen@acmecorp.com.
+
+Marcus Rivera has been employed at Acme Corporation since 2021-06-01 as a Software
+Engineer. His salary is 112000.00 per year. Marcus works in the Engineering department.
+
+Priya Patel joined on 2020-09-01 as a Software Engineer. Her salary is 118000.00 per year.
+Priya works in the Engineering department. Priya is based at the San Francisco office
+and her email is priya.patel@acmecorp.com. Priya manages no direct reports.
+
+Sarah Chen has the following skills: Python (Expert), Kubernetes (Advanced), and
+PostgreSQL (Intermediate). Marcus Rivera has the skills: Python (Intermediate) and
+Docker (Advanced). Priya Patel has the skills: Java (Expert) and Kubernetes (Expert).
+
+---
+PRODUCT MANAGEMENT DEPARTMENT
+---
+
+James Okafor is the Head of Product at Acme Corporation. He joined on 2018-01-10 with a
+salary of 162000.00. James works in the Product Management department. James has skills
+in Product Strategy (Expert) and SQL (Intermediate). James was born on 1985-04-22.
+
+---
+SALES DEPARTMENT
+---
+
+Linda Torres works for Acme Corporation as an Account Executive. She joined on 2022-02-28
+with a salary of 95000.00. Linda works in the Sales department. Linda has the skill:
+Salesforce (Advanced). Linda is affiliated with the Austin office.
+
+---
+PROJECTS
+---
+
+Project Alpha is an internal infrastructure modernisation initiative. It started on
+2023-01-15 and is scheduled to end on 2024-06-30. The budget for Project Alpha is
+350000.00. Project Alpha uses the technologies Kubernetes and Terraform. Project Alpha
+is led by Sarah Chen. Sarah Chen is assigned to Project Alpha at 80 percent allocation.
+Marcus Rivera is assigned to Project Alpha at 100 percent allocation.
+
+Project Beta is a customer-facing API platform. It started on 2023-07-01 and is planned
+to complete by 2025-03-31. The budget is 520000.00. Project Beta uses the technologies
+Python, PostgreSQL, and Docker. Project Beta is led by Priya Patel. Priya Patel is
+assigned to Project Beta at 100 percent allocation. James Okafor has been assigned to
+Project Beta as product owner at 40 percent allocation.
+
+Project Gamma is a sales automation tool. It started on 2024-01-01 with a budget of
+175000.00 and is expected to end on 2024-12-31. Project Gamma uses the technology
+Salesforce. Project Gamma is led by James Okafor. Linda Torres is assigned to Project
+Gamma at 60 percent allocation.
+
+---
+LOCATIONS AND PLACES
+---
+
+The Austin office has a capacity of 200 people and is located in the city of Austin
+in the state of Texas, United States. Its coordinates are latitude 30.2672 and
+longitude -97.7431.
+
+The San Francisco office has a capacity of 80 people and is located at 101 Market Street
+in San Francisco, California, United States. Its coordinates are latitude 37.7749 and
+longitude -122.4194.
+
+London is a place where Acme Corporation maintains a sales presence. The London office
+is located at 30 St Mary Axe, London, EC3A 8BF, United Kingdom.
+
+---
+EVENTS
+---
+
+The Acme Engineering Summit 2024 was an internal technical conference hosted by
+Acme Corporation. It was held at the Austin office from 2024-03-10 to 2024-03-12.
+The summit was attended by Sarah Chen, Marcus Rivera, Priya Patel, and James Okafor.
+
+The Cloud Infrastructure Workshop was a training event held at the San Francisco office
+on 2024-05-20. It was attended by Marcus Rivera and Priya Patel.
+
+TechConnect 2024 is an industry conference held at the Moscone Center in San Francisco.
+Acme Corporation is a sponsor. Priya Patel and James Okafor attended TechConnect 2024.
+
+The Q3 Sales Kickoff was hosted by Acme Corporation and held at the Austin office on
+2024-07-08. Linda Torres and James Okafor attended the Q3 Sales Kickoff.
+
+---
+PRODUCTS
+---
+
+Acme DataBridge is a product produced by Acme Corporation. It is a data integration
+platform described as a real-time API integration and transformation service.
+Acme DataBridge is related to Project Beta.
+
+Acme AutoSell is a sales automation product produced by Acme Corporation, described as
+an AI-driven sales pipeline and CRM automation tool. Acme AutoSell is related to
+Project Gamma.
+
+---
+TOPICS
+---
+
+Cloud Infrastructure is a topic related to Project Alpha and the Acme Engineering Summit.
+API Integration is a topic related to Project Beta and the product Acme DataBridge.
+Sales Automation is a topic related to Project Gamma and the product Acme AutoSell.
+
+---
+COMPANY STRUCTURE SUMMARY
+---
+
+Acme Corporation employs Sarah Chen, Marcus Rivera, Priya Patel, James Okafor, and
+Linda Torres. The Engineering department is part of Acme Corporation. The Product
+Management department is part of Acme Corporation. The Sales department is part of
+Acme Corporation. Acme Corporation is based in Austin, Texas, and also has locations
+in San Francisco and London.

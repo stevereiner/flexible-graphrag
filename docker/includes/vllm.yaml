@@ -1,0 +1,70 @@
+# vLLM OpenAI-compatible inference server
+#
+# Exposes an OpenAI-compatible API at http://localhost:8002/v1
+# (port 8002 on host -> 8000 inside container; 8000 is used by the flexible-graphrag backend,
+#  8001 is used by Chroma)
+#
+# Requires:
+#   - NVIDIA GPU (CUDA 12.1+ / driver >= 525)
+#   - Docker Desktop with WSL2 backend (Windows) or Docker Engine (Linux)
+#   - NVIDIA Container Toolkit (bundled with recent Docker Desktop on Windows/Linux)
+#
+# Model is downloaded from HuggingFace on first start and cached in vllm_model_cache volume.
+# Set HF_TOKEN in .env for gated models (Llama, Mistral, etc.).
+#
+# Recommended models (no HF token required):
+#   Qwen/Qwen2.5-7B-Instruct    ~15GB VRAM  good general purpose
+#   Qwen/Qwen2.5-14B-Instruct   ~28GB VRAM  higher quality
+#   Qwen/Qwen2.5-32B-Instruct   ~65GB VRAM  best quality, fits RTX 5090 (32GB)
+#   microsoft/Phi-4              ~10GB VRAM  fast, strong reasoning
+#
+# Usage:
+#   docker compose -p flexible-graphrag -f docker/includes/vllm.yaml up -d
+#   (or uncomment includes/vllm.yaml in docker/docker-compose.yaml)
+#
+# Then configure .env — see the vLLM section in env-sample.txt for the full setup.
+# Container defaults can be overridden via these .env vars:
+#   VLLM_MODEL         HuggingFace model ID        (default: Qwen/Qwen2.5-7B-Instruct)
+#   VLLM_MAX_MODEL_LEN max context length in tokens (default: 8192)
+#   VLLM_GPU_UTIL      fraction of GPU VRAM to use  (default: 0.90)
+#   VLLM_DTYPE         weight dtype auto/float16/bfloat16 (default: auto)
+#   VLLM_MAX_NUM_SEQS  max concurrent sequences     (default: 16)
+#   HF_TOKEN           HuggingFace token (gated models only)
+
+services:
+  vllm:
+    image: vllm/vllm-openai:latest
+    container_name: flexible-graphrag-vllm
+    ports:
+      - "8002:8000"
+    volumes:
+      - vllm_model_cache:/root/.cache/huggingface
+    environment:
+      # HuggingFace token - required for gated models (Llama, Mistral, etc.)
+      - HF_TOKEN=${HF_TOKEN:-}
+      # Override model via env var: HF_HOME is the cache dir inside the container
+      - HF_HOME=/root/.cache/huggingface
+    command: >
+      --model ${VLLM_MODEL:-Qwen/Qwen2.5-7B-Instruct}
+      --max-model-len ${VLLM_MAX_MODEL_LEN:-8192}
+      --gpu-memory-utilization ${VLLM_GPU_UTIL:-0.90}
+      --dtype ${VLLM_DTYPE:-auto}
+      --max-num-seqs ${VLLM_MAX_NUM_SEQS:-16}
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    ipc: host
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 120s
+
+volumes:
+  vllm_model_cache:

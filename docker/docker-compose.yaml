@@ -4,6 +4,14 @@
 # by external flexible-graphrag for development and 
 # for deployment of flexible-graphrag along with databases in docker
 
+# IMPORTANT: Before starting, ensure Docker has adequate memory allocated.
+# The full stack requires 16GB+ in the Docker VM; with vLLM add ~8GB on top of model VRAM needs.
+# See docs/DOCKER-RESOURCE-CONFIGURATION.md for platform-specific setup:
+#   Windows:              create C:\Users\<you>\.wslconfig with memory= (see doc for sizing guide)
+#   macOS:                Docker Desktop -> Settings -> Resources -> Memory
+#   Linux Docker Desktop: Docker Desktop -> Settings -> Resources -> Memory
+#   Linux Docker Engine:  native, no VM limits — see doc for cgroup, swap, vm.max_map_count, NVIDIA toolkit
+
 # Docker Compose v2 doesn't require version field
 
 # Include or comment out (if have externally or don't need) services
@@ -32,6 +40,12 @@ include:
    # backend and ui clients, but using databases in docker
    #- includes/app-stack.yaml       # backend and ui clients
    #- includes/proxy.yaml           # proxy for backend and ui clients
+
+   #- includes/jena-fuseki.yaml      # Jena Fuseki server
+   #- includes/ontotext-graphdb.yaml   # Ontotext GraphDB server
+   #- includes/oxigraph.yaml   # Oxigraph server
+
+   #- includes/vllm.yaml              # vLLM inference server (OpenAI-compatible, port 8000) - requires NVIDIA GPU
 
 # Volumes are defined in individual include files
 

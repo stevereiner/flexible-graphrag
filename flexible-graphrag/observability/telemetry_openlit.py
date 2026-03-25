@@ -86,7 +86,7 @@ def setup_observability_openlit(
             # disable_tracing=False,
         )
         
-        logger.info("✅ OpenLIT instrumentation enabled")
+        logger.info("OpenLIT instrumentation enabled")
         logger.info("   - LlamaIndex auto-instrumented")
         logger.info("   - Token metrics enabled (gen_ai_usage_*_tokens_total)")
         logger.info("   - Cost tracking enabled (gen_ai_total_cost)")
@@ -100,7 +100,7 @@ def setup_observability_openlit(
         except Exception as e:
             logger.warning(f"Failed to initialize custom RAG metrics: {e}")
         
-        logger.info("🎉 OpenLIT observability setup complete!")
+        logger.info("OpenLIT observability setup complete!")
         logger.info("   Next: Import pre-built Grafana dashboard from:")
         logger.info("   https://docs.openlit.io/latest/sdk/destinations/prometheus-jaeger#3-import-the-pre-built-dashboard")
         
@@ -148,7 +148,7 @@ if __name__ == "__main__":
     )
     
     if success:
-        print("\n✅ OpenLIT is ready!")
+        print("\n[OK] OpenLIT is ready!")
         print("\nDashboard info:")
         info = get_openlit_dashboard_info()
         print(f"  Dashboard: {info['dashboard_url']}")
@@ -159,5 +159,5 @@ if __name__ == "__main__":
         for name, query in info['grafana_queries'].items():
             print(f"  {name}: {query}")
     else:
-        print("\n❌ OpenLIT setup failed")
+        print("\n[FAIL] OpenLIT setup failed")
 

@@ -13,6 +13,9 @@
 docker/docker.env
 docker/neptune.env
 
+# GraphDB license directory — contains private license file, never commit
+docker/ontotext-graphdb/
+
 # Python
 __pycache__/
 *.py[cod]

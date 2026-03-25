@@ -17,8 +17,13 @@ else:
 
 try:
     import nest_asyncio
-    nest_asyncio.apply()
-    
+    # nest_asyncio patches loop.run_until_complete() in a way that breaks
+    # asyncio.Runner.close() → shutdown_default_executor() on Python 3.14+
+    # (asyncio.timeout() inside shutdown_default_executor requires a Task, but
+    # the patched run_until_complete runs it outside one).  Only apply on < 3.14.
+    if sys.version_info < (3, 14):
+        nest_asyncio.apply()
+
     # Ensure we have a proper event loop for Docker containers
     try:
         loop = asyncio.get_running_loop()
@@ -1515,8 +1520,22 @@ class FlexibleGraphRAGBackend:
         except Exception as e:
             end_time = datetime.now()
             duration = (end_time - start_time).total_seconds()
-            logger.error(f"Search query failed after {duration:.3f}s: {str(e)}")
-            return {"success": False, "error": str(e), "query_time": f"{duration:.3f}s"}
+            error_msg = str(e)
+            # Return empty results (not a red error) when the system is simply not yet
+            # populated — same behaviour as when a vector/search DB returns no hits.
+            _not_ready_phrases = (
+                "no search indexes available",
+                "please ingest documents first",
+                "system not initialized",
+                "rdf graph retriever could not be initialised",
+                "databases may be empty",
+            )
+            if any(p in error_msg.lower() for p in _not_ready_phrases):
+                logger.warning(f"Search attempted before ingestion: {error_msg}")
+                return {"success": True, "results": [], "query_time": f"{duration:.3f}s",
+                        "message": "No documents have been indexed yet. Please ingest documents first."}
+            logger.error(f"Search query failed after {duration:.3f}s: {error_msg}")
+            return {"success": False, "error": error_msg, "query_time": f"{duration:.3f}s"}
     
     async def qa_query(self, query: str) -> Dict[str, Any]:
         """Answer a question using the Q&A system"""
@@ -1538,19 +1557,27 @@ class FlexibleGraphRAGBackend:
                 response = await query_engine.aquery(query)
             except Exception as e:
                 error_msg = str(e)
-                # Handle index/collection not found errors gracefully
-                if ('index_not_found_exception' in error_msg or 
-                    'no such index' in error_msg or 
+                # Handle index/collection not found errors and not-yet-ingested state gracefully
+                _not_ready = (
+                    'index_not_found_exception' in error_msg or
+                    'no such index' in error_msg or
                     "doesn't exist" in error_msg or
                     'Not found' in error_msg or
                     'could not find class' in error_msg or  # Weaviate collection not found
-                    'NotFoundError' in str(type(e))):
-                    logger.warning(f"Collection/Index not found during Q&A query: {error_msg}")
+                    'NotFoundError' in str(type(e)) or
+                    'no search indexes available' in error_msg.lower() or
+                    'please ingest documents first' in error_msg.lower() or
+                    'system not initialized' in error_msg.lower() or
+                    'rdf graph retriever could not be initialised' in error_msg.lower() or
+                    'databases may be empty' in error_msg.lower()
+                )
+                if _not_ready:
+                    logger.warning(f"Q&A attempted before ingestion or index not found: {error_msg}")
                     end_time = datetime.now()
                     duration = (end_time - start_time).total_seconds()
                     return {
                         "success": True,  # Don't show as error in UI
-                        "answer": "No documents have been indexed yet.",
+                        "answer": "No documents have been indexed yet. Please ingest documents first.",
                         "query_time": f"{duration:.3f}s",
                         "sources": []
                     }
@@ -1597,8 +1624,24 @@ class FlexibleGraphRAGBackend:
         except Exception as e:
             end_time = datetime.now()
             duration = (end_time - start_time).total_seconds()
-            logger.error(f"Q&A query failed after {duration:.3f}s: {str(e)}")
-            return {"success": False, "error": str(e), "query_time": f"{duration:.3f}s"}
+            error_msg = str(e)
+            _not_ready_phrases = (
+                "no search indexes available",
+                "please ingest documents first",
+                "system not initialized",
+                "rdf graph retriever could not be initialised",
+                "databases may be empty",
+            )
+            if any(p in error_msg.lower() for p in _not_ready_phrases):
+                logger.warning(f"Q&A attempted before ingestion: {error_msg}")
+                return {
+                    "success": True,
+                    "answer": "No documents have been indexed yet. Please ingest documents first.",
+                    "query_time": f"{duration:.3f}s",
+                    "sources": []
+                }
+            logger.error(f"Q&A query failed after {duration:.3f}s: {error_msg}")
+            return {"success": False, "error": error_msg, "query_time": f"{duration:.3f}s"}
     
     async def query_documents(self, query: str, top_k: int = 10) -> Dict[str, Any]:
         """Query documents with AI-generated answers"""

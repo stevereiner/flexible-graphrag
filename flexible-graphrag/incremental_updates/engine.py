@@ -92,6 +92,13 @@ class IncrementalUpdateEngine:
         if graph_index is not None:
             self._delete_from_graph_helper(doc_id, graph_index)
             logger.info(f"  Deleted from graph index")
+
+        # Delete from RDF stores (when ingestion_storage_mode is 'rdf_only' or 'both')
+        if self.hybrid_system is not None:
+            try:
+                self.hybrid_system._delete_from_rdf_stores(doc_id)
+            except Exception as e:
+                logger.warning(f"  RDF store delete error for doc '{doc_id}': {e}")
     
     async def _insert_to_all_indexes(self, llama_doc, doc_id: str, metadata: FileMetadata, datasource_config=None):
         """
@@ -382,7 +389,14 @@ class IncrementalUpdateEngine:
                 logger.info(f"  Deleted from graph index")
             except Exception as e:
                 logger.warning(f"  Graph delete failed: {e}")
-    
+
+        # Delete from RDF stores (when ingestion_storage_mode is 'rdf_only' or 'both')
+        if self.hybrid_system is not None:
+            try:
+                self.hybrid_system._delete_from_rdf_stores(doc_id)
+            except Exception as e:
+                logger.warning(f"  RDF store delete error for doc '{doc_id}': {e}")
+
     def _delete_from_graph_helper(self, doc_id: str, graph_index, context: str = "") -> None:
         """
         Helper method to delete all graph nodes associated with a document.

@@ -1,0 +1,222 @@
+@prefix common: <https://integratedsemantics.org/flexible-graphrag/common#> .
+@prefix rdf:    <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs:   <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix owl:    <http://www.w3.org/2002/07/owl#> .
+@prefix xsd:    <http://www.w3.org/2001/XMLSchema#> .
+
+# =============================================================
+# common_ontology.ttl — Generic world concepts
+#
+# Covers entities and relations that appear in almost any
+# real-world document: people, places, locations, events,
+# organisations, products, topics, dates, and addresses.
+#
+# Designed to be loaded alongside a domain-specific ontology
+# (e.g. company_classes.ttl + company_properties.ttl).
+# Domain classes can be linked via rdfs:subClassOf — for example:
+#   company:Employee rdfs:subClassOf common:Person .
+# =============================================================
+
+# ─────────────────────────────────────────────
+# CLASSES
+# ─────────────────────────────────────────────
+
+common:Person a owl:Class ;
+    rdfs:label "Person" ;
+    rdfs:comment "A human individual. Use domain-specific subclasses (Employee, Customer, etc.) where a more precise type is known." .
+
+common:Organization a owl:Class ;
+    rdfs:label "Organization" ;
+    rdfs:comment "Any group acting as a collective entity: company, government body, NGO, team, etc." .
+
+common:Place a owl:Class ;
+    rdfs:label "Place" ;
+    rdfs:comment "A named geographic or physical place (country, city, region, landmark, building)." .
+
+common:Location a owl:Class ;
+    rdfs:label "Location" ;
+    rdfs:comment "A specific, often addressable location — an office, venue, or point of interest. More precise than Place." .
+
+common:Event a owl:Class ;
+    rdfs:label "Event" ;
+    rdfs:comment "A happening with a time and (optionally) a place: conference, meeting, product launch, incident, etc." .
+
+common:Product a owl:Class ;
+    rdfs:label "Product" ;
+    rdfs:comment "A good or service offered by an organization." .
+
+common:Topic a owl:Class ;
+    rdfs:label "Topic" ;
+    rdfs:comment "An abstract subject, domain, or area of interest referenced in a document." .
+
+common:Address a owl:Class ;
+    rdfs:label "Address" ;
+    rdfs:comment "A structured postal or electronic address." .
+
+common:Document a owl:Class ;
+    rdfs:label "Document" ;
+    rdfs:comment "Any written artefact: report, contract, article, email, etc." .
+
+common:Date a owl:Class ;
+    rdfs:label "Date" ;
+    rdfs:comment "A calendar date or date range referenced in context (e.g. fiscal year, project milestone)." .
+
+# ─────────────────────────────────────────────
+# OBJECT PROPERTIES
+# ─────────────────────────────────────────────
+
+common:located_in a owl:ObjectProperty ;
+    rdfs:domain common:Location ;
+    rdfs:range  common:Place ;
+    rdfs:label "located in" ;
+    rdfs:comment "The place (city, region, country) that contains a location." .
+
+common:has_location a owl:ObjectProperty ;
+    rdfs:domain owl:Thing ;
+    rdfs:range  common:Location ;
+    rdfs:label "has location" ;
+    rdfs:comment "Links any entity (person, organization, event) to a location." .
+
+common:based_in a owl:ObjectProperty ;
+    rdfs:domain common:Organization ;
+    rdfs:range  common:Place ;
+    rdfs:label "based in" ;
+    rdfs:comment "The primary geographic base of an organization." .
+
+common:attended_by a owl:ObjectProperty ;
+    rdfs:domain common:Event ;
+    rdfs:range  common:Person ;
+    rdfs:label "attended by" ;
+    rdfs:comment "A person who attended or participated in an event." .
+
+common:hosted_by a owl:ObjectProperty ;
+    rdfs:domain common:Event ;
+    rdfs:range  common:Organization ;
+    rdfs:label "hosted by" ;
+    rdfs:comment "The organization responsible for hosting an event." .
+
+common:held_at a owl:ObjectProperty ;
+    rdfs:domain common:Event ;
+    rdfs:range  common:Location ;
+    rdfs:label "held at" ;
+    rdfs:comment "The location where an event takes place." .
+
+common:produced_by a owl:ObjectProperty ;
+    rdfs:domain common:Product ;
+    rdfs:range  common:Organization ;
+    rdfs:label "produced by" ;
+    rdfs:comment "The organization that produces or offers a product." .
+
+common:affiliated_with a owl:ObjectProperty ;
+    rdfs:domain common:Person ;
+    rdfs:range  common:Organization ;
+    rdfs:label "affiliated with" ;
+    rdfs:comment "An organizational affiliation of a person." .
+
+common:related_to a owl:ObjectProperty ;
+    rdfs:domain owl:Thing ;
+    rdfs:range  owl:Thing ;
+    rdfs:label "related to" ;
+    rdfs:comment "A generic association between any two entities when a more specific relation is unknown." .
+
+common:references a owl:ObjectProperty ;
+    rdfs:domain common:Document ;
+    rdfs:range  owl:Thing ;
+    rdfs:label "references" ;
+    rdfs:comment "An entity or concept referenced within a document." .
+
+common:has_address a owl:ObjectProperty ;
+    rdfs:domain owl:Thing ;
+    rdfs:range  common:Address ;
+    rdfs:label "has address" ;
+    rdfs:comment "A postal or electronic address associated with an entity." .
+
+# ─────────────────────────────────────────────
+# DATATYPE PROPERTIES
+# ─────────────────────────────────────────────
+
+common:name a owl:DatatypeProperty ;
+    rdfs:domain owl:Thing ;
+    rdfs:range  xsd:string ;
+    rdfs:label "name" ;
+    rdfs:comment "A human-readable name for any entity." .
+
+common:description a owl:DatatypeProperty ;
+    rdfs:domain owl:Thing ;
+    rdfs:range  xsd:string ;
+    rdfs:label "description" ;
+    rdfs:comment "A free-text description or summary." .
+
+common:start_date a owl:DatatypeProperty ;
+    rdfs:domain common:Event ;
+    rdfs:range  xsd:dateTime ;
+    rdfs:label "start date" ;
+    rdfs:comment "When an event starts." .
+
+common:end_date a owl:DatatypeProperty ;
+    rdfs:domain common:Event ;
+    rdfs:range  xsd:dateTime ;
+    rdfs:label "end date" ;
+    rdfs:comment "When an event ends." .
+
+common:date_of_birth a owl:DatatypeProperty ;
+    rdfs:domain common:Person ;
+    rdfs:range  xsd:date ;
+    rdfs:label "date of birth" ;
+    rdfs:comment "A person's date of birth." .
+
+common:email a owl:DatatypeProperty ;
+    rdfs:domain owl:Thing ;
+    rdfs:range  xsd:string ;
+    rdfs:label "email" ;
+    rdfs:comment "An email address." .
+
+common:phone a owl:DatatypeProperty ;
+    rdfs:domain owl:Thing ;
+    rdfs:range  xsd:string ;
+    rdfs:label "phone" ;
+    rdfs:comment "A telephone number." .
+
+common:url a owl:DatatypeProperty ;
+    rdfs:domain owl:Thing ;
+    rdfs:range  xsd:anyURI ;
+    rdfs:label "url" ;
+    rdfs:comment "A web URL associated with an entity." .
+
+common:latitude a owl:DatatypeProperty ;
+    rdfs:domain common:Location ;
+    rdfs:range  xsd:decimal ;
+    rdfs:label "latitude" ;
+    rdfs:comment "WGS84 latitude in decimal degrees." .
+
+common:longitude a owl:DatatypeProperty ;
+    rdfs:domain common:Location ;
+    rdfs:range  xsd:decimal ;
+    rdfs:label "longitude" ;
+    rdfs:comment "WGS84 longitude in decimal degrees." .
+
+common:street_address a owl:DatatypeProperty ;
+    rdfs:domain common:Address ;
+    rdfs:range  xsd:string ;
+    rdfs:label "street address" .
+
+common:city a owl:DatatypeProperty ;
+    rdfs:domain common:Address ;
+    rdfs:range  xsd:string ;
+    rdfs:label "city" .
+
+common:country a owl:DatatypeProperty ;
+    rdfs:domain common:Address ;
+    rdfs:range  xsd:string ;
+    rdfs:label "country" .
+
+common:postal_code a owl:DatatypeProperty ;
+    rdfs:domain common:Address ;
+    rdfs:range  xsd:string ;
+    rdfs:label "postal code" .
+
+common:capacity a owl:DatatypeProperty ;
+    rdfs:domain common:Location ;
+    rdfs:range  xsd:integer ;
+    rdfs:label "capacity" ;
+    rdfs:comment "Maximum occupancy of a location." .

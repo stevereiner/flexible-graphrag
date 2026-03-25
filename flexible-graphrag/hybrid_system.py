@@ -7,7 +7,7 @@ from llama_index.core.extractors import KeywordExtractor, SummaryExtractor
 from llama_index.core.indices.property_graph import SchemaLLMPathExtractor, SimpleLLMPathExtractor, DynamicLLMPathExtractor
 from llama_index.core.graph_stores.types import KG_NODES_KEY, KG_RELATIONS_KEY
 from llama_index.core.schema import BaseNode
-from typing import List, Dict, Any, Union
+from typing import List, Dict, Any, Union, Literal
 from pathlib import Path
 import logging
 import asyncio
@@ -182,7 +182,37 @@ class SchemaManager:
     def __init__(self, schema_config: Dict[str, Any] = None, app_config=None):
         self.schema_config = schema_config or {}
         self.app_config = app_config
+        self._ontology_manager = None
+        self._ontology_loaded = False
     
+    def _get_ontology_manager(self):
+        """Lazy-load ontology manager from RDF system if available"""
+        if not self._ontology_loaded:
+            self._ontology_loaded = True  # Only try once
+            try:
+                from rdf.api_rdf_enhancements import ontology_manager
+                if ontology_manager:
+                    self._ontology_manager = ontology_manager
+                    logger.info(f"SchemaManager: Found ontology with {len(ontology_manager.entities)} entities, {len(ontology_manager.relations)} relations")
+            except (ImportError, AttributeError) as e:
+                logger.debug(f"SchemaManager: No ontology manager available: {e}")
+        return self._ontology_manager
+
+    @property
+    def ontology_manager(self):
+        """Public property for accessing the ontology manager."""
+        return self._get_ontology_manager()
+    
+    @staticmethod
+    def _to_literal(values: List[str]):
+        """Convert a list of strings to a Literal type for SchemaLLMPathExtractor.
+        
+        LlamaIndex's get_entity_class/get_relation_class use the type annotation directly
+        in Pydantic's create_model. When strict=True it must be a Literal type, not a plain
+        list, otherwise Pydantic raises PydanticSchemaGenerationError.
+        """
+        return Literal[tuple(values)]  # type: ignore[valid-type]
+
     def create_extractor(self, llm, llm_provider=None, extractor_type: str = "schema"):
         """Create knowledge graph extractor with optional schema enforcement
         
@@ -191,6 +221,11 @@ class SchemaManager:
             llm_provider: The LLM provider enum (for provider-specific handling)
             extractor_type: "simple", "schema", or "dynamic"
         """
+        
+        # Check if ontology is available
+        ontology_manager = self._get_ontology_manager()
+        use_ontology = ontology_manager and hasattr(self.app_config, 'use_ontology') and self.app_config.use_ontology
+        disable_properties_global = self.app_config.disable_properties if (self.app_config and hasattr(self.app_config, 'disable_properties')) else False
         
         # Use 4 workers for all LLM providers - Ollama parallel processing now properly configured
         workers = 4
@@ -202,15 +237,56 @@ class SchemaManager:
         if is_ollama:
             logger.info(f"OLLAMA PARALLEL PROCESSING: Using {workers} workers with OLLAMA_NUM_PARALLEL=4 configuration")
         
-        # CRITICAL: Bedrock, Groq, and Fireworks have SchemaLLMPathExtractor LlamaIndex issue
-        # Switch to DynamicLLMPathExtractor if SchemaLLMPathExtractor for these providers
-        problematic_providers = ["bedrock", "groq", "fireworks"]
+        # NOTE: Bedrock requires DynamicLLMPathExtractor — BedrockConverse's Converse API
+        # raises a ValidationException when SchemaLLMPathExtractor sends its tool schema
+        # (toolConfig.toolChoice.any not supported, or invalid ToolUse sequence).
+        # TODO: Retest Bedrock once LlamaIndex updates BedrockConverse tool schema generation.
+        #
+        # Fireworks: SchemaLLMPathExtractor previously threw code exceptions and Dynamic gave 0
+        #   entities. Root cause was max_tokens=256 (default) — fixed in factories.py (32768).
+        #   SchemaLLMPathExtractor uses achat_with_tools (function calling) which Fireworks
+        #   supports — retesting with function mode now that max_tokens is correct.
+        #   DynamicLLMPathExtractor uses apredict() (plain text); _custom_is_function_calling
+        #   is set False on extractor LLM so achat() returns text not tool calls.
+        #
+        # Groq: DynamicLLMPathExtractor now working (fixed context_window + max_tokens in
+        #   factories.py, 2026-03-17). SchemaLLMPathExtractor previously broken due to old
+        #   LlamaIndex astructured_predict injecting tool_choice="required" into llm_kwargs
+        #   which FunctionCallingProgram.acall then stripped. Current LlamaIndex uses
+        #   FunctionCallingProgram directly (pydantic_program_mode=FUNCTION) which does NOT
+        #   inject tool_choice into llm_kwargs — that path is bypassed. Worth retesting.
+        #   For now keeping both in switch_to_dynamic_providers as DynamicLLMPathExtractor
+        #   is confirmed working. To try SchemaLLMPathExtractor: set KG_EXTRACTOR_TYPE=schema
+        #   and remove groq/fireworks from switch_to_dynamic_providers below.
+        #
+        # openai_like: SchemaLLMPathExtractor returns 0 entities (same tool_choice conflict
+        #   as Groq — OpenAILike class is used for both). DynamicLLMPathExtractor works once
+        #   is_function_calling_model is reset to False in _make_dynamic_extractor (apredict
+        #   must use plain text, not tool calls). Context window defaults to 4096 in factories.py
+        #   — set OPENAI_LIKE_CONTEXT_WINDOW in .env for local servers with larger windows.
+        #
+        # openrouter: OpenRouter extends OpenAILike with is_function_calling_model=False by default.
+        #   SchemaLLMPathExtractor returns 0 entities instantly even with valid credits — genuine
+        #   tool-calling incompatibility (same pattern as openai_like/groq). Switch to Dynamic.
+        switch_to_simple_providers = []
+        switch_to_dynamic_providers = ["bedrock", "fireworks", "groq", "openai_like", "openrouter"]
+
+        # LiteLLM routing to Ollama models: SchemaLLMPathExtractor returns 0 entities
+        # (same tool_choice conflict as direct Ollama). Switch to Dynamic for ollama/* models.
+        if llm_provider and str(llm_provider).lower() == "litellm":
+            litellm_model = getattr(llm, "model", "") or ""
+            if litellm_model.startswith("ollama/"):
+                switch_to_dynamic_providers = switch_to_dynamic_providers + ["litellm"]
+
         llm_provider_str = str(llm_provider).lower() if llm_provider else None
-        logger.info(f"Checking if provider '{llm_provider_str}' is in problematic list: {problematic_providers}")
-        if llm_provider_str in problematic_providers:
+        logger.info(f"Checking provider '{llm_provider_str}' for extractor compatibility")
+        if llm_provider_str in switch_to_simple_providers:
+            if extractor_type in ("schema", "dynamic"):
+                logger.warning(f"Provider {llm_provider}: SchemaLLMPathExtractor and DynamicLLMPathExtractor both broken — forcing SimpleLLMPathExtractor")
+                extractor_type = "simple"
+        elif llm_provider_str in switch_to_dynamic_providers:
             if extractor_type == "schema":
-                logger.warning(f"Provider {llm_provider} has SchemaLLMPathExtractor LlamaIndex issue ")
-                logger.warning(f"Switching to DynamicLLMPathExtractor for reliable extraction")
+                logger.warning(f"Provider {llm_provider}: SchemaLLMPathExtractor incompatible — switching to DynamicLLMPathExtractor")
                 extractor_type = "dynamic"
         
         # Get configurable values - environment variable has priority, schema provides defaults
@@ -223,38 +299,185 @@ class SchemaManager:
         
         logger.info(f"Extraction limits: max_triplets_per_chunk={max_triplets}, max_paths_per_chunk={max_paths}")
         
-        # DEBUG: Log the actual extractor_type value
-        logger.info(f"create_extractor called with: extractor_type='{extractor_type}'")
+        def _make_dynamic_extractor(kwargs: dict) -> "DynamicLLMPathExtractor":
+            """
+            Create a DynamicLLMPathExtractor and fix two LlamaIndex bugs:
+
+            Bug 1 (props): __init__ converts None props to [] — causing _aextract to always
+            call _apredict_with_props even when no props were requested, sending an
+            empty-string props prompt that confuses some LLMs.
+            Fix: after construction, reset empty-list props back to None so _aextract
+            takes the _apredict_without_props path (clean JSON prompt, no props section).
+
+            Bug 2 (prompt braces): DEFAULT_DYNAMIC_EXTRACT_PROMPT contains {{...}} escaped
+            braces in its GUIDELINES/EXAMPLE sections. LlamaIndex's SafeFormatter uses
+            regex substitution (not str.format) so it never collapses {{ -> {.
+            The model receives literal {{head}} instead of {head} in JSON examples,
+            causing it to return malformed output or empty string.
+            Fix: replace {{ and }} in the template with single braces before use.
+            """
+            from llama_index.core.prompts import PromptTemplate as _PromptTemplate
+            extractor = DynamicLLMPathExtractor(**kwargs)
+            has_entity_props = bool(kwargs.get("allowed_entity_props"))
+            has_relation_props = bool(kwargs.get("allowed_relation_props"))
+            if not has_entity_props:
+                extractor.allowed_entity_props = None
+            if not has_relation_props:
+                extractor.allowed_relation_props = None
+            # Fix prompt double-brace escaping bug
+            if hasattr(extractor, 'extract_prompt') and extractor.extract_prompt is not None:
+                raw = extractor.extract_prompt.template
+                if '{{' in raw or '}}' in raw:
+                    fixed = raw.replace('{{', '{').replace('}}', '}')
+                    extractor.extract_prompt = _PromptTemplate(fixed)
+                    logger.info("DynamicLLMPathExtractor: fixed double-brace escaping in extract_prompt")
+
+            # Fix: DynamicLLMPathExtractor uses llm.apredict() (plain text completion),
+            # NOT tool/function calling. If function calling is enabled, achat() returns a
+            # tool_call response with content=None, which apredict() collapses to ''.
+            # Force function calling off on the extractor's LLM instance so achat()
+            # returns plain text. The LLM object in factories.py is unaffected.
+            #
+            # Two attribute patterns depending on LLM class:
+            #   _custom_is_function_calling — Fireworks (OpenAI-derived, set via is_function_calling kwarg)
+            #   is_function_calling_model   — Groq/OpenAILike (plain Pydantic field, default False,
+            #                                 but set True in factories.py for Groq and openai_like)
+            #
+            # Scoped to switch_to_dynamic_providers only (bedrock, fireworks, groq, openai_like).
+            # Confirmed safe: OpenAI, Anthropic, Ollama, Gemini — none have these attrs set True.
+            if llm_provider_str in switch_to_dynamic_providers and hasattr(extractor, 'llm'):
+                llm = extractor.llm
+                if hasattr(llm, '_custom_is_function_calling') and llm._custom_is_function_calling:
+                    llm._custom_is_function_calling = False
+                    logger.info("DynamicLLMPathExtractor: set llm._custom_is_function_calling=False (apredict uses plain text, not tool calls)")
+                elif hasattr(llm, 'is_function_calling_model') and llm.is_function_calling_model:
+                    llm.is_function_calling_model = False
+                    logger.info("DynamicLLMPathExtractor: set llm.is_function_calling_model=False (apredict uses plain text, not tool calls)")
+            props_info = f"entity_props={'yes' if has_entity_props else 'no'}, relation_props={'yes' if has_relation_props else 'no'}"
+            logger.info(f"DynamicLLMPathExtractor created: {props_info}, disable_properties_global={disable_properties_global}")
+
+            return extractor
         
         # Handle dynamic extractor type
         if extractor_type == "dynamic":
             logger.info("Using DynamicLLMPathExtractor for flexible relationship discovery")
-            # DynamicLLMPathExtractor can work with or without initial schema guidance
-            if self.schema_config:
-                logger.info("Providing initial ontology guidance to DynamicLLMPathExtractor")
+            
+            # Check for ontology guidance first, then fall back to schema_config
+            if use_ontology:
+                entities = list(ontology_manager.entities.keys())
+                relations = list(ontology_manager.relations.keys())
+                
+                # Extract entity properties from ontology
+                # Format: [(property_name, property_type), ...] - properties are global
+                entity_props = []
+                seen_props = set()
+                for entity_name, entity in ontology_manager.entities.items():
+                    if entity.properties:
+                        for prop_name, prop_type in entity.properties.items():
+                            prop_key = (prop_name, prop_type)
+                            if prop_key not in seen_props:
+                                entity_props.append(prop_key)
+                                seen_props.add(prop_key)
+                
+                # Extract relation properties from ontology
+                relation_props = []
+                seen_rel_props = set()
+                for relation_name, relation in ontology_manager.relations.items():
+                    if relation.properties:
+                        for prop_name, prop_type in relation.properties.items():
+                            prop_key = (prop_name, prop_type)
+                            if prop_key not in seen_rel_props:
+                                relation_props.append(prop_key)
+                                seen_rel_props.add(prop_key)
+                
+                logger.info(f"Using ontology guidance: {len(entities)} entity types, {len(relations)} relation types from ontology")
+                if entity_props:
+                    logger.info(f"Using ontology properties: {len(entity_props)} unique entity properties defined")
+                if relation_props:
+                    logger.info(f"Using ontology properties: {len(relation_props)} unique relation properties defined")
+                
+                extractor_kwargs = {
+                    "llm": llm,
+                    "max_triplets_per_chunk": max_triplets,
+                    "num_workers": workers,
+                    "allowed_entity_types": entities,
+                    "allowed_relation_types": relations
+                }
+                
+                # Add entity properties if available
+                # DynamicLLMPathExtractor._apredict_with_props does ", ".join(...) on these —
+                # tuples cause TypeError. Convert to "name (type)" strings.
+                if entity_props and not disable_properties_global:
+                    extractor_kwargs["allowed_entity_props"] = [f"{n} ({t})" for n, t in entity_props]
+                
+                # Add relation properties if available
+                if relation_props and not disable_properties_global:
+                    extractor_kwargs["allowed_relation_props"] = [f"{n} ({t})" for n, t in relation_props]
+                
+                return _make_dynamic_extractor(extractor_kwargs)
+            elif self.schema_config:
+                logger.info("Providing schema guidance to DynamicLLMPathExtractor")
                 
                 # Extract entity and relation types from schema
                 entities = self.schema_config.get("entities", [])
                 relations = self.schema_config.get("relations", [])
+                properties_dict = self.schema_config.get("properties", {})
+                relation_properties_dict = self.schema_config.get("relation_properties", {})
                 
-                logger.info(f"Dynamic extractor with {len(entities)} entity types, {len(relations)} relation types")
+                # Extract entity properties (deduplicated)
+                entity_props = []
+                seen_props = set()
+                for entity_name, props in properties_dict.items():
+                    for prop_name, prop_type in props.items():
+                        prop_key = (prop_name, prop_type)
+                        if prop_key not in seen_props:
+                            entity_props.append(prop_key)
+                            seen_props.add(prop_key)
                 
-                # With initial ontology - provide starting guidance but allow expansion
-                return DynamicLLMPathExtractor(
-                    llm=llm,
-                    max_triplets_per_chunk=max_triplets,
-                    num_workers=workers,
-                    allowed_entity_types=entities,
-                    allowed_relation_types=relations
-                )
+                # Extract relation properties (deduplicated)
+                relation_props = []
+                seen_rel_props = set()
+                for relation_name, props in relation_properties_dict.items():
+                    for prop_name, prop_type in props.items():
+                        prop_key = (prop_name, prop_type)
+                        if prop_key not in seen_rel_props:
+                            relation_props.append(prop_key)
+                            seen_rel_props.add(prop_key)
+                
+                logger.info(f"Dynamic extractor with {len(entities)} entity types, {len(relations)} relation types from schema")
+                if entity_props:
+                    logger.info(f"Using schema properties: {len(entity_props)} unique entity properties defined")
+                if relation_props:
+                    logger.info(f"Using schema properties: {len(relation_props)} unique relation properties defined")
+                
+                # With initial schema - provide starting guidance but allow expansion
+                extractor_kwargs = {
+                    "llm": llm,
+                    "max_triplets_per_chunk": max_triplets,
+                    "num_workers": workers,
+                    "allowed_entity_types": entities,
+                    "allowed_relation_types": relations
+                }
+                
+                # Add entity properties if available
+                # DynamicLLMPathExtractor._apredict_with_props does ", ".join(...) on these —
+                # tuples cause TypeError. Convert to "name (type)" strings.
+                if entity_props and not disable_properties_global:
+                    extractor_kwargs["allowed_entity_props"] = [f"{n} ({t})" for n, t in entity_props]
+                
+                # Add relation properties if available
+                if relation_props and not disable_properties_global:
+                    extractor_kwargs["allowed_relation_props"] = [f"{n} ({t})" for n, t in relation_props]
+                
+                return _make_dynamic_extractor(extractor_kwargs)
             else:
-                logger.info("Using DynamicLLMPathExtractor without initial ontology - full LLM freedom")
-                # Without initial ontology - complete freedom to infer schema
-                return DynamicLLMPathExtractor(
-                    llm=llm,
-                    max_triplets_per_chunk=max_triplets,
-                    num_workers=workers
-                )
+                logger.info("Using DynamicLLMPathExtractor without schema or ontology - full LLM freedom")
+                # Without schema or ontology - complete freedom to infer schema
+                return _make_dynamic_extractor({
+                    "llm": llm,
+                    "max_triplets_per_chunk": max_triplets,
+                    "num_workers": workers
+                })
         
         # Handle simple extractor type
         if extractor_type == "simple":
@@ -265,44 +488,135 @@ class SchemaManager:
                 num_workers=workers
             )
         
-        # If we reach here, use SchemaLLMPathExtractor (either with user schema or internal schema)
-        # This handles both extractor_type="schema" and the default case
+        # Default to schema-based extraction (SchemaLLMPathExtractor)
+        logger.info(f"Using SchemaLLMPathExtractor with LLM: {llm.model}")
         
-        # Always use user's configured schema - no special Kuzu schema
-        schema_to_use = self.schema_config
-        if schema_to_use:
-            logger.info("Using user-configured schema for knowledge graph extraction")
-            logger.info(f"Schema entities: {schema_to_use.get('entities', 'None')}")
-            logger.info(f"Schema relations: {schema_to_use.get('relations', 'None')}")
-            validation_schema = schema_to_use.get('validation_schema', 'None')
-            logger.info(f"Schema validation_schema: {validation_schema}")
-            logger.info(f"Schema validation_schema type: {type(validation_schema)}")
-            if isinstance(validation_schema, list) and len(validation_schema) > 0:
-                logger.info(f"First validation rule: {validation_schema[0]}")
+        # strict=True: only extract entity/relation types defined in the schema (Pydantic-enforced)
+        # strict=False: schema guides extraction but LLM may also produce types outside the schema
+        # LlamaIndex requires possible_entities/relations to be a Literal type (not a plain list)
+        # when strict=True. We convert our lists to Literal before passing to the extractor.
+        strict_mode = True
+        if self.app_config and hasattr(self.app_config, 'strict_schema_validation'):
+            strict_mode = self.app_config.strict_schema_validation
+        logger.info(f"SchemaLLMPathExtractor strict={strict_mode} ({'schema-only' if strict_mode else 'schema + open'})")
+
+        disable_properties = False
+        if self.app_config and hasattr(self.app_config, 'disable_properties'):
+            disable_properties = self.app_config.disable_properties
+            if disable_properties:
+                logger.warning("Properties disabled via DISABLE_PROPERTIES config")
+        
+        # Check for ontology guidance first, then fall back to schema_config
+        if use_ontology:
+            entities = list(ontology_manager.entities.keys())
+            relations = list(ontology_manager.relations.keys())
+            
+            # Extract entity properties from ontology
+            # Format: [(property_name, property_type), ...] - properties are global, not entity-specific
+            entity_props = []
+            seen_props = set()  # Track unique properties
+            for entity_name, entity in ontology_manager.entities.items():
+                if entity.properties:
+                    for prop_name, prop_type in entity.properties.items():
+                        prop_key = (prop_name, prop_type)
+                        if prop_key not in seen_props:
+                            entity_props.append(prop_key)
+                            seen_props.add(prop_key)
+            
+            # Extract relation properties from ontology
+            relation_props = []
+            seen_rel_props = set()
+            for relation_name, relation in ontology_manager.relations.items():
+                if relation.properties:
+                    for prop_name, prop_type in relation.properties.items():
+                        prop_key = (prop_name, prop_type)
+                        if prop_key not in seen_rel_props:
+                            relation_props.append(prop_key)
+                            seen_rel_props.add(prop_key)
+            
+            logger.info(f"Using ontology guidance: {len(entities)} entity types, {len(relations)} relation types from ontology")
+            if entity_props and not disable_properties:
+                logger.info(f"Using ontology properties: {len(entity_props)} unique entity properties defined")
+            if relation_props and not disable_properties:
+                logger.info(f"Using ontology properties: {len(relation_props)} unique relation properties defined")
+            
+            extractor_kwargs = {
+                "llm": llm,
+                "possible_entities": self._to_literal(entities) if strict_mode else entities,
+                "possible_relations": self._to_literal(relations) if strict_mode else relations,
+                "strict": strict_mode,
+                "max_triplets_per_chunk": max_triplets,
+                "num_workers": workers
+            }
+            
+            # Add entity properties if available (unless disabled)
+            if entity_props and not disable_properties:
+                extractor_kwargs["possible_entity_props"] = entity_props
+            
+            # Add relation properties if available (unless disabled)
+            if relation_props and not disable_properties:
+                extractor_kwargs["possible_relation_props"] = relation_props
+            
+            return SchemaLLMPathExtractor(**extractor_kwargs)
+        elif self.schema_config:
+            entities = self.schema_config.get("entities", [])
+            relations = self.schema_config.get("relations", [])
+            properties_dict = self.schema_config.get("properties", {})
+            relation_properties_dict = self.schema_config.get("relation_properties", {})
+            
+            # Extract entity properties
+            # Format: [(property_name, property_type), ...] - properties are global, not entity-specific
+            entity_props = []
+            seen_props = set()  # Track unique properties
+            for entity_name, props in properties_dict.items():
+                for prop_name, prop_type in props.items():
+                    prop_key = (prop_name, prop_type)
+                    if prop_key not in seen_props:
+                        entity_props.append(prop_key)
+                        seen_props.add(prop_key)
+            
+            # Extract relation properties
+            relation_props = []
+            seen_rel_props = set()
+            for relation_name, props in relation_properties_dict.items():
+                for prop_name, prop_type in props.items():
+                    prop_key = (prop_name, prop_type)
+                    if prop_key not in seen_rel_props:
+                        relation_props.append(prop_key)
+                        seen_rel_props.add(prop_key)
+            
+            logger.info(f"Using user schema: {len(entities)} entity types, {len(relations)} relation types from schema config")
+            if entity_props and not disable_properties:
+                logger.info(f"Using schema properties: {len(entity_props)} unique entity properties defined")
+            if relation_props and not disable_properties:
+                logger.info(f"Using schema properties: {len(relation_props)} unique relation properties defined")
+            
+            extractor_kwargs = {
+                "llm": llm,
+                "possible_entities": self._to_literal(entities) if strict_mode else entities,
+                "possible_relations": self._to_literal(relations) if strict_mode else relations,
+                "strict": strict_mode,
+                "num_workers": workers,
+                "max_triplets_per_chunk": max_triplets
+            }
+            
+            # Add entity properties if available (unless disabled)
+            if entity_props and not disable_properties:
+                extractor_kwargs["possible_entity_props"] = entity_props
+        
+            # Add relation properties if available (unless disabled)
+            if relation_props and not disable_properties:
+                extractor_kwargs["possible_relation_props"] = relation_props
+        
+            return SchemaLLMPathExtractor(**extractor_kwargs)
         else:
-            logger.info("No user schema configured - SchemaLLMPathExtractor will use its internal schema")
-        
-        # Create schema-guided extractor (with user schema or internal schema)
-        strict_mode = schema_to_use.get("strict", False) if schema_to_use else False
-        logger.info(f"Using SchemaLLMPathExtractor with strict={strict_mode}")
-        
-        if schema_to_use:
+            # No schema or ontology - use default flexible extraction
+            logger.info("No schema or ontology provided - using default flexible extraction")
             return SchemaLLMPathExtractor(
                 llm=llm,
-                possible_entities=schema_to_use.get("entities", []),
-                possible_relations=schema_to_use.get("relations", []),
-                kg_validation_schema=schema_to_use.get("validation_schema"),
-                strict=strict_mode,
-                max_triplets_per_chunk=max_triplets,
-                num_workers=workers
-            )
-        else:
-            # No user schema - let SchemaLLMPathExtractor use its internal schema
-            return SchemaLLMPathExtractor(
-                llm=llm,
-                strict=strict_mode,
-                max_triplets_per_chunk=max_triplets,
-                num_workers=workers
+                strict=False,
+                num_workers=workers,
+                max_triplets_per_chunk=max_triplets
             )
 
 class HybridSearchSystem:
@@ -474,15 +788,19 @@ class HybridSearchSystem:
             else:
                 logger.info(f"Search store creation skipped (handled by factories.py logic)")
         
-        # Validate that at least one search modality is enabled
+        # Validate that at least one search modality is enabled.
+        # USE_LANGCHAIN_RDF=true or USE_LANGCHAIN_PG=true count as valid standalone retrievers.
         has_vector = str(self.config.vector_db) != "none"
-        has_graph = str(self.config.graph_db) != "none" 
+        has_graph = str(self.config.graph_db) != "none"
         has_search = str(self.config.search_db) != "none"
-        
-        if not (has_vector or has_graph or has_search):
+        has_langchain_rdf = getattr(self.config, "use_langchain_rdf", False)
+        has_langchain_pg = getattr(self.config, "use_langchain_pg", False)
+
+        if not (has_vector or has_graph or has_search or has_langchain_rdf or has_langchain_pg):
             raise ValueError(
                 "Invalid configuration: All search modalities are disabled! "
-                "At least one of VECTOR_DB, GRAPH_DB, or SEARCH_DB must be enabled (not 'none'). "
+                "At least one of VECTOR_DB, GRAPH_DB, SEARCH_DB, USE_LANGCHAIN_RDF, or "
+                "USE_LANGCHAIN_PG must be enabled (not 'none'). "
                 f"Current config: VECTOR_DB={self.config.vector_db}, "
                 f"GRAPH_DB={self.config.graph_db}, SEARCH_DB={self.config.search_db}"
             )
@@ -842,7 +1160,7 @@ class HybridSearchSystem:
             active_schema = self.config.get_active_schema()
             has_schema = active_schema is not None
             
-            # Use schema if explicitly configured
+            # Use schema if explicitly configured OR if ontology is available
             if has_schema:
                 kg_extractor = self.schema_manager.create_extractor(
                     self.llm, 
@@ -1251,8 +1569,21 @@ class HybridSearchSystem:
             )
             self.graph_index = await loop.run_in_executor(None, create_graph_index)
         else:
-            # Add to existing graph index
-            self.graph_index.insert_nodes(nodes)
+            # Add to existing graph index.
+            # Temporarily force _use_async=False: on Python 3.14, nest_asyncio is
+            # neutralised, so PropertyGraphIndex._insert_nodes() calling asyncio.run()
+            # from inside a running event loop raises RuntimeError.  The extractors
+            # already ran in the pipeline above (run_in_executor), so we set them
+            # to [] here too to prevent double-extraction.
+            _orig_extractors_it = self.graph_index._kg_extractors
+            _orig_use_async_it = getattr(self.graph_index, '_use_async', False)
+            self.graph_index._kg_extractors = []
+            self.graph_index._use_async = False
+            try:
+                self.graph_index.insert_nodes(nodes)
+            finally:
+                self.graph_index._kg_extractors = _orig_extractors_it
+                self.graph_index._use_async = _orig_use_async_it
         
         # Check for cancellation after graph index creation/update
         if _check_cancellation():
@@ -1296,6 +1627,146 @@ class HybridSearchSystem:
         
         logger.info("Text content ingestion completed successfully!")
     
+    def _create_rdf_graph_retriever(self):
+        """Create LangChain-based RDF graph retriever if configured.
+        
+        Checks configuration for RDF retrieval settings and creates appropriate
+        LangChain graph adapter + retriever wrapper.
+        
+        Returns:
+            TextToGraphQueryRetriever or None if not configured
+        """
+        # Check if RDF retrieval is enabled
+        use_langchain_rdf = getattr(self.config, "use_langchain_rdf", False)
+        rdf_store_type = getattr(self.config, "rdf_store_type", None)
+        
+        if not use_langchain_rdf or not rdf_store_type:
+            logger.debug("RDF graph retrieval not enabled")
+            return None
+        
+        try:
+            from langchain.graph.langchain_retriever_wrapper import TextToGraphQueryRetriever
+            
+            # Create appropriate adapter based on RDF store type
+            if rdf_store_type == "graphdb":
+                from langchain.graph.langchain_adapters.graphdb_langchain_adapter import GraphDBLangChainAdapter
+
+                adapter_config = {
+                    "base_url": getattr(self.config, "graphdb_base_url", "http://localhost:7200"),
+                    "repository": getattr(self.config, "graphdb_repository", "flexible-graphrag"),
+                    "username": getattr(self.config, "graphdb_username", "admin"),
+                    "password": getattr(self.config, "graphdb_password", "admin"),
+                }
+
+                # Resolve ontology file for schema loading — prefer local files over
+                # querying GraphDB (avoids "Missing graph in results" when ontology is
+                # only in a named graph, not the default graph).
+                # Priority: ontology_dir > ontology_paths (first file) > ontology_path
+                ontology_file = None
+                ontology_dir = getattr(self.config, "ontology_dir", None)
+                ontology_paths = getattr(self.config, "ontology_paths", None)
+                ontology_path = getattr(self.config, "ontology_path", None)
+
+                if ontology_dir:
+                    import glob as _glob, os as _os
+                    ttl_files = sorted(_glob.glob(_os.path.join(ontology_dir, "*.ttl")))
+                    if ttl_files:
+                        ontology_file = ttl_files[0]
+                elif ontology_paths:
+                    first = ontology_paths.split(",")[0].strip()
+                    if first:
+                        ontology_file = first
+                elif ontology_path:
+                    ontology_file = ontology_path
+
+                if ontology_file:
+                    adapter_config["ontology_file"] = ontology_file
+                    logger.info("GraphDB LangChain adapter: loading ontology from %s", ontology_file)
+
+                adapter = GraphDBLangChainAdapter(adapter_config)
+                lc_graph = adapter.lc_graph
+                logger.info("Created GraphDB LangChain adapter for retrieval")
+                
+            elif rdf_store_type == "neptune_rdf":
+                from langchain.graph.langchain_adapters.neptune_rdf_adapter import NeptuneRDFAdapter
+                
+                adapter_config = {
+                    "host": getattr(self.config, "neptune_host", None),
+                    "port": getattr(self.config, "neptune_port", 8182),
+                    "region": getattr(self.config, "neptune_region", "us-east-1"),
+                    "use_iam_auth": getattr(self.config, "neptune_use_iam_auth", False),
+                    "use_https": getattr(self.config, "neptune_use_https", True),
+                }
+                
+                adapter = NeptuneRDFAdapter(adapter_config)
+                lc_graph = adapter.lc_graph
+                logger.info("Created Neptune RDF LangChain adapter for retrieval")
+
+            elif rdf_store_type == "fuseki":
+                from langchain.graph.langchain_adapters.fuseki_langchain_adapter import FusekiLangChainAdapter
+
+                adapter_config = {
+                    "base_url": getattr(self.config, "fuseki_base_url", "http://localhost:3030"),
+                    "dataset": getattr(self.config, "fuseki_dataset", "flexible-graphrag"),
+                }
+                fuseki_user = getattr(self.config, "fuseki_username", None)
+                fuseki_pass = getattr(self.config, "fuseki_password", None)
+                if fuseki_user:
+                    adapter_config["username"] = fuseki_user
+                if fuseki_pass:
+                    adapter_config["password"] = fuseki_pass
+
+                adapter = FusekiLangChainAdapter(adapter_config)
+                lc_graph = adapter.lc_graph
+                logger.info("Created Fuseki LangChain adapter for retrieval")
+
+            elif rdf_store_type == "oxigraph":
+                from langchain.graph.langchain_adapters.oxigraph_langchain_adapter import OxigraphLangChainAdapter
+
+                oxigraph_url = getattr(self.config, "oxigraph_url", None) or "http://localhost:7878"
+                adapter_config = {"url": oxigraph_url}
+
+                adapter = OxigraphLangChainAdapter(adapter_config)
+                lc_graph = adapter.lc_graph
+                logger.info("Created Oxigraph LangChain adapter for retrieval")
+
+            else:
+                logger.warning(f"Unsupported RDF store type for LangChain retrieval: {rdf_store_type}")
+                return None
+            
+            # Create LangChain graph retriever wrapper
+            retriever = TextToGraphQueryRetriever(
+                langchain_graph=lc_graph,
+                llm=self._get_langchain_llm(),
+                top_k=getattr(self.config, "rdf_retrieval_top_k", 5),
+                include_intermediate_steps=True
+            )
+            
+            logger.info(f"Created LangChain RDF graph retriever for {rdf_store_type}")
+            return retriever
+            
+        except ImportError as e:
+            logger.warning(f"LangChain RDF retrieval not available: {e}")
+            return None
+        except Exception as e:
+            logger.error(f"Failed to create RDF graph retriever: {e}", exc_info=True)
+            return None
+
+    def _create_langchain_pg_retriever(self):
+        """Delegate to langchain.graph.pg_retriever_factory."""
+        from langchain.graph.pg_retriever_factory import build_langchain_pg_retriever
+        return build_langchain_pg_retriever(self.config)
+
+    def _get_langchain_llm(self):
+        """Delegate to langchain.llm.llm_factory."""
+        from langchain.llm.llm_factory import get_langchain_llm
+        return get_langchain_llm(self.config)
+
+    # _build_pg_adapter_config and _create_community_pg_graph are now internal
+    # to langchain.graph.pg_retriever_factory — no longer needed here.
+
+
+    
     def _setup_hybrid_retriever(self):
         """Setup hybrid retriever combining all search modalities"""
         logger.info(f"Setting up hybrid retriever - SEARCH_DB={self.config.search_db} (type: {type(self.config.search_db)})")
@@ -1304,8 +1775,10 @@ class HybridSearchSystem:
         has_vector = self.vector_index is not None
         has_graph = self.config.enable_knowledge_graph and self.graph_index is not None
         has_search = self.config.search_db != SearchDBType.NONE  # Any search DB type except 'none'
-        
-        if not (has_vector or has_graph or has_search):
+        has_langchain_rdf = getattr(self.config, "use_langchain_rdf", False)
+        has_langchain_pg = getattr(self.config, "use_langchain_pg", False)
+
+        if not (has_vector or has_graph or has_search or has_langchain_rdf or has_langchain_pg):
             logger.warning("Cannot setup hybrid retriever: no search modalities available")
             return
         
@@ -1416,13 +1889,17 @@ class HybridSearchSystem:
             logger.info(f"No BM25 retriever needed for search_db={self.config.search_db}")
         
         # Graph retriever - configure to return original text from shared docstore (if enabled)
+        # When use_langchain_pg=true, skip the LlamaIndex graph_index retriever here;
+        # the LangChain PG retriever is added separately below.
         graph_retriever = None
-        if self.config.enable_knowledge_graph and self.graph_index:
+        if getattr(self.config, "use_langchain_pg", False):
+            logger.info("use_langchain_pg=true: skipping LlamaIndex graph_index retriever")
+        elif self.config.enable_knowledge_graph and self.graph_index:
             graph_retriever = self.graph_index.as_retriever(
                 include_text=True,
                 similarity_top_k=5,
                 # Return original document text from the shared docstore, not knowledge graph extraction results
-                text_qa_template=None,  # Use default template
+                # text_qa_template=None,  # Use default template
                 include_metadata=True
             )
         
@@ -1456,31 +1933,102 @@ class HybridSearchSystem:
         
         # Combine retrievers with fusion
         retrievers = []
-        
+
+        # ---------------------------------------------------------------------------
+        # Per-retriever logging (langchain/graph/logging_retriever.py)
+        # ---------------------------------------------------------------------------
+        from langchain.graph.logging_retriever import wrap_with_logging
+
+        def _wrap(retriever, label, prescore_graph: bool = False):
+            return wrap_with_logging(retriever, label, prescore_graph=prescore_graph)
+
+        # ---------------------------------------------------------------------------
+        # SynonymExpander scope setup (langchain/graph/synonym_fusion.py)
+        # Tags: llamaindex_vector | llamaindex_search | llamaindex_pg_graph
+        #       langchain_pg_vector | langchain_rdf_graph | langchain_pg_graph
+        #       langchain_pg_neighborhood | all | none
+        # ---------------------------------------------------------------------------
+        from langchain.graph.synonym_fusion import SynonymFusion
+
+        _syn = SynonymFusion.from_config(self.config, getattr(self, "llm", None))
+        # ---------------------------------------------------------------------------
+
         # Add vector retriever if available
         if vector_retriever is not None:
-            retrievers.append(vector_retriever)
+            retrievers.append(_wrap(_syn.wrap(vector_retriever, "llamaindex_vector"), "vector"))
             logger.info("Added vector retriever to fusion")
         else:
             logger.info("Vector retriever not available")
-        
-        # Add text search retriever if available  
+
+        # Add text search retriever if available
         if bm25_retriever is not None:
-            retrievers.append(bm25_retriever)
+            retrievers.append(_wrap(_syn.wrap(bm25_retriever, "llamaindex_search"), "BM25"))
             logger.info("Added BM25 retriever to fusion")
         elif search_retriever is not None:
-            retrievers.append(search_retriever)
+            retrievers.append(_wrap(_syn.wrap(search_retriever, "llamaindex_search"), str(self.config.search_db)))
             logger.info(f"Added {self.config.search_db} retriever to fusion")
         else:
             logger.info("No text search retriever available")
-        
+
         # Add graph retriever if available
         if graph_retriever is not None:
-            retrievers.append(graph_retriever)
+            retrievers.append(_wrap(_syn.wrap(graph_retriever, "llamaindex_pg_graph"), f"graph({self.config.graph_db})", prescore_graph=True))
             logger.info("Added graph retriever to fusion")
         else:
             logger.info("Graph retriever not available")
-        
+
+        # Add RDF graph retriever if available (LangChain-based)
+        rdf_retriever = self._create_rdf_graph_retriever()
+        if rdf_retriever is not None:
+            retrievers.append(_wrap(_syn.wrap(rdf_retriever, "langchain_rdf_graph"), "rdf(langchain)"))
+            logger.info("Added RDF graph retriever (LangChain) to fusion")
+        else:
+            logger.info("RDF graph retriever not available")
+
+        # Add LangChain PG retriever in the graph slot (replaces LlamaIndex graph_index)
+        lc_pg_retriever = self._create_langchain_pg_retriever()
+        if lc_pg_retriever is not None:
+            retrievers.append(_wrap(_syn.wrap(lc_pg_retriever, "langchain_pg_graph"), "langchain_pg"))
+            logger.info("Added LangChain property graph retriever to fusion")
+        else:
+            if getattr(self.config, "use_langchain_pg", False):
+                logger.warning("use_langchain_pg=true but LangChain PG retriever could not be created")
+
+        # Add LangChain PG vector retriever (entity embedding search in graph store).
+        # Activates whenever LANGCHAIN_PG_VECTOR_SEARCH=true — independently of whether
+        # the LlamaIndex graph_retriever is present.  When both are active they search
+        # the same __Entity__[embedding] index but via different paths; the fusion
+        # deduplicator handles any overlapping results.
+        lc_vec_retriever = None
+        if getattr(self.config, "langchain_pg_vector_search", False):
+            from langchain.graph.pg_retriever_factory import build_langchain_pg_vector_retriever
+            lc_vec_retriever = build_langchain_pg_vector_retriever(
+                self.config, embed_model=getattr(self, "embed_model", None)
+            )
+            if lc_vec_retriever is not None:
+                retrievers.append(_wrap(_syn.wrap(lc_vec_retriever, "langchain_pg_vector"), "langchain_pg_vector"))
+                logger.info("Added LangChain PG vector retriever to fusion")
+            else:
+                logger.warning("langchain_pg_vector_search=true but vector retriever could not be created")
+
+        # Add PG neighborhood retriever (k-hop expansion from vector seeds).
+        # Add PG neighborhood retriever (k-hop expansion from vector seeds).
+        # Activates whenever USE_PG_NEIGHBORHOOD=true — independently of whether
+        # the LlamaIndex graph_retriever is present.
+        neighborhood_retriever = None
+        if getattr(self.config, "use_pg_neighborhood", False):
+            from langchain.graph.pg_retriever_factory import build_pg_neighborhood_retriever
+            neighborhood_retriever = build_pg_neighborhood_retriever(
+                self.config,
+                embed_model=getattr(self, "embed_model", None),
+                neo4j_vector=None,  # factory builds its own if needed
+            )
+            if neighborhood_retriever is not None:
+                retrievers.append(_wrap(_syn.wrap(neighborhood_retriever, "langchain_pg_neighborhood"), "pg_neighborhood"))
+                logger.info("Added PG neighborhood retriever to fusion")
+            else:
+                logger.warning("use_pg_neighborhood=true but neighborhood retriever could not be created")
+
         # Build descriptive log message
         retriever_types = []
         if vector_retriever is not None:
@@ -1491,15 +2039,26 @@ class HybridSearchSystem:
             retriever_types.append(str(self.config.search_db))
         if graph_retriever is not None:
             retriever_types.append("graph")
+        if rdf_retriever is not None:
+            retriever_types.append("rdf")
+        if lc_pg_retriever is not None:
+            retriever_types.append("langchain_pg")
+        if lc_vec_retriever is not None:
+            retriever_types.append("langchain_pg_vector")
+        if neighborhood_retriever is not None:
+            retriever_types.append("pg_neighborhood")
         
+        logger.info(f"Fusion retriever created with {', '.join(retriever_types)} retrievers")
+
         if not retrievers:
             has_any_configured = (
                 str(self.config.vector_db) != "none" or
                 str(self.config.search_db) != "none" or
-                (str(self.config.graph_db) != "none" and self.config.enable_knowledge_graph)
+                (str(self.config.graph_db) != "none" and self.config.enable_knowledge_graph) or
+                getattr(self.config, "use_langchain_rdf", False) or
+                getattr(self.config, "use_langchain_pg", False)
             )
             if has_any_configured:
-                # DBs are configured but indexes not yet populated — ingest documents first.
                 error_msg = (
                     f"No retrievers ready yet. Configured: VECTOR_DB={self.config.vector_db}, "
                     f"GRAPH_DB={self.config.graph_db}, SEARCH_DB={self.config.search_db}. "
@@ -1514,9 +2073,7 @@ class HybridSearchSystem:
                 )
             logger.error(error_msg)
             raise ValueError(error_msg)
-        
-        logger.info(f"Fusion retriever created with {', '.join(retriever_types)} retrievers")
-        
+
         # If only one retriever, use it directly for better relevance filtering
         if len(retrievers) == 1:
             self.hybrid_retriever = retrievers[0]
@@ -1533,7 +2090,11 @@ class HybridSearchSystem:
                 use_async=True  # Enable async - dual retriever conflicts are resolved
             )
             logger.info(f"Using QueryFusionRetriever for multiple retrievers (async enabled)")
-        
+
+        # Optional synonym exploder — "all" scope: wrap the entire fusion retriever.
+        # Per-retriever scopes are already applied above via _syn.wrap().
+        self.hybrid_retriever = _syn.wrap_all(self.hybrid_retriever)
+
         logger.info("Hybrid retriever setup completed")
     
     def _persist_indexes(self):
@@ -1577,11 +2138,18 @@ class HybridSearchSystem:
         if not self.hybrid_retriever:
             logger.info("Hybrid retriever not initialized - setting up now...")
             self._setup_hybrid_retriever()
-            
+
             # Check again after setup attempt
             if not self.hybrid_retriever:
+                use_langchain_rdf = getattr(self.config, "use_langchain_rdf", False)
+                if use_langchain_rdf and str(self.config.vector_db) == "none" and str(self.config.search_db) == "none":
+                    raise ValueError(
+                        "RDF graph retriever could not be initialised. "
+                        "Check that the RDF store is running, USE_LANGCHAIN_RDF=true, "
+                        "and RDF_STORE_TYPE is set correctly. See server logs for details."
+                    )
                 raise ValueError("No search indexes available. The databases may be empty or disconnected.")
-        
+
         logger.info(f"Searching for query: '{query}' with top_k={top_k}")
         logger.info(f"Available documents: {len(self._last_ingested_documents) if hasattr(self, '_last_ingested_documents') else 0}")
         
@@ -1644,18 +2212,18 @@ class HybridSearchSystem:
             return bool(_relation_link_re.match(txt))
 
         if graph_only:
-            from llama_index.core.schema import NodeWithScore
             filtered_graph = []
             for r in raw_results:
                 txt = (r.text or '').strip()
                 if _is_relation_link(txt):
                     continue
-                # Reassign 0.0 scores to 1.0 for kept results
-                if r.score is None or r.score == 0.0:
-                    r = NodeWithScore(node=r.node, score=1.0)
                 filtered_graph.append(r)
+            # If all results were triplet strings (e.g. docstore empty after restart),
+            # keep them rather than returning nothing — the LLM can still use them.
+            if not filtered_graph and raw_results:
+                filtered_graph = [r for r in raw_results if (r.text or '').strip()]
             filtered_results = filtered_graph
-            logger.info(f"Raw results: {len(raw_results)}, Filtered results (graph-only, scored 1.0): {len(filtered_results)}")
+            logger.info(f"Raw results: {len(raw_results)}, Filtered results (graph-only): {len(filtered_results)}")
         else:
             min_score_threshold = 0.001  # Filter anything below 0.001 (effectively zero)
             filtered_results = [result for result in raw_results if result.score is not None and result.score > min_score_threshold]
@@ -1762,9 +2330,12 @@ class HybridSearchSystem:
         # Format and rank results
         formatted_results = []
         for i, result in enumerate(deduplicated_results[:top_k]):
+            # Strip graph preamble ("Here are some facts extracted...") from display text.
+            # The preamble is useful context during dedup but pollutes UI and LLM prompts.
+            display_text = self._extract_core_content(result.text)
             formatted_results.append({
                 "rank": i + 1,
-                "content": result.text,
+                "content": display_text,
                 "score": getattr(result, 'score', 0.0),
                 "source": result.metadata.get("source", "Unknown"),
                 "file_type": result.metadata.get("file_type", "Unknown"),
@@ -1950,9 +2521,16 @@ class HybridSearchSystem:
         if not self.hybrid_retriever:
             logger.info("Hybrid retriever not initialized - setting up now...")
             self._setup_hybrid_retriever()
-            
+
             # Check again after setup attempt
             if not self.hybrid_retriever:
+                use_langchain_rdf = getattr(self.config, "use_langchain_rdf", False)
+                if use_langchain_rdf and str(self.config.vector_db) == "none" and str(self.config.search_db) == "none":
+                    raise ValueError(
+                        "RDF graph retriever could not be initialised. "
+                        "Check that the RDF store is running, USE_LANGCHAIN_RDF=true, "
+                        "and RDF_STORE_TYPE is set correctly. See server logs for details."
+                    )
                 raise ValueError("No search indexes available. The databases may be empty or disconnected.")
         
         # Check for partial initialization state - only require indexes that should be enabled
@@ -1997,6 +2575,109 @@ class HybridSearchSystem:
                 raise
     
     
+    def _export_nodes_to_rdf_stores(self, nodes: List) -> None:
+        """Push extracted KG nodes/relations to all enabled RDF stores.
+
+        Called after _run_kg_extractors_on_nodes() when ingestion_storage_mode
+        is 'rdf_only' or 'both'.  Uses KGToRDFConverter to build an rdflib.Graph
+        and a Turtle string (with relation property annotations per RDF_ANNOTATION_SYNTAX)
+        and pushes it to every configured RDF store adapter via store_rdf_annotations().
+        """
+        from rdf.kg_to_rdf_converter import convert_nodes_to_rdf, DEFAULT_BASE_NS, DEFAULT_ONTO_NS
+        from rdf.store.rdf_store_factory import RDFStoreFactory
+
+        rdf_store_configs = self.config.get_rdf_store_configs()
+        if not rdf_store_configs:
+            logger.warning(
+                "ingestion_storage_mode requires RDF stores but none are configured. "
+                "Set FUSEKI_ENABLED, GRAPHDB_ENABLED, or OXIGRAPH_ENABLED."
+            )
+            return
+
+        # Resolve namespaces: use ontology IRI if available
+        onto_ns = DEFAULT_ONTO_NS
+        ontology_manager = None
+        try:
+            ontology_manager = self.schema_manager.ontology_manager
+            if ontology_manager:
+                iri = getattr(ontology_manager, "ontology_iri", None)
+                if iri:
+                    onto_ns = iri.rstrip("#/") + "#"
+        except Exception:
+            pass
+
+        base_ns = getattr(self.config, "rdf_base_namespace", DEFAULT_BASE_NS)
+
+        # Use a stable named graph URI so the dataset is visible in the Fuseki UI.
+        # The default graph is not shown in the browser; named graphs are.
+        # Strip trailing slash from base_ns to get a clean named graph URI,
+        # e.g. https://integratedsemantics.org/flexible-graphrag/kg/ -> .../kg
+        graph_uri = base_ns.rstrip("/")
+
+        annotation_syntax = self.config.rdf_annotation_syntax
+        logger.info(
+            "Converting extracted KG to RDF (annotation_syntax=%s)...", annotation_syntax
+        )
+        rdf_graph, turtle_annotated = convert_nodes_to_rdf(
+            nodes,
+            base_ns=base_ns,
+            onto_ns=onto_ns,
+            ontology_manager=ontology_manager,
+            annotation_syntax=annotation_syntax,
+        )
+        logger.info("RDF graph built: %d triples", len(rdf_graph))
+
+        for store_cfg in rdf_store_configs:
+            store_name = store_cfg.get("name", "unknown")
+            store_type = store_cfg.get("type", store_name)
+            try:
+                adapter = RDFStoreFactory.create(store_type, store_cfg.get("config", {}))
+                adapter.store_rdf_annotations(turtle_annotated, graph_uri=graph_uri)
+                logger.info("Exported KG to RDF store '%s' (%s)", store_name, store_type)
+            except Exception as e:
+                logger.error(
+                    "Failed to export KG to RDF store '%s': %s", store_name, e, exc_info=True
+                )
+
+    def _delete_from_rdf_stores(self, ref_doc_id: str) -> None:
+        """Delete all triples belonging to ref_doc_id from every configured RDF store.
+
+        Called by the incremental update engine before re-ingesting a modified
+        document and on explicit document deletion, mirroring how vector/search/
+        graph indexes are cleaned up in _delete_from_all_indexes().
+
+        Each adapter's delete_doc() issues a SPARQL DELETE WHERE scoped to the
+        named graph and filters by onto:ref_doc_id.  Errors are logged but never
+        raised so a failed RDF delete never blocks the rest of the delete cycle.
+        """
+        storage_mode = getattr(self.config, "ingestion_storage_mode", "property_graph")
+        if storage_mode not in ("rdf_only", "both"):
+            return
+
+        from rdf.store.rdf_store_factory import RDFStoreFactory
+        from rdf.kg_to_rdf_converter import DEFAULT_BASE_NS
+
+        rdf_store_configs = self.config.get_rdf_store_configs()
+        if not rdf_store_configs:
+            return
+
+        graph_uri = DEFAULT_BASE_NS.rstrip("/")
+        for store_cfg in rdf_store_configs:
+            store_name = store_cfg.get("name", "unknown")
+            store_type = store_cfg.get("type", store_name)
+            try:
+                adapter = RDFStoreFactory.create(store_type, store_cfg.get("config", {}))
+                adapter.delete_doc(ref_doc_id, graph_uri=graph_uri)
+                logger.info(
+                    "Deleted RDF triples for doc '%s' from store '%s'",
+                    ref_doc_id, store_name,
+                )
+            except Exception as e:
+                logger.warning(
+                    "Failed to delete RDF triples for doc '%s' from store '%s': %s",
+                    ref_doc_id, store_name, e,
+                )
+
     async def _run_kg_extractors_on_nodes(self, nodes: List, kg_extractors: List) -> tuple[List, int, int]:
         """
         Run knowledge graph extractor on nodes and count extracted entities/relations.
@@ -2038,10 +2719,19 @@ class HybridSearchSystem:
             logger.info("Knowledge graph extraction completed")
         else:
             logger.info(f"Running extractor asynchronously ({self.config.llm_provider}) in executor")
-            # Use functools.partial to pass show_progress parameter correctly
-            import functools
-            extractor_with_progress = functools.partial(extractor, show_progress=True)
-            nodes = await loop.run_in_executor(None, extractor_with_progress, nodes)
+            # Capture stdout to catch DynamicLLMPathExtractor's bare print() error messages
+            import io, sys, functools
+            _stdout_capture = io.StringIO()
+            _orig_stdout = sys.stdout
+            sys.stdout = _stdout_capture
+            try:
+                extractor_with_progress = functools.partial(extractor, show_progress=True)
+                nodes = await loop.run_in_executor(None, extractor_with_progress, nodes)
+            finally:
+                sys.stdout = _orig_stdout
+                captured = _stdout_capture.getvalue().strip()
+                if captured:
+                    logger.warning(f"Extractor stdout output (hidden errors): {captured}")
             logger.info("Knowledge graph extraction completed")
         
         # Count entities and relations from node metadata (after extraction)
@@ -2206,8 +2896,7 @@ class HybridSearchSystem:
                 doc.id_ = stable_doc_id  # LlamaIndex uses this as ref_doc_id
                 doc.metadata['doc_id'] = stable_doc_id
                 logger.info(f"  Set stable doc_id: {stable_doc_id}")
-        
-        # Store documents for current processing (replace, don't accumulate)
+
         # This is used for search store indexing below
         self._last_ingested_documents = documents
         logger.info(f"Processing {len(documents)} document(s)")
@@ -2399,6 +3088,41 @@ class HybridSearchSystem:
                 # Graph disabled in config - clear any existing graph since it shouldn't be used
                 self.graph_index = None
                 self.graph_intentionally_skipped = False
+
+            # --- Standalone RDF export when GRAPH_DB=none but rdf_only mode is active ---
+            # When the user sets GRAPH_DB=none + ENABLE_KNOWLEDGE_GRAPH=false but wants RDF
+            # output only, we must still run KG extraction here so there is something to export.
+            storage_mode = getattr(self.config, "ingestion_storage_mode", "property_graph")
+            if storage_mode in ("rdf_only", "both") and getattr(self.config, "use_langchain_rdf", False):
+                logger.info(
+                    "rdf_only/both mode with USE_LANGCHAIN_RDF=true and GRAPH_DB=none: "
+                    "running standalone KG extraction for RDF export"
+                )
+                try:
+                    # Reuse the already-chunked pipeline nodes rather than re-chunking
+                    # from scratch. This ensures consistent chunk boundaries and avoids
+                    # the variance caused by a single large chunk on a one-shot LLM call.
+                    rdf_nodes = list(nodes)
+                    logger.info(f"Reusing {len(rdf_nodes)} pipeline nodes for standalone RDF extraction")
+
+                    llm_model_name = getattr(self.llm, 'model', str(type(self.llm).__name__))
+                    kg_extractor = self.schema_manager.create_extractor(
+                        self.llm,
+                        llm_provider=self.config.llm_provider,
+                        extractor_type=self.config.kg_extractor_type,
+                    )
+                    rdf_nodes, num_entities, num_relations = await self._run_kg_extractors_on_nodes(
+                        rdf_nodes, [kg_extractor]
+                    )
+                    logger.info(
+                        f"Standalone RDF extraction: {num_entities} entities, "
+                        f"{num_relations} relations — exporting to RDF stores"
+                    )
+                    self._export_nodes_to_rdf_stores(rdf_nodes)
+                except Exception as rdf_exc:
+                    logger.error(
+                        "Standalone RDF export failed: %s", rdf_exc, exc_info=True
+                    )
         else:
             # Knowledge graph is enabled and not skipped - proceed with extraction
             # Clear the skip flag since we're creating a graph now
@@ -2464,35 +3188,46 @@ class HybridSearchSystem:
                     
                     # Run extractors and count entities/relations
                     nodes, num_entities, num_relations = await self._run_kg_extractors_on_nodes(nodes, kg_extractors)
-                    
-                    # Prepare kwargs for PropertyGraphIndex using already-extracted nodes
-                    graph_kwargs = {
-                        "nodes": nodes,  # Use pre-extracted nodes
-                        "llm": self.llm,
-                        "embed_model": self.embed_model,
-                        "kg_extractors": [],  # Empty - extraction already done above!
-                        "property_graph_store": self.graph_store,
-                        "storage_context": graph_storage_context
-                    }
-                    
-                    # CRITICAL: Neptune Analytics has non-atomic vector index limitations
-                    # Disable vector embeddings for knowledge graph nodes to avoid vector operation conflicts
-                    if hasattr(self.graph_store, '__class__') and 'NeptuneAnalytics' in str(self.graph_store.__class__):
-                        graph_kwargs["embed_kg_nodes"] = False
-                        logger.info("Neptune Analytics detected: Setting embed_kg_nodes=False to avoid vector index atomicity issues")
-                        logger.info("Knowledge graph structure will be created without vector embeddings (use separate VECTOR_DB for embeddings)")
-                    
-                    # Create PropertyGraphIndex directly for all providers (not run_in_executor)
-                    # Direct execution is required for Gemini/Vertex (async SDK needs main event loop)
-                    # and works well for all other providers since we pass pre-extracted nodes with empty extractors
-                    logger.info("Creating new PropertyGraphIndex with pre-extracted nodes")
-                    self.graph_index = PropertyGraphIndex(**graph_kwargs)
-                    logger.info("PropertyGraphIndex creation completed")
-                    
-                    graph_creation_duration = time.time() - graph_creation_start_time
-                    logger.info(f"PropertyGraphIndex creation completed in {graph_creation_duration:.2f}s")
-                    logger.info(f"Knowledge graph extraction finished - {num_entities} entities and {num_relations} relationships stored in {graph_store_type}")
-                    
+
+                    # --- RDF store export (rdf_only / both) ---
+                    storage_mode = getattr(self.config, "ingestion_storage_mode", "property_graph")
+                    if storage_mode in ("rdf_only", "both"):
+                        logger.info(f"ingestion_storage_mode={storage_mode}: exporting to RDF stores")
+                        self._export_nodes_to_rdf_stores(nodes)
+
+                    # --- Property graph store (property_graph / both) ---
+                    if storage_mode == "rdf_only":
+                        # Skip PropertyGraphIndex entirely
+                        self.graph_index = None
+                        graph_creation_duration = time.time() - graph_creation_start_time
+                        logger.info(
+                            f"rdf_only mode: skipped PropertyGraphIndex, "
+                            f"{num_entities} entities and {num_relations} relations exported to RDF stores"
+                        )
+                    else:
+                        # Prepare kwargs for PropertyGraphIndex using already-extracted nodes
+                        graph_kwargs = {
+                            "nodes": nodes,  # Use pre-extracted nodes
+                            "llm": self.llm,
+                            "embed_model": self.embed_model,
+                            "kg_extractors": [],  # Empty - extraction already done above!
+                            "property_graph_store": self.graph_store,
+                            "storage_context": graph_storage_context
+                        }
+
+                        # CRITICAL: Neptune Analytics has non-atomic vector index limitations
+                        if hasattr(self.graph_store, '__class__') and 'NeptuneAnalytics' in str(self.graph_store.__class__):
+                            graph_kwargs["embed_kg_nodes"] = False
+                            logger.info("Neptune Analytics detected: Setting embed_kg_nodes=False to avoid vector index atomicity issues")
+
+                        logger.info("Creating new PropertyGraphIndex with pre-extracted nodes")
+                        self.graph_index = PropertyGraphIndex(**graph_kwargs)
+                        logger.info("PropertyGraphIndex creation completed")
+
+                        graph_creation_duration = time.time() - graph_creation_start_time
+                        logger.info(f"PropertyGraphIndex creation completed in {graph_creation_duration:.2f}s")
+                        logger.info(f"Knowledge graph extraction finished - {num_entities} entities and {num_relations} relationships stored in {graph_store_type}")
+                        
                     # Record metrics if available
                     if graph_span:
                         graph_span.set_attribute("graph.extraction_latency_ms", graph_creation_duration * 1000)
@@ -2547,26 +3282,37 @@ class HybridSearchSystem:
                     # Run extractors and count entities/relations (reuse common logic)
                     nodes, num_entities, num_relations = await self._run_kg_extractors_on_nodes(nodes, kg_extractors)
                     logger.info(f"Inserting nodes with {num_entities} entities and {num_relations} relationships...")
-                    
-                    # CRITICAL: We already ran extractors above, so temporarily clear them to prevent
-                    # insert_nodes() from running them again (which causes event loop conflicts with multiple nodes)
-                    # Save original extractors and temporarily set to empty (we already extracted)
-                    original_extractors = self.graph_index._kg_extractors
-                    self.graph_index._kg_extractors = []
-                    
-                    try:
-                        # Call insert_nodes() directly for all providers (not run_in_executor)
-                        # Direct execution is required for Gemini/Vertex (async SDK needs main event loop to avoid
-                        # "Future attached to different loop" errors) and works well for all other providers since
-                        # we've already run extractors above and cleared _kg_extractors, making this just a simple
-                        # data store operation with no async conflicts
-                        logger.info(f"Calling graph_index.insert_nodes() with {len(nodes)} nodes")
-                        self.graph_index.insert_nodes(nodes)
-                    finally:
-                        # Restore original extractors
-                        self.graph_index._kg_extractors = original_extractors
-                    
-                    logger.info(f"graph_index.insert_nodes() completed")
+
+                    # --- RDF store export (rdf_only / both) ---
+                    storage_mode = getattr(self.config, "ingestion_storage_mode", "property_graph")
+                    if storage_mode in ("rdf_only", "both"):
+                        logger.info(f"ingestion_storage_mode={storage_mode}: exporting to RDF stores (update)")
+                        self._export_nodes_to_rdf_stores(nodes)
+
+                    # --- Property graph store (property_graph / both) ---
+                    if storage_mode != "rdf_only":
+                        # CRITICAL: We already ran extractors above, so temporarily clear them to prevent
+                        # insert_nodes() from running them again.
+                        # Also force _use_async=False: on Python 3.14 nest_asyncio is neutralised,
+                        # so PropertyGraphIndex._insert_nodes() calling asyncio.run() from inside
+                        # an already-running event loop raises RuntimeError.  With extractors cleared
+                        # the async path only calls arun_transformations([]) then continues — but
+                        # asyncio.run() itself still raises.  The sync path (run_transformations) is
+                        # safe because it handles an empty extractor list without any event-loop call.
+                        original_extractors = self.graph_index._kg_extractors
+                        original_use_async = getattr(self.graph_index, '_use_async', False)
+                        self.graph_index._kg_extractors = []
+                        self.graph_index._use_async = False
+
+                        try:
+                            logger.info(f"Calling graph_index.insert_nodes() with {len(nodes)} nodes")
+                            self.graph_index.insert_nodes(nodes)
+                        finally:
+                            self.graph_index._kg_extractors = original_extractors
+                            self.graph_index._use_async = original_use_async
+
+                        logger.info(f"graph_index.insert_nodes() completed")
+
                     graph_creation_duration = time.time() - graph_update_start_time
                     logger.info(f"Graph index update completed in {graph_creation_duration:.2f}s")
                     logger.info(f"Knowledge graph updated - {num_entities} new entities and {num_relations} new relationships added to {graph_store_type}")

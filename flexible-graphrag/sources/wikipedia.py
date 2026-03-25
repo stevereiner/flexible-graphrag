@@ -301,7 +301,7 @@ class WikipediaSource(BaseDataSource):
             The actual page title if found, None if not found
         """
         if not self.wikipedia:
-            logger.info(f"❌ Wikipedia search not available (library not installed)")
+            logger.info(f"Wikipedia search not available (library not installed)")
             return None
             
         try:

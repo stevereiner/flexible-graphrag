@@ -106,10 +106,10 @@ def cleanup_vector_store():
                 
                 # Connect to Qdrant
                 if url:
-                    client = QdrantClient(url=url, api_key=api_key)
+                    client = QdrantClient(url=url, api_key=api_key, check_compatibility=False)
                     print(f"  Connected to Qdrant: {url}")
                 else:
-                    client = QdrantClient(host=host, port=port)
+                    client = QdrantClient(host=host, port=port, check_compatibility=False)
                     print(f"  Connected to Qdrant: {host}:{port}")
                 
                 # Check if collection exists
@@ -624,6 +624,70 @@ def cleanup_graph_store():
         import traceback
         traceback.print_exc()
 
+def cleanup_rdf_stores():
+    """Clear all RDF store data via rdf_cleanup.py clear-all"""
+    print("\n=== RDF Store Cleanup ===")
+    try:
+        import subprocess
+
+        rdf_cleanup_path = os.path.join(
+            os.path.dirname(os.path.abspath(__file__)),
+            "..", "scripts", "rdf_cleanup.py"
+        )
+        rdf_cleanup_path = os.path.normpath(rdf_cleanup_path)
+
+        if not os.path.exists(rdf_cleanup_path):
+            print(f"  Skipped: rdf_cleanup.py not found at {rdf_cleanup_path}")
+            return
+
+        result = subprocess.run(
+            [sys.executable, rdf_cleanup_path, "clear-all", "--yes"],
+            capture_output=True,
+            text=True
+        )
+        if result.stdout:
+            for line in result.stdout.strip().splitlines():
+                print(f"  {line}")
+        if result.stderr:
+            for line in result.stderr.strip().splitlines():
+                print(f"  {line}")
+        if result.returncode == 0:
+            print("  RDF store cleanup: SUCCESS")
+        else:
+            print(f"  RDF store cleanup: FAILED (exit code {result.returncode})")
+
+    except Exception as e:
+        print(f"  RDF store cleanup: FAILED - {e}")
+        import traceback
+        traceback.print_exc()
+
+
+def cleanup_log_files():
+    """Delete all *.log files in the flexible-graphrag directory"""
+    print("\n=== Log File Cleanup ===")
+    try:
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        log_files = [
+            f for f in os.listdir(script_dir)
+            if f.endswith(".log") and os.path.isfile(os.path.join(script_dir, f))
+        ]
+        if not log_files:
+            print("  No log files found (already clean)")
+            return
+        deleted = 0
+        for log_file in log_files:
+            try:
+                os.remove(os.path.join(script_dir, log_file))
+                print(f"  Deleted: {log_file}")
+                deleted += 1
+            except Exception as e:
+                print(f"  Could not delete {log_file}: {e}")
+        print(f"  Log file cleanup: SUCCESS ({deleted} file(s) deleted)")
+
+    except Exception as e:
+        print(f"  Log file cleanup: FAILED - {e}")
+
+
 def main():
     print("=" * 60)
     print("Flexible GraphRAG - Database Cleanup Script")
@@ -633,6 +697,8 @@ def main():
     print("  - Vector Store (all embeddings)")
     print("  - Search Store (all fulltext indexes)")
     print("  - Graph Store (all nodes, relationships, constraints, indexes)")
+    print("  - RDF Stores (all triples in configured stores)")
+    print("  - Log files (all *.log in this directory)")
     print("\nThis action CANNOT be undone!")
     
     response = input("\nProceed with cleanup? [y/N] (default: N): ").strip().lower()
@@ -646,6 +712,8 @@ def main():
     cleanup_vector_store()
     cleanup_search_store()
     cleanup_graph_store()
+    cleanup_rdf_stores()
+    cleanup_log_files()
     
     print("\n" + "=" * 60)
     print("Cleanup complete!")

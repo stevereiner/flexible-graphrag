@@ -1,6 +1,6 @@
 [project]
 name = "flexible-graphrag"
-version = "0.4.0"
+version = "0.5.0"
 description = "Flexible GraphRAG system supporting multiple LLM providers, graph databases, vector stores, and data sources"
 readme = "README.md"
 requires-python = ">=3.12,<3.14"
@@ -8,7 +8,7 @@ license = "Apache-2.0"
 authors = [
     {name = "Steve Reiner"}
 ]
-keywords = ["graphrag", "rag", "llm", "knowledge-graph", "neo4j", "kuzu", "vector-database"]
+keywords = ["graphrag", "rag", "llm", "knowledge-graph", "neo4j", "vector-database"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
@@ -49,6 +49,10 @@ dependencies = [
     "llama-index-llms-bedrock-converse",
     "llama-index-llms-groq",
     "llama-index-llms-fireworks",
+    "llama-index-llms-openai-like",
+    "llama-index-llms-vllm",
+    "llama-index-llms-litellm",
+    "llama-index-llms-openrouter",
     "llama-index-embeddings-openai",
     "llama-index-embeddings-ollama",
     "llama-index-embeddings-google-genai",
@@ -56,6 +60,8 @@ dependencies = [
     # Vertex embeddings removed - use google-genai for Vertex AI
     "llama-index-embeddings-bedrock",
     "llama-index-embeddings-fireworks",
+    "llama-index-embeddings-openai-like",
+    "llama-index-embeddings-litellm",
     "llama-index-vector-stores-neo4jvector",
     "llama-index-vector-stores-qdrant",
     "llama-index-vector-stores-elasticsearch",
@@ -67,7 +73,7 @@ dependencies = [
     "llama-index-vector-stores-postgres",
     "llama-index-vector-stores-lancedb",
     "llama-index-graph-stores-neo4j",
-    "llama-index-graph-stores-kuzu",
+    #"llama-index-graph-stores-kuzu",
     "llama-index-graph-stores-falkordb",
     "llama-index-graph-stores-memgraph",
     "llama-index-graph-stores-nebula",
@@ -75,10 +81,10 @@ dependencies = [
     "llama-index-retrievers-bm25",
     # ArcadeDB graph database dependencies
     "arcadedb-python>=0.4.0",
-    "llama-index-graph-stores-arcadedb>=0.4.1",
-    # "arcadedb-embedded>=26.2.1",  # Uncomment to enable embedded ArcadeDB mode (no separate server required)
+    "llama-index-graph-stores-arcadedb>=0.4.2",
+    # "arcadedb-embedded>=26.3.2",
     # Kuzu graph database dependencies
-    "kuzu",
+    #"kuzu",
     # Search / Vector database dependencies
     "elasticsearch",
     "opensearch-py",
@@ -87,7 +93,6 @@ dependencies = [
     "chromadb",
     "pymilvus",
     "weaviate-client",
-    "pinecone-client",
     "psycopg2-binary",
     "lancedb",
     "pinecone",
@@ -122,6 +127,10 @@ dependencies = [
     # box-sdk-gen already included above for BoxReader - used for Box detector too
     "msgraph-sdk>=1.0.0",  # Microsoft Graph SDK for OneDrive/SharePoint
     "azure-identity>=1.14.0",  # Azure AD authentication for Microsoft Graph
+    # RDF and Ontology Support
+    "rdflib>=7.0.0",
+    "pyoxigraph>=0.3.20",
+    "requests>=2.31.0",
 ]
 
 [project.optional-dependencies]
@@ -166,6 +175,52 @@ dev = [
     "mypy",
 ]
 
+# RDF and Ontology optional dependencies (for advanced semantic web features)
+rdf = [
+    "rdflib>=7.0.0",
+    "pyoxigraph>=0.3.20",
+    "requests>=2.31.0",
+]
+
+# Complete RDF stack with all store adapters
+rdf-full = [
+    "rdflib>=7.0.0",
+    "pyoxigraph>=0.3.20",
+    "requests>=2.31.0",
+    "SPARQLWrapper>=2.0.0",  # For advanced SPARQL queries
+]
+
+# LangChain integration — property graph QA (TextToCypher/SPARQL), entity vector search,
+# graph neighborhood expansion, synonym expansion, and LLM chat models for all providers.
+# Install: uv pip install -e ".[langchain]"
+langchain = [
+    # Core
+    "langchain",
+    "langchain-community",        # Shared community integrations
+    # LLM providers — mirrors LlamaIndex provider list
+    "langchain-openai",           # OpenAI, Azure OpenAI, vLLM, openai_like, LiteLLM, OpenRouter
+    "langchain-anthropic",        # Anthropic Claude
+    "langchain-aws",              # AWS Bedrock (ChatBedrock) + Amazon Neptune RDF/PG
+    "langchain-ollama",           # Ollama local models
+    "langchain-google-genai",     # Google Gemini (direct API)
+    "langchain-google-vertexai",  # Google Vertex AI
+    "langchain-groq",             # Groq
+    "langchain-fireworks",        # Fireworks AI
+    # Graph stores
+    "langchain-neo4j",            # Neo4j property graph + vector index
+]
+
+# Extended LangChain with additional graph database backends (install on top of [langchain])
+# Install: uv pip install -e ".[langchain,langchain-extras]"
+langchain-extras = [
+    "langchain-arangodb",         # ArangoDB property graph
+    "langchain-google-spanner",   # Google Spanner Graph
+    "psycopg2-binary",            # Apache AGE (PostgreSQL graph extension) — already in core
+    "gremlinpython>=3.7.0",       # Azure Cosmos DB Gremlin API
+    "requests-aws4auth>=1.2.0",   # Neptune bulk loading with IAM auth
+    "SPARQLWrapper>=2.0.0",       # Advanced SPARQL queries against RDF stores
+]
+
 [project.urls]
 Homepage = "https://github.com/stevereiner/flexible-graphrag"
 Repository = "https://github.com/stevereiner/flexible-graphrag"
@@ -199,7 +254,7 @@ py-modules = [
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["ingest*", "sources*", "observability*", "incremental_updates*"]
+include = ["ingest*", "sources*", "observability*", "incremental_updates*", "rdf*", "langchain*"]
 
 [tool.setuptools.package-data]
 "*" = ["*.txt", "*.md", "*.sql", "*.toml"]

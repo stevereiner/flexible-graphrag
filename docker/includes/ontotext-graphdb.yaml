@@ -1,0 +1,19 @@
+# Ontotext GraphDB server
+
+services:
+  ontotext-graphdb:
+    image: ontotext/graphdb:11.3.0
+    container_name: flexible-graphrag-ontotext-graphdb
+    restart: unless-stopped
+    ports:
+      - "7200:7200"  # GraphDB Workbench: http://localhost:7200/
+    environment:
+      - GDB_HEAP_SIZE=2g   # adjust as needed
+      # - GDB_JAVA_OPTS=...  # additional JVM options if required
+    volumes:
+      - graphdb-data:/opt/graphdb/home
+      # License file — mounted into conf/ so GraphDB picks it up automatically on start
+      - ../ontotext-graphdb/GRAPHDB.license:/opt/graphdb/home/conf/graphdb.license:ro
+
+volumes:
+  graphdb-data:

@@ -79,13 +79,13 @@ def setup_observability(
     if otlp_endpoint is None:
         otlp_endpoint = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4318")
     
-    logger.info(f"🚀 Setting up observability with backend: {backend}")
+        logger.info(f"Setting up observability with backend: {backend}")
     
     # Initialize OpenLIT if requested (or if mode is 'both')
     openlit_initialized = False
     if backend in ["openlit", "both"]:
         if OPENLIT_AVAILABLE and setup_observability_openlit is not None:
-            logger.info("📡 Initializing OpenLIT as OTLP producer...")
+            logger.info("Initializing OpenLIT as OTLP producer...")
             success = setup_observability_openlit(
                 service_name=service_name,
                 otlp_endpoint=otlp_endpoint,
@@ -94,26 +94,26 @@ def setup_observability(
             )
             if success:
                 openlit_initialized = True
-                logger.info("✅ OpenLIT active - token metrics enabled!")
+                logger.info("OpenLIT active - token metrics enabled!")
                 if backend == "openlit":
                     # OpenLIT-only mode, skip OpenInference setup
                     logger.info("   Mode: OpenLIT only (no OpenInference)")
                     return None
             else:
-                logger.warning("⚠️ OpenLIT initialization failed")
+                logger.warning("[WARN] OpenLIT initialization failed")
                 if backend == "openlit":
                     logger.warning("   Falling back to OpenInference")
         else:
-            logger.warning("⚠️ OpenLIT not available (pip install openlit)")
+            logger.warning("[WARN] OpenLIT not available (pip install openlit)")
             if backend == "openlit":
                 logger.warning("   Falling back to OpenInference")
     
     # Continue with OpenInference setup (default, fallback, or dual mode)
     if backend == "both" and openlit_initialized:
-        logger.info("📡 Initializing OpenInference as additional OTLP producer...")
+        logger.info("Initializing OpenInference as additional OTLP producer...")
         logger.info("   Mode: DUAL (OpenInference + OpenLIT)")
     else:
-        logger.info("📡 Initializing OpenInference as OTLP producer...")
+        logger.info("Initializing OpenInference as OTLP producer...")
         logger.info("   Mode: OpenInference only")
     
     # Read configuration from environment if not provided
@@ -157,7 +157,7 @@ def setup_observability(
         try:
             _instrumentor = LlamaIndexInstrumentor()
             _instrumentor.instrument(tracer_provider=_tracer_provider)
-            logger.info("✅ OpenInference instrumentation enabled")
+            logger.info("OpenInference instrumentation enabled")
         except Exception as e:
             logger.warning(f"Failed to instrument LlamaIndex: {e}")
     elif enable_instrumentation and not OPENINFERENCE_AVAILABLE:
@@ -167,19 +167,19 @@ def setup_observability(
     try:
         from .metrics import get_rag_metrics
         get_rag_metrics()  # Creates the global instance
-        logger.info("✅ Custom RAG metrics initialized")
+        logger.info("Custom RAG metrics initialized")
     except Exception as e:
         logger.warning(f"Failed to initialize RAG metrics: {e}")
     
     # Summary
     if backend == "both" and openlit_initialized:
-        logger.info("🎉 Observability setup complete - DUAL MODE")
-        logger.info("   📊 OpenLIT → Token metrics, costs, VectorDB metrics")
-        logger.info("   📊 OpenInference → Detailed traces")
-        logger.info("   📊 Custom metrics → Graph extraction, retrieval, etc.")
-        logger.info("   🎯 Best of both worlds!")
+        logger.info("Observability setup complete - DUAL MODE")
+        logger.info("   OpenLIT -> Token metrics, costs, VectorDB metrics")
+        logger.info("   OpenInference -> Detailed traces")
+        logger.info("   Custom metrics -> Graph extraction, retrieval, etc.")
+        logger.info("   Best of both worlds!")
     else:
-        logger.info("🎉 Observability setup complete")
+        logger.info("Observability setup complete")
     
     return _tracer_provider
 

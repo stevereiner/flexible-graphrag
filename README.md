@@ -1,20 +1,23 @@
-**NEW!** Flexible GraphRAG supports **automatic incremental updates** (Optional) from most data sources, keeping your Vector, Search and Graph databases synchronized in real-time or near real-time.
 
-**New!** - [KG Spaces Integration of Flexible GraphRAG in Alfresco ACA Client](https://github.com/stevereiner/kg-spaces-aca)
+**New** Flexible GraphRAG now supports RDF-based ontologies for both property graph databases and RDF triple store databases (Graphwise Ontotext GraphDB, Fuseki, and Oxigraph). Document ingestion with KG extraction, auto incremental data source change detection, and UI search (hybrid search, AI query, and AI chat) are all supported with both database types.
+
+**New** Flexible GraphRAG supports **automatic incremental updates** (Optional) from most data sources, keeping your Vector, Search and Graph databases synchronized in real-time or near real-time.
+
+**New** - [KG Spaces Integration of Flexible GraphRAG in Alfresco ACA Client](https://github.com/stevereiner/kg-spaces-aca)
 
 # Flexible GraphRAG
 
 [![PyPI - flexible-graphrag](https://img.shields.io/pypi/v/flexible-graphrag?label=flexible-graphrag&color=blue)](https://pypi.org/project/flexible-graphrag/)
-[![PyPI - flexible-graphrag-mcp](https://img.shields.io/pypi/v/flexible-graphrag-mcp?label=flexible-graphrag-mcp&color=blue)](https://pypi.org/project/flexible-graphrag-mcp/)
 [![Downloads - flexible-graphrag](https://img.shields.io/pepy/dt/flexible-graphrag)](https://pepy.tech/project/flexible-graphrag)
+[![PyPI - flexible-graphrag-mcp](https://img.shields.io/pypi/v/flexible-graphrag-mcp?label=flexible-graphrag-mcp&color=blue)](https://pypi.org/project/flexible-graphrag-mcp/)
 [![Downloads - flexible-graphrag-mcp](https://img.shields.io/pepy/dt/flexible-graphrag-mcp)](https://pepy.tech/project/flexible-graphrag-mcp)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-green.svg)](https://opensource.org/licenses/Apache-2.0)
-[![Python](https://img.shields.io/badge/python-3.12%20%7C%203.13-blue)](https://www.python.org/)
+[![Python](https://img.shields.io/badge/python-3.12%20%7C%203.13%20%7C%203.14-blue)](https://www.python.org/)
 [![React](https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=white)](https://react.dev/)
 [![Angular](https://img.shields.io/badge/Angular-19-DD0031?logo=angular&logoColor=white)](https://angular.dev/)
 [![Vue](https://img.shields.io/badge/Vue-3-4FC08D?logo=vue.js&logoColor=white)](https://vuejs.org/)
 
-**Flexible GraphRAG** is an open source platform supporting document processing (Docling or LlamaParse), knowledge graph auto-building, schemas, LlamaIndex LLMs, RAG and GraphRAG setup, hybrid search (fulltext, vector, graph), AI query, and AI chat capabilities. The backend uses Python, LlamaIndex, and FastAPI. Has Angular, React, and Vue TypeScript frontends. A MCP Server is also available. Currently supports 13 data sources, 10 vector databases, OpenSearch / Elasticsearch search, 8 graph databases, and Alfresco.  These servers and their dashboards can be configured in a provided docker compose.
+**Flexible GraphRAG** is an open source platform supporting document processing (Docling or LlamaParse), knowledge graph auto-building, schemas, LlamaIndex LLMs, RAG and GraphRAG setup, hybrid search (fulltext, vector, graph), AI query, and AI chat capabilities. The backend uses Python, LlamaIndex, and FastAPI. Has Angular, React, and Vue TypeScript frontends. A MCP Server is also available. Currently supports 13 data sources, 10 vector databases, OpenSearch / Elasticsearch / BM25 search, 8 property graph databases, 3 RDF triple stores (Fuseki, GraphDB, Oxigraph), and Alfresco.  These servers and their dashboards can be configured in a provided docker compose.
 
 <p align="center">
   <a href="./screen-shots/auto-sync/auto-sync.png">
@@ -28,9 +31,14 @@
 ## Features
 
 - **Hybrid Search**: A configurable hybrid search system that combines vector search, full-text search, and graph GraphRAG
-- **Knowledge Graph GraphRAG**: Extracts entities and relationships from documents to auto create graphs in graph databases for GraphRAG. Configuration for schemas to use or use
+- **Knowledge Graph GraphRAG**: Extracts entities and relationships from documents to auto create graphs in property graph databases for GraphRAG. Configuration for schemas to use or use
 as a starting point for LLM to expand on is supported.
-- **Configurable Architecture**: LlamaIndex provides abstractions for allowing multiple vector databases, graph databases, search engines, and LLM providers to be supported
+- **RDF/Ontology Support**: Load OWL/RDFS ontologies to guide KG extraction into any property graph or RDF store; SPARQL 1.1 queries; RDF 1.2 triple annotations; full UI pipeline (ingest, hybrid search, AI query/chat, incremental auto-sync). See [Ontology and RDF Support](#ontology-and-rdf-support) below.
+- **8 Property Graph Databases**: Neo4j, FalkorDB, ArcadeDB, Kuzu, MemGraph, NebulaGraph, Amazon Neptune, and Amazon Neptune Analytics — with KG extraction, hybrid search, and AI query/chat
+- **3 RDF Triple Stores**: Apache Jena Fuseki, Ontotext GraphDB, Oxigraph
+- **10 Vector Databases**: Qdrant, Elasticsearch, OpenSearch, Neo4j, Chroma, Milvus, Weaviate, Pinecone, PostgreSQL pgvector, LanceDB — for semantic similarity search
+- **3 Search Databases**: Elasticsearch, OpenSearch, BM25 (built-in) — for full-text search and hybrid ranking
+- **Configurable Architecture**: LlamaIndex provides abstractions for allowing multiple vector databases, property graph databases, RDF triple stores, search engines, and LLM providers to be supported
 - **Multi-Source Ingestion**: Processes documents from 13 data sources (file upload, cloud storage, enterprise repositories, web sources) with Docling (default) or LlamaParse (cloud API) document parsing.
 - **Observability**: Built-in OpenTelemetry instrumentation with automatic LlamaIndex tracing, Prometheus metrics, Jaeger traces, and Grafana dashboards for production monitoring
 - **FastAPI Server with REST API**: Python based FastAPI server with REST APIs for document ingesting, hybrid search, AI query, and AI chat.
@@ -428,7 +436,7 @@ ENABLE_KNOWLEDGE_GRAPH=false
 ```
 
 
-### Graph Databases (Knowledge Graph / GraphRAG)
+### Property Graph Databases (Knowledge Graph / GraphRAG)
 
 **Configuration**: Set via `GRAPH_DB` and `GRAPH_DB_CONFIG` environment variables
 
@@ -504,6 +512,58 @@ ENABLE_KNOWLEDGE_GRAPH=false
     ```
   - Use when you want vector + full-text search without graph traversal
 
+## Ontology and RDF Support
+
+Flexible GraphRAG supports RDF/RDFS/OWL ontologies to guide knowledge graph extraction, with optional RDF triple store backends. Ontology-guided extraction works with **any** configured store — property graph, RDF store, or both.
+
+- Load OWL/RDFS ontologies (`owl:Class`, `owl:ObjectProperty`, `owl:DatatypeProperty`, `rdfs:domain`, `rdfs:range`) to constrain entity/relation extraction; OWL is supported but not required
+- Works with all 8 property graph databases (Neo4j, FalkorDB, ArcadeDB, etc.) — no RDF store required to use ontology-guided extraction
+- Full pipeline for all 3 RDF triple stores: UI document ingest → KG extraction → RDF storage; auto incremental data source change updates via the auto-sync checkbox; Hybrid Search and AI Query/Chat tabs fuse RDF store results alongside vector, BM25, and graph results
+- SPARQL 1.1 queries; RDF 1.2 triple terms and relation annotations (`{| |}` syntax); XSD-typed literals from OWL `DatatypeProperty` ranges
+
+**Storage Modes** (set via `INGESTION_STORAGE_MODE`):
+- **`property_graph`** — entities and relations go to the configured property graph (Neo4j, FalkorDB, ArcadeDB, etc.); no RDF store needed
+- **`rdf_only`** — triples written directly to enabled RDF store(s); native SPARQL 1.1 queries, RDF 1.2 annotations
+- **`both`** — written to property graph and RDF store(s) simultaneously; all retrievers active in hybrid search and AI query/chat
+
+In all modes, the UI **Hybrid Search** and **AI Query/Chat** tabs work with whichever stores are configured. RDF store results are fused into the same retrieval pipeline as vector, BM25, and property graph results when `USE_LANGCHAIN_RDF=true`.
+
+**RDF Store Configuration** (all three support RDF 1.2 triple terms):
+
+- **Apache Jena Fuseki** — SPARQL 1.1 server; dashboard: http://localhost:3030
+  ```bash
+  FUSEKI_ENABLED=true
+  FUSEKI_BASE_URL=http://localhost:3030
+  FUSEKI_DATASET=flexible-graphrag
+  ```
+
+- **Ontotext GraphDB** — enterprise RDF store with OWL reasoning; dashboard: http://localhost:7200
+  ```bash
+  GRAPHDB_ENABLED=true
+  GRAPHDB_BASE_URL=http://localhost:7200
+  GRAPHDB_REPOSITORY=flexible-graphrag
+  GRAPHDB_USERNAME=admin
+  GRAPHDB_PASSWORD=admin
+  ```
+
+- **Oxigraph** — lightweight local store, native RDF 1.2; dashboard: http://localhost:7878
+  ```bash
+  OXIGRAPH_ENABLED=true
+  OXIGRAPH_URL=http://localhost:7878
+  ```
+
+**Docker Setup:** Uncomment RDF store includes in `docker-compose.yaml`:
+```yaml
+includes:
+  # - includes/jena-fuseki.yaml
+  # - includes/ontotext-graphdb.yaml
+  # - includes/oxigraph.yaml
+```
+
+**Complete Documentation:** [docs/RDF/RDF-ONTOLOGY-SUPPORT.md](docs/RDF/RDF-ONTOLOGY-SUPPORT.md) | [docs/RDF/RDF-STORE-USER-GUIDE.md](docs/RDF/RDF-STORE-USER-GUIDE.md)
+
+**LangChain RDF retrieval** (`USE_LANGCHAIN_RDF=true`) fuses SPARQL-based results from the configured RDF store directly into hybrid search and AI query alongside vector and graph results. Supports `SynonymExpander` for query keyword expansion, `GraphEntityVectorRetriever` for Neo4j entity vector search, and `GraphNeighborhoodRetriever` for k-hop graph expansion. See [docs/RDF/RDF-STORE-USER-GUIDE.md](docs/RDF/RDF-STORE-USER-GUIDE.md#langchain-rdf-retrieval).
+
 ## LLM Configuration
 
 **Configuration**: Set via `LLM_PROVIDER` and provider-specific environment variables. See [docs/LLM/LLM-EMBEDDING-CONFIG.md](docs/LLM/LLM-EMBEDDING-CONFIG.md) for detailed examples and all options.
@@ -513,12 +573,16 @@ ENABLE_KNOWLEDGE_GRAPH=false
 1. **OpenAI** - gpt-4o-mini (default), gpt-4o, gpt-4.1-mini, gpt-5-mini, etc.
 2. **Ollama** - Local deployment (llama3.2, llama3.1, qwen2.5, gpt-oss, etc.)
 3. **Azure OpenAI** - Azure-hosted OpenAI models
-4. **Google Gemini** - gemini-2.5-flash, gemini-3-flash-preview, gemini-3-pro-preview, etc.
+4. **Google Gemini** - gemini-2.5-flash, gemini-3-flash-preview, gemini-3.1-pro-preview, etc.
 5. **Anthropic Claude** - claude-sonnet-4-5, claude-haiku-4-5, etc.
 6. **Google Vertex AI** - Google Cloud-hosted Vertex AI Platform Gemini models
 7. **Amazon Bedrock** - Amazon Nova, Titan, Anthropic Claude, Meta Llama, Mistral AI, etc.
 8. **Groq** - Fast low-cost LPU inference, low latency: OpenAI GPT-OSS, Meta Llama (4, 3.3, 3.1), Qwen3, Kimi, etc.
 9. **Fireworks AI** - More choices, fine-tuning: Meta, Qwen, Mistral AI, DeepSeek, OpenAI GPT-OSS, Kimi, GLM, MiniMax, etc.
+10. **OpenAI-Compatible** (`openai_like`) - Any OpenAI-compatible endpoint (LM Studio, LocalAI, Llamafile, vLLM, etc.)
+11. **OpenRouter** - 200+ models via unified API (openai/gpt-4o-mini, anthropic/claude, meta-llama, etc.)
+12. **LiteLLM Proxy** - 100+ providers via LiteLLM proxy; sample config in `scripts/litellm_config.yaml`
+13. **vLLM** - High-performance local inference server (Linux/macOS; use `openai_like` on Windows)
 
 ### Quick Start Examples
 
@@ -585,18 +649,20 @@ See [docs/LLM/OLLAMA-CONFIGURATION.md](docs/LLM/OLLAMA-CONFIGURATION.md) for com
 ## Prerequisites
 
 ### Required
-- Python 3.12 or 3.13 (as specified in `pyproject.toml` - 3.14 has LlamaIndex ChromaDB compatibility issues)
+- Python 3.12, 3.13, or 3.14 (as specified in `pyproject.toml`)
 - UV package manager (for dependency management)
 - Node.js 22.x (for UI clients)
 - npm (package manager)
 - Search database: Elasticsearch or OpenSearch
 - Vector database: Qdrant (or other supported vector databases)
-- Graph database: Neo4j (or other supported graph databases) - unless using vector-only RAG
+- Property graph database: Neo4j (or other supported property graph databases) - unless using vector-only RAG
 - OpenAI with API key (recommended) or Ollama (for LLM processing)
 
 **Note**: The `docker/docker-compose.yaml` file can provide all these databases via Docker containers.
 
 ### Optional (depending on data source)
+- **LangChain integration** (`uv pip install -e ".[langchain]"`) — RDF QA fusion retriever and property graph retrievers; installs `langchain`, `langchain-community`, `langchain-openai`, `langchain-anthropic`, `langchain-aws`, `langchain-ollama`, `langchain-google-genai`, `langchain-google-vertexai`, `langchain-groq`, `langchain-fireworks`, `langchain-neo4j`; extended graph backends (ArangoDB, Spanner, AGE, Gremlin) via `.[langchain,langchain-extras]`; see `flexible-graphrag/langchain/langchain-requirements.txt` for the full list
+- **ArcadeDB embedded mode** (`uv pip install arcadedb>=26.3.2`) — runs ArcadeDB in-process; includes a bundled JVM, no separate Java install needed; latest release: 26.3.2
 - **Enterprise Repositories**:
   - Alfresco repository - only if using Alfresco data source
   - SharePoint - requires SharePoint access
@@ -799,8 +865,11 @@ source venv-3.13/bin/activate  # Linux/macOS
 # 2. Install flexible-graphrag
 uv pip install flexible-graphrag
 
-# 3. Optionally install ArcadeDB embedded mode support
-uv pip install arcadedb-embedded
+# 3. Optionally install ArcadeDB embedded mode support (includes bundled JVM, no Java install needed)
+uv pip install arcadedb>=26.3.2
+
+# 3a. Optionally install LangChain support (multiple packages — RDF QA fusion and property graph retrievers)
+uv pip install "flexible-graphrag[langchain]"
 
 # 4. Create .env from the sample (copy from the source repo or download env-sample.txt)
 copy env-sample.txt .env   # Windows
@@ -828,6 +897,14 @@ flexible-graphrag
    venv-3.13\Scripts\Activate   # Windows
    source venv-3.13/bin/activate  # Linux/macOS
    uv pip install -e .
+   # Optional: LangChain support — installs langchain, langchain-community, langchain-openai,
+   #   langchain-anthropic, langchain-aws, langchain-ollama, langchain-google-genai,
+   #   langchain-google-vertexai, langchain-groq, langchain-fireworks, langchain-neo4j
+   uv pip install -e ".[langchain]"
+   # Optional: extended graph backends (ArangoDB, Spanner, AGE, Gremlin)
+   uv pip install -e ".[langchain,langchain-extras]"
+   # Optional: ArcadeDB embedded mode (includes bundled JVM)
+   uv pip install arcadedb>=26.3.2
    ```
 
    **uv-managed venv** (alternative): change `managed = false` to `managed = true` in `pyproject.toml` `[tool.uv]` section, then just run `uv pip install -e .`.
@@ -851,12 +928,12 @@ flexible-graphrag
 
    Edit `.env` with your specific configuration. See [docs/ENVIRONMENT-CONFIGURATION.md](docs/ENVIRONMENT-CONFIGURATION.md) for detailed setup guide.
 
-**Note**: The system requires Python 3.12 or 3.13 as specified in `pyproject.toml` (requires-python = ">=3.12,<3.14"). Python 3.12 and 3.13 are fully tested and working. Python 3.14 has LlamaIndex ChromaDB compatibility issues (`chromadb` and `llama-index-vector-stores-chroma` packages). Virtual environment management is controlled by `managed = false` in `pyproject.toml` `[tool.uv]` section (you control venv creation and naming).
+**Note**: The system requires Python 3.12, 3.13, or 3.14 as specified in `pyproject.toml` (requires-python = ">=3.12,<3.15"). Python 3.12 and 3.13 are fully tested. Python 3.14 works with the patches applied automatically in `main.py` at startup. Virtual environment management is controlled by `managed = false` in `pyproject.toml` `[tool.uv]` section (you control venv creation and naming).
 
 4. Start the backend:
    ```bash
    flexible-graphrag        # after uv pip install flexible-graphrag
-   # or: uv run start.py   # with source or after package install
+   # or: uv run start.py   # with source
    ```
 
 The backend will be available at `http://localhost:8000`.
@@ -1092,7 +1169,7 @@ The FastAPI backend provides the following REST API endpoints:
 | `/api/python-info` | GET | Get Python environment diagnostics |
 | `/` | GET | Root endpoint (basic API info) |
 
-**Interactive API Documentation**:
+**Swagger / ReDoc Interactive REST API Documentation**:
 - **Swagger UI**: http://localhost:8000/docs
 - **ReDoc**: http://localhost:8000/redoc
 
@@ -1176,6 +1253,11 @@ See [docs/OBSERVABILITY/OBSERVABILITY.md](docs/OBSERVABILITY/OBSERVABILITY.md) f
   - `ingest/`: Ingestion management and orchestration
   - `incremental_updates/`: Auto-sync engine — detectors, orchestrator, state manager for real-time/near-real-time source sync
   - `observability/`: OpenTelemetry instrumentation, Prometheus metrics, tracing setup
+  - `rdf/`: RDF/ontology support — ontology manager, KG-to-RDF converter, SPARQL tools, bundled schemas (`rdf/schemas/`), unified query engine
+    - `rdf/store/`: RDF store adapters — Fuseki, GraphDB, Oxigraph, store factory
+  - `langchain/`: LangChain integration — LLM factory (all providers), graph retrievers, RDF QA adapters
+    - `langchain/llm/`: LangChain LLM factory supporting all 13 configured providers
+    - `langchain/graph/`: Graph retrievers — RDF QA fusion, synonym expander, Neo4j entity vector, k-hop neighborhood, store adapters (Fuseki, GraphDB, Oxigraph, Neptune)
   - `pyproject.toml`: Modern Python package definition (PEP 517/518)
   - `uv.toml`: UV package manager configuration
   - `requirements.txt`: Legacy pip requirements file (backward compatibility)
@@ -1191,8 +1273,22 @@ See [docs/OBSERVABILITY/OBSERVABILITY.md](docs/OBSERVABILITY/OBSERVABILITY.md) f
 
 - `/flexible-graphrag-ui`: Frontend applications
   - `/frontend-react`: React + TypeScript frontend (built with Vite)
+    - `/src`: Source code
+    - `vite.config.ts`: Vite configuration
+    - `tsconfig.json`: TypeScript configuration
+    - `package.json`: Node.js dependencies and scripts
+
   - `/frontend-angular`: Angular + TypeScript frontend (built with Angular CLI)
+    - `/src`: Source code
+    - `angular.json`: Angular configuration
+    - `tsconfig.json`: TypeScript configuration
+    - `package.json`: Node.js dependencies and scripts
+
   - `/frontend-vue`: Vue + TypeScript frontend (built with Vite)
+    - `/src`: Source code
+    - `vite.config.ts`: Vite configuration
+    - `tsconfig.json`: TypeScript configuration
+    - `package.json`: Node.js dependencies and scripts
 
 - `/docker`: Docker infrastructure
   - `docker-compose.yaml`: Main compose file with modular includes
@@ -1203,28 +1299,48 @@ See [docs/OBSERVABILITY/OBSERVABILITY.md](docs/OBSERVABILITY/OBSERVABILITY.md) f
 - `/docs`: Documentation
   - `ARCHITECTURE.md`: System architecture and component relationships
   - `DEPLOYMENT-CONFIGURATIONS.md`: Standalone, hybrid, and full Docker deployment guides
+  - `DOCKER-RESOURCE-CONFIGURATION.md`: Docker memory/CPU configuration for Windows (WSL2), macOS, and Linux — essential for running the full stack, especially with vLLM
   - `ENVIRONMENT-CONFIGURATION.md`: Environment setup guide with database switching
   - `POSTGRES-SETUP.md`: PostgreSQL setup for pgvector and incremental state management
   - `SCHEMA-EXAMPLES.md`: Knowledge graph schema examples
   - `PERFORMANCE.md`: Performance benchmarks and optimization guides
   - `DEFAULT-USERNAMES-PASSWORDS.md`: Database credentials and dashboard access
   - `PORT-MAPPINGS.md`: Complete port reference for all services
-  - `DATA-SOURCES/`: Data source setup guides (Azure Blob, S3, GCS, CMIS, etc.)
+  - `DATA-SOURCES/`: Data source setup guides (Azure Blob, S3, GCS, Alfresco etc.)
   - `DOC-PROCESSING/`: Document processing guides (Docling GPU, parser output)
   - `GRAPH-DATABASES/`: Graph database guides (Neo4j, Neptune, Nebula, ArcadeDB, etc.)
   - `INCREMENTAL-UPDATE-AUTO-SYNC/`: Incremental updates documentation (README, QUICKSTART, SETUP-GUIDE, API-REFERENCE)
   - `LLM/`: LLM and embedding configuration guides
+  - `LANGCHAIN/`: LangChain integration guides (RDF QA fusion, graph retriever setup, adapter reference)
   - `OBSERVABILITY/`: Observability and monitoring guides
+  - `RDF/`: RDF/ontology guides (store setup, ontology config, ingestion modes, SPARQL examples, user guide)
   - `VECTOR-DATABASES/`: Vector database guides (dimensions, integration, Chroma modes)
 
 - `/scripts`: Utility scripts
   - `create_opensearch_pipeline.py`: OpenSearch hybrid search pipeline setup
   - `setup-opensearch-pipeline.sh/.bat`: Cross-platform pipeline creation
-  - `/incremental`: Incremental updates control scripts (sync-now, set-refresh-interval)
+  - `rdf_cleanup.py`: RDF store CLI tool — list-docs, count, clear-doc, clear-all
+  - `litellm_config.yaml`: Sample LiteLLM proxy config (copy to your LiteLLM install dir)
+  - `/incremental`: Incremental updates control scripts
+    - `sync-now.sh/.ps1/.bat`: Trigger immediate synchronization
+    - `set-refresh-interval.sh/.ps1/.bat`: Configure polling interval
+    - `README.md`: Script usage documentation
 
 - `/tests`: Test suite
   - `test_bm25_*.py`: BM25 configuration and integration tests
   - `conftest.py`: Test configuration and fixtures
+  - `run_tests.py`: Test runner
+
+- `/examples`: Standalone usage examples (not re-tested)
+  - `observability_example.py`: OpenTelemetry / observability integration example
+  - `/rdf`: RDF/ontology examples
+    - `sparql_examples.py`: Sample SPARQL queries for all three stores
+    - `unified_query_engine_examples.py`: `UnifiedQueryEngine` usage examples
+    - `store_index_example.py`: Build a LlamaIndex from an RDF store
+    - `ontology_guided_ingestion_example.py`: `OntologyAwarePropertyGraphBuilder` usage
+    - `ingest_with_ontology.py`: Ontology-guided ingestion example class
+    - `rdf_export_import_examples.py`: RDF export/import patterns
+    - `config_rdf_stores.py`: RDF store config reference snippets
 
 ## License
 

@@ -1004,20 +1004,37 @@ class AlfrescoDetector(ChangeDetector):
                             logger.error(f"Error processing STOMP event: {queue_exc}")
                 
                 # Wait for library events from async queue (with timeout)
-                try:
-                    logger.debug(f"   Waiting for library event (timeout 5s)...")
-                    event = await asyncio.wait_for(self._event_queue.get(), timeout=5.0)
-                    if event:
-                        logger.info(f"LIBRARY EVENT DEQUEUED: {event.change_type.value} for {event.metadata.path}")
-                        logger.info(f"   Queue remaining: {self._event_queue.qsize()}")
-                        yield event
-                    else:
-                        logger.debug(f"   Got None event from queue")
-                        yield None
-                except asyncio.TimeoutError:
-                    # No events in queue, yield None to allow other processing
-                    logger.debug(f"   Timeout - no events in queue")
+                # Python 3.14: asyncio.wait_for uses asyncio.timeout() which requires a Task.
+                # When running outside a Task context, catch RuntimeError and treat as timeout.
+                # When using direct STOMP, the async library queue is never populated — skip it
+                # entirely and just sleep briefly to yield control before next iteration.
+                if self._use_direct_stomp:
+                    await asyncio.sleep(1.0)
                     yield None
+                else:
+                    try:
+                        logger.debug(f"   Waiting for library event (timeout 5s)...")
+                        event = await asyncio.wait_for(self._event_queue.get(), timeout=5.0)
+                        if event:
+                            logger.info(f"LIBRARY EVENT DEQUEUED: {event.change_type.value} for {event.metadata.path}")
+                            logger.info(f"   Queue remaining: {self._event_queue.qsize()}")
+                            yield event
+                        else:
+                            logger.debug(f"   Got None event from queue")
+                            yield None
+                    except asyncio.TimeoutError:
+                        # No events in queue, yield None to allow other processing
+                        logger.debug(f"   Timeout - no events in queue")
+                        yield None
+                    except RuntimeError as e:
+                        # Python 3.14: asyncio.timeout() raises RuntimeError outside a Task.
+                        # Treat as a timeout and fall back to a plain sleep before continuing.
+                        if "should be used inside a task" in str(e):
+                            logger.debug("   No Task context for wait_for - sleeping 5s before retry")
+                            await asyncio.sleep(5.0)
+                            yield None
+                        else:
+                            raise
                     
             except asyncio.CancelledError:
                 logger.info("Event mode monitoring cancelled")

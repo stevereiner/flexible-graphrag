@@ -30,6 +30,10 @@ llama-index-llms-anthropic
 llama-index-llms-bedrock-converse
 llama-index-llms-groq
 llama-index-llms-fireworks
+llama-index-llms-openai-like
+llama-index-llms-vllm
+llama-index-llms-litellm
+llama-index-llms-openrouter
 llama-index-embeddings-openai
 llama-index-embeddings-ollama
 llama-index-embeddings-google-genai
@@ -37,6 +41,8 @@ llama-index-embeddings-azure-openai
 # llama-index-embeddings-vertex removed - use google-genai package for Vertex AI
 llama-index-embeddings-bedrock
 llama-index-embeddings-fireworks
+llama-index-embeddings-openai-like
+llama-index-embeddings-litellm
 llama-index-vector-stores-neo4jvector
 llama-index-vector-stores-qdrant
 llama-index-vector-stores-elasticsearch
@@ -57,8 +63,8 @@ llama-index-retrievers-bm25
 
 # ArcadeDB graph database dependencies
 arcadedb-python>=0.4.0
-llama-index-graph-stores-arcadedb>=0.4.1
-# arcadedb-embedded>=26.2.1  # Uncomment to enable embedded ArcadeDB mode (no separate server required)
+llama-index-graph-stores-arcadedb>=0.4.2
+# arcadedb-embedded>=26.3.2
 
 # Kuzu graph database dependencies
 kuzu
@@ -72,10 +78,8 @@ qdrant-client
 chromadb
 pymilvus
 weaviate-client
-pinecone-client
 psycopg2-binary
 lancedb
-
 pinecone
 
 # Data Source LlamaIndex Reader dependencies
@@ -132,4 +136,24 @@ azure-storage-blob-changefeed>=12.0.0b5  # Azure Blob change feed (beta, MIT lic
 msgraph-sdk  # Microsoft Graph SDK for OneDrive/SharePoint (MIT license)
 azure-identity  # Azure AD authentication for Microsoft Graph (MIT license)
 
+# RDF and Ontology Support
+rdflib>=7.0.0
+pyoxigraph>=0.3.20
+requests>=2.31.0
 
+# LangChain integrations — optional (install via pyproject.toml extras or langchain/langchain-requirements.txt)
+#   uv pip install -e ".[langchain]"                       — core providers + Neo4j
+#   uv pip install -e ".[langchain,langchain-extras]"      — + ArangoDB, Spanner, AGE, Gremlin
+#   uv pip install -r langchain/langchain-requirements.txt — standalone
+#
+# langchain
+# langchain-community
+# langchain-openai
+# langchain-anthropic
+# langchain-aws
+# langchain-ollama
+# langchain-google-genai
+# langchain-google-vertexai
+# langchain-groq
+# langchain-fireworks
+# langchain-neo4j

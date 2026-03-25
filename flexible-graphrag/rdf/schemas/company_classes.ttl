@@ -1,0 +1,94 @@
+@prefix company: <http://example.org/company/> .
+@prefix common: <https://integratedsemantics.org/flexible-graphrag/common#> .
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+# =============================================================
+# company_classes.ttl — Classes and Object Properties
+# Part 1 of 2; combine with company_properties.ttl for the full
+# company domain ontology.
+# =============================================================
+
+# CLASSES
+company:Employee a owl:Class ;
+    rdfs:subClassOf common:Person ;
+    rdfs:label "Employee" ;
+    rdfs:comment "A person employed by the company" .
+
+company:Department a owl:Class ;
+    rdfs:label "Department" ;
+    rdfs:comment "A department within the company" .
+
+company:Company a owl:Class ;
+    rdfs:label "Company" ;
+    rdfs:comment "A company organization" .
+
+company:Project a owl:Class ;
+    rdfs:label "Project" ;
+    rdfs:comment "A company project" .
+
+company:Skill a owl:Class ;
+    rdfs:label "Skill" ;
+    rdfs:comment "A professional skill" .
+
+company:Technology a owl:Class ;
+    rdfs:label "Technology" ;
+    rdfs:comment "A technology or programming language" .
+
+# OBJECT PROPERTIES
+company:works_for a owl:ObjectProperty ;
+    rdfs:domain common:Person ;
+    rdfs:range company:Company ;
+    rdfs:label "works for" .
+
+company:employs a owl:ObjectProperty ;
+    rdfs:domain company:Company ;
+    rdfs:range common:Person ;
+    rdfs:label "employs" .
+
+company:works_in_department a owl:ObjectProperty ;
+    rdfs:domain company:Employee ;
+    rdfs:range company:Department ;
+    rdfs:label "works in department" .
+
+company:manages a owl:ObjectProperty ;
+    rdfs:domain company:Employee ;
+    rdfs:range company:Employee ;
+    rdfs:label "manages" .
+
+company:assigned_to a owl:ObjectProperty ;
+    rdfs:domain company:Employee ;
+    rdfs:range company:Project ;
+    rdfs:label "assigned to" .
+
+company:has_assigned a owl:ObjectProperty ;
+    rdfs:domain company:Project ;
+    rdfs:range company:Employee ;
+    rdfs:label "has assigned" .
+
+company:has_skill a owl:ObjectProperty ;
+    rdfs:domain company:Employee ;
+    rdfs:range company:Skill ;
+    rdfs:label "has skill" .
+
+company:uses_technology a owl:ObjectProperty ;
+    rdfs:domain company:Project ;
+    rdfs:range company:Technology ;
+    rdfs:label "uses technology" .
+
+company:led_by a owl:ObjectProperty ;
+    rdfs:domain company:Project ;
+    rdfs:range company:Employee ;
+    rdfs:label "led by" .
+
+company:part_of a owl:ObjectProperty ;
+    rdfs:domain company:Department ;
+    rdfs:range company:Company ;
+    rdfs:label "part of" .
+
+company:has_department a owl:ObjectProperty ;
+    rdfs:domain company:Company ;
+    rdfs:range company:Department ;
+    rdfs:label "has department" .

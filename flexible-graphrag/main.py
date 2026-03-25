@@ -2,6 +2,17 @@ import os
 import logging
 import sys
 from datetime import datetime
+
+# Neutralise nest_asyncio.apply on Python 3.14+ before any imports that might trigger it.
+# LlamaIndex (async_utils, elasticsearch store) calls nest_asyncio.apply() unconditionally;
+# on 3.14 this breaks asyncio.Runner.close() → shutdown_default_executor().
+if sys.version_info >= (3, 14):
+    try:
+        import nest_asyncio as _nest_asyncio_early
+        _nest_asyncio_early.apply = lambda *a, **kw: None
+    except ImportError:
+        pass
+
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, Depends, status, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
@@ -33,7 +44,7 @@ try:
     
     if temp_settings.enable_observability:
         # Note: observability_backend is already a string due to use_enum_values=True in Settings
-        logger.info(f"🔧 Initializing observability (backend: {temp_settings.observability_backend})...")
+        logger.info(f"Initializing observability (backend: {temp_settings.observability_backend})...")
         setup_observability(
             service_name=temp_settings.otel_service_name,
             otlp_endpoint=temp_settings.otel_exporter_otlp_endpoint,
@@ -63,14 +74,247 @@ else:
     asyncio.set_event_loop_policy(asyncio.DefaultEventLoopPolicy())
 
 # Apply nest_asyncio to allow nested event loops (required for LlamaIndex in FastAPI)
-nest_asyncio.apply()
+# nest_asyncio is incompatible with Python 3.14+ — it patches the event loop in a way
+# that breaks asyncio.current_task(), causing failures in aiohttp, asyncpg, etc.
+if sys.version_info < (3, 14):
+    nest_asyncio.apply()
 
 # Ensure we have a proper event loop for Docker containers
+# Note: Only create a new event loop if there isn't one already running.
+# Do NOT call set_event_loop() unconditionally — on Python 3.14 this creates
+# a mismatch with uvicorn's event loop causing asyncio.current_task() to return None.
 try:
-    loop = asyncio.get_running_loop()
+    asyncio.get_running_loop()
 except RuntimeError:
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
+    try:
+        asyncio.get_event_loop()
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+
+
+# ---------------------------------------------------------------------------
+# Python 3.14 compatibility patches
+# asyncio.current_task() returns None in certain contexts (lifespan startup,
+# some task scheduling paths). Libraries that use asyncio.timeout() or aiohttp's
+# TimerContext raise RuntimeError("Timeout ... should be used inside a task").
+# Patch both to be no-ops when there is no current task.
+# ---------------------------------------------------------------------------
+def _apply_python314_patches() -> None:
+    if sys.version_info < (3, 14):
+        return
+
+    from contextlib import asynccontextmanager
+
+    # Patch asyncpg.compat.timeout (used during connection pool creation)
+    try:
+        import asyncpg.compat as _asyncpg_compat
+        _orig_asyncpg_timeout = _asyncpg_compat.timeout
+
+        @asynccontextmanager
+        async def _safe_asyncpg_timeout(delay):
+            if delay is None or asyncio.current_task() is None:
+                yield
+            else:
+                async with _orig_asyncpg_timeout(delay):
+                    yield
+
+        _asyncpg_compat.timeout = _safe_asyncpg_timeout
+    except Exception:
+        pass
+
+    # Patch anyio.CancelScope.__enter__ / __exit__ — called by httpcore's AsyncShieldCancellation
+    # during HTTP connection cleanup. anyio uses current_task() to track which task owns the scope;
+    # when current_task() is None (executor threads), it tries to look up None in a
+    # WeakValueDictionary and raises TypeError: cannot create weak reference to 'NoneType'.
+    # Fix: make CancelScope.__enter__/__exit__ no-ops when there is no current task.
+    try:
+        from anyio._backends._asyncio import CancelScope as _AnyioCancelScope
+        _orig_cancel_scope_enter = _AnyioCancelScope.__enter__
+        _orig_cancel_scope_exit = _AnyioCancelScope.__exit__
+
+        def _safe_cancel_scope_enter(self):
+            if asyncio.current_task() is None:
+                self._active = True
+                self._no_task_noop = True
+                return self
+            self._no_task_noop = False
+            return _orig_cancel_scope_enter(self)
+
+        def _safe_cancel_scope_exit(self, exc_type, exc_val, exc_tb):
+            if getattr(self, '_no_task_noop', False):
+                self._active = False
+                self._no_task_noop = False
+                return False
+            return _orig_cancel_scope_exit(self, exc_type, exc_val, exc_tb)
+
+        _AnyioCancelScope.__enter__ = _safe_cancel_scope_enter
+        _AnyioCancelScope.__exit__ = _safe_cancel_scope_exit
+    except Exception:
+        pass
+
+    # Patch httpcore.AsyncShieldCancellation — used during HTTP connection cleanup.
+    # It calls anyio.CancelScope(shield=True).__enter__() which calls current_task().
+    # When current_task() is None (executor threads, lifespan), anyio tries to look up
+    # None in a WeakValueDictionary and raises TypeError.
+    # Fix: make AsyncShieldCancellation a no-op context manager when there is no current task.
+    try:
+        import httpcore._synchronization as _httpcore_sync
+
+        class _SafeAsyncShieldCancellation:
+            def __init__(self) -> None:
+                self._active = asyncio.current_task() is not None
+                if self._active:
+                    self._orig = _httpcore_sync._orig_AsyncShieldCancellation()
+
+            def __enter__(self):
+                if self._active:
+                    self._orig.__enter__()
+                return self
+
+            def __exit__(self, *args):
+                if self._active:
+                    return self._orig.__exit__(*args)
+                return False
+
+        # Save original so the wrapper above can instantiate it
+        _httpcore_sync._orig_AsyncShieldCancellation = _httpcore_sync.AsyncShieldCancellation
+        _httpcore_sync.AsyncShieldCancellation = _SafeAsyncShieldCancellation
+    except Exception:
+        pass
+
+    # Patch sniffio.current_async_library — on Python 3.14, asyncio.current_task()
+    # returns None in threads spawned from async context (e.g. openai's to_thread calls).
+    # sniffio uses current_task() to detect asyncio, so it raises AsyncLibraryNotFoundError.
+    # Fix: also return "asyncio" when there is a running event loop, even without a current task.
+    try:
+        import sniffio._impl as _sniffio_impl
+
+        def _safe_current_async_library():
+            # Fast path: context var or thread-local already set
+            value = _sniffio_impl.thread_local.name
+            if value is not None:
+                return value
+            value = _sniffio_impl.current_async_library_cvar.get()
+            if value is not None:
+                return value
+            # asyncio sniff: current_task() OR a running event loop is enough
+            if "asyncio" in sys.modules:
+                try:
+                    if asyncio.current_task() is not None:
+                        return "asyncio"
+                    # Python 3.14: current_task() may be None in threads — fall back to loop check
+                    asyncio.get_running_loop()
+                    return "asyncio"
+                except RuntimeError:
+                    pass
+            raise _sniffio_impl.AsyncLibraryNotFoundError(
+                "unknown async library, or not in async context"
+            )
+
+        _sniffio_impl.current_async_library = _safe_current_async_library
+        # Also patch the top-level sniffio module attribute
+        import sniffio as _sniffio
+        _sniffio.current_async_library = _safe_current_async_library
+    except Exception:
+        pass
+
+    # Patch aiohttp.helpers.TimerContext and ceil_timeout (used by aiohttp HTTP client)
+    try:
+        import aiohttp.helpers as _aiohttp_helpers
+
+        # Patch TimerContext.__enter__ (low-res timeout)
+        _orig_timer_enter = _aiohttp_helpers.TimerContext.__enter__
+
+        def _safe_timer_enter(self):
+            if asyncio.current_task() is None:
+                return self
+            return _orig_timer_enter(self)
+
+        _aiohttp_helpers.TimerContext.__enter__ = _safe_timer_enter
+
+        # Patch ceil_timeout (high-res timeout used in connector.connect)
+        _orig_ceil_timeout = _aiohttp_helpers.ceil_timeout
+
+        @asynccontextmanager
+        async def _safe_ceil_timeout(delay, ceil_threshold=5):
+            if delay is None or delay <= 0 or asyncio.current_task() is None:
+                yield
+            else:
+                async with _orig_ceil_timeout(delay, ceil_threshold):
+                    yield
+
+        _aiohttp_helpers.ceil_timeout = _safe_ceil_timeout
+
+        # Also patch in connector module which imports ceil_timeout directly
+        try:
+            import aiohttp.connector as _aiohttp_connector
+            _aiohttp_connector.ceil_timeout = _safe_ceil_timeout
+        except Exception:
+            pass
+
+    except Exception:
+        pass
+
+    # Neutralise nest_asyncio.apply() on Python 3.14 — LlamaIndex's async_utils and
+    # the elasticsearch vector store both call nest_asyncio.apply() unconditionally at
+    # runtime.  On 3.14 this patches loop.run_until_complete() in a way that breaks
+    # asyncio.Runner.close() → shutdown_default_executor(), which uses asyncio.timeout()
+    # and requires a Task.  The patched version runs the coroutine without a Task,
+    # causing RuntimeError("Timeout should be used inside a task").
+    # Fix: replace nest_asyncio.apply with a no-op so every caller (including third-party
+    # libraries) is silently ignored on 3.14+.
+    try:
+        import nest_asyncio as _nest_asyncio
+        _nest_asyncio.apply = lambda *a, **kw: None
+    except ImportError:
+        pass
+
+    # Patch asyncio.wait_for — on Python 3.14 it uses asyncio.timeout() internally,
+    # which raises RuntimeError("Timeout should be used inside a task") when called
+    # outside a Task (e.g. from async generators that run in executor threads or
+    # during lifespan startup).  Wrap it so that when there is no current task and
+    # the timeout expires we raise asyncio.TimeoutError as callers expect.
+    try:
+        _orig_wait_for = asyncio.wait_for
+
+        async def _safe_wait_for(fut, timeout, **kwargs):
+            if timeout is None or asyncio.current_task() is not None:
+                return await _orig_wait_for(fut, timeout, **kwargs)
+            # No current Task — use asyncio.wait() to implement a timeout without
+            # asyncio.timeout(), which requires a Task on Python 3.14.
+            task = asyncio.ensure_future(fut)
+            done, pending = await asyncio.wait({task}, timeout=timeout)
+            if pending:
+                task.cancel()
+                try:
+                    await task
+                except (asyncio.CancelledError, Exception):
+                    pass
+                raise asyncio.TimeoutError()
+            return task.result()
+
+        asyncio.wait_for = _safe_wait_for
+    except Exception:
+        pass
+
+
+_apply_python314_patches()
+
+# On Python 3.14, asyncio.Runner propagates CancelledError out of run() after
+# Ctrl-C even though the shutdown completed cleanly, producing an ugly traceback.
+# Install an excepthook that suppresses it so the console stays clean on exit.
+if sys.version_info >= (3, 14):
+    _orig_excepthook = sys.excepthook
+
+    def _clean_exit_excepthook(exc_type, exc_val, exc_tb):
+        # asyncio.Runner on 3.14 raises CancelledError then converts it to
+        # KeyboardInterrupt on clean Ctrl-C — suppress both at top level.
+        if issubclass(exc_type, (asyncio.CancelledError, KeyboardInterrupt)):
+            return
+        _orig_excepthook(exc_type, exc_val, exc_tb)
+
+    sys.excepthook = _clean_exit_excepthook
 
 # Configure logging with both file and console output
 log_filename = f'flexible-graphrag-api-{datetime.now().strftime("%Y%m%d-%H%M%S")}.log'
@@ -160,9 +404,27 @@ async def lifespan(app: FastAPI):
                 
                 logger.info("SUCCESS: Incremental updates enabled and monitoring started")
             except Exception as e:
-                logger.error(f"ERROR: Failed to initialize incremental updates: {e}")
-                import traceback
-                traceback.print_exc()
+                error_msg = str(e)
+                logger.error(f"ERROR: Failed to initialize incremental updates: {error_msg}")
+                _db_missing = "does not exist" in error_msg
+                _server_down = (
+                    "refused" in error_msg.lower()
+                    or "WinError" in error_msg
+                    or "could not connect" in error_msg.lower()
+                    or "connect call failed" in error_msg.lower()
+                )
+                if _db_missing:
+                    logger.info("  The incremental updates database does not exist yet.")
+                    logger.info("  Recreate the PostgreSQL container and volume so the init scripts run fresh:")
+                    logger.info("    docker compose -p flexible-graphrag down postgres-pgvector pgadmin")
+                    logger.info("    docker volume rm flexible-graphrag_postgres_data flexible-graphrag_pgadmin_data")
+                    logger.info("    docker compose -p flexible-graphrag up -d postgres-pgvector pgadmin")
+                elif _server_down:
+                    logger.info("  PostgreSQL is not running. Start the containers:")
+                    logger.info("    docker compose -p flexible-graphrag up -d postgres-pgvector pgadmin")
+                else:
+                    import traceback
+                    traceback.print_exc()
     else:
         logger.info("INFO: Incremental updates disabled (set ENABLE_INCREMENTAL_UPDATES=true to enable)")
     
@@ -195,6 +457,15 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Include RDF/Ontology router if enabled
+try:
+    from rdf.api_rdf_enhancements import router as rdf_router
+    app.include_router(rdf_router)
+    logger.info("RDF/Ontology API endpoints registered")
+except Exception as e:
+    logger.warning(f"RDF/Ontology module not available: {e}")
+
 
 # Models
 class CmisConfig(BaseModel):
@@ -330,6 +601,19 @@ class Document(BaseModel):
 settings = Settings()
 backend_instance = get_backend()
 
+# Initialize RDF/Ontology system if enabled
+try:
+    if settings.use_ontology or settings.rdf_enabled_stores:
+        from rdf.api_rdf_enhancements import initialize_rdf_system
+        
+        # Get property graph index from backend if available
+        property_graph_index = getattr(backend_instance, 'index', None)
+        
+        initialize_rdf_system(settings, property_graph_index)
+        logger.info("RDF/Ontology system initialized")
+except Exception as e:
+    logger.warning(f"Failed to initialize RDF/Ontology system: {e}")
+
 # Lifecycle events for proper resource cleanup
 @app.on_event("shutdown")
 async def shutdown_event():
@@ -403,14 +687,50 @@ async def ingest(request: IngestRequest):
         if request.google_drive_config:
             kwargs['google_drive_config'] = request.google_drive_config.dict()
         
-        # Generate config_id BEFORE ingestion if sync enabled
-        # This allows backend to use stable doc_id format: config_id:filename
+        # Generate config_id BEFORE ingestion if sync enabled.
+        # IMPORTANT: config_id must be STABLE across restarts — it is embedded in
+        # every doc's ref_doc_id and used by delete_doc() to find RDF triples.
+        # Use uuid5 (name-based) derived from the datasource identity so the same
+        # datasource always produces the same config_id regardless of restarts.
         config_id = None
         if request.enable_sync:
-            import uuid
-            config_id = str(uuid.uuid4())
+            import uuid as _uuid_mod
+            _DS_NAMESPACE = _uuid_mod.UUID("6ba7b810-9dad-11d1-80b4-00c04fd430c8")  # URL namespace
+            # Build a stable identity string from datasource type + connection identity
+            _identity_parts = [data_source]
+            if data_source == "alfresco" and request.alfresco_config:
+                ac = request.alfresco_config
+                _identity_parts += [ac.url or "", ac.username or "", ac.path or ""]
+            elif data_source == "filesystem":
+                _identity_parts += sorted(paths or [])
+            elif data_source == "s3" and request.s3_config:
+                sc = request.s3_config
+                _identity_parts += [sc.bucket_name or "", sc.prefix or ""]
+            elif data_source == "azure_blob" and request.azure_blob_config:
+                ab = request.azure_blob_config
+                _identity_parts += [ab.connection_string or "", ab.container_name or ""]
+            elif data_source == "gcs" and request.gcs_config:
+                gc = request.gcs_config
+                _identity_parts += [gc.bucket_name or "", gc.prefix or ""]
+            elif data_source == "onedrive" and request.onedrive_config:
+                od = request.onedrive_config
+                _identity_parts += [od.user_principal_name or ""]
+            elif data_source == "sharepoint" and request.sharepoint_config:
+                sp = request.sharepoint_config
+                _identity_parts += [sp.site_name or "", sp.site_url or ""]
+            elif data_source == "box" and request.box_config:
+                bx = request.box_config
+                _identity_parts += [bx.folder_id or ""]
+            elif data_source == "google_drive" and request.google_drive_config:
+                gd = request.google_drive_config
+                _identity_parts += [gd.folder_id or ""]
+            elif data_source == "cmis" and request.cmis_config:
+                cm = request.cmis_config
+                _identity_parts += [cm.url or "", cm.repository_id or "", cm.path or ""]
+            _identity_str = "|".join(_identity_parts)
+            config_id = str(_uuid_mod.uuid5(_DS_NAMESPACE, _identity_str))
             kwargs['config_id'] = config_id
-            logger.info(f"Generated config_id for sync: {config_id}")
+            logger.info(f"Stable config_id for sync ({data_source}): {config_id}")
         
         result = await backend_instance.ingest_documents(data_source=data_source, paths=paths, **kwargs)
         

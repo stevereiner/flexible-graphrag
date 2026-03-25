@@ -1,0 +1,93 @@
+@prefix foaf:  <http://xmlns.com/foaf/0.1/> .
+@prefix rdf:   <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs:  <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix owl:   <http://www.w3.org/2002/07/owl#> .
+@prefix xsd:   <http://www.w3.org/2001/XMLSchema#> .
+
+############################
+# CLASSES
+############################
+
+foaf:Person a owl:Class ;
+    rdfs:label "Person" ;
+    rdfs:comment "A human being." .
+
+foaf:Organization a owl:Class ;
+    rdfs:label "Organization" ;
+    rdfs:comment "A group of people forming a unified entity." .
+
+foaf:Project a owl:Class ;
+    rdfs:label "Project" ;
+    rdfs:comment "A collaborative project or initiative." .
+
+foaf:Document a owl:Class ;
+    rdfs:label "Document" ;
+    rdfs:comment "A document of any kind." .
+
+############################
+# OBJECT PROPERTIES
+############################
+
+foaf:knows a owl:ObjectProperty ;
+    rdfs:domain foaf:Person ;
+    rdfs:range  foaf:Person ;
+    rdfs:label "knows" ;
+    rdfs:comment "Indicates that one person knows another." .
+
+foaf:member a owl:ObjectProperty ;
+    rdfs:domain foaf:Person ;
+    rdfs:range  foaf:Organization ;
+    rdfs:label "member" ;
+    rdfs:comment "Indicates that a person is a member of an organization." .
+
+foaf:topic_interest a owl:ObjectProperty ;
+    rdfs:domain foaf:Person ;
+    rdfs:range  foaf:Project ;
+    rdfs:label "topic_interest" ;
+    rdfs:comment "Indicates a project or topic a person is interested in." .
+
+foaf:made a owl:ObjectProperty ;
+    rdfs:domain foaf:Person ;
+    rdfs:range  foaf:Document ;
+    rdfs:label "made" ;
+    rdfs:comment "Documents made by a person." .
+
+foaf:primaryTopic a owl:ObjectProperty ;
+    rdfs:domain foaf:Document ;
+    rdfs:range  foaf:Project ;
+    rdfs:label "primaryTopic" ;
+    rdfs:comment "The primary topic of a document." .
+
+############################
+# DATATYPE PROPERTIES
+############################
+
+foaf:name a owl:DatatypeProperty ;
+    rdfs:domain foaf:Person ;
+    rdfs:range  xsd:string ;
+    rdfs:label "name" ;
+    rdfs:comment "A name for a person." .
+
+foaf:familyName a owl:DatatypeProperty ;
+    rdfs:domain foaf:Person ;
+    rdfs:range  xsd:string ;
+    rdfs:label "familyName" ;
+    rdfs:comment "A family name (surname) for a person." .
+
+foaf:givenName a owl:DatatypeProperty ;
+    rdfs:domain foaf:Person ;
+    rdfs:range  xsd:string ;
+    rdfs:label "givenName" ;
+    rdfs:comment "A given name for a person." .
+
+foaf:homepage a owl:DatatypeProperty ;
+    rdfs:domain foaf:Person ;
+    rdfs:range  xsd:anyURI ;
+    rdfs:label "homepage" ;
+    rdfs:comment "A homepage for a person." .
+
+foaf:mbox a owl:DatatypeProperty ;
+    rdfs:domain foaf:Person ;
+    rdfs:range  xsd:anyURI ;
+    rdfs:label "mbox" ;
+    rdfs:comment "An email address of a person." .

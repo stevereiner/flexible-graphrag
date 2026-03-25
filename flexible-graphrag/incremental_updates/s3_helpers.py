@@ -99,11 +99,11 @@ class S3ConfigHelper:
         
         # Test bucket access
         if helper.test_bucket_access():
-            print("✓ S3 bucket accessible")
+            print("[OK] S3 bucket accessible")
         
         # Test SQS access
         if helper.test_sqs_access('https://sqs...'):
-            print("✓ SQS queue accessible")
+            print("[OK] SQS queue accessible")
         
         # Generate configuration
         config = helper.generate_config(sqs_queue_url='https://sqs...')
@@ -151,11 +151,11 @@ class S3ConfigHelper:
                 MaxKeys=1
             )
             
-            logger.info(f"✓ S3 bucket access verified: {self.bucket}")
+            logger.info(f"[OK] S3 bucket access verified: {self.bucket}")
             
             # Check if bucket is empty
             if 'Contents' not in response or len(response['Contents']) == 0:
-                logger.warning(f"⚠ Bucket appears empty: {self.bucket}/{self.prefix}")
+                logger.warning(f"[WARN] Bucket appears empty: {self.bucket}/{self.prefix}")
             else:
                 file_count = response.get('KeyCount', 0)
                 logger.info(f"  Bucket contains files (sampled {file_count})")
@@ -167,17 +167,17 @@ class S3ConfigHelper:
             error_msg = e.response.get('Error', {}).get('Message', str(e))
             
             if error_code == 'NoSuchBucket':
-                logger.error(f"✗ Bucket does not exist: {self.bucket}")
+                logger.error(f"[FAIL] Bucket does not exist: {self.bucket}")
             elif error_code == 'AccessDenied':
-                logger.error(f"✗ Access denied to bucket: {self.bucket}")
+                logger.error(f"[FAIL] Access denied to bucket: {self.bucket}")
                 logger.error(f"  Check IAM permissions: s3:ListBucket on arn:aws:s3:::{self.bucket}")
             else:
-                logger.error(f"✗ Error accessing bucket: {error_code} - {error_msg}")
+                logger.error(f"[FAIL] Error accessing bucket: {error_code} - {error_msg}")
             
             return False
         
         except Exception as e:
-            logger.exception(f"✗ Unexpected error testing bucket access: {e}")
+            logger.exception(f"[FAIL] Unexpected error testing bucket access: {e}")
             return False
     
     def test_sqs_access(self, sqs_queue_url: str) -> bool:
@@ -203,7 +203,7 @@ class S3ConfigHelper:
             queue_arn = response['Attributes'].get('QueueArn', 'unknown')
             num_messages = response['Attributes'].get('ApproximateNumberOfMessages', '0')
             
-            logger.info(f"✓ SQS queue access verified: {sqs_queue_url}")
+            logger.info(f"[OK] SQS queue access verified: {sqs_queue_url}")
             logger.info(f"  Queue ARN: {queue_arn}")
             logger.info(f"  Messages in queue: {num_messages}")
             
@@ -214,17 +214,17 @@ class S3ConfigHelper:
             error_msg = e.response.get('Error', {}).get('Message', str(e))
             
             if error_code in ('QueueDoesNotExist', 'AWS.SimpleQueueService.NonExistentQueue'):
-                logger.error(f"✗ SQS queue does not exist: {sqs_queue_url}")
+                logger.error(f"[FAIL] SQS queue does not exist: {sqs_queue_url}")
             elif error_code == 'AccessDenied':
-                logger.error(f"✗ Access denied to SQS queue: {sqs_queue_url}")
+                logger.error(f"[FAIL] Access denied to SQS queue: {sqs_queue_url}")
                 logger.error(f"  Check IAM permissions: sqs:GetQueueAttributes")
             else:
-                logger.error(f"✗ Error accessing SQS queue: {error_code} - {error_msg}")
+                logger.error(f"[FAIL] Error accessing SQS queue: {error_code} - {error_msg}")
             
             return False
         
         except Exception as e:
-            logger.exception(f"✗ Unexpected error testing SQS access: {e}")
+            logger.exception(f"[FAIL] Unexpected error testing SQS access: {e}")
             return False
     
     def check_s3_event_notification(self) -> Tuple[bool, Optional[Dict]]:
@@ -247,7 +247,7 @@ class S3ConfigHelper:
             topic_configs = response.get('TopicConfigurations', [])
             
             if queue_configs:
-                logger.info(f"✓ S3 bucket has {len(queue_configs)} SQS event notification(s)")
+                logger.info(f"[OK] S3 bucket has {len(queue_configs)} SQS event notification(s)")
                 for i, config in enumerate(queue_configs):
                     queue_arn = config.get('QueueArn', 'unknown')
                     events = config.get('Events', [])
@@ -256,24 +256,24 @@ class S3ConfigHelper:
                 return True, response
             
             if topic_configs:
-                logger.info(f"✓ S3 bucket has {len(topic_configs)} SNS event notification(s)")
+                logger.info(f"[OK] S3 bucket has {len(topic_configs)} SNS event notification(s)")
                 logger.info(f"  Note: If using SNS->SQS, verify SNS subscription")
                 return True, response
             
-            logger.warning(f"⚠ No event notifications configured on bucket: {self.bucket}")
+            logger.warning(f"[WARN] No event notifications configured on bucket: {self.bucket}")
             logger.warning(f"  Configure S3 event notifications to enable real-time detection")
             return False, response
             
         except ClientError as e:
             error_code = e.response.get('Error', {}).get('Code', 'Unknown')
             if error_code == 'NoSuchBucket':
-                logger.error(f"✗ Bucket does not exist: {self.bucket}")
+                logger.error(f"[FAIL] Bucket does not exist: {self.bucket}")
             else:
-                logger.warning(f"⚠ Could not check event notifications: {error_code}")
+                logger.warning(f"[WARN] Could not check event notifications: {error_code}")
             return False, None
         
         except Exception as e:
-            logger.exception(f"✗ Error checking event notifications: {e}")
+            logger.exception(f"[FAIL] Error checking event notifications: {e}")
             return False, None
     
     def generate_config(
@@ -318,12 +318,12 @@ class S3ConfigHelper:
         print("\n" + "="*70)
         print("  S3 Configuration Summary")
         print("="*70)
-        print(f"\n📦 S3 Bucket: {self.bucket}")
-        print(f"🌍 Region: {self.aws_region}")
+        print(f"\nS3 Bucket: {self.bucket}")
+        print(f"Region: {self.aws_region}")
         if self.prefix:
-            print(f"📁 Prefix: {self.prefix}")
+            print(f"Prefix: {self.prefix}")
         
-        print("\n🔍 Testing connectivity...")
+        print("\nTesting connectivity...")
         
         # Test S3
         print("\n1. S3 Bucket Access:")
@@ -343,27 +343,27 @@ class S3ConfigHelper:
             print("="*70)
             
             if bucket_ok and sqs_ok and has_notification:
-                print("\n✅ ALL CHECKS PASSED - Event-based detection ready!")
-                print("\n📝 Configuration:")
+                print("\n[OK] ALL CHECKS PASSED - Event-based detection ready!")
+                print("\nConfiguration:")
                 config = self.generate_config(sqs_queue_url)
                 print(json.dumps(config, indent=2))
                 
             elif bucket_ok and sqs_ok:
-                print("\n⚠️  PARTIAL - S3 and SQS accessible, but no event notification")
-                print("\n📖 Next step: Configure S3 event notification")
+                print("\n[WARN] PARTIAL - S3 and SQS accessible, but no event notification")
+                print("\nNext step: Configure S3 event notification")
                 print(f"   See: flexible-graphrag/incremental_updates/S3-SQS-SETUP.md")
                 
             elif bucket_ok:
-                print("\n⚠️  PARTIAL - S3 accessible, but SQS has issues")
-                print("\n📖 Next step: Fix SQS access or omit sqs_queue_url for periodic mode")
+                print("\n[WARN] PARTIAL - S3 accessible, but SQS has issues")
+                print("\nNext step: Fix SQS access or omit sqs_queue_url for periodic mode")
                 
             else:
-                print("\n❌ FAILED - Cannot access S3 bucket")
-                print("\n📖 Next step: Fix S3 bucket access and IAM permissions")
+                print("\n[FAIL] FAILED - Cannot access S3 bucket")
+                print("\nNext step: Fix S3 bucket access and IAM permissions")
         
         else:
             print("\n2. Event Detection Mode:")
-            print("   ⚠️  PERIODIC MODE - No SQS queue configured")
+            print("   [WARN] PERIODIC MODE - No SQS queue configured")
             print("   Will scan bucket every N seconds (polling)")
             
             print("\n" + "="*70)
@@ -371,15 +371,15 @@ class S3ConfigHelper:
             print("="*70)
             
             if bucket_ok:
-                print("\n✅ S3 ACCESSIBLE - Periodic mode ready")
-                print("\n📝 Configuration:")
+                print("\n[OK] S3 ACCESSIBLE - Periodic mode ready")
+                print("\nConfiguration:")
                 config = self.generate_config()
                 print(json.dumps(config, indent=2))
                 
-                print("\n💡 Tip: Add SQS for real-time event detection")
+                print("\nTip: Add SQS for real-time event detection")
                 print(f"   See: flexible-graphrag/incremental_updates/S3-SQS-SETUP.md")
             else:
-                print("\n❌ FAILED - Cannot access S3 bucket")
+                print("\n[FAIL] FAILED - Cannot access S3 bucket")
         
         print("\n" + "="*70 + "\n")
 

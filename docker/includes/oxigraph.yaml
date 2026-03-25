@@ -1,0 +1,18 @@
+# Oxigraph server
+
+services:
+  oxigraph:
+    image: ghcr.io/oxigraph/oxigraph:latest
+    container_name: flexible-graphrag-oxigraph
+    restart: unless-stopped
+    command: >
+      serve
+      --location /data
+      --bind 0.0.0.0:7878
+    ports:
+      - "7878:7878"  # Web UI + SPARQL: http://localhost:7878/
+    volumes:
+      - oxigraph-data:/data
+
+volumes:
+  oxigraph-data:

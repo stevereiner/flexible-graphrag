@@ -3,6 +3,13 @@ import logging
 import os
 
 from llama_index.llms.openai import OpenAI
+from llama_index.llms.openai_like import OpenAILike
+from llama_index.llms.vllm import Vllm
+from llama_index.llms.litellm import LiteLLM
+from llama_index.llms.openrouter import OpenRouter
+from llama_index.core.types import PydanticProgramMode
+from llama_index.embeddings.litellm import LiteLLMEmbedding
+from llama_index.embeddings.openai_like import OpenAILikeEmbedding
 from llama_index.llms.ollama import Ollama
 from llama_index.llms.google_genai import GoogleGenAI
 from llama_index.llms.azure_openai import AzureOpenAI
@@ -11,6 +18,9 @@ from llama_index.llms.anthropic import Anthropic
 from llama_index.llms.bedrock_converse import BedrockConverse
 from llama_index.llms.groq import Groq
 from llama_index.llms.fireworks import Fireworks
+from llama_index.core.base.llms.types import ChatResponse, MessageRole
+from llama_index.llms.openai.utils import to_openai_message_dicts
+
 from llama_index.embeddings.openai import OpenAIEmbedding
 from llama_index.embeddings.ollama import OllamaEmbedding
 from llama_index.embeddings.azure_openai import AzureOpenAIEmbedding
@@ -24,7 +34,7 @@ from llama_index.vector_stores.qdrant import QdrantVectorStore
 from llama_index.vector_stores.elasticsearch import ElasticsearchStore, AsyncBM25Strategy
 from llama_index.vector_stores.opensearch import OpensearchVectorStore, OpensearchVectorClient
 from llama_index.graph_stores.neo4j import Neo4jPropertyGraphStore
-from llama_index.graph_stores.kuzu import KuzuPropertyGraphStore
+# from llama_index.graph_stores.kuzu import KuzuPropertyGraphStore
 from llama_index.graph_stores.falkordb import FalkorDBPropertyGraphStore
 from llama_index.graph_stores.memgraph import MemgraphPropertyGraphStore
 from llama_index.graph_stores.nebula.nebula_property_graph import (
@@ -42,13 +52,63 @@ from llama_index.graph_stores.arcadedb import ArcadeDBPropertyGraphStore
 from llama_index.retrievers.bm25 import BM25Retriever
 from llama_index.core.storage.docstore import SimpleDocumentStore
 from qdrant_client import QdrantClient, AsyncQdrantClient
-import kuzu
+# import kuzu
 import os
 
 from config import LLMProvider, VectorDBType, GraphDBType, SearchDBType
 
 # Import Neptune wrapper from separate module
 from neptune_database_wrapper import NeptuneDatabaseNoSummaryWrapper
+
+
+class _FireworksStreaming(Fireworks):
+    """Fireworks subclass that uses streaming mode for _achat.
+
+    The Fireworks non-streaming API hard-caps max_tokens at 4096. Streaming
+    removes this limit (same token budget, just delivered incrementally).
+    We reassemble the full response so callers see no difference.
+    """
+
+    async def _achat(self, messages, **kwargs) -> ChatResponse:
+        aclient = self._get_aclient()
+        message_dicts = to_openai_message_dicts(messages, model=self.model)
+        model_kwargs = self._get_model_kwargs(**kwargs)
+
+        if self.reuse_client:
+            stream = await aclient.chat.completions.create(
+                messages=message_dicts, stream=True, **model_kwargs
+            )
+        else:
+            async with aclient:
+                stream = await aclient.chat.completions.create(
+                    messages=message_dicts, stream=True, **model_kwargs
+                )
+
+        # Reassemble streamed chunks into a single response.
+        # DynamicLLMPathExtractor sets _custom_is_function_calling=False so the model
+        # should return plain text content, but defensively also capture tool_call
+        # argument text in case the model still returns a function call delta.
+        content_parts = []
+        tool_arg_parts = []
+        finish_reason = None
+        async for chunk in stream:
+            delta = chunk.choices[0].delta if chunk.choices else None
+            if delta:
+                if delta.content:
+                    content_parts.append(delta.content)
+                if delta.tool_calls:
+                    for tc in delta.tool_calls:
+                        if tc.function and tc.function.arguments:
+                            tool_arg_parts.append(tc.function.arguments)
+            if chunk.choices and chunk.choices[0].finish_reason:
+                finish_reason = chunk.choices[0].finish_reason
+
+        # Prefer plain text content; fall back to tool_call arguments if content is empty
+        assembled = "".join(content_parts) or "".join(tool_arg_parts)
+
+        from llama_index.core.llms import ChatMessage as _OutMsg
+        message = _OutMsg(role=MessageRole.ASSISTANT, content=assembled)
+        return ChatResponse(message=message, raw={"finish_reason": finish_reason})
 
 logger = logging.getLogger(__name__)
 
@@ -144,11 +204,62 @@ def get_embedding_dimension(embedding_kind: str = None, embedding_model: str = N
             return 1024  # UAE Large V1
         else:
             return 768  # Default for Fireworks (nomic-embed-text)
-    
+
+    elif embedding_kind in ("openai_like", "litellm"):
+        # OpenAI-compatible endpoints (OpenAILikeEmbedding) and LiteLLM proxy (LiteLLMEmbedding).
+        # Dimension depends on the model served. Set EMBEDDING_DIMENSION explicitly for unknown models.
+        if embedding_model and "nomic" in embedding_model.lower():
+            return 768
+        elif embedding_model and "bge" in embedding_model.lower():
+            return 1024
+        elif embedding_model and ("3-small" in embedding_model or "ada" in embedding_model):
+            return 1536
+        elif embedding_model and "3-large" in embedding_model:
+            return 3072
+        else:
+            logger.warning(f"Unknown model for {embedding_kind} embeddings, defaulting to 1536. Set EMBEDDING_DIMENSION explicitly.")
+            return 1536
+
     else:
         # Default to Ollama nomic-embed-text for unknown embedding kinds
         logger.warning(f"Unknown embedding_kind {embedding_kind}, defaulting to Ollama nomic-embed-text (768)")
         return 768
+
+def _resolve_pydantic_program_mode(config: Dict[str, Any]) -> PydanticProgramMode:
+    """Resolve PydanticProgramMode from config or LLM_EXTRACTION_MODE env var.
+
+    Priority (highest first):
+      1. ``extraction_mode`` key in the provider's llm_config dict
+      2. ``LLM_EXTRACTION_MODE`` environment variable
+      3. Hard-coded default: ``function``
+
+
+
+    Accepted values (case-insensitive):
+      ``function``   — tool/function calling mode (default, most reliable)
+      ``json_schema``— structured output / JSON schema mode (PydanticProgramMode.DEFAULT)
+      ``auto``       — let LlamaIndex choose per provider (PydanticProgramMode.DEFAULT)
+    Unknown values fall back to ``function`` with a warning.
+    """
+    mode_str = (
+        config.get("extraction_mode")
+        or os.getenv("LLM_EXTRACTION_MODE", "function")
+    ).lower()
+
+    if mode_str == "function":
+        logger.info("LLM extraction mode: function (tool/function calling)")
+        return PydanticProgramMode.FUNCTION
+    elif mode_str in ("json_schema", "auto"):
+        logger.info(f"LLM extraction mode: {mode_str} (structured output / JSON schema)")
+        return PydanticProgramMode.DEFAULT
+    else:
+        logger.warning(
+            "Unknown LLM_EXTRACTION_MODE '%s'; falling back to 'function'. "
+            "Valid values: function, json_schema, auto.",
+            mode_str,
+        )
+        return PydanticProgramMode.FUNCTION
+
 
 class LLMFactory:
     """Factory for creating LLM instances based on configuration"""
@@ -160,13 +271,18 @@ class LLMFactory:
         logger.info(f"Creating LLM with provider: {provider}")
         
         if provider == LLMProvider.OPENAI:
+            # Use FUNCTION mode (tool/function calling) instead of DEFAULT (structured output).
+            # OpenAI's structured output mode requires `additionalProperties: false` in JSON schemas,
+            # which LlamaIndex's dynamic Pydantic models don't generate. Function calling sends
+            # the schema as tool parameters instead, which has no such constraint - enabling
+            # full property extraction (entity and relation properties) with OpenAI.
             return OpenAI(
                 model=config.get("model", "gpt-4o-mini"),
                 temperature=config.get("temperature", 0.1),
                 api_key=config.get("api_key"),
                 max_tokens=config.get("max_tokens", 4000),
-                #request_timeout=config.get("timeout", 120.0)
-                timeout=config.get("timeout", 120.0)
+                timeout=config.get("timeout", 120.0),
+                pydantic_program_mode=_resolve_pydantic_program_mode(config),
             )
         
         elif provider == LLMProvider.OLLAMA:
@@ -185,15 +301,21 @@ class LLMFactory:
             )
         
         elif provider == LLMProvider.GEMINI:
-            return GoogleGenAI(
+            llm = GoogleGenAI(
                 model=config.get("model", "gemini-2.5-flash"),
                 api_key=config.get("api_key"),
                 temperature=config.get("temperature", 0.1),
-                # timeout not supported by GoogleGenAI, handled by google.genai.Client
-                # timeout=config.get("timeout", 120.0) 
+                pydantic_program_mode=_resolve_pydantic_program_mode(config),
             )
+            # Disable AFC (Automatic Function Calling) — AFC intercepts LlamaIndex tool calls
+            # before Gemini responds, causing SchemaLLMPathExtractor to get 0 entities.
+            # Injected directly into _generation_config dict to avoid SDK Pydantic model_dump()
+            # leaking the default maximum_remote_calls=10 which triggers a contradictory warning.
+            llm._generation_config["automatic_function_calling"] = {"disable": True}
+            return llm
         
         elif provider == LLMProvider.AZURE_OPENAI:
+            # Same FUNCTION mode workaround as OpenAI above
             return AzureOpenAI(
                 engine=config["engine"],
                 model=config.get("model", "gpt-4"),
@@ -201,7 +323,8 @@ class LLMFactory:
                 azure_endpoint=config["azure_endpoint"],
                 api_key=config["api_key"],
                 api_version=config.get("api_version", "2024-02-01"),
-                timeout=config.get("timeout", 120.0)
+                timeout=config.get("timeout", 120.0),
+                pydantic_program_mode=_resolve_pydantic_program_mode(config),
             )
         
         elif provider == LLMProvider.ANTHROPIC:
@@ -235,11 +358,14 @@ class LLMFactory:
             os.environ['GOOGLE_CLOUD_LOCATION'] = location
             logger.info(f"Set environment variables: GOOGLE_GENAI_USE_VERTEXAI=true, GOOGLE_CLOUD_PROJECT={project}, GOOGLE_CLOUD_LOCATION={location}")
             
-            return GoogleGenAI(
+            llm = GoogleGenAI(
                 model=model,
                 temperature=config.get("temperature", 0.1),
-                vertexai_config={"project": project, "location": location}
+                vertexai_config={"project": project, "location": location},
+                pydantic_program_mode=_resolve_pydantic_program_mode(config),
             )
+            llm._generation_config["automatic_function_calling"] = {"disable": True}
+            return llm
         
         elif provider == LLMProvider.BEDROCK:
             region_name = config.get("region_name", "us-east-1")
@@ -278,21 +404,49 @@ class LLMFactory:
             # Note: BedrockConverse doesn't need context_size parameter
             # The Converse API handles context automatically
             
+            # Use FUNCTION mode: Bedrock is a FunctionCallingLLM subclass but DEFAULT mode
+            # can trigger structured output schema validation issues. FUNCTION mode uses
+            # native tool calling (achat_with_tools) which is more reliable.
+            bedrock_params["pydantic_program_mode"] = _resolve_pydantic_program_mode(config)
             return BedrockConverse(**bedrock_params)
         
         elif provider == LLMProvider.GROQ:
             api_key = config.get("api_key")
             if not api_key:
                 raise ValueError("Groq requires 'api_key' parameter (GROQ_API_KEY)")
-            
+
             model = config.get("model", "llama-3.3-70b-versatile")
             logger.info(f"Configuring Groq LLM - Model: {model}")
-            
+
+            # LlamaIndex's OpenAI model lookup doesn't know Groq-specific models, so it
+            # falls back to DEFAULT_NUM_OUTPUTS=3900 as the context window — far too small.
+            # Actual Groq context windows (2026-03-17, developer plan):
+            #   gpt-oss-20b / gpt-oss-120b : 131072 input, 65536 max completion
+            #   llama-3.3-70b-versatile    : 131072 input, 32768 max completion
+            #   llama-3.1-8b-instant       : 131072 input, 131072 max completion
+            _GROQ_CONTEXT = {
+                "openai/gpt-oss-20b": (131072, 65536),
+                "openai/gpt-oss-120b": (131072, 65536),
+                "llama-3.3-70b-versatile": (131072, 32768),
+                "llama-3.1-8b-instant": (131072, 131072),
+            }
+            ctx_window, default_max = _GROQ_CONTEXT.get(model, (131072, 32768))
+            max_tokens = config.get("max_tokens", default_max)
+            logger.info(f"Groq context_window={ctx_window}, max_tokens={max_tokens} (model={model})")
+
+            # Groq.__init__ passes **kwargs to the parent Pydantic model so pydantic_program_mode
+            # can be passed through the constructor.
+            # Note: SchemaLLMPathExtractor doesn't work with Groq — OpenAI.astructured_predict
+            # conflicts with FunctionCallingProgram internals causing silent 0-entity extraction.
+            # Groq is in the switch_to_dynamic_providers list and auto-switches to DynamicLLMPathExtractor.
             return Groq(
                 model=model,
                 api_key=api_key,
                 temperature=config.get("temperature", 0.1),
-                timeout=config.get("timeout", 120.0)  # Groq uses timeout (inherits from OpenAILike)
+                context_window=ctx_window,
+                max_tokens=max_tokens,
+                timeout=config.get("timeout", 120.0),
+                pydantic_program_mode=_resolve_pydantic_program_mode(config),
             )
         
         elif provider == LLMProvider.FIREWORKS:
@@ -303,13 +457,109 @@ class LLMFactory:
             model = config.get("model", "accounts/fireworks/models/llama-v3p3-70b-instruct")
             logger.info(f"Configuring Fireworks LLM - Model: {model}")
             
-            return Fireworks(
+            # All Fireworks serverless models filtered to function-calling support all have
+            # is_function_calling=True. However, DynamicLLMPathExtractor uses llm.apredict()
+            # (plain text), not tool calls — if is_function_calling=True, achat() returns a
+            # tool_call response with content=None and apredict() collapses to ''.
+            # _make_dynamic_extractor() in hybrid_system.py sets _custom_is_function_calling=False
+            # on the extractor's LLM instance to fix this. The factory sets True here so
+            # SchemaLLMPathExtractor (which does use tool calls) works correctly if ever needed.
+            # Users can override with is_function_calling=False via config if needed.
+            is_fc = config.get("is_function_calling", True)
+            logger.info(f"Fireworks function calling: is_function_calling={is_fc} (model={model})")
+
+            # Fireworks non-streaming API caps max_tokens at 4096 (BAD_REQUEST if higher).
+            # _FireworksStreaming subclass overrides _achat to use stream=True, which removes
+            # this limit. Default to 16384 — well within the 65536 max completion budget.
+            max_tokens = config.get("max_tokens", 16384)
+            logger.info(f"Fireworks max_tokens={max_tokens} (streaming mode, model={model})")
+
+            return _FireworksStreaming(
                 model=model,
                 api_key=api_key,
-                temperature=config.get("temperature", 0.1)
+                temperature=config.get("temperature", 0.1),
+                max_tokens=max_tokens,
+                is_function_calling=is_fc,
+                pydantic_program_mode=_resolve_pydantic_program_mode(config),
                 # Note: Fireworks doesn't support timeout parameter (overrides __init__)
             )
         
+        elif provider == LLMProvider.OPENAI_LIKE:
+            # Generic OpenAI-compatible API: LM Studio, LocalAI, Llamafile, Jan, Tabby, etc.
+            # OpenAILike extends OpenAI/FunctionCallingLLM but defaults is_function_calling_model=False.
+            # We default to True since most modern local servers support tool calling.
+            # Use FUNCTION mode so structured prediction goes through tool calling, not JSON schema mode.
+            api_base = config.get("api_base", "http://localhost:8000/v1")
+            model = config.get("model", "local-model")
+            is_fc = config.get("is_function_calling_model", True)
+            is_chat = config.get("is_chat_model", True)
+            context_window = config.get("context_window", 4096)
+            logger.info(f"Configuring OpenAI-Like LLM - Model: {model}, API Base: {api_base}, function_calling={is_fc}")
+            return OpenAILike(
+                model=model,
+                api_base=api_base,
+                api_key=config.get("api_key", "local"),
+                temperature=config.get("temperature", 0.1),
+                timeout=config.get("timeout", 120.0),
+                context_window=context_window,
+                is_chat_model=is_chat,
+                is_function_calling_model=is_fc,
+                pydantic_program_mode=_resolve_pydantic_program_mode(config) if is_fc else PydanticProgramMode.DEFAULT,
+            )
+
+        elif provider == LLMProvider.VLLM:
+            # vLLM - high-performance local inference engine with native LlamaIndex class.
+            # Note: Vllm class does NOT extend FunctionCallingLLM (no tool calling support).
+            # It uses LLMTextCompletionProgram (text + output parser) for structured prediction.
+            # This works fine for KG extraction - no FUNCTION mode needed.
+            model = config.get("model", "facebook/opt-125m")
+            api_url = config.get("api_url", "http://localhost:8000")
+            is_chat = config.get("is_chat_model", True)
+            logger.info(f"Configuring vLLM - Model: {model}, API URL: {api_url}, chat_model={is_chat}")
+            return Vllm(
+                model=model,
+                api_url=api_url,
+                temperature=config.get("temperature", 0.1),
+                max_new_tokens=config.get("max_new_tokens", 512),
+                is_chat_model=is_chat,
+            )
+
+        elif provider == LLMProvider.LITELLM:
+            # LiteLLM - native LlamaIndex class (FunctionCallingLLM subclass).
+            # is_function_calling_model=True by default, uses DEFAULT mode (FunctionCallingProgram).
+            # We explicitly set FUNCTION mode for consistency with other providers.
+            # drop_params=True: silently drop unsupported params (e.g. parallel_tool_calls for Ollama).
+            import litellm
+            litellm.drop_params = True
+            model = config.get("model", "gpt-4o-mini")
+            api_base = config.get("api_base", "http://localhost:4000")
+            logger.info(f"Configuring LiteLLM - Model: {model}, API Base: {api_base}")
+            return LiteLLM(
+                model=model,
+                api_base=api_base,
+                api_key=config.get("api_key", "local"),
+                temperature=config.get("temperature", 0.1),
+                pydantic_program_mode=_resolve_pydantic_program_mode(config),
+            )
+
+        elif provider == LLMProvider.OPENROUTER:
+            # OpenRouter - native LlamaIndex class (extends OpenAILike).
+            # is_function_calling_model=False by default (conservative), but OpenRouter
+            # supports tool calling for all major models. We force FUNCTION mode.
+            api_key = config.get("api_key")
+            if not api_key:
+                raise ValueError("OpenRouter requires 'api_key' parameter (OPENROUTER_API_KEY)")
+            model = config.get("model", "openai/gpt-4o-mini")
+            logger.info(f"Configuring OpenRouter LLM - Model: {model}")
+            return OpenRouter(
+                model=model,
+                api_key=api_key,
+                temperature=config.get("temperature", 0.1),
+                context_window=config.get("context_window", 128000),
+                max_tokens=config.get("max_tokens", 16384),
+                pydantic_program_mode=_resolve_pydantic_program_mode(config),
+            )
+
         else:
             raise ValueError(f"Unsupported LLM provider: {provider}")
     
@@ -507,7 +757,33 @@ class LLMFactory:
                     model_name=model_name,
                     api_key=api_key
                 )
-            
+
+            elif embedding_kind == "openai_like":
+                # Any OpenAI-compatible /v1/embeddings endpoint: LM Studio, LocalAI, vLLM, Llamafile, etc.
+                # Uses OpenAILikeEmbedding class.
+                model_name = embedding_model or os.getenv("OPENAI_LIKE_EMBEDDING_MODEL", "local-embedding-model")
+                api_base = os.getenv("OPENAI_LIKE_EMBEDDING_API_BASE") or os.getenv("OPENAI_LIKE_API_BASE", "http://localhost:8000/v1")
+                api_key = os.getenv("OPENAI_LIKE_API_KEY", "fake")
+                logger.info(f"Using OpenAI-Like embeddings - Model: {model_name}, API Base: {api_base}")
+                return OpenAILikeEmbedding(
+                    model_name=model_name,
+                    api_base=api_base,
+                    api_key=api_key,
+                )
+
+            elif embedding_kind == "litellm":
+                # LiteLLM proxy embeddings - routes to any backend (OpenAI, Ollama, Bedrock, etc.)
+                # Uses LiteLLMEmbedding class.
+                model_name = embedding_model or os.getenv("LITELLM_EMBEDDING_MODEL", "text-embedding-3-small")
+                api_base = os.getenv("LITELLM_EMBEDDING_API_BASE") or os.getenv("LITELLM_API_BASE", "http://localhost:4000")
+                api_key = os.getenv("LITELLM_API_KEY", "local")
+                logger.info(f"Using LiteLLM embeddings - Model: {model_name}, API Base: {api_base}")
+                return LiteLLMEmbedding(
+                    model_name=model_name,
+                    api_base=api_base,
+                    api_key=api_key,
+                )
+
             else:
                 # Unknown embedding_kind - fall through to provider defaults
                 logger.warning(f"Unknown embedding_kind '{embedding_kind}', using provider default")

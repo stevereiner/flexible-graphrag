@@ -1,0 +1,17 @@
+# Jena Fuseki server
+services:
+  jena-fuseki:
+    image: stain/jena-fuseki:latest
+    container_name: flexible-graphrag-jena-fuseki
+    restart: unless-stopped
+    ports:
+      - "3030:3030"  # Web UI + SPARQL: http://localhost:3030/
+    environment:
+      JVM_ARGS: "-Xmx2g"
+      ADMIN_PASSWORD: "admin"        # Web UI + API login: admin / admin  (change for production)
+      FUSEKI_DATASET: "flexible-graphrag"  # Auto-create this persistent dataset on startup
+    volumes:
+      - fuseki-data:/fuseki
+
+volumes:
+  fuseki-data:

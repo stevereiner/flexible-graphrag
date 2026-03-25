@@ -2,6 +2,60 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2026-03-24] - LangChain Retrievers: added synonym expansion and graph vector, and LangChain  new LLMs support to match ones added for Flexible GraphRAG with Llamaindex
+
+### Added
+- **`SynonymExpander`** — LLM-based query keyword expansion applied per-retriever via `SYNONYM_EXPLODER_SCOPE` tag list; confirmed working with all three RDF stores
+- **`GraphEntityVectorRetriever`** — LangChain Neo4j entity vector search; activates independently via `LANGCHAIN_PG_VECTOR_SEARCH=true`
+- **`GraphNeighborhoodRetriever`** — k-hop graph expansion from seed nodes (APOC or variable-length path fallback)
+- **`TextToGraphQueryRetriever`** (renamed from `TextToCypherRetriever`) — handles both SPARQL and Cypher backends
+- **Native LangChain 1.x provider packages** — `langchain-anthropic`, `langchain-google-genai`, `langchain-google-vertexai`, `langchain-ollama`, `langchain-groq`, `langchain-fireworks`; all 13 providers use native classes; `openai_like`/`litellm`/`vllm`/`openrouter` use `ChatOpenAI` + `base_url` (correct for OpenAI-compatible endpoints)
+- **`langchain` optional dependency group** (`pyproject.toml`) — `uv pip install -e ".[langchain]"` installs `langchain`, `langchain-community`, `langchain-openai`, `langchain-anthropic`, `langchain-aws`, `langchain-ollama`, `langchain-google-genai`, `langchain-google-vertexai`, `langchain-groq`, `langchain-fireworks`, `langchain-neo4j`; `.[langchain,langchain-extras]` adds ArangoDB, Spanner, AGE, Gremlin; `langchain/langchain-requirements.txt` for direct pip/uv installs
+
+---
+
+## [2026-03-21] - RDF/Ontology Support, LangChain RDF QA Fusion, Additional LLM Providers
+
+### Added — RDF/Ontology Support
+- **Ontology-guided extraction** (`rdf/ontology_manager.py`) — load OWL/RDFS ontologies to constrain entity/relation types for extraction into **any** property graph store (Neo4j, ArcadeDB, FalkorDB, etc.) or RDF store; `OntologyManager` exposes entity/relation label lists to `SchemaLLMPathExtractor`; LLM sees only plain-string labels, Python maps back to ontology URIs via `get_uri_map()`
+- **Schema property support** (`hybrid_system.py`, `config.py`) — entity and relation properties now passed to both `SchemaLLMPathExtractor` (plain type-list schema) and `DynamicLLMPathExtractor` (ontology-guided); `DISABLE_PROPERTIES=true` skips property extraction for models that perform better without it; properties sourced from OWL `DatatypeProperty` definitions when an ontology is loaded
+- **Multi-ontology file support** (`config.py`, `rdf/api_rdf_enhancements.py`) — `ONTOLOGY_PATHS` (CSV list) and `ONTOLOGY_DIR` env vars; `load_ontology_files()` and `load_ontology_dir()` added to `OntologyManager`
+- **Bundled ontology schemas** (`rdf/schemas/`) — `company_classes.ttl`, `company_properties.ttl`, `common_ontology.ttl` (Person, Place, Event, Product, Topic, Location, etc.), `foaf_ontology.ttl`
+- **RDF triple store backends** (`rdf/store/`) — Apache Jena Fuseki, Ontotext GraphDB, and Oxigraph; set `INGESTION_STORAGE_MODE=rdf_only` or `both`; `RDFStoreFactory`, `FusekiAdapter`, `OntotextGraphDBAdapter`, `OxigraphAdapter`
+- **LangChain RDF QA fusion retriever** (`hybrid_system.py`, `langchain/graph/langchain_adapters/`, `langchain/graph/langchain_retriever_wrapper.py`) — RDF store and graph results fused into `QueryFusionRetriever` alongside vector/BM25; set `USE_LANGCHAIN_RDF=true` and `RDF_STORE_TYPE`; uses the **same LLM already configured** (no separate LLM setup); 3 RDF store adapters fully working: Fuseki, GraphDB, Oxigraph; 1 property graph adapter working: Neo4j (retrieval); Neptune RDF implemented (store + retrieve, untested); additional property graph adapters (ArangoDB, Apache AGE, Cosmos DB Gremlin, Spanner Graph) are placeholder stubs for future implementation
+- **SPARQL query interface** — `UnifiedQueryEngine` routes between Cypher (property graphs), SPARQL (RDF stores), and natural language; `/api/rdf/query/sparql|cypher|natural-language` endpoints
+- **RDF document delete** (`rdf/` adapters, `hybrid_system.py`, `incremental_updates/engine.py`) — two-pass SPARQL DELETE by `onto:ref_doc_id`; called automatically on incremental update/delete across all three stores
+- **`scripts/rdf_cleanup.py`** — CLI tool: `list-docs`, `count`, `clear-doc <ref_doc_id>`, `clear-all`; auto-detects stores from `.env`; `--fuseki`, `--graphdb`, `--oxigraph` flags
+- **`docs/RDF/RDF-ONTOLOGY-SUPPORT.md`** — RDF store setup, ontology configuration, data inspection, annotation syntax, cleanup utility
+- **`docs/RDF/INGESTION-AND-STORAGE-MODES.md`** — ingestion mode comparison (property graph only, PG + RDF export, RDF primary)
+- **`docs/LANGCHAIN/LANGCHAIN-GRAPH-INTEGRATION.md`** — LangChain RDF QA fusion retriever setup and adapter reference
+- **Dependencies**: `rdflib>=7.0.0`, `pyoxigraph>=0.5`, `requests>=2.31.0`; optional `uv pip install -e ".[rdf]"` or `.[rdf-full]`
+
+### Added — LLM Providers and Embeddings
+- **OpenRouter LLM provider** (`config.py`, `factories.py`) — `LLM_PROVIDER=openrouter`; auto-switches to `DynamicLLMPathExtractor`; `context_window` and `max_tokens` set correctly
+- **LiteLLM proxy provider** (`config.py`, `factories.py`) — `LLM_PROVIDER=litellm`; cloud and Ollama-backed models via proxy; `LITELLM_TIMEOUT=300.0` required for multi-chunk docs; **`scripts/litellm_config.yaml`** — sample proxy config (copy to your LiteLLM install dir); pre-wired for OpenAI `gpt-4o-mini`, `text-embedding-3-small`, and Ollama `gpt-oss:20b`, `llama3.3:70b`, `nomic-embed-text` with `host.docker.internal` for WSL2/Docker setups
+- **`openai_like` and `litellm` embedding support** — `EMBEDDING_KIND=openai_like` targets any `/v1/embeddings` endpoint (e.g. Ollama `nomic-embed-text`); `EMBEDDING_KIND=litellm` routes through LiteLLM proxy (`LITELLM_EMBEDDING_API_BASE` must include `/v1`)
+- **vLLM Docker container** (`docker/includes/vllm.yaml`) — optional GPU container port 8002; use via `LLM_PROVIDER=openai_like` on Windows
+- **`docs/DOCKER-RESOURCE-CONFIGURATION.md`** — WSL2/macOS/Linux Docker memory sizing guide
+
+### Changed — LLM Providers and Embeddings
+- **`gpt-4.1-mini` recommended as default OpenAI model** (`env-sample.txt`, `docs/LLM/LLM-EMBEDDING-CONFIG.md`) — zero 0-entity failures, 3-4× faster on multi-chunk docs vs `gpt-4o-mini`; `gpt-5-mini` not recommended (LlamaIndex forces temperature=1.0 for O1/reasoning model family)
+- **Groq, Fireworks, `openai_like` extractor routing** — added to `switch_to_dynamic_providers`; two LlamaIndex `DynamicLLMPathExtractor` prompt-template bugs patched in `_make_dynamic_extractor()`: `None→[]` props coercion and `{{`/`}}` double-brace escaping in `SafeFormatter`
+- **Groq context window** (`factories.py`) — `_GROQ_CONTEXT` lookup table passes explicit `context_window`/`max_tokens` to `Groq()` (LlamaIndex falls back to 3900 for unknown model names → truncated output → 0 entities)
+- **Fireworks streaming workaround** (`factories.py`) — `_FireworksStreaming` subclass overrides `_achat` with `stream=True` to bypass 4096-token non-streaming hard cap
+- **`docs/PORT-MAPPINGS.md`** — updated: vLLM=8002, LiteLLM=4000
+
+---
+
+## [2026-03-13] - Windows Console Fixes and PostgreSQL Setup Improvements
+
+### Fixed
+- **Emoji and non-ASCII characters removed from `logger.*()` and `print()` calls** — Windows cp1252 console encoding caused `UnicodeEncodeError` at runtime; replaced with ASCII equivalents (`[OK]`, `[FAIL]`, `[WARN]`, `->`) across all affected files
+- **Incremental updates PostgreSQL error handling** (`main.py`) — on startup failure now logs a clear actionable message; distinguishes server not running (connection refused) from database not created yet, with the appropriate `docker compose` command for each case
+- **PostgreSQL init script converted from shell to SQL** (`docker/postgres-init/`) — `03-init-incremental-schema.sh` replaced with `03-init-incremental-schema.sql`; shell scripts created on Windows have `\r\n` line endings which cause "cannot execute: required file not found" in the Linux container; plain SQL files are unaffected; non-init helper scripts renamed to `.bak` so the entrypoint ignores them
+
+---
+
 ## [0.4.0] - 2026-03-09 - Search result filtering, search only mode fix, fixes for building flexible-graphrag package
 
 ### Fixed

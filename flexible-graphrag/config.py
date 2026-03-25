@@ -1,7 +1,7 @@
 from enum import Enum
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings
-from typing import List, Optional, Dict, Any, Literal
+from typing import List, Optional, Dict, Any, Literal, Annotated
 import os
 import json
 
@@ -61,6 +61,10 @@ class LLMProvider(str, Enum):
     BEDROCK = "bedrock"
     GROQ = "groq"
     FIREWORKS = "fireworks"
+    OPENAI_LIKE = "openai_like"   # Any OpenAI-compatible API (LM Studio, LocalAI, Llamafile, etc.)
+    VLLM = "vllm"                 # vLLM server (high-performance local inference)
+    LITELLM = "litellm"           # LiteLLM proxy (100+ providers via unified OpenAI-compatible API)
+    OPENROUTER = "openrouter"     # OpenRouter (unified API for 200+ models)
 
 class DocumentParser(str, Enum):
     DOCLING = "docling"
@@ -71,6 +75,29 @@ class ObservabilityBackend(str, Enum):
     OPENINFERENCE = "openinference"  # Default, trace-focused, requires spanmetrics for token metrics
     OPENLIT = "openlit"              # Token metrics + cost tracking built-in
     BOTH = "both"                    # DUAL mode (recommended!) - Best of both worlds
+
+class RDFStoreType(str, Enum):
+    """RDF store backend types"""
+    FUSEKI = "fuseki"
+    GRAPHDB = "graphdb"
+    ONTOTEXT = "ontotext"
+    OXIGRAPH = "oxigraph"
+    CUSTOM_SPARQL = "custom_sparql"
+
+class OntologyFormat(str, Enum):
+    """RDF ontology serialization formats"""
+    TURTLE = "turtle"
+    RDFXML = "rdfxml"
+    NTRIPLES = "ntriples"
+    NQUADS = "nquads"
+    JSONLD = "jsonld"
+
+class QueryRoutingMode(str, Enum):
+    """Query routing strategy for hybrid systems"""
+    PROPERTY_GRAPH = "property_graph"
+    SPARQL = "sparql"
+    HYBRID = "hybrid"
+    AUTO = "auto"
 
 class Settings(BaseSettings):
     # Data source configuration
@@ -139,6 +166,128 @@ an aristocratic family that rules the planet Caladan, the rainy planet, since 10
     # Knowledge graph extraction control
     enable_knowledge_graph: bool = Field(True, description="Enable knowledge graph extraction for graph functionality")
     kg_extractor_type: str = Field("schema", description="Type of KG extractor: 'simple', 'schema', or 'dynamic'")
+    llm_extraction_mode: str = Field(
+        "function",
+        description=(
+            "How LlamaIndex calls the LLM for structured KG extraction. "
+            "'function' (default) — tool/function calling mode (most reliable for property extraction). "
+            "'json_schema' — structured output / JSON schema mode (PydanticProgramMode.DEFAULT). "
+            "'auto' — let LlamaIndex decide per provider (also maps to DEFAULT)."
+        ),
+    )
+    
+    # RDF Retrieval Configuration (LangChain Integration)
+    use_langchain_rdf: bool = Field(False, description="Enable LangChain-based RDF graph retrieval in hybrid search")
+    rdf_store_type: Optional[str] = Field(None, description="RDF store type for LangChain QA retrieval: graphdb | fuseki | oxigraph | neptune_rdf")
+    rdf_retrieval_weight: float = Field(0.3, description="Weight for RDF retrieval results in fusion (0.0-1.0)")
+    rdf_retrieval_top_k: int = Field(5, description="Number of results to return from RDF retriever")
+
+    # LangChain Property Graph Store Configuration
+    # When use_langchain_pg=true the LangChain PG store is used for the graph
+    # retriever slot in the fusion pipeline INSTEAD of the LlamaIndex graph_index.
+    # Only one of the two is active at a time (use_langchain_pg takes precedence).
+    use_langchain_pg: bool = Field(False, description="Use a LangChain property graph store instead of LlamaIndex graph_index for the graph retriever in hybrid fusion")
+    langchain_pg_store_type: Optional[str] = Field(
+        None,
+        description=(
+            "LangChain property graph store type when use_langchain_pg=true. "
+            "Options: neo4j | memgraph | kuzu | falkordb | arangodb | "
+            "neptune | neptune_analytics | apache_age | cosmos_gremlin | "
+            "hugegraph | nebula | tigergraph | arcadedb | spanner"
+        ),
+    )
+    langchain_pg_vector_search: bool = Field(
+        False,
+        description=(
+            "Run a vector-similarity search against the graph store's entity vector index "
+            "and include results in fusion. Works independently of use_langchain_pg — "
+            "requires only that GRAPH_DB=neo4j ingestion has run (which creates the "
+            "__Entity__[embedding] index). Currently supported for neo4j."
+        ),
+    )
+    langchain_pg_vector_index: str = Field(
+        "entity",
+        description="Name of the Neo4j vector index to query when langchain_pg_vector_search=true. "
+                    "Default 'entity' matches the index LlamaIndex creates on __Entity__[embedding].",
+    )
+    langchain_pg_vector_node_label: str = Field(
+        "__Entity__",
+        description="Node label for the vector index (default: __Entity__).",
+    )
+    langchain_pg_vector_embedding_property: str = Field(
+        "embedding",
+        description="Node property storing the embedding vector (default: embedding).",
+    )
+    langchain_pg_vector_text_property: str = Field(
+        "name",
+        description="Node property to use as returned text in vector search results (default: name).",
+    )
+
+    # ------------------------------------------------------------------
+    # LangChain PG neighborhood retriever (k-hop graph expansion)
+    # ------------------------------------------------------------------
+    use_pg_neighborhood: bool = Field(
+        False,
+        description=(
+            "When use_langchain_pg=true, also expand from vector-similarity seed nodes "
+            "up to pg_neighborhood_hops hops in the property graph and include neighbors "
+            "in fusion.  Mirrors LlamaIndex VectorContextRetriever for LangChain-only stores."
+        ),
+    )
+    pg_neighborhood_hops: int = Field(
+        2,
+        description="Maximum relationship hops for PG neighborhood expansion (default: 2).",
+    )
+    pg_neighborhood_top_k_seeds: int = Field(
+        10,
+        description="Number of vector similarity hits used as seeds for neighborhood expansion.",
+    )
+
+    # ------------------------------------------------------------------
+    # Synonym exploder (LLM-based query rewriter for hybrid retrieval)
+    # ------------------------------------------------------------------
+    use_synonym_exploder: bool = Field(
+        False,
+        description=(
+            "Wrap the hybrid retriever with an LLM-based synonym/keyword expander. "
+            "The LLM generates up to synonym_exploder_max_keywords related keywords "
+            "which are appended to the query (^ separated, same as LLMSynonymRetriever). "
+            "synonym_exploder_scope controls which retrievers see the enriched query."
+        ),
+    )
+    synonym_exploder_max_keywords: int = Field(
+        8,
+        description="Maximum number of synonym keywords the LLM should generate per query.",
+    )
+    synonym_exploder_scope: str = Field(
+        "langchain_pg_graph,langchain_pg_vector",
+        description=(
+            "Comma-separated list of retriever types that receive the synonym-enriched query. "
+            "Special values: 'all' (wrap entire fusion retriever, one LLM call), 'none' (disable). "
+            "Per-retriever tokens: "
+            "  llamaindex_vector    — LlamaIndex VectorStoreIndex retriever. "
+            "  llamaindex_search    — LlamaIndex BM25 / Elasticsearch / OpenSearch retriever. "
+            "  llamaindex_pg_graph  — LlamaIndex PropertyGraph graph_retriever (VectorContextRetriever). "
+            "  langchain_pg_vector  — LangChain PG vector retriever (langchain_pg_vector_search). "
+            "  langchain_rdf_graph  — LangChain RDF/SPARQL retriever. "
+            "  langchain_pg_graph   — LangChain property-graph Cypher QA retriever. "
+            "  langchain_pg_neighborhood — PG neighborhood k-hop retriever. "
+            "Example: 'langchain_pg_graph,langchain_pg_vector'"
+        ),
+    )
+
+    # GraphDB configuration for retrieval
+    graphdb_base_url: str = Field("http://localhost:7200", description="Ontotext GraphDB base URL")
+    graphdb_repository: str = Field("flexible-graphrag", description="GraphDB repository name")
+    graphdb_username: Optional[str] = Field("admin", description="GraphDB username")
+    graphdb_password: Optional[str] = Field("admin", description="GraphDB password")
+    
+    # Neptune RDF configuration for retrieval
+    neptune_host: Optional[str] = Field(None, description="Amazon Neptune cluster endpoint")
+    neptune_port: int = Field(8182, description="Neptune port (default: 8182)")
+    neptune_region: str = Field("us-east-1", description="AWS region for Neptune")
+    neptune_use_iam_auth: bool = Field(False, description="Use IAM authentication for Neptune")
+    neptune_use_https: bool = Field(True, description="Use HTTPS for Neptune connection")
     
     # Observability configuration
     enable_observability: bool = Field(False, description="Enable OpenTelemetry observability (traces/metrics)")
@@ -203,7 +352,8 @@ an aristocratic family that rules the planet Caladan, the rainy planet, since 10
                     "embedding_model": os.getenv("EMBEDDING_MODEL", "text-embedding-3-small"),
                     "temperature": float(os.getenv("OPENAI_TEMPERATURE", "0.1")),
                     "max_tokens": 4000,
-                    "timeout": float(os.getenv("OPENAI_TIMEOUT", "120.0"))
+                    "timeout": float(os.getenv("OPENAI_TIMEOUT", "120.0")),
+                    "extraction_mode": os.getenv("LLM_EXTRACTION_MODE", "function"),
                 }
             elif self.llm_provider == LLMProvider.OLLAMA:
                 self.llm_config = {
@@ -211,7 +361,8 @@ an aristocratic family that rules the planet Caladan, the rainy planet, since 10
                     "base_url": os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"),
                     "embedding_model": os.getenv("EMBEDDING_MODEL", "nomic-embed-text"),
                     "temperature": float(os.getenv("OLLAMA_TEMPERATURE", "0.1")),
-                    "timeout": float(os.getenv("OLLAMA_TIMEOUT", "900.0"))  # 15 minutes for graph extraction
+                    "timeout": float(os.getenv("OLLAMA_TIMEOUT", "900.0")),  # 15 minutes for graph extraction
+                    "extraction_mode": os.getenv("LLM_EXTRACTION_MODE", "function"),
                 }
             elif self.llm_provider == LLMProvider.AZURE_OPENAI:
                 self.llm_config = {
@@ -221,21 +372,24 @@ an aristocratic family that rules the planet Caladan, the rainy planet, since 10
                     "api_key": os.getenv("AZURE_OPENAI_API_KEY"),
                     "api_version": os.getenv("AZURE_OPENAI_API_VERSION", "2024-02-01"),
                     "temperature": float(os.getenv("AZURE_OPENAI_TEMPERATURE", "0.1")),
-                    "timeout": float(os.getenv("AZURE_OPENAI_TIMEOUT", "120.0"))
+                    "timeout": float(os.getenv("AZURE_OPENAI_TIMEOUT", "120.0")),
+                    "extraction_mode": os.getenv("LLM_EXTRACTION_MODE", "function"),
                 }
             elif self.llm_provider == LLMProvider.ANTHROPIC:
                 self.llm_config = {
                     "model": os.getenv("ANTHROPIC_MODEL", "claude-3-5-sonnet-20241022"),
                     "api_key": os.getenv("ANTHROPIC_API_KEY"),
                     "temperature": float(os.getenv("ANTHROPIC_TEMPERATURE", "0.1")),
-                    "timeout": float(os.getenv("ANTHROPIC_TIMEOUT", "120.0"))
+                    "timeout": float(os.getenv("ANTHROPIC_TIMEOUT", "120.0")),
+                    "extraction_mode": os.getenv("LLM_EXTRACTION_MODE", "function"),
                 }
             elif self.llm_provider == LLMProvider.GEMINI:
                 self.llm_config = {
                     "model": os.getenv("GEMINI_MODEL", "gemini-2.5-flash"),
                     "api_key": os.getenv("GEMINI_API_KEY"),
                     "temperature": float(os.getenv("GEMINI_TEMPERATURE", "0.1")),
-                    "timeout": float(os.getenv("GEMINI_TIMEOUT", "120.0"))
+                    "timeout": float(os.getenv("GEMINI_TIMEOUT", "120.0")),
+                    "extraction_mode": os.getenv("LLM_EXTRACTION_MODE", "function"),
                 }
             elif self.llm_provider == LLMProvider.VERTEX_AI:
                 self.llm_config = {
@@ -246,7 +400,8 @@ an aristocratic family that rules the planet Caladan, the rainy planet, since 10
                     "use_google_genai": os.getenv("VERTEX_AI_USE_GOOGLE_GENAI", "false").lower() == "true",
                     "api_key": os.getenv("VERTEX_AI_API_KEY"),  # Optional, for google-genai approach
                     "temperature": float(os.getenv("VERTEX_AI_TEMPERATURE", "0.1")),
-                    "timeout": float(os.getenv("VERTEX_AI_TIMEOUT", "120.0"))
+                    "timeout": float(os.getenv("VERTEX_AI_TIMEOUT", "120.0")),
+                    "extraction_mode": os.getenv("LLM_EXTRACTION_MODE", "function"),
                 }
             elif self.llm_provider == LLMProvider.BEDROCK:
                 self.llm_config = {
@@ -258,23 +413,78 @@ an aristocratic family that rules the planet Caladan, the rainy planet, since 10
                     "profile_name": os.getenv("BEDROCK_PROFILE_NAME"),
                     "temperature": float(os.getenv("BEDROCK_TEMPERATURE", "0.1")),
                     "timeout": float(os.getenv("BEDROCK_TIMEOUT", "120.0")),
-                    "context_size": int(os.getenv("BEDROCK_CONTEXT_SIZE", "0")) if os.getenv("BEDROCK_CONTEXT_SIZE") else None
+                    "context_size": int(os.getenv("BEDROCK_CONTEXT_SIZE", "0")) if os.getenv("BEDROCK_CONTEXT_SIZE") else None,
+                    "extraction_mode": os.getenv("LLM_EXTRACTION_MODE", "function"),
                 }
             elif self.llm_provider == LLMProvider.GROQ:
                 self.llm_config = {
                     "model": os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile"),
                     "api_key": os.getenv("GROQ_API_KEY"),
                     "temperature": float(os.getenv("GROQ_TEMPERATURE", "0.1")),
-                    "timeout": float(os.getenv("GROQ_TIMEOUT", "120.0"))
+                    "timeout": float(os.getenv("GROQ_TIMEOUT", "120.0")),
+                    "extraction_mode": os.getenv("LLM_EXTRACTION_MODE", "function"),
                 }
             elif self.llm_provider == LLMProvider.FIREWORKS:
                 self.llm_config = {
                     "model": os.getenv("FIREWORKS_MODEL", "accounts/fireworks/models/llama-v3p3-70b-instruct"),
                     "api_key": os.getenv("FIREWORKS_API_KEY"),
                     "temperature": float(os.getenv("FIREWORKS_TEMPERATURE", "0.1")),
-                    "timeout": float(os.getenv("FIREWORKS_TIMEOUT", "120.0"))
+                    "timeout": float(os.getenv("FIREWORKS_TIMEOUT", "120.0")),
+                    "extraction_mode": os.getenv("LLM_EXTRACTION_MODE", "function"),
                 }
-        
+            elif self.llm_provider == LLMProvider.OPENAI_LIKE:
+                # Generic OpenAI-compatible API: LM Studio, LocalAI, Llamafile, Jan, Tabby, etc.
+                # is_function_calling_model defaults to True - set OPENAI_LIKE_FUNCTION_CALLING=false
+                # if your server/model doesn't support tool calling
+                self.llm_config = {
+                    "model": os.getenv("OPENAI_LIKE_MODEL", "local-model"),
+                    "api_base": os.getenv("OPENAI_LIKE_API_BASE", "http://localhost:8000/v1"),
+                    "api_key": os.getenv("OPENAI_LIKE_API_KEY", "local"),
+                    "temperature": float(os.getenv("OPENAI_LIKE_TEMPERATURE", "0.1")),
+                    "timeout": float(os.getenv("OPENAI_LIKE_TIMEOUT", "120.0")),
+                    "context_window": int(os.getenv("OPENAI_LIKE_CONTEXT_WINDOW", "4096")),
+                    "is_function_calling_model": os.getenv("OPENAI_LIKE_FUNCTION_CALLING", "true").lower() == "true",
+                    "is_chat_model": os.getenv("OPENAI_LIKE_CHAT_MODEL", "true").lower() == "true",
+                    "extraction_mode": os.getenv("LLM_EXTRACTION_MODE", "function"),
+                }
+            elif self.llm_provider == LLMProvider.VLLM:
+                # vLLM server - high-performance local inference engine
+                # vLLM has its own native LlamaIndex class (not OpenAILike)
+                # Supports OpenAI-compatible API at /v1 endpoint
+                self.llm_config = {
+                    "model": os.getenv("VLLM_MODEL", "facebook/opt-125m"),
+                    "api_url": os.getenv("VLLM_API_URL", "http://localhost:8002"),
+                    "temperature": float(os.getenv("VLLM_TEMPERATURE", "0.1")),
+                    "max_new_tokens": int(os.getenv("VLLM_MAX_NEW_TOKENS", "512")),
+                    "is_chat_model": os.getenv("VLLM_CHAT_MODEL", "true").lower() == "true",
+                    "extraction_mode": os.getenv("LLM_EXTRACTION_MODE", "function"),
+                }
+            elif self.llm_provider == LLMProvider.LITELLM:
+                # LiteLLM proxy - unified OpenAI-compatible API for 100+ providers
+                # Run: litellm --model ollama/llama3 (starts proxy on port 4000)
+                self.llm_config = {
+                    "model": os.getenv("LITELLM_MODEL", "gpt-4o-mini"),
+                    "api_base": os.getenv("LITELLM_API_BASE", "http://localhost:4000/v1"),
+                    "api_key": os.getenv("LITELLM_API_KEY", "local"),
+                    "temperature": float(os.getenv("LITELLM_TEMPERATURE", "0.1")),
+                    "timeout": float(os.getenv("LITELLM_TIMEOUT", "120.0")),
+                    "context_window": int(os.getenv("LITELLM_CONTEXT_WINDOW", "4096")),
+                    "is_function_calling_model": os.getenv("LITELLM_FUNCTION_CALLING", "true").lower() == "true",
+                    "extraction_mode": os.getenv("LLM_EXTRACTION_MODE", "function"),
+                }
+            elif self.llm_provider == LLMProvider.OPENROUTER:
+                # OpenRouter - unified API for 200+ models (GPT-4, Claude, Llama, Mistral, etc.)
+                # Get API key from https://openrouter.ai/keys
+                self.llm_config = {
+                    "model": os.getenv("OPENROUTER_MODEL", "openai/gpt-4o-mini"),
+                    "api_key": os.getenv("OPENROUTER_API_KEY"),
+                    "temperature": float(os.getenv("OPENROUTER_TEMPERATURE", "0.1")),
+                    "timeout": float(os.getenv("OPENROUTER_TIMEOUT", "120.0")),
+                    "context_window": int(os.getenv("OPENROUTER_CONTEXT_WINDOW", "128000")),
+                    "max_tokens": int(os.getenv("OPENROUTER_MAX_TOKENS", "16384")),
+                    "extraction_mode": os.getenv("LLM_EXTRACTION_MODE", "function"),
+                }
+
         # Set default database configs if not provided
         if not self.vector_db_config:
             if self.vector_db == VectorDBType.NEO4J:
@@ -479,11 +689,160 @@ an aristocratic family that rules the planet Caladan, the rainy planet, since 10
         """Alias for get_active_schema() for backward compatibility"""
         return self.get_active_schema()
 
+    # ===========================
+    # RDF and Ontology Configuration
+    # ===========================
+    
+    # Ontology configuration
+    use_ontology: bool = Field(default=False, description="Enable ontology-driven extraction")
+    ontology_path: Optional[str] = Field(None, description="Single ontology file path (e.g., ./rdf/schemas/company_ontology.ttl). Use ontology_dir or ontology_paths for multiple files.")
+    ontology_dir: Optional[str] = Field(None, description="Directory of ontology files — all .ttl/.rdf/.owl/.n3/.nt files are loaded and merged. Takes precedence over ontology_path.")
+    ontology_paths: Optional[str] = Field(None, description="Comma-separated list of ontology file paths. Takes precedence over ontology_path but not ontology_dir.")
+    ontology_format: OntologyFormat = Field(default=OntologyFormat.TURTLE, description="Default RDF ontology serialization format (used for ontology_path and ontology_paths; directory loading auto-detects by extension)")
+    strict_schema_validation: bool = Field(default=False, description="strict=True: only extract entity/relation types defined in the schema (Pydantic-enforced via Literal type). strict=False: schema guides extraction but LLM may also produce types outside the schema.")
+    disable_properties: bool = Field(default=False, description="Disable entity and relation properties extraction (default: False - properties enabled for all providers including OpenAI via function calling mode)")
+    
+    # RDF store configuration (stored as strings, validated to lists)
+    rdf_enabled_stores: Optional[str] = Field(default=None, description="Comma-separated list of enabled RDF stores")
+    rdf_stores: Optional[str] = Field(default=None, description="RDF store configurations as JSON")
+    default_rdf_backend: Optional[str] = Field(default=None, description="Default RDF backend (must match a name in rdf_stores)")
+    
+    # Standalone RDF store configurations (override JSON if provided)
+    # Fuseki
+    fuseki_enabled: bool = Field(default=False, description="Enable Apache Fuseki RDF store")
+    fuseki_base_url: str = Field(default="http://localhost:3030", description="Fuseki base URL")
+    fuseki_dataset: str = Field(default="flexible-graphrag", description="Fuseki dataset name")
+    fuseki_username: Optional[str] = Field(default=None, description="Fuseki username (required when auth is enabled)")
+    fuseki_password: Optional[str] = Field(default=None, description="Fuseki password")
+    
+    # GraphDB / Ontotext
+    graphdb_enabled: bool = Field(default=False, description="Enable Ontotext GraphDB RDF store")
+    graphdb_base_url: str = Field(default="http://localhost:7200", description="GraphDB base URL")
+    graphdb_repository: str = Field(default="flexible-graphrag", description="GraphDB repository name")
+    graphdb_username: Optional[str] = Field(default="admin", description="GraphDB username")
+    graphdb_password: Optional[str] = Field(default="admin", description="GraphDB password")
+    
+    # Oxigraph
+    oxigraph_enabled: bool = Field(default=False, description="Enable Oxigraph RDF store")
+    oxigraph_store_path: Optional[str] = Field(default=None, description="Oxigraph embedded store directory path (pyoxigraph). Use only when NOT running the Docker container. Mutually exclusive with oxigraph_url.")
+    oxigraph_url: Optional[str] = Field(default=None, description="Oxigraph HTTP server URL (e.g. http://localhost:7878). Preferred over oxigraph_store_path — no file locking issues.")
+    
+    # Query routing configuration
+    query_routing_default: QueryRoutingMode = Field(default=QueryRoutingMode.HYBRID, description="Default query routing strategy")
+    support_sparql: bool = Field(default=True, description="Enable SPARQL query support")
+    support_cypher: bool = Field(default=True, description="Enable Cypher query support")
+    
+    # RDF export configuration
+    enable_rdf_export: bool = Field(default=False, description="Enable RDF export API endpoints")
+    rdf_export_format: OntologyFormat = Field(default=OntologyFormat.TURTLE, description="Default RDF export format")
+    auto_export_to_rdf: bool = Field(default=False, description="Automatically export to RDF stores after ingestion")
+    ingestion_storage_mode: str = Field(default="property_graph", description="Where to store ingested data: 'property_graph', 'rdf_only', or 'both'")
+    rdf_base_namespace: str = Field(default="https://integratedsemantics.org/flexible-graphrag/kg/", description="Base namespace for entity instance URIs in RDF export (e.g. https://integratedsemantics.org/flexible-graphrag/kg/)")
+    rdf_annotation_syntax: str = Field(default="rdf_1.2", description="How to encode relation properties in RDF output. 'rdf_1.2' = RDF 1.2 inline {| |} annotation syntax (recommended, requires Fuseki 5 / Jena 5, GraphDB 10+, Oxigraph 0.4+). 'rdf_star' = legacy << >> annotation lines (same stores, older syntax). 'flat' = plain compound-predicate triples, works with any SPARQL 1.1 store.")
+    
+    @field_validator('rdf_enabled_stores', mode='after')
+    @classmethod
+    def parse_rdf_enabled_stores(cls, v):
+        """Parse comma-separated RDF store names"""
+        if v is None or v == '':
+            return []
+        if isinstance(v, str):
+            return [s.strip() for s in v.split(',') if s.strip()]
+        if isinstance(v, list):
+            return v
+        return []
+    
+    @field_validator('rdf_stores', mode='after')
+    @classmethod
+    def parse_rdf_stores(cls, v):
+        """Parse RDF store configurations from JSON string or list"""
+        if v is None or v == '':
+            return []
+        if isinstance(v, str):
+            try:
+                return json.loads(v)
+            except json.JSONDecodeError:
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.warning(f"Failed to parse RDF_STORES as JSON: {v}")
+                return []
+        if isinstance(v, list):
+            return v
+        return []
+    
+    def get_rdf_store_configs(self) -> List[Dict[str, Any]]:
+        """
+        Get RDF store configurations, with standalone env vars overriding JSON config.
+        
+        Priority:
+        1. Standalone env vars (FUSEKI_ENABLED, GRAPHDB_ENABLED, etc.) - highest priority
+        2. RDF_STORES JSON array - fallback
+        
+        Returns list of store configurations for enabled stores.
+        """
+        configs = []
+        
+        # Check standalone Fuseki config
+        if self.fuseki_enabled:
+            cfg = {
+                "base_url": self.fuseki_base_url,
+                "dataset": self.fuseki_dataset,
+            }
+            if self.fuseki_username:
+                cfg["username"] = self.fuseki_username
+            if self.fuseki_password:
+                cfg["password"] = self.fuseki_password
+            configs.append({
+                "name": "fuseki",
+                "type": "fuseki",
+                "config": cfg
+            })
+        
+        # Check standalone GraphDB config
+        if self.graphdb_enabled:
+            configs.append({
+                "name": "graphdb",
+                "type": "graphdb",
+                "config": {
+                    "base_url": self.graphdb_base_url,
+                    "repository": self.graphdb_repository,
+                    "username": self.graphdb_username,
+                    "password": self.graphdb_password
+                }
+            })
+        
+        # Check standalone Oxigraph config
+        if self.oxigraph_enabled:
+            oxigraph_cfg: Dict[str, Any] = {}
+            if self.oxigraph_url:
+                oxigraph_cfg["url"] = self.oxigraph_url
+            elif self.oxigraph_store_path:
+                oxigraph_cfg["store_path"] = self.oxigraph_store_path
+            else:
+                # Default to HTTP endpoint if Docker container is the likely setup
+                oxigraph_cfg["url"] = "http://localhost:7878"
+            configs.append({
+                "name": "oxigraph",
+                "type": "oxigraph",
+                "config": oxigraph_cfg
+            })
+        
+        # If no standalone configs, use JSON array
+        if not configs and self.rdf_stores:
+            configs = self.rdf_stores
+        
+        # Filter by rdf_enabled_stores if specified
+        if self.rdf_enabled_stores:
+            configs = [c for c in configs if c.get("name") in self.rdf_enabled_stores]
+        
+        return configs
+
     model_config = {
         "env_file": ".env",
         "case_sensitive": False,
         "use_enum_values": True,
-        "extra": "allow"
+        "extra": "allow",
+        "env_parse_none_str": "null"  # Parse 'null' string as None instead of trying JSON
     }
 
 # Sample schema configuration - comprehensive schema with permissive validation for maximum flexibility
@@ -533,6 +892,93 @@ SAMPLE_SCHEMA = {
         ("PLACE", "HAS", "ORGANIZATION"),
         ("PLACE", "HAS", "PERSON")
     ],
+    "properties": {
+        # Properties for PERSON entities
+        "PERSON": {
+            "name": "str",
+            "email": "str",
+            "phone": "str",
+            "title": "str",
+            "age": "int",
+            "hire_date": "str"
+        },
+        # Properties for ORGANIZATION entities
+        "ORGANIZATION": {
+            "name": "str",
+            "industry": "str",
+            "founded_year": "int",
+            "employee_count": "int",
+            "revenue": "float",
+            "website": "str"
+        },
+        # Properties for PROJECT entities
+        "PROJECT": {
+            "name": "str",
+            "description": "str",
+            "budget": "float",
+            "start_date": "str",
+            "end_date": "str",
+            "status": "str"
+        },
+        # Properties for TECHNOLOGY entities
+        "TECHNOLOGY": {
+            "name": "str",
+            "version": "str",
+            "release_date": "str",
+            "license": "str"
+        },
+        # Properties for LOCATION entities
+        "LOCATION": {
+            "name": "str",
+            "country": "str",
+            "region": "str",
+            "latitude": "float",
+            "longitude": "float"
+        },
+        # Properties for PLACE entities
+        "PLACE": {
+            "name": "str",
+            "address": "str",
+            "city": "str",
+            "postal_code": "str"
+        }
+    },
+    "relation_properties": {
+        # Properties for WORKS_FOR relationship
+        "WORKS_FOR": {
+            "role": "str",
+            "start_date": "str",
+            "employment_type": "str"  # Full-time, Part-time, Contract, etc.
+        },
+        # Properties for WORKED_AT relationship
+        "WORKED_AT": {
+            "role": "str",
+            "start_date": "str",
+            "end_date": "str",
+            "duration_years": "float"
+        },
+        # Properties for WORKED_ON relationship
+        "WORKED_ON": {
+            "contribution_percentage": "float",
+            "start_date": "str",
+            "end_date": "str"
+        },
+        # Properties for COLLABORATES_WITH relationship
+        "COLLABORATES_WITH": {
+            "since": "str",
+            "project_count": "int"
+        },
+        # Properties for USES relationship  
+        "USES": {
+            "proficiency_level": "str",  # Beginner, Intermediate, Advanced, Expert
+            "years_experience": "float"
+        },
+        # Properties for DEVELOPS relationship
+        "DEVELOPS": {
+            "role": "str",  # Lead, Contributor, Maintainer
+            "since": "str"
+        }
+    },
     "strict": False,
     "max_triplets_per_chunk": 20
 }
