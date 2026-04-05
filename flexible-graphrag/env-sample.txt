@@ -127,9 +127,9 @@ DOCUMENT_PARSER=docling
 # ====================================================================
 
 GRAPH_DB=neo4j
-#GRAPH_DB=kuzu
-#GRAPH_DB=falkordb
 #GRAPH_DB=arcadedb
+#GRAPH_DB=falkordb
+#GRAPH_DB=ladybug
 #GRAPH_DB=memgraph
 #GRAPH_DB=nebula
 #GRAPH_DB=neptune
@@ -156,10 +156,15 @@ KG_EXTRACTOR_TYPE=schema
 # Neo4j
 GRAPH_DB_CONFIG={"url": "bolt://localhost:7687", "username": "neo4j", "password": "password"}
 
-# Kuzu (database file will be created as ./kuzu_db/database.kz)
-# use_structured_schema: false (default) - enables initial entity types and schema (not generic entity type schema)
-# use_vector_index: false (default) - enables Kuzu's built-in vector capabilities use internally
-#GRAPH_DB_CONFIG={"db_path": "./kuzu_db/database.kz", "use_structured_schema": false, "use_vector_index": false}
+# Ladybug (embedded property graph — single .lbug file, created automatically)
+# use_vector_index: true (default) - use Ladybug's built-in vector index for similarity search
+#LADYBUG_DB_DIR=./ladybug          # directory to store .lbug files (created if missing)
+#LADYBUG_DB_FILE=database.lbug     # filename inside that directory
+#LADYBUG_USE_VECTOR_INDEX=true
+#LADYBUG_STRUCTURED_SCHEMA=false   # true = enforce relationship_schema on storage (default false)
+#LADYBUG_STRICT_SCHEMA=false       # true = skip entities/relations not in schema (default false, only applies when LADYBUG_STRUCTURED_SCHEMA=true)
+# Optional: override via GRAPH_DB_CONFIG (takes precedence over individual vars above)
+#GRAPH_DB_CONFIG={"db_dir": "./ladybug", "db_file": "database.lbug", "use_vector_index": true, "has_structured_schema": false}
 
 # FalkorDB
 #GRAPH_DB_CONFIG={"url": "falkor://localhost:6379"}
@@ -650,6 +655,9 @@ CHUNK_OVERLAP=128
 #MAX_TRIPLETS_PER_CHUNK=100
 #MAX_PATHS_PER_CHUNK=100
 
+#MAX_TRIPLETS_PER_CHUNK=50
+#MAX_PATHS_PER_CHUNK=50
+
 MAX_TRIPLETS_PER_CHUNK=20
 MAX_PATHS_PER_CHUNK=20
 
@@ -881,7 +889,7 @@ RDF_RETRIEVAL_TOP_K=5
 # Supported LANGCHAIN_PG_STORE_TYPE values:
 #   neo4j            - Neo4j (bolt) via langchain_neo4j > langchain_community
 #   memgraph         - Memgraph (bolt) via langchain_memgraph > langchain_community
-#   kuzu             - Kùzu embedded via langchain_kuzu > langchain_community  (needs KUZU_DB_PATH)
+#   ladybug          - not supported for USE_LANGCHAIN_PG (use GRAPH_DB=ladybug with default LlamaIndex graph retriever)
 #   falkordb         - FalkorDB via langchain_community
 #   hugegraph        - Apache HugeGraph via langchain_community
 #   nebula           - NebulaGraph via langchain_community

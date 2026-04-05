@@ -44,7 +44,7 @@ Enhance **flexible-graphrag** to support:
     │                                                        │
     ↓ Property Graph Store Layer                            ↓ RDF Store Layer
     ├─ Neo4j                                                ├─ Ontotext GraphDB
-    ├─ Kuzu                                                 ├─ Apache Fuseki
+    ├─ Ladybug                                              ├─ Apache Fuseki
     ├─ FalkorDB                                             ├─ Oxigraph
     ├─ ArcadeDB                                             ├─ Oracle SPARQL
     ├─ MemGraph                                             ├─ Virtuoso

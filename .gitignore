@@ -182,6 +182,8 @@ flexible-graphrag/arcadedb_data/
 arcadedb_data/
 # ArcadeDB embedded server log directory (written alongside db_path)
 flexible-graphrag/log/
+ladybug/
+*.lbug
 
 # Document processing output directories
 flexible-graphrag/parsing_output/

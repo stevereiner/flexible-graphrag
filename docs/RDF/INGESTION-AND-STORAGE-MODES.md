@@ -5,7 +5,7 @@
 After the LLM extracts entities and relations from your documents, Flexible GraphRAG
 can store the resulting knowledge graph in:
 
-- **Property Graph** (Neo4j, Kuzu, FalkorDB, Memgraph, …) — LPG model, Cypher queries
+- **Property Graph** (Neo4j, Ladybug, FalkorDB, Memgraph, …) — LPG model, Cypher queries
 - **RDF Stores** (Fuseki, GraphDB, Oxigraph) — triple store, SPARQL queries
 - **Both simultaneously**
 
@@ -217,7 +217,7 @@ QUERY_ROUTING_DEFAULT=auto            # Auto-detect from query
 |---|---|
 | **Hybrid Search** | Vector + Fulltext + Graph retrieval (main search feature) |
 | **Query Routing** | Choosing between Property Graph vs RDF stores for queries |
-| **Property Graph** | LPG store: Neo4j, Kuzu, FalkorDB, Memgraph, etc. |
+| **Property Graph** | LPG store: Neo4j, Ladybug, FalkorDB, Memgraph, etc. |
 | **RDF Store** | Triple store: Fuseki, GraphDB, Oxigraph |
 | **Ontology** | OWL/RDF schema defining entity/relation types |
 | **Knowledge Graph** | Extracted entity/relation instances from documents |

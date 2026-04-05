@@ -22,7 +22,7 @@ Comprehensive testing results for different LLM and embedding provider combinati
 
 ### Graph Database Compatibility
 
-All graph databases (Neo4j, FalkorDB, ArcadeDB, Kuzu, MemGraph, etc.) show identical behavior patterns based on the LLM provider used, not the database choice:
+All graph databases (Neo4j, Ladybug, FalkorDB, ArcadeDB, MemGraph, etc.) show identical behavior patterns based on the LLM provider used, not the database choice:
 
 - **OpenAI/Azure OpenAI**: Full graph extraction with entities and relationships works on all databases
 - **Google Gemini**: Full graph extraction works with `use_ontology=True` (AFC disabled + `pydantic_program_mode=FUNCTION` fixes applied 2026-03-15)

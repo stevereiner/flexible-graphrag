@@ -218,7 +218,7 @@ class S3Source(BaseDataSource):
         Returns:
             List[Document]: List of LlamaIndex Document objects
         """
-        from document_processor import get_parser_type_from_env
+        from process.document_processor import get_parser_type_from_env
         
         try:
             if progress_callback:

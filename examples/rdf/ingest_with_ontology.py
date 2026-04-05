@@ -17,7 +17,7 @@ class OntologyAwarePropertyGraphBuilder:
     def __init__(self, graph_store, llm, embed_model, ontology_path: Optional[str] = None):
         """
         Args:
-            graph_store: LlamaIndex graph store (Neo4j, Kuzu, etc.)
+            graph_store: LlamaIndex graph store (Neo4j, Ladybug, etc.)
             llm: Language model
             embed_model: Embedding model
             ontology_path: Path to RDF ontology file (optional)

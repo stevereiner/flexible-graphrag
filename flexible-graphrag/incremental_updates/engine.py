@@ -18,7 +18,7 @@ from llama_index.core import VectorStoreIndex, PropertyGraphIndex
 
 from .detectors import ChangeEvent, ChangeType, FileMetadata
 from .state_manager import StateManager, DocumentState
-from document_processor import DocumentProcessor
+from process.document_processor import DocumentProcessor
 from config import Settings as AppSettings
 
 logger = logging.getLogger("flexible_graphrag.incremental.engine")
@@ -119,7 +119,7 @@ class IncrementalUpdateEngine:
             logger.info(f"  Using hybrid_system for ingestion (reuses existing logic)...")
             try:
                 # hybrid_system.ingest_documents() expects file_paths, not Document objects
-                # Since we already have the content, we need to use _process_documents_direct() instead
+                # Since we already have the content, we need to use _ingest_source_documents() instead
                 # which takes Document objects directly
                 
                 # Determine skip_graph: prioritize datasource config, fallback to default (False)
@@ -130,8 +130,8 @@ class IncrementalUpdateEngine:
                     skip_graph = False  # Default: don't skip graph
                     logger.info(f"  Using default skip_graph={skip_graph}")
                 
-                # Call _process_documents_direct() which is async
-                await self.hybrid_system._process_documents_direct(
+                # Call _ingest_source_documents() which is async
+                await self.hybrid_system._ingest_source_documents(
                     documents=[llama_doc],
                     processing_id=None,
                     status_callback=None,
@@ -464,7 +464,7 @@ class IncrementalUpdateEngine:
             Number of entities extracted
         """
         from llama_index.core.node_parser import SimpleNodeParser
-        from hybrid_system import SchemaManager, count_extracted_entities_and_relations
+        from process.kg_extractor import count_extracted_entities_and_relations
         
         # Convert document to nodes
         node_parser = SimpleNodeParser.from_defaults()
@@ -477,7 +477,13 @@ class IncrementalUpdateEngine:
             logger.info(f"  Node {i}: id={node.node_id}, ref_doc_id={node.ref_doc_id}, doc_id in metadata={node.metadata.get('doc_id')}")
         
         # Get or create extractors
-        schema_manager = SchemaManager(self.config.get_active_schema(), self.config)
+        # Use the hybrid_system's singleton schema_manager to avoid re-loading
+        # the ontology manager on every incremental update call.
+        if self.hybrid_system and hasattr(self.hybrid_system, 'schema_manager'):
+            schema_manager = self.hybrid_system.schema_manager
+        else:
+            from schema_manager import SchemaManager
+            schema_manager = SchemaManager(self.config.get_active_schema(), self.config)
         
         kg_extractor = schema_manager.create_extractor(
             self.graph_index._llm,

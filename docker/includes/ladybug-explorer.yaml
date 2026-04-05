@@ -1,0 +1,37 @@
+# Ladybug Explorer Web Interface
+# Source: https://github.com/LadybugDB/explorer
+#
+# Ladybug allows only one writer at a time. Stop the flexible-graphrag backend
+# before starting Explorer, and stop Explorer before restarting the backend.
+#
+# Usage:
+#   1. Stop the flexible-graphrag backend.
+#   2. Start Explorer:  docker compose -p flexible-graphrag up ladybug-explorer -d
+#   3. Browse at http://localhost:7003
+#   4. Stop Explorer before restarting the backend: with stop button in docker desktop or
+#      docker compose -p flexible-graphrag stop ladybug-explorer
+#
+# NOTE: lbugdb/explorer is NOT yet published to Docker Hub.
+# To use this, build the image locally first:
+#   git clone https://github.com/LadybugDB/explorer
+#   cd explorer
+#   docker build -t lbugdb/explorer:latest .
+# Then uncomment this file in docker-compose.yaml.
+services:
+  ladybug-explorer:
+    image: lbugdb/explorer:latest
+    container_name: flexible-graphrag-ladybug-explorer
+    ports:
+      - "7003:8000"    # Map external 7003 to internal 8000 (Ladybug Explorer default port)
+    volumes:
+      # Mount the ladybug directory containing .lbug files into /database in the container
+      - ../../flexible-graphrag/ladybug:/database
+    environment:
+      # Filename inside the mounted directory (matches LADYBUG_DB_FILE in .env)
+      # Default fallback if unset: database.lbug
+      - LBUG_FILE=${LADYBUG_DB_FILE:-database.lbug}
+      - MODE=READ_ONLY                          # READ_ONLY or READ_WRITE (default READ_WRITE)
+      - LBUG_BUFFER_POOL_SIZE=1073741824        # 1GB buffer pool (default: 80% of available memory)
+    restart: "no"  # Don't auto-restart so it can be stopped easily
+
+

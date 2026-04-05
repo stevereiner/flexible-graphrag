@@ -102,6 +102,10 @@ class SynonymExpander:
             logger.warning("SynonymExpander LLM call failed: %s — using original query", e)
             return qb
 
+        return self._build_bundle(qb, raw)
+
+    def _build_bundle(self, qb: QueryBundle, raw: str) -> QueryBundle:
+        """Parse raw LLM synonym output into an enriched QueryBundle."""
         parts = [p.strip() for p in raw.split("^") if p.strip()]
 
         # Deduplicate case-insensitively; skip any part that is just the original query
@@ -158,7 +162,17 @@ class SynonymExpanderRetriever(BaseRetriever):
         return self._base._retrieve(rewritten)
 
     async def _aretrieve(self, query_bundle: QueryBundle) -> List[NodeWithScore]:
-        rewritten = self._expander.rewrite(query_bundle)
+        # Use acomplete in async context to avoid llm.complete() -> asyncio_run() nesting.
+        prompt = self._expander._prompt_tmpl.format(
+            max_keywords=self._expander._max_keywords,
+            query=query_bundle.query_str,
+        )
+        try:
+            response = await self._expander._llm.acomplete(prompt)
+            rewritten = self._expander._build_bundle(query_bundle, response.text)
+        except Exception as e:
+            logger.debug("SynonymExpander async rewrite failed: %s — using original query", e)
+            rewritten = query_bundle
         if hasattr(self._base, "_aretrieve"):
             return await self._base._aretrieve(rewritten)
         return self._base._retrieve(rewritten)

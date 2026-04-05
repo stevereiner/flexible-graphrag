@@ -11,9 +11,9 @@ How to configure Flexible GraphRAG to write extracted knowledge graphs to RDF tr
 Set in `.env` — controls where extracted KG data is written:
 
 ```env
-# property_graph   — Neo4j / Kuzu only (default)
+# property_graph   — Neo4j / Ladybug / other LPG stores (default)
 # rdf_only         — RDF stores only (skips property graph)
-# both             — Neo4j/Kuzu AND RDF stores simultaneously
+# both             — property graph AND RDF stores simultaneously
 INGESTION_STORAGE_MODE=both
 ```
 

@@ -322,42 +322,13 @@ The dimension is automatically applied to vector database configurations in `con
 ```
 
 
-## 🐛 Ollama + Kuzu Configuration Issue
+## Ollama + Ladybug + vector store
 
-### **Problem**: Kuzu Approach 2 + Ollama Incompatibility
+When using **Ollama** embeddings with **Ladybug** (`GRAPH_DB=ladybug`) and a separate **VECTOR_DB** (for example Qdrant), use one embedding model end-to-end and set `EMBEDDING_DIMENSION` to match (for example 384 for `all-minilm`, 768 for `nomic-embed-text`). If you change embedding models or dimensions, clear the vector index data and remove or recreate the Ladybug `.lbug` file before re-ingesting.
 
-When using **Ollama** with **Kuzu + Qdrant** (Approach 2), you may encounter:
-- `"cannot unpack non-iterable NoneType object"` during PropertyGraphIndex creation
-- Compatibility issues with vector store parameter passing
+Ladybug can store vectors on chunk nodes when `LADYBUG_USE_VECTOR_INDEX=true`; those vectors must use the same embedding model and dimension as your configured `VECTOR_DB`.
 
-### **Solution**: Automatic Kuzu Approach 1 for Ollama
-
-The system automatically uses **Kuzu Approach 1** (built-in vector index) when Ollama is detected:
-
-**Configuration**:
-```bash
-LLM_PROVIDER=ollama
-GRAPH_DB=kuzu
-VECTOR_DB=qdrant  # This will be automatically ignored for Ollama
-```
-
-**Result**:
-- ✅ **Kuzu handles both graph AND vectors** (384 dimensions for Ollama)
-- ✅ **No separate vector database needed** for Ollama
-- ✅ **Simpler setup** with single database
-
-**Log Confirmation**:
-```
-Using Kuzu Approach 1: built-in vector index with ollama embeddings
-```
-
-### **Why This Works**
-
-- **OpenAI**: Uses Kuzu Approach 2 (Kuzu + Qdrant separation)
-- **Ollama**: Uses Kuzu Approach 1 (Kuzu built-in vector index)
-- **Automatic**: No configuration changes needed
-
-## ✅ Best Practices
+## Best Practices
 
 1. **Plan Your Embedding Model**: Choose your embedding model before ingesting large document collections
 2. **Test with Small Data**: Verify compatibility with a small test dataset first
@@ -365,9 +336,9 @@ Using Kuzu Approach 1: built-in vector index with ollama embeddings
 4. **Backup Strategy**: Consider backup procedures if you need to preserve processed data
 5. **Environment Separation**: Use different databases/collections for different embedding models
 6. **Consistent Naming**: Use explicit collection/database names to avoid defaults mismatches
-7. **Ollama + Kuzu**: Let the system automatically use Approach 1 - no special configuration needed
+7. **Ollama + Ladybug**: Align embedding dimensions across Ladybug and `VECTOR_DB` before large ingests
 
-## 🔍 Verification
+## Verification
 
 After switching models and cleaning databases, verify the setup:
 

@@ -53,7 +53,7 @@ def build_langchain_pg_retriever(config: "AppSettings"):
             "apache_age", "cosmos_gremlin", "spanner",
         }
         _COMMUNITY_STORES = {
-            "neo4j", "memgraph", "kuzu", "falkordb",
+            "neo4j", "memgraph", "falkordb",
             "hugegraph", "nebula", "tigergraph", "arcadedb",
         }
 
@@ -317,16 +317,6 @@ def create_community_pg_graph(config: "AppSettings", store_type: str):
             username=graph_config.get("username", ""),
             password=graph_config.get("password", ""),
         )
-
-    if store_type == "kuzu":
-        try:
-            from langchain_kuzu import KuzuGraph
-        except ImportError:
-            from langchain_community.graphs import KuzuGraph
-        import kuzu
-        db_path = getattr(config, "kuzu_db_path", "./kuzu_db")
-        db = kuzu.Database(db_path)
-        return KuzuGraph(db)
 
     if store_type == "arcadedb":
         from langchain_arcadedb import ArcadeDBGraph

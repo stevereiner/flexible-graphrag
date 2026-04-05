@@ -9,6 +9,17 @@ Usage:
 """
 import argparse
 import asyncio
+import os
+import sys
+from pathlib import Path
+
+# Load .env from the app directory (one level up from scripts/)
+_SCRIPTS_DIR = Path(__file__).parent.resolve()
+_APP_DIR = (_SCRIPTS_DIR / ".." / "flexible-graphrag").resolve()
+
+from dotenv import load_dotenv
+load_dotenv(_APP_DIR / ".env")
+
 from elasticsearch import AsyncElasticsearch
 
 INDEX = "hybrid_search_fulltext"
@@ -117,11 +128,14 @@ async def test_queries_for_file(client, filename: str):
 
 
 async def main(args):
+    from elasticsearch import NotFoundError
     client = AsyncElasticsearch([f"http://localhost:{args.port}"])
     try:
         hits = await list_docs(client, args.filename, args.limit)
         if args.filename and hits:
             await test_queries_for_file(client, args.filename)
+    except NotFoundError:
+        print(f"\nIndex '{INDEX}' does not exist yet — nothing has been ingested.")
     finally:
         await client.close()
 

@@ -106,7 +106,7 @@ class GoogleDriveSource(BaseDataSource):
     
     def get_documents(self) -> List[Document]:
         """Load files via GoogleDriveReader (with passthrough), then process with DocumentProcessor"""
-        from document_processor import DocumentProcessor, get_parser_type_from_env
+        from process.document_processor import DocumentProcessor, get_parser_type_from_env
         
         try:
             logger.info("Loading documents from Google Drive")
@@ -164,7 +164,7 @@ class GoogleDriveSource(BaseDataSource):
         Returns:
             List[Document]: List of LlamaIndex Document objects
         """
-        from document_processor import DocumentProcessor, get_parser_type_from_env
+        from process.document_processor import DocumentProcessor, get_parser_type_from_env
         
         try:
             if progress_callback:

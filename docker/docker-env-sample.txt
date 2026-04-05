@@ -40,8 +40,8 @@ GRAPH_DB_CONFIG={"url": "bolt://host.docker.internal:7687", "username": "neo4j",
 # SCENARIO B (Full Stack in Docker): Use service name
 #GRAPH_DB_CONFIG={"url": "bolt://neo4j:7687", "username": "neo4j", "password": "password"}
 
-# Kuzu (when using Docker - still uses local file path mounted as volume)
-#GRAPH_DB_CONFIG={"db_path": "./kuzu_db/database.kz", "use_structured_schema": false, "use_vector_index": false}
+# Ladybug (embedded .lbug file; Explorer compose mounts ./flexible-graphrag/ladybug — see includes/ladybug-explorer.yaml)
+#GRAPH_DB=ladybug
 
 # FalkorDB (when using Docker service)
 # SCENARIO A (Hybrid): Use host.docker.internal
@@ -239,7 +239,7 @@ QDRANT_HOST=host.docker.internal
 #    - Use internet endpoints configured in main flexible-graphrag/.env file
 #    - No Docker networking overrides needed
 #
-# 4. File-based databases (Kuzu, LanceDB):
+# 4. File-based databases (Ladybug .lbug, LanceDB):
 #    - Use local paths with Docker volume mounts
 #    - No network configuration needed
 #

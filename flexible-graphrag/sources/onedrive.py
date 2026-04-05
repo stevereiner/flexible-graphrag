@@ -202,7 +202,7 @@ class OneDriveSource(BaseDataSource):
             
             # OneDrive downloads files to temp directory, so we need immediate processing
             # Create DocumentProcessor for immediate file processing
-            from document_processor import DocumentProcessor, get_parser_type_from_env
+            from process.document_processor import DocumentProcessor, get_parser_type_from_env
             parser_type = get_parser_type_from_env()
             doc_processor = DocumentProcessor(parser_type=parser_type)
             

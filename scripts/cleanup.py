@@ -6,11 +6,20 @@ Wipes all data from PostgreSQL, Qdrant, Elasticsearch/OpenSearch, and Neo4j
 import os
 import sys
 import json
-from dotenv import load_dotenv
-from urllib.parse import urlparse
+from pathlib import Path
 
-# Load environment variables
-load_dotenv()
+# Resolve paths relative to this script's location (scripts/)
+_SCRIPTS_DIR = Path(__file__).parent.resolve()
+_APP_DIR = (_SCRIPTS_DIR / ".." / "flexible-graphrag").resolve()
+
+# Load .env from the app directory (one level up from scripts/)
+from dotenv import load_dotenv
+load_dotenv(_APP_DIR / ".env")
+
+# Make app modules importable (factories, config, etc.)
+sys.path.insert(0, str(_APP_DIR))
+
+from urllib.parse import urlparse
 
 def parse_postgres_url(url):
     """Parse PostgreSQL URL into connection parameters"""
@@ -509,8 +518,6 @@ def cleanup_graph_store():
                             pass  # Constraint may not exist
                     
                     # Drop only custom indexes (leave node/relationship type indexes alone)
-                    # Note: Vector and Search indexes (hybrid_search_vector, hybrid_search_fulltext)
-                    # are in their respective databases (Qdrant, Elasticsearch), not Neo4j
                     indexes = [
                         "DROP INDEX entity IF EXISTS"  # Entity name index in Neo4j graph
                     ]
@@ -630,18 +637,27 @@ def cleanup_rdf_stores():
     try:
         import subprocess
 
-        rdf_cleanup_path = os.path.join(
-            os.path.dirname(os.path.abspath(__file__)),
-            "..", "scripts", "rdf_cleanup.py"
-        )
-        rdf_cleanup_path = os.path.normpath(rdf_cleanup_path)
+        rdf_cleanup_path = _SCRIPTS_DIR / "rdf_cleanup.py"
 
-        if not os.path.exists(rdf_cleanup_path):
+        if not rdf_cleanup_path.exists():
             print(f"  Skipped: rdf_cleanup.py not found at {rdf_cleanup_path}")
             return
 
+        # Build store flags from env vars so rdf_cleanup.py knows which stores to target
+        store_flags = []
+        if os.environ.get("FUSEKI_ENABLED", "").lower() == "true":
+            store_flags.append("--fuseki")
+        if os.environ.get("GRAPHDB_ENABLED", "").lower() == "true":
+            store_flags.append("--graphdb")
+        if os.environ.get("OXIGRAPH_ENABLED", "").lower() == "true":
+            store_flags.append("--oxigraph")
+
+        if not store_flags:
+            print("  Skipped: no RDF stores enabled in .env.")
+            return
+
         result = subprocess.run(
-            [sys.executable, rdf_cleanup_path, "clear-all", "--yes"],
+            [sys.executable, str(rdf_cleanup_path), "clear-all", "--yes"] + store_flags,
             capture_output=True,
             text=True
         )
@@ -663,13 +679,12 @@ def cleanup_rdf_stores():
 
 
 def cleanup_log_files():
-    """Delete all *.log files in the flexible-graphrag directory"""
+    """Delete all *.log files in the flexible-graphrag app directory"""
     print("\n=== Log File Cleanup ===")
     try:
-        script_dir = os.path.dirname(os.path.abspath(__file__))
         log_files = [
-            f for f in os.listdir(script_dir)
-            if f.endswith(".log") and os.path.isfile(os.path.join(script_dir, f))
+            f for f in _APP_DIR.iterdir()
+            if f.suffix == ".log" and f.is_file()
         ]
         if not log_files:
             print("  No log files found (already clean)")
@@ -677,11 +692,11 @@ def cleanup_log_files():
         deleted = 0
         for log_file in log_files:
             try:
-                os.remove(os.path.join(script_dir, log_file))
-                print(f"  Deleted: {log_file}")
+                log_file.unlink()
+                print(f"  Deleted: {log_file.name}")
                 deleted += 1
             except Exception as e:
-                print(f"  Could not delete {log_file}: {e}")
+                print(f"  Could not delete {log_file.name}: {e}")
         print(f"  Log file cleanup: SUCCESS ({deleted} file(s) deleted)")
 
     except Exception as e:
@@ -698,7 +713,7 @@ def main():
     print("  - Search Store (all fulltext indexes)")
     print("  - Graph Store (all nodes, relationships, constraints, indexes)")
     print("  - RDF Stores (all triples in configured stores)")
-    print("  - Log files (all *.log in this directory)")
+    print("  - Log files (all *.log in flexible-graphrag/)")
     print("\nThis action CANNOT be undone!")
     
     response = input("\nProceed with cleanup? [y/N] (default: N): ").strip().lower()

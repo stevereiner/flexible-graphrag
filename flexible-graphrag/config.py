@@ -37,7 +37,7 @@ class VectorDBType(str, Enum):
 class GraphDBType(str, Enum):
     NONE = "none"  # Disable graph search
     NEO4J = "neo4j"
-    KUZU = "kuzu"
+    LADYBUG = "ladybug"
     FALKORDB = "falkordb"
     ARCADEDB = "arcadedb"
     MEMGRAPH = "memgraph"
@@ -191,7 +191,7 @@ an aristocratic family that rules the planet Caladan, the rainy planet, since 10
         None,
         description=(
             "LangChain property graph store type when use_langchain_pg=true. "
-            "Options: neo4j | memgraph | kuzu | falkordb | arangodb | "
+            "Options: neo4j | memgraph | ladybug | falkordb | arangodb | "
             "neptune | neptune_analytics | apache_age | cosmos_gremlin | "
             "hugegraph | nebula | tigergraph | arcadedb | spanner"
         ),
@@ -568,9 +568,13 @@ an aristocratic family that rules the planet Caladan, the rainy planet, since 10
                     "url": os.getenv("NEO4J_URI", "bolt://localhost:7689"),  # Updated default port
                     "database": os.getenv("NEO4J_DATABASE", "neo4j")
                 }
-            elif self.graph_db == GraphDBType.KUZU:
+            elif self.graph_db == GraphDBType.LADYBUG:
                 self.graph_db_config = {
-                    "db_path": os.getenv("KUZU_DB_PATH", "./kuzu_db")
+                    "db_dir": os.getenv("LADYBUG_DB_DIR", "./ladybug"),
+                    "db_file": os.getenv("LADYBUG_DB_FILE", "database.lbug"),
+                    "use_vector_index": os.getenv("LADYBUG_USE_VECTOR_INDEX", "true").lower() == "true",
+                    "has_structured_schema": os.getenv("LADYBUG_STRUCTURED_SCHEMA", "false").lower() == "true",
+                    "strict_schema": os.getenv("LADYBUG_STRICT_SCHEMA", "false").lower() == "true",
                 }
             elif self.graph_db == GraphDBType.FALKORDB:
                 self.graph_db_config = {
@@ -983,7 +987,7 @@ SAMPLE_SCHEMA = {
     "max_triplets_per_chunk": 20
 }
 
-# LlamaIndex Kuzu documentation schema (too restrictive - commented out)
+# Legacy LlamaIndex documentation schema samples (too restrictive - commented out)
 # SAMPLE_SCHEMA = {
 #     "entities": Literal["PERSON", "PLACE", "ORGANIZATION"],
 #     "relations": Literal["HAS", "PART_OF", "WORKED_ON", "WORKED_WITH", "WORKED_AT"],
@@ -1016,5 +1020,5 @@ SAMPLE_SCHEMA = {
 #     "max_triplets_per_chunk": 15
 # }
 
-# Note: KUZU_SCHEMA removed - system now always uses user's configured schema
-# Both Neo4j and Kuzu will use the same schema configuration (SAMPLE_SCHEMA by default)
+# Note: legacy per-store schema splits removed - system now always uses user's configured schema
+# Property graph stores share the same schema configuration (SAMPLE_SCHEMA by default)

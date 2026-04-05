@@ -704,7 +704,7 @@ class GCSDetector(ChangeDetector):
                     })
                 
                 # Index the processed documents via backend
-                await self.backend.system._process_documents_direct(
+                await self.backend.system._ingest_source_documents(
                     processed_docs,
                     processing_id=processing_id,
                     skip_graph=skip_graph,

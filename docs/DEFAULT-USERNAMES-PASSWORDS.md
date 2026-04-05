@@ -18,7 +18,7 @@ Complete reference for all databases, dashboards, and web interfaces organized b
 | **ArcadeDB** | http://localhost:2480/ | `root` | `playwithdata` | 2480/2424 | 🟢 |
 | **MemGraph** | http://localhost:3002/ | *(none)* | *(none)* | 7688 (Bolt) | 🟢 |
 | **NebulaGraph** | http://localhost:7001/ | `root` | `nebula` | 9669 | 🟢 |
-| **Kuzu** | http://localhost:7000/ | *(none)* | *(none)* | *(embedded)* | 🔵 |
+| **Ladybug Explorer** | http://localhost:7003/ | *(none)* | *(none)* | *(optional Docker UI)* | 🟢 |
 | **FalkorDB** | http://localhost:3001/ | *(none)* | *(none)* | 6379 (Redis) | 🔵 |
 | **Neptune** | http://localhost:3007/ | *(AWS IAM)* | *(AWS IAM)* | *(cloud)* | 🟢 |
 
@@ -105,12 +105,12 @@ Several databases can serve **multiple roles** in your Flexible GraphRAG setup:
 - **Containers**: `nebula-metad`, `nebula-storaged`, `nebula-graphd`, `nebula-studio`
 - **Note**: Studio requires Docker internal hostname `nebula-graphd`, not `localhost`
 
-#### **Kuzu** 🔵
-- **Explorer**: http://localhost:7000/
-- **Database**: `./kuzu_db` (embedded)
-- **Authentication**: None required
-- **Features**: Analytical graph processing, Cypher queries
-- **Container**: `flexible-graphrag-kuzu-explorer`
+#### **Ladybug** 🟢
+- **Explorer** (optional): http://localhost:7003/ when `docker/includes/ladybug-explorer.yaml` is enabled (build `lbugdb/explorer` image locally first)
+- **Database**: `./ladybug/database.lbug` (embedded; path configurable via `LADYBUG_DB_DIR` / `LADYBUG_DB_FILE`)
+- **Authentication**: None required for Explorer; stop backend before opening Explorer (single-writer)
+- **Features**: Cypher property graph, optional HNSW vectors on chunks
+- **Container**: `flexible-graphrag-ladybug-explorer`
 
 #### **FalkorDB** 🔵
 - **Browser**: http://localhost:3001/
@@ -276,8 +276,8 @@ open http://localhost:3002/
 open http://localhost:7001/
 # Connection: Host=nebula-graphd, Port=9669, User=root, Password=nebula
 
-# Kuzu Explorer
-open http://localhost:7000/
+# Ladybug Explorer (optional compose service)
+open http://localhost:7003/
 
 # FalkorDB Browser
 open http://localhost:3001/
@@ -355,9 +355,9 @@ GRAPH_DB_CONFIG='{"url": "bolt://localhost:7688", "username": "", "password": ""
 GRAPH_DB=nebula
 GRAPH_DB_CONFIG='{"space_name": "flexible_graphrag", "address": "localhost", "port": 9669, "username": "root", "password": "nebula"}'
 
-# Kuzu (embedded, no authentication)
-GRAPH_DB=kuzu
-GRAPH_DB_CONFIG='{"db_path": "./kuzu_db"}'
+# Ladybug (embedded .lbug, no authentication)
+GRAPH_DB=ladybug
+GRAPH_DB_CONFIG='{"db_dir": "./ladybug", "db_file": "database.lbug", "use_vector_index": true, "has_structured_schema": false}'
 
 # FalkorDB (Redis-based, no authentication)
 GRAPH_DB=falkordb
@@ -479,13 +479,13 @@ CMIS_PASSWORD=admin
 - **Features**: Redis-based graph database
 - **Container**: `flexible-graphrag-falkordb`
 
-### Kuzu Embedded Graph Database
-- **Explorer URL**: http://localhost:7000/
-- **Database Path**: `./kuzu_db`
+### Ladybug embedded graph database
+- **Explorer URL**: http://localhost:7003/ (optional Docker service)
+- **Database path**: `./ladybug/database.lbug` (default)
 - **Username**: *(no authentication)*
 - **Password**: *(no authentication)*
-- **Features**: Embedded analytical graph database
-- **Container**: `flexible-graphrag-kuzu-explorer`
+- **Features**: Embedded Cypher property graph; optional chunk vector index
+- **Container**: `flexible-graphrag-ladybug-explorer` (Explorer only)
 
 ### Amazon Neptune (Cloud Service)
 - **Graph Explorer**: http://localhost:3007/

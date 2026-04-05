@@ -399,7 +399,7 @@ class FlexibleGraphRAGBackend:
         # Store data source type for completion message
         PROCESSING_STATUS[processing_id]["data_source"] = data_source
         
-        await self.system._process_documents_direct(documents, processing_id=processing_id, status_callback=status_callback, skip_graph=skip_graph, config_id=config_id)
+        await self.system._ingest_source_documents(documents, processing_id=processing_id, status_callback=status_callback, skip_graph=skip_graph, config_id=config_id)
     
     def _update_file_progress(self, processing_id: str, file_index: int, status: str = None, 
                              progress: int = None, phase: str = None, message: str = None, error: str = None):
@@ -929,7 +929,7 @@ class FlexibleGraphRAGBackend:
                 else:
                     logger.info(f"Stored {len(documents)} documents in PROCESSING_STATUS for one-time ingestion (data_source=filesystem)")
                 
-                await self.system._process_documents_direct(documents, processing_id=processing_id, status_callback=filesystem_status_callback, skip_graph=skip_graph, config_id=config_id)
+                await self.system._ingest_source_documents(documents, processing_id=processing_id, status_callback=filesystem_status_callback, skip_graph=skip_graph, config_id=config_id)
                 
             elif data_source == "cmis":
                 self._update_processing_status(
@@ -975,7 +975,7 @@ class FlexibleGraphRAGBackend:
                 # Store documents in PROCESSING_STATUS for document_state creation
                 PROCESSING_STATUS[processing_id]["documents"] = documents
                 
-                await self.system._process_documents_direct(documents, processing_id=processing_id, status_callback=lambda **cb_kwargs: self._update_processing_status(**cb_kwargs), skip_graph=skip_graph, config_id=config_id)
+                await self.system._ingest_source_documents(documents, processing_id=processing_id, status_callback=lambda **cb_kwargs: self._update_processing_status(**cb_kwargs), skip_graph=skip_graph, config_id=config_id)
                 
             elif data_source == "alfresco":
                 self._update_processing_status(
@@ -1025,7 +1025,7 @@ class FlexibleGraphRAGBackend:
                 # Store documents in PROCESSING_STATUS for document_state creation
                 PROCESSING_STATUS[processing_id]["documents"] = documents
                 
-                await self.system._process_documents_direct(documents, processing_id=processing_id, status_callback=lambda **cb_kwargs: self._update_processing_status(**cb_kwargs), skip_graph=skip_graph, config_id=config_id)
+                await self.system._ingest_source_documents(documents, processing_id=processing_id, status_callback=lambda **cb_kwargs: self._update_processing_status(**cb_kwargs), skip_graph=skip_graph, config_id=config_id)
                 
             elif data_source == "web":
                 # Initialize progress tracking for web source
@@ -1086,7 +1086,7 @@ class FlexibleGraphRAGBackend:
                 # Store documents in PROCESSING_STATUS for document_state creation
                 PROCESSING_STATUS[processing_id]["documents"] = documents
                 
-                await self.system._process_documents_direct(documents, processing_id=processing_id, status_callback=web_status_callback, skip_graph=skip_graph, config_id=config_id)
+                await self.system._ingest_source_documents(documents, processing_id=processing_id, status_callback=web_status_callback, skip_graph=skip_graph, config_id=config_id)
                 
             elif data_source == "youtube":
                 # Initialize progress tracking for YouTube source
@@ -1161,7 +1161,7 @@ class FlexibleGraphRAGBackend:
                 # Store documents in PROCESSING_STATUS for document_state creation
                 PROCESSING_STATUS[processing_id]["documents"] = documents
                 
-                await self.system._process_documents_direct(documents, processing_id=processing_id, status_callback=youtube_status_callback, skip_graph=skip_graph, config_id=config_id)
+                await self.system._ingest_source_documents(documents, processing_id=processing_id, status_callback=youtube_status_callback, skip_graph=skip_graph, config_id=config_id)
                 
             elif data_source == "wikipedia":
                 # Initialize progress tracking for Wikipedia source
@@ -1236,7 +1236,7 @@ class FlexibleGraphRAGBackend:
                 # Store documents in PROCESSING_STATUS for document_state creation
                 PROCESSING_STATUS[processing_id]["documents"] = documents
                 
-                await self.system._process_documents_direct(documents, processing_id=processing_id, status_callback=wikipedia_status_callback, skip_graph=skip_graph, config_id=config_id)
+                await self.system._ingest_source_documents(documents, processing_id=processing_id, status_callback=wikipedia_status_callback, skip_graph=skip_graph, config_id=config_id)
                 
             elif data_source == "s3":
                 # Initialize progress tracking for S3 source
@@ -1305,7 +1305,7 @@ class FlexibleGraphRAGBackend:
                 # Store documents in PROCESSING_STATUS for document_state creation
                 PROCESSING_STATUS[processing_id]["documents"] = documents
                 
-                await self.system._process_documents_direct(documents, processing_id=processing_id, status_callback=s3_status_callback, skip_graph=skip_graph, config_id=config_id)
+                await self.system._ingest_source_documents(documents, processing_id=processing_id, status_callback=s3_status_callback, skip_graph=skip_graph, config_id=config_id)
                 
             elif data_source == "gcs":
                 gcs_config = kwargs.get('gcs_config', {})
@@ -1534,7 +1534,7 @@ class FlexibleGraphRAGBackend:
                 logger.warning(f"Search attempted before ingestion: {error_msg}")
                 return {"success": True, "results": [], "query_time": f"{duration:.3f}s",
                         "message": "No documents have been indexed yet. Please ingest documents first."}
-            logger.error(f"Search query failed after {duration:.3f}s: {error_msg}")
+            logger.error(f"Search query failed after {duration:.3f}s: {error_msg}", exc_info=True)
             return {"success": False, "error": error_msg, "query_time": f"{duration:.3f}s"}
     
     async def qa_query(self, query: str) -> Dict[str, Any]:
@@ -1553,35 +1553,51 @@ class FlexibleGraphRAGBackend:
             query_engine = self.system.get_query_engine()
             
             # Use async method directly (nest_asyncio.apply() called at module level)
-            try:
-                response = await query_engine.aquery(query)
-            except Exception as e:
-                error_msg = str(e)
-                # Handle index/collection not found errors and not-yet-ingested state gracefully
-                _not_ready = (
-                    'index_not_found_exception' in error_msg or
-                    'no such index' in error_msg or
-                    "doesn't exist" in error_msg or
-                    'Not found' in error_msg or
-                    'could not find class' in error_msg or  # Weaviate collection not found
-                    'NotFoundError' in str(type(e)) or
-                    'no search indexes available' in error_msg.lower() or
-                    'please ingest documents first' in error_msg.lower() or
-                    'system not initialized' in error_msg.lower() or
-                    'rdf graph retriever could not be initialised' in error_msg.lower() or
-                    'databases may be empty' in error_msg.lower()
-                )
-                if _not_ready:
-                    logger.warning(f"Q&A attempted before ingestion or index not found: {error_msg}")
-                    end_time = datetime.now()
-                    duration = (end_time - start_time).total_seconds()
-                    return {
-                        "success": True,  # Don't show as error in UI
-                        "answer": "No documents have been indexed yet. Please ingest documents first.",
-                        "query_time": f"{duration:.3f}s",
-                        "sources": []
-                    }
-                else:
+            _qa_attempts = 0
+            while True:
+                try:
+                    _qa_attempts += 1
+                    response = await query_engine.aquery(query)
+                    break
+                except Exception as e:
+                    error_msg = str(e)
+                    # Handle index/collection not found errors and not-yet-ingested state gracefully
+                    _not_ready = (
+                        'index_not_found_exception' in error_msg or
+                        'no such index' in error_msg or
+                        "doesn't exist" in error_msg or
+                        'Not found' in error_msg or
+                        'could not find class' in error_msg or  # Weaviate collection not found
+                        'NotFoundError' in str(type(e)) or
+                        'no search indexes available' in error_msg.lower() or
+                        'please ingest documents first' in error_msg.lower() or
+                        'system not initialized' in error_msg.lower() or
+                        'rdf graph retriever could not be initialised' in error_msg.lower() or
+                        'databases may be empty' in error_msg.lower()
+                    )
+                    if _not_ready:
+                        logger.warning(f"Q&A attempted before ingestion or index not found: {error_msg}")
+                        end_time = datetime.now()
+                        duration = (end_time - start_time).total_seconds()
+                        return {
+                            "success": True,  # Don't show as error in UI
+                            "answer": "No documents have been indexed yet. Please ingest documents first.",
+                            "query_time": f"{duration:.3f}s",
+                            "sources": []
+                        }
+                    _is_transient = any(p in error_msg for p in (
+                        "Error code: 400", "Error code: 429", "Error code: 500", "Error code: 503",
+                        "Connection", "timeout", "invalid_request_error",
+                    ))
+                    if _is_transient and _qa_attempts < 3:
+                        _wait = 5 * _qa_attempts
+                        logger.warning(
+                            f"Q&A attempt {_qa_attempts} failed "
+                            f"(transient): {error_msg[:120]} — retrying in {_wait}s"
+                        )
+                        await asyncio.sleep(_wait)
+                    else:
+                        raise
                     # Re-raise other exceptions
                     raise
             
@@ -1640,7 +1656,7 @@ class FlexibleGraphRAGBackend:
                     "query_time": f"{duration:.3f}s",
                     "sources": []
                 }
-            logger.error(f"Q&A query failed after {duration:.3f}s: {error_msg}")
+            logger.error(f"Q&A query failed after {duration:.3f}s: {error_msg}", exc_info=True)
             return {"success": False, "error": error_msg, "query_time": f"{duration:.3f}s"}
     
     async def query_documents(self, query: str, top_k: int = 10) -> Dict[str, Any]:
@@ -1652,28 +1668,42 @@ class FlexibleGraphRAGBackend:
             query_engine = self.system.get_query_engine()
             
             # Use async method directly (nest_asyncio.apply() called at module level)
-            try:
-                response = await query_engine.aquery(query)
-            except Exception as e:
-                error_msg = str(e)
-                # Handle index/collection not found errors gracefully
-                if ('index_not_found_exception' in error_msg or 
-                    'no such index' in error_msg or 
-                    "doesn't exist" in error_msg or
-                    'Not found' in error_msg or
-                    'NotFoundError' in str(type(e))):
-                    logger.warning(f"Collection/Index not found during document query: {error_msg}")
-                    end_time = datetime.now()
-                    duration = (end_time - start_time).total_seconds()
-                    return {
-                        "success": True,  # Don't show as error in UI
-                        "answer": "No documents have been indexed yet.",
-                        "query_time": f"{duration:.3f}s",
-                        "sources": []
-                    }
-                else:
-                    # Re-raise other exceptions
-                    raise
+            _qd_attempts = 0
+            while True:
+                try:
+                    _qd_attempts += 1
+                    response = await query_engine.aquery(query)
+                    break
+                except Exception as e:
+                    error_msg = str(e)
+                    # Handle index/collection not found errors gracefully
+                    if ('index_not_found_exception' in error_msg or
+                        'no such index' in error_msg or
+                        "doesn't exist" in error_msg or
+                        'Not found' in error_msg or
+                        'NotFoundError' in str(type(e))):
+                        logger.warning(f"Collection/Index not found during document query: {error_msg}")
+                        end_time = datetime.now()
+                        duration = (end_time - start_time).total_seconds()
+                        return {
+                            "success": True,  # Don't show as error in UI
+                            "answer": "No documents have been indexed yet.",
+                            "query_time": f"{duration:.3f}s",
+                            "sources": []
+                        }
+                    _is_transient = any(p in error_msg for p in (
+                        "Error code: 400", "Error code: 429", "Error code: 500", "Error code: 503",
+                        "Connection", "timeout", "invalid_request_error",
+                    ))
+                    if _is_transient and _qd_attempts < 3:
+                        _wait = 5 * _qd_attempts
+                        logger.warning(
+                            f"Document query attempt {_qd_attempts} failed "
+                            f"(transient): {error_msg[:120]} — retrying in {_wait}s"
+                        )
+                        await asyncio.sleep(_wait)
+                    else:
+                        raise
 
             end_time = datetime.now()
             duration = (end_time - start_time).total_seconds()
@@ -1865,7 +1895,7 @@ class FlexibleGraphRAGBackend:
             "qdrant": "Qdrant",
             "chroma": "Chroma",
             "neo4j": "Neo4j",
-            "kuzu": "Kuzu",
+            "ladybug": "Ladybug",
             "falkordb": "FalkorDB",
             "nebula": "NebulaGraph",
             "bm25": "BM25"

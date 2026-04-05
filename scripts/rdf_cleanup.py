@@ -259,8 +259,8 @@ def _enabled_stores(args) -> list:
     if os.environ.get("OXIGRAPH_ENABLED", "").lower() == "true":
         detected.append("oxigraph")
     if not detected:
-        print("No stores detected from env. Use --fuseki / --graphdb / --oxigraph flags.")
-        sys.exit(1)
+        print("No RDF stores enabled in .env. Use --fuseki / --graphdb / --oxigraph to specify one explicitly.")
+        sys.exit(0)
     return detected
 
 
@@ -367,12 +367,19 @@ Examples:
 
 
 if __name__ == "__main__":
-    # Load .env if dotenv is available
+    # Load .env — search relative to this script, then relative to cwd
     try:
         from dotenv import load_dotenv
-        env_path = os.path.join(os.path.dirname(__file__), "..", "flexible-graphrag", ".env")
-        if os.path.exists(env_path):
-            load_dotenv(env_path)
+        candidates = [
+            os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "flexible-graphrag", ".env"),
+            os.path.join(os.getcwd(), ".env"),
+            os.path.join(os.getcwd(), "..", "flexible-graphrag", ".env"),
+        ]
+        for env_path in candidates:
+            env_path = os.path.normpath(env_path)
+            if os.path.exists(env_path):
+                load_dotenv(env_path)
+                break
     except ImportError:
         pass
     main()

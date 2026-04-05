@@ -12,7 +12,7 @@ The following port conflicts were identified and resolved for new vector databas
 | 3000 | Vue Frontend | **3003** | Milvus Attu | Avoid conflict with Vue UI |
 | 8080 | Alfresco Proxy | **8081** | Weaviate | Avoid conflict with Alfresco Traefik proxy |
 | 5432 | Alfresco PostgreSQL | **5433** | PostgreSQL+pgvector | Avoid conflict with Alfresco database |
-| 7001 | NebulaGraph Studio | **7002** | Kuzu API Server | Avoid conflict with NebulaGraph Studio dashboard |
+| 7001 | - | **7001** | NebulaGraph Studio | Default studio dashboard port |
 
 ## Complete Port Mapping
 
@@ -39,8 +39,7 @@ The following port conflicts were identified and resolved for new vector databas
 | **Service** | **Port(s)** | **Purpose** | **Dashboard URL** |
 |-------------|-------------|-------------|-------------------|
 | Neo4j | 7474, 7687 | Graph database | http://localhost:7474 |
-| Kuzu Explorer | 7000 | Kuzu web interface | http://localhost:7000 |
-| Kuzu API | 7002 | Kuzu API server | http://localhost:7002 |
+| Ladybug Explorer | 7003 | Ladybug web UI (optional compose include) | http://localhost:7003 |
 | FalkorDB | 6379, 3001 | Graph database + browser | http://localhost:3001 |
 | ArcadeDB | 2480, 2424 | Graph database + studio | http://localhost:2480 |
 | MemGraph | 7688, 3002 | Graph database + lab | http://localhost:3002 |
@@ -110,7 +109,7 @@ The following ports are currently available for future services:
 - **3009-3099**: Additional dashboards
 - **5051-5431**: Database services
 - **6000-6332, 6335-6378**: Specialized services
-- **7003-7473, 7475-7686, 7689-7999**: Graph services
+- **7003-7473, 7475-7686, 7689-7999**: Graph services (7003 = Ladybug Explorer)
 - **8003-8069, 8071-8079, 8082, 8084-8089, 8091-8159, 8162-8612, 8614-8615, 8617-8999**: Application services
 - **9002-9199, 9202-9300, 9302-9999**: Search and storage services
 
@@ -176,7 +175,7 @@ lsof -i :61616  # ActiveMQ OpenWire (standard port)
 2. **Port 3000**: If Vue conflicts with Milvus Attu, change Vue to 3004
 3. **Port 8080**: If Alfresco Traefik proxy conflicts with Weaviate, both are now separated
 4. **Port 5432**: If Alfresco PostgreSQL conflicts with pgvector PostgreSQL, both use different ports
-5. **Port 7001**: NebulaGraph Studio uses this port, Kuzu API moved to 7002
+5. **Port 7001**: NebulaGraph Studio uses this port
 6. **Port 8090**: Transform Core AIO uses this port for document transformation services
 7. **Service name conflicts**: Both Alfresco and pgvector define `postgres` service - pgvector renamed to `postgres-pgvector`
 8. **Windows dynamic port range (49152-65535)**: Ports 61613 and 61616 may conflict on Windows - see below

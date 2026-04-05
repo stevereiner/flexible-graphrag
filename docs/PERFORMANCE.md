@@ -1,6 +1,22 @@
+<!--
+  LEGACY — entire document pending a full rewrite.
+
+  Tables still name Kuzu where those runs used Kuzu; we did not re-run equivalent
+  Ladybug benchmarks here. When redone, hold the extraction LLM fixed and, for each
+  property graph backend, split “graph” work into two reported numbers:
+    (1) KG / LLM extraction time — LLM calls to produce entities and relations
+        (SchemaLLMPathExtractor / DynamicLLMPathExtractor, per chunk or per doc).
+    (2) Graph DB insert time — persist nodes, relationships, and embeddings into the
+        target store only (no LLM), so backends are comparable for write path cost.
+
+  Today’s “Graph: Xs” pipeline breakdowns mix (1) and (2); the redo should separate them.
+-->
+
 # Performance Test Results
 
-**⚠️ Note**: Performance benchmarks are being redone. Results below are from previous testing and will be updated.
+> **Legacy — full redo planned.** All numbers below are historical. Rows labeled **Kuzu** are from Kuzu-backed runs; **Ladybug is not re-benchmarked here.** When this file is rewritten, use a **chosen LLM** and split **graph-related overall time** into **(1) KG extraction (LLM)** vs **(2) insert into the specific graph database**, so cost of the model vs cost of each backend is visible.
+
+**⚠️ Note**: Benchmarks are being redone; results below are from earlier testing and will be replaced.
 
 **Test Environment**: AMD 5950x 16-core CPU, 64GB RAM, 4090 Nvidia GPU, Windows 11 Pro
 

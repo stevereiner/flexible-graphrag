@@ -319,18 +319,21 @@ if sys.version_info >= (3, 14):
 # Configure logging with both file and console output
 log_filename = f'flexible-graphrag-api-{datetime.now().strftime("%Y%m%d-%H%M%S")}.log'
 
+_log_level_name = os.environ.get("LOG_LEVEL", "INFO").upper()
+_log_level = getattr(logging, _log_level_name, logging.INFO)
+
 # Force logging to work properly with uvicorn
 file_handler = logging.FileHandler(log_filename)
-file_handler.setLevel(logging.INFO)
+file_handler.setLevel(_log_level)
 console_handler = logging.StreamHandler(sys.stdout)
-console_handler.setLevel(logging.INFO)
+console_handler.setLevel(_log_level)
 formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
 file_handler.setFormatter(formatter)
 console_handler.setFormatter(formatter)
 
 # Configure root logger (prevent duplicate handlers)
 root_logger = logging.getLogger()
-root_logger.setLevel(logging.INFO)
+root_logger.setLevel(_log_level)
 
 # Clear any existing handlers to prevent duplicates
 root_logger.handlers.clear()
@@ -343,6 +346,23 @@ root_logger.addHandler(console_handler)
 logging.getLogger("azure.core.pipeline.policies.http_logging_policy").setLevel(logging.WARNING)
 logging.getLogger("azure.storage.blob").setLevel(logging.WARNING)
 logging.getLogger("azure.storage.blob.changefeed").setLevel(logging.WARNING)
+
+# Suppress aiohttp connector cleanup noise — "close.failed Event loop is closed" appears
+# when the TCPConnector is GC'd after the event loop ends. The OpenAI client retries
+# successfully; this is cosmetic cleanup-time chatter, not a real failure.
+logging.getLogger("aiohttp.connector").setLevel(logging.ERROR)
+logging.getLogger("aiohttp.client").setLevel(logging.WARNING)
+
+# Suppress httpcore structured-logging noise at DEBUG level (close.failed, connect_tcp, etc.)
+# These are transport-layer lifecycle events; failures here are retried by the OpenAI SDK.
+logging.getLogger("httpcore").setLevel(logging.WARNING)
+logging.getLogger("httpcore.connection").setLevel(logging.WARNING)
+logging.getLogger("httpcore.http11").setLevel(logging.WARNING)
+
+# Suppress "Encountered Exception" + RuntimeError('Event loop is closed') traceback that
+# openai._base_client logs at DEBUG when the first cold connection hits a stale TLS socket.
+# The SDK retries automatically (3 retries); this is pure noise at DEBUG log level.
+logging.getLogger("openai._base_client").setLevel(logging.WARNING)
 
 logger = logging.getLogger(__name__)
 logger.info(f"Starting application with log file: {log_filename}")
@@ -364,6 +384,24 @@ async def lifespan(app: FastAPI):
     
     # === STARTUP ===
     logger.info("Application startup...")
+
+    # Suppress asyncio "Event loop is closed" stderr noise from httpcore/anyio TLS
+    # socket cleanup. These occur when a TLS transport tries to schedule a callback
+    # on an already-closed selector loop during connection teardown. The OpenAI SDK
+    # retries automatically; these are harmless. Without this handler Python's default
+    # asyncio exception handler prints the full traceback to stderr even at WARNING log
+    # level, because it bypasses the logging system entirely.
+    def _suppress_closed_loop_noise(loop, context):
+        msg = context.get("message", "")
+        exc = context.get("exception")
+        if isinstance(exc, RuntimeError) and "Event loop is closed" in str(exc):
+            return
+        if "Event loop is closed" in msg:
+            return
+        loop.default_exception_handler(context)
+
+    import asyncio as _asyncio
+    _asyncio.get_event_loop().set_exception_handler(_suppress_closed_loop_noise)
     
     # Initialize backend (hybrid_system lazy-loaded)
     backend = get_backend()
@@ -462,7 +500,7 @@ app.add_middleware(
 try:
     from rdf.api_rdf_enhancements import router as rdf_router
     app.include_router(rdf_router)
-    logger.info("RDF/Ontology API endpoints registered")
+    logger.info("RDF store API endpoints registered (/api/rdf/query, /api/rdf/export, /api/rdf/ontology)")
 except Exception as e:
     logger.warning(f"RDF/Ontology module not available: {e}")
 
@@ -1140,60 +1178,29 @@ async def get_graph_data(limit: int = 50):
         if not hasattr(backend_instance.system, 'graph_store') or backend_instance.system.graph_store is None:
             return {"error": "Graph database not configured"}
         
-        # Check if it's Kuzu or Neo4j
         graph_store = backend_instance.system.graph_store
-        
-        # Detect database type
         graph_store_type = type(graph_store).__name__
-        
-        if "Kuzu" in graph_store_type or hasattr(graph_store, '_kuzu_db') or hasattr(graph_store, '_db'):
-            # Try to get Kuzu database connection
-            kuzu_db = None
-            if hasattr(graph_store, 'db'):
-                kuzu_db = graph_store.db
-            elif hasattr(graph_store, '_kuzu_db'):
-                kuzu_db = graph_store._kuzu_db
-            elif hasattr(graph_store, '_db'):
-                kuzu_db = graph_store._db
-            elif hasattr(graph_store, 'client') and hasattr(graph_store.client, '_db'):
-                kuzu_db = graph_store.client._db
-            
-            if kuzu_db is None:
-                return {"error": f"Kuzu database not accessible in {graph_store_type}", "database": "kuzu"}
-            
-            try:
-                # Query Kuzu database directly
-                import kuzu
-                conn = kuzu.Connection(kuzu_db)
-                
-                # Absolute simplest query - just check tables
-                try:
-                    # Use CALL statement to check database structure
-                    result = conn.execute("CALL show_tables()")
-                    tables_df = result.get_as_df()
-                    tables = tables_df.to_dict('records') if not tables_df.empty else []
-                    
-                    return {
-                        "database": "kuzu",
-                        "store_type": graph_store_type,
-                        "status": "connected",
-                        "tables": tables,
-                        "message": "Kuzu database accessible - use Kuzu Explorer at http://localhost:8002 for visualization"
-                    }
-                except Exception as table_error:
-                    # Even simpler - just confirm connection works
-                    return {
-                        "database": "kuzu", 
-                        "store_type": graph_store_type,
-                        "status": "connected_basic",
-                        "message": "Kuzu database connected but queries may have issues. Use Kuzu Explorer at http://localhost:8002",
-                        "table_error": str(table_error)
-                    }
-            except Exception as e:
-                return {"error": f"Error querying Kuzu: {str(e)}", "database": "kuzu", "store_type": graph_store_type}
-                
-        else:  # Neo4j or other
-            return {"error": f"Graph visualization only implemented for Kuzu currently (detected: {graph_store_type})", "database": "other"}
+
+        if graph_store_type == "Neo4jPropertyGraphStore":
+            return {
+                "database": "neo4j",
+                "store_type": graph_store_type,
+                "status": "configured",
+                "message": "Use Neo4j Browser at http://localhost:7474 for graph visualization and Cypher.",
+            }
+        if "Ladybug" in graph_store_type:
+            return {
+                "database": "ladybug",
+                "store_type": graph_store_type,
+                "status": "configured",
+                "message": "Use Ladybug Explorer at http://localhost:7003 when docker/includes/ladybug-explorer.yaml is enabled.",
+            }
+        return {
+            "database": "other",
+            "store_type": graph_store_type,
+            "status": "configured",
+            "message": f"No inline graph summary for {graph_store_type}; use that database's dashboard or tooling.",
+        }
             
     except Exception as e:
         return {"error": f"Error fetching graph data: {str(e)}"}

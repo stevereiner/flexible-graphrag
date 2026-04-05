@@ -151,7 +151,7 @@ class AzureBlobSource(BaseDataSource):
         """
         try:
             from llama_index.readers.azstorage_blob import AzStorageBlobReader
-            from document_processor import DocumentProcessor, get_parser_type_from_env
+            from process.document_processor import DocumentProcessor, get_parser_type_from_env
             
             logger.info(f"Loading documents from Azure Blob Storage container '{self.container_name}' with progress tracking")
             

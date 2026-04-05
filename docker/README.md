@@ -38,8 +38,7 @@ docker/
     ├── commons/                # Common/shared configurations
     │   └── base.yaml           # Base service definitions
     ├── neo4j.yaml              # Neo4j graph database
-    ├── kuzu-explorer.yaml      # Kuzu Explorer web interface
-    ├── kuzu-api.yaml           # Kuzu API server
+    ├── ladybug-explorer.yaml   # Ladybug Explorer web UI (optional; build image locally)
     ├── falkordb.yaml           # FalkorDB graph database
     ├── arcadedb.yaml           # ArcadeDB multi-model database
     ├── memgraph.yaml           # MemGraph graph database
@@ -138,7 +137,7 @@ The main deployment scenarios (covered in detail in [../README.md](../README.md)
 - app-stack and proxy only if running backend/UIs in Docker (SCENARIO B)
 
 For alternative databases, uncomment the appropriate include file:
-- Graph databases: kuzu-explorer, falkordb, arcadedb, memgraph, nebula, neptune
+- Graph databases: ladybug-explorer, falkordb, arcadedb, memgraph, nebula, neptune
 - Vector databases: chroma, milvus, weaviate, pinecone, postgres-pgvector, lancedb
 - Search engines: opensearch (alternative to Elasticsearch)
 - Content sources: alfresco
@@ -149,7 +148,6 @@ All database data is stored in named Docker volumes that persist across containe
 
 **Graph databases:**
 - `neo4j_data` - Neo4j graph data
-- `kuzu_data` - Kuzu graph data
 - `falkordb_data` - FalkorDB data
 - `arcadedb_data` - ArcadeDB data
 - `memgraph_data` - MemGraph data

@@ -8,7 +8,6 @@ for hybrid search.
 Package precedence per store type:
   Neo4j     langchain_neo4j  > langchain_community
   Memgraph  langchain_memgraph > langchain_community
-  Kuzu      langchain_kuzu   > langchain_community
   Neptune   langchain_aws    > langchain_community
   ArangoDB  langchain_community (chains) — NOT langchain_arangodb
   ArcadeDB  langchain_arcadedb (dedicated package, not in community)
@@ -336,7 +335,6 @@ _GRAPH_CHAIN_MAP = [
     # ---- Cypher property graphs ---------------------------------------------
     ("Neo4j",            "cypher_neo4j"),         # langchain_neo4j > community
     ("Memgraph",         "cypher_memgraph"),      # langchain_memgraph > community
-    ("Kuzu",             "cypher_kuzu"),          # langchain_kuzu > community
     ("FalkorDB",         "cypher_falkordb"),      # community FalkorDBQAChain
     ("AGE",              "cypher_generic"),       # community AGEGraph + GraphCypherQAChain
     ("Tiger",            "cypher_generic"),       # community TigerGraph + GraphCypherQAChain
@@ -899,14 +897,6 @@ Cypher query:"""
             from langchain_community.chains.graph_qa.memgraph import MemgraphQAChain
         return MemgraphQAChain.from_llm(**common)
 
-    # ---- Kuzu ---------------------------------------------------------------
-    if chain_key == "cypher_kuzu":
-        try:
-            from langchain_kuzu import KuzuQAChain
-        except ImportError:
-            from langchain_community.chains.graph_qa.kuzu import KuzuQAChain
-        return KuzuQAChain.from_llm(**common)
-
     # ---- FalkorDB -----------------------------------------------------------
     if chain_key == "cypher_falkordb":
         from langchain_community.chains.graph_qa.falkordb import FalkorDBQAChain
@@ -974,7 +964,7 @@ class TextToGraphQueryRetriever(BaseRetriever):
     Supported graph stores (auto-detected):
         RDF/SPARQL  : RdfGraph, OntotextGraphDBGraph, NeptuneRdfGraph
         OpenCypher  : NeptuneGraph, NeptuneAnalyticsGraph
-        Cypher      : Neo4jGraph, MemgraphGraph, KuzuGraph, FalkorDBGraph,
+        Cypher      : Neo4jGraph, MemgraphGraph, FalkorDBGraph,
                       AGEGraph, TigerGraph
         Gremlin     : GremlinGraph, HugeGraph, CosmosDBGremlinGraph
         AQL         : ArangoGraph

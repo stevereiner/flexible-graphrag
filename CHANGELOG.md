@@ -2,6 +2,91 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2026-04-04] - FalkorDB ingest, 0.5.1, README, Ladybug replaces Kuzu
+
+### Fixed
+- **FalkorDB property-graph ingest** — `falkordb/graph.py` imports `stringify_param_value` by name, so patching `falkordb.helpers` alone had no effect; `llamaindex/graph/falkordb_param_patch.py` now patches **both** modules and stringifies bools, numpy embeddings, and non-identifier metadata keys (e.g. spaced keys) for valid `CYPHER ...` params
+
+### Changed
+- **Version** — `flexible-graphrag` and `flexible-graphrag-mcp` set to **0.5.1** in `pyproject.toml`
+- **`README.md` Features** — explicit bullets for LLM providers (`LLM_PROVIDER`) and embedding backends (`EMBEDDING_KIND`)
+- **Kuzu removed; Ladybug supported** — All Kuzu integration was removed from `factories.py`, `config`, Docker-related samples (`docker/`, `docker.env`), and `env-sample.txt` after Kuzu ended development; the stack now targets the **Ladybug** fork (`GRAPH_DB=ladybug`) for that role
+- **`docs/PERFORMANCE.md`** — labeled legacy pending a full rewrite; historical **Kuzu** tables retained; top-of-file note calls out splitting **KG LLM extraction** time vs **graph DB insert** time when benchmarks are redone
+- **`pyproject.toml`** — `packages.find` `include` adds `llamaindex*` so `llamaindex/graph` ships in the package
+
+## [2026-04-03] - File Reorganization, Script Moves, Delete Fix
+
+### Fixed
+- **Ladybug incremental delete leaves entity nodes behind** — `delete(properties={'doc_id': ...})` silently matched nothing because entity nodes carry no `doc_id` property; see llama-index-ladybug changelog for fix details
+
+### Changed
+- **`cleanup.py` moved** from `flexible-graphrag/` to `scripts/`; `.env` loaded from `../flexible-graphrag/.env`, log files cleaned from app dir
+- **`check_elasticsearch.py` moved** from `flexible-graphrag/` to `scripts/`; `.env` loaded from `../flexible-graphrag/.env`; handles missing index gracefully instead of crashing
+- **`neptune_database_wrapper.py` moved** to `llamaindex/graph/`; import in `factories.py` updated accordingly
+- **`document_processor.py` top-level duplicate removed** — canonical copy remains in `process/`; all imports already used `process.document_processor`
+- **`requirements.txt` removed** — `uv` / `pyproject.toml` is the only supported install method; README updated to remove legacy `requirements.txt` install instructions
+
+## [2026-04-02] - Ladybug NoneType Fix, Chunk Embedding Fix
+
+### Fixed (llama-index-ladybug)
+- `NoneType` crash in `get_rel_map` — `structured_query` returns `None` when the query matches no rows; added `pivot_response = pivot_response or []` null-guard (same pattern as existing `entity_rows or []` in `vector_query`)
+- Chunk embeddings not stored on a fresh database — `upsert_nodes` now uses a single reliable path: DELETE existing chunk → DROP index → CREATE chunk with embedding inline → rebuild index, eliminating the broken "SET after index rebuild" approach that failed when no prior index existed
+
+## [2026-04-01] - Ladybug Bug Fixes, Retry on Transient Errors, Logging Improvements
+
+### Fixed
+- **Ladybug relation table collision** (llama-index-ladybug) — reserved-keyword labels (e.g. `TIME`) used as both a node type and a relation label caused a native C++ crash; `safe_rel_label()` uses `_REL` suffix for relation tables to keep them distinct from node tables
+- **Ladybug schema-defined relations not stored** (llama-index-ladybug) — schema relations (`PART_OF`, `IS_A`, `HAS`, `LOCATED_IN`, etc.) were silently not written to disk; fixed by pre-registering all `FROM/TO` type pairs and switching to typed `MATCH` before each `MERGE`
+- **`SynonymExpanderRetriever._aretrieve`** (`langchain/graph/synonym_rewriter.py`) — called sync `llm.complete()` inside FastAPI's async event loop, causing `Detected nested async` crash on first cold search; now uses `await llm.acomplete()` with `_build_bundle()` factored out as a shared sync helper
+- **`LoggingRetriever._aretrieve`** (`langchain/graph/logging_retriever.py`) — delegated to sync `inner.retrieve()` instead of `await inner.aretrieve()`; fixed to use the async path
+
+### Added
+- **Retry on transient OpenAI errors** — `query_engine.py` `search()` and `backend.py` `qa_query()` / `query_documents()` retry up to 3 times with 5 s / 10 s back-off on HTTP 400 / 429 / 500 / 503, connection errors, and timeouts; non-retryable "index not found" errors return an empty result immediately
+- **`LOG_LEVEL` env var** (`main.py`) — controls both file and console log level at startup (default `INFO`); replaces hardcoded `logging.INFO`
+
+### Changed
+- **`requirements.txt` / `pyproject.toml`** — `real-ladybug>=0.15.3` and `llama-index-graph-stores-ladybug>=0.15.3` version pins updated to match bug-fix release
+
+### Changed
+- **`factories.py` — Ladybug schema resolution** — `schema_name='default'` now falls back to LlamaIndex `DEFAULT_VALIDATION_SCHEMA` (PERSON / ORG / PRODUCT / EVENT / … with WORKED_ON / PART_OF / …) when no ontology or custom schema is provided; embedding dimension auto-detected from embed model (`embed_dim` / `dimensions` / test embedding probe) and passed to `LadybugPropertyGraphStore`
+- **`factories.py` — removed fresh-database wipe on startup** — the old Kuzu path deleted the entire database directory on every restart; Ladybug path preserves existing data across restarts
+- **Logger suppressions** (`main.py`) — noisy third-party loggers capped at WARNING/ERROR to reduce console clutter: `azure.core`, `azure.storage.blob`, `aiohttp.connector`, `aiohttp.client`, `httpcore`, `httpcore.connection`, `httpcore.http11`, `openai._base_client`; asyncio `"Event loop is closed"` exceptions suppressed via a custom event-loop exception handler installed at startup
+
+---
+
+## [2026-03-29] - Ladybug Property Graph Support, hybrid_system.py Modularization
+
+### Added — Ladybug Property Graph Store
+- **`GRAPH_DB=ladybug`** — `LadybugPropertyGraphStore` integrated as a supported property graph backend alongside Neo4j, ArcadeDB, FalkorDB, etc.; set `GRAPH_DB=ladybug` in `.env`
+- **Ladybug Explorer** — Docker container added (`docker/includes/ladybug-explorer.yaml`) for browsing the `.lbug` graph database
+- **Configuration** (`env-sample.txt`, `config.py`, `factories.py`):
+  - `LADYBUG_DB_DIR` / `LADYBUG_DB_FILE` — directory and filename for the `.lbug` database file (created automatically)
+  - `LADYBUG_USE_VECTOR_INDEX=true` (default) — enables HNSW vector index on `Chunk.embedding`
+  - `LADYBUG_STRUCTURED_SCHEMA=true` — enforces ontology-defined entity/relation types at ingest; `factories.py` builds `relationship_schema` from the loaded ontology manager or `GRAPH_DB_CONFIG`
+  - `LADYBUG_STRICT_SCHEMA=true` — when structured schema is on, rejects LLM-extracted types not in the ontology; `false` (default) stores out-of-schema types as additional Ladybug table types alongside the schema-defined ones
+
+### Changed — hybrid_system.py Modularization
+- **`hybrid_system.py` split into focused sub-modules** — the monolithic `hybrid_system.py` (~2500 lines) restructured into:
+  - `ingest/ingest_from_files.py` — file-based ingestion pipeline
+  - `ingest/ingest_from_source.py` — data source ingestion (Alfresco, S3, GCS, Azure Blob, etc.)
+  - `ingest/ingest_from_text.py` — direct text/document ingestion
+  - `ingest/_helpers.py` — shared ingestion utilities
+  - `process/document_processor.py` — Docling/LlamaParse document processing
+  - `process/kg_extractor.py` — knowledge graph extraction (SchemaLLMPathExtractor, DynamicLLMPathExtractor, extractor routing)
+  - `process/node_pipeline.py` — LlamaIndex ingestion pipeline (chunking, embedding)
+  - `stores/index_manager.py` — vector store, search store, and graph index lifecycle management
+  - `query_engine.py` — `search()` entry point, `get_query_engine()`, result filtering
+  - `retriever_setup.py` — `QueryFusionRetriever` assembly from all configured modalities
+  - `schema_manager.py` — ontology and structured schema loading
+  - `hybrid_system.py` — reduced to `HybridSearchSystem` class wiring the sub-modules together
+
+### Fixed
+- **`cleanup.py`** — `cleanup_graph_store()` updated to handle `GRAPH_DB=ladybug` via `GraphDBType` enum; `cleanup_rdf_stores()` delegates to `scripts/rdf_cleanup.py clear-all` subprocess
+- **`scripts/rdf_cleanup.py`** — updated store auto-detection and `--fuseki` / `--graphdb` / `--oxigraph` flags to read from the same `.env` vars as the main app
+- **`check_elasticsearch.py`** — new diagnostic script: lists documents in the `hybrid_search_fulltext` Elasticsearch/OpenSearch index and tests doc_id query patterns; supports `--limit` and `--port` flags
+
+---
+
 ## [2026-03-24] - LangChain Retrievers: added synonym expansion and graph vector, and LangChain  new LLMs support to match ones added for Flexible GraphRAG with Llamaindex
 
 ### Added

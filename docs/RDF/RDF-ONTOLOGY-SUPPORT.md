@@ -64,7 +64,7 @@ RDF store results are fused into the same retrieval pipeline as vector, search, 
    │  • Neo4j                │  │   • Fuseki (RDF 1.2) │
    │  • FalkorDB             │  │   • GraphDB (RDF 1.2)│
    │  • ArcadeDB             │  │   • Oxigraph (RDF 1.2│
-   │  • Kuzu, MemGraph, etc. │  │     native)          │
+   │  • Ladybug, MemGraph, etc. │  │     native)          │
    └─────────────┬───────────┘  └──────────┬───────────┘
                  ↓                          ↓
 ┌─────────────────────────────────────────────────────────────┐

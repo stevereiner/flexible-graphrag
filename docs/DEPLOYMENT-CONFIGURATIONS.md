@@ -190,7 +190,7 @@ npm start
 │  │  │ Qdrant        (ports 6333, 6334)     │  │         │
 │  │  │ Elasticsearch (ports 9200, 9300)     │  │         │
 │  │  │ FalkorDB      (ports 6379, 3002)     │  │         │
-│  │  │ Kuzu          (ports 7000, 7001)     │  │         │
+│  │  │ Ladybug Explorer (optional, 7003)   │  │         │
 │  │  │ OpenSearch    (ports 9201, 9600)     │  │         │
 │  │  │ Chroma        (port 8001)            │  │         │
 │  │  └──────────────────────────────────────┘  │         │
@@ -263,7 +263,7 @@ Edit `docker/docker-compose.yaml` to comment out services you don't need:
 includes:
   # Graph Databases
   - path: includes/neo4j.yaml        # Keep
-  # - path: includes/kuzu.yaml       # Comment out if not using
+  # - path: includes/ladybug-explorer.yaml  # optional UI; build image locally
   # - path: includes/falkordb.yaml   # Comment out if not using
   
   # Vector Databases
@@ -486,7 +486,7 @@ http://localhost:9200/          # Elasticsearch
 volumes:
   neo4j_data:        # Neo4j database
   qdrant_storage:    # Qdrant vectors
-  kuzu_db:           # Kuzu database
+  # Ladybug: .lbug files live on host (see includes/ladybug-explorer.yaml mount)
   upload_data:       # Uploaded files
   # ... other database volumes
 ```

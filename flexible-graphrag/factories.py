@@ -34,7 +34,6 @@ from llama_index.vector_stores.qdrant import QdrantVectorStore
 from llama_index.vector_stores.elasticsearch import ElasticsearchStore, AsyncBM25Strategy
 from llama_index.vector_stores.opensearch import OpensearchVectorStore, OpensearchVectorClient
 from llama_index.graph_stores.neo4j import Neo4jPropertyGraphStore
-# from llama_index.graph_stores.kuzu import KuzuPropertyGraphStore
 from llama_index.graph_stores.falkordb import FalkorDBPropertyGraphStore
 from llama_index.graph_stores.memgraph import MemgraphPropertyGraphStore
 from llama_index.graph_stores.nebula.nebula_property_graph import (
@@ -52,13 +51,12 @@ from llama_index.graph_stores.arcadedb import ArcadeDBPropertyGraphStore
 from llama_index.retrievers.bm25 import BM25Retriever
 from llama_index.core.storage.docstore import SimpleDocumentStore
 from qdrant_client import QdrantClient, AsyncQdrantClient
-# import kuzu
-import os
 
 from config import LLMProvider, VectorDBType, GraphDBType, SearchDBType
 
 # Import Neptune wrapper from separate module
-from neptune_database_wrapper import NeptuneDatabaseNoSummaryWrapper
+from llamaindex.graph.falkordb_param_patch import ensure_falkordb_stringify_patch
+from llamaindex.graph.neptune_database_wrapper import NeptuneDatabaseNoSummaryWrapper
 
 
 class _FireworksStreaming(Fireworks):
@@ -1250,124 +1248,155 @@ class DatabaseFactory:
                 refresh_schema=False  # Disable APOC schema refresh to avoid apoc.meta.data calls
             )
         
-        elif db_type == GraphDBType.KUZU:
-            
-            db_path = config.get("db_path", "./kuzu_db")
-            
-            # For development/testing: ensure clean schema by recreating database
-            # This prevents "Table Entity does not exist" errors when switching models or schemas
+        elif db_type == GraphDBType.LADYBUG:
             import os
-            import shutil
-            if os.path.exists(db_path):
-                try:
-                    shutil.rmtree(db_path)
-                    logger.info(f"Cleaned existing Kuzu database at {db_path} for fresh schema")
-                except Exception as e:
-                    logger.warning(f"Could not clean Kuzu database: {e}")
-            
-            kuzu_db = kuzu.Database(db_path)
-            
-            # Get Kuzu-specific configuration from GRAPH_DB_CONFIG
-            use_structured_schema = config.get("use_structured_schema", False)  # Default to False
-            use_vector_index = config.get("use_vector_index", False)  # Default to False
-            
-            logger.info(f"Kuzu configuration from GRAPH_DB_CONFIG: use_structured_schema={use_structured_schema}, use_vector_index={use_vector_index}")
-            
-            # Helper function to process validation schema
-            def process_validation_schema(validation_data):
-                if isinstance(validation_data, dict) and "relationships" in validation_data:
-                    return validation_data["relationships"]
-                elif isinstance(validation_data, list):
-                    # Convert JSON arrays to tuples for Kuzu compatibility
-                    relationship_schema = []
-                    for item in validation_data:
-                        if isinstance(item, list) and len(item) == 3:
-                            relationship_schema.append(tuple(item))
-                        elif isinstance(item, tuple):
-                            relationship_schema.append(item)
-                        else:
-                            logger.warning(f"Invalid relationship schema item: {item}. Expected [source, relation, target] format.")
-                    return relationship_schema
-                return None
+            from llama_index.graph_stores.ladybug import LadybugPropertyGraphStore
+            import real_ladybug as lb
 
-            # Configure Kuzu based on extractor type from app_config
-            extractor_type = getattr(app_config, 'kg_extractor_type', 'schema')
-            logger.info(f"Configuring Kuzu for extractor type: {extractor_type}")
-            logger.info(f"Schema config received: {schema_config}")
-            
-            # Determine schema configuration based on extractor type
-            if extractor_type == 'simple':
-                # SimpleLLMPathExtractor - no schema needed
-                use_structured_schema = False
-                relationship_schema = None
-                logger.info("Using SimpleLLMPathExtractor - no structured schema")
-            elif extractor_type == 'dynamic':
-                # DynamicLLMPathExtractor - always use unstructured schema for dynamic table creation
-                use_structured_schema = False
-                relationship_schema = None
-                if schema_config and schema_config.get('validation_schema'):
-                    # Full validation schema provided - but still use unstructured for dynamic creation
-                    entities = schema_config.get('entities', [])
-                    relations = schema_config.get('relations', [])
-                    logger.info(f"Using DynamicLLMPathExtractor with validation schema guidance: {len(entities) if entities else 0} entities, {len(relations) if relations else 0} relations (unstructured schema)")
-                elif schema_config and (schema_config.get('entities') or schema_config.get('relations')):
-                    # Starting entities/relations provided - use unstructured schema for flexibility
-                    entities = schema_config.get('entities', [])
-                    relations = schema_config.get('relations', [])
-                    logger.info(f"Using DynamicLLMPathExtractor with starting guidance: {len(entities) if entities else 0} entities, {len(relations) if relations else 0} relations (unstructured schema)")
+            db_dir = config.get("db_dir", "./ladybug")
+            db_file = config.get("db_file", "database.lbug")
+            db_path = os.path.join(db_dir, db_file)
+            use_vector_index = config.get("use_vector_index", True)
+            has_structured_schema = config.get("has_structured_schema", False)
+            strict_schema = config.get("strict_schema", False)
+
+            # Ensure the directory exists
+            os.makedirs(db_dir, exist_ok=True)
+
+            ladybug_db = lb.Database(db_path)
+
+            # Build relationship_schema — priority order:
+            #   1. USE_ONTOLOGY=true → OntologyManager.validation_schema (domain/range from .ttl files)
+            #   2. Named schema (SCHEMA_NAME != 'default') → schema_config["validation_schema"]
+            #   3. schema_name == 'default' → LlamaIndex DEFAULT_VALIDATION_SCHEMA (built-in types)
+            #   4. Anything else → unstructured mode (has_structured_schema forced False)
+            # Note: Entity, Chunk, LINKS, MENTIONS are always created by Ladybug's init_schema —
+            # relationship_schema only needs to list the custom entity/relation triples.
+            relationship_schema = None
+
+            use_ontology = (
+                app_config is not None
+                and getattr(app_config, "use_ontology", False)
+            )
+            if use_ontology:
+                try:
+                    from rdf.api_rdf_enhancements import ontology_manager as _om
+                    if _om and _om.validation_schema:
+                        relationship_schema = list(_om.validation_schema)
+                        logger.info(
+                            f"Ladybug: using ontology relationship_schema "
+                            f"({len(relationship_schema)} domain/range triplets from .ttl)"
+                        )
+                    elif _om:
+                        # Ontology loaded but no domain/range constraints — derive from entities × relations
+                        entities = list(_om.entities.keys())
+                        relations = list(_om.relations.keys())
+                        relationship_schema = [
+                            (e, r, e2)
+                            for r in relations
+                            for e in entities
+                            for e2 in entities
+                        ] if entities and relations else None
+                        if relationship_schema:
+                            logger.info(
+                                f"Ladybug: ontology has no domain/range constraints; "
+                                f"derived {len(relationship_schema)} permutations"
+                            )
+                        else:
+                            logger.info("Ladybug: ontology loaded but empty — using unstructured mode")
+                except (ImportError, AttributeError) as exc:
+                    logger.debug(f"Ladybug: could not load ontology manager: {exc}")
+
+            if relationship_schema is None and schema_config and schema_config.get("validation_schema"):
+                raw = schema_config["validation_schema"]
+                if isinstance(raw, dict) and "relationships" in raw:
+                    raw = raw["relationships"]
+                if isinstance(raw, list):
+                    relationship_schema = []
+                    for item in raw:
+                        if isinstance(item, (list, tuple)) and len(item) == 3:
+                            relationship_schema.append(tuple(item))
+                        else:
+                            logger.warning(f"Skipping invalid Ladybug relationship schema item: {item}")
+                    logger.info(
+                        f"Ladybug: using schema_config relationship_schema "
+                        f"({len(relationship_schema)} triplets)"
+                    )
+
+            # Fallback: schema_name == 'default' → use LlamaIndex built-in schema
+            # (PRODUCT/MARKET/TECHNOLOGY/EVENT/CONCEPT/ORGANIZATION/PERSON/LOCATION/TIME/MISCELLANEOUS
+            #  with USED_BY/USED_FOR/LOCATED_IN/PART_OF/WORKED_ON/HAS/IS_A/BORN_IN/DIED_IN/HAS_ALIAS)
+            if relationship_schema is None and has_structured_schema:
+                schema_name = getattr(app_config, "schema_name", "default") if app_config else "default"
+                if schema_name == "default":
+                    try:
+                        from llama_index.core.indices.property_graph.transformations.schema_llm import (
+                            DEFAULT_VALIDATION_SCHEMA,
+                        )
+                        relationship_schema = list(DEFAULT_VALIDATION_SCHEMA)
+                        logger.info(
+                            f"Ladybug: schema_name='default' — using LlamaIndex built-in schema "
+                            f"({len(relationship_schema)} triples: PERSON/ORG/PRODUCT/... with WORKED_ON/PART_OF/...)"
+                        )
+                    except ImportError:
+                        logger.warning("Ladybug: could not import DEFAULT_VALIDATION_SCHEMA from LlamaIndex — falling back to unstructured mode")
+                        has_structured_schema = False
                 else:
-                    # No schema guidance - full LLM freedom with unstructured schema
-                    logger.info("Using DynamicLLMPathExtractor with no starting schema (full LLM freedom, unstructured schema)")
-            else:  # 'schema' or default
-                # SchemaLLMPathExtractor - schema handling based on use_structured_schema config
-                relationship_schema = None
-                
-                if use_structured_schema and schema_config and schema_config.get('validation_schema'):
-                    logger.info(f"Using SchemaLLMPathExtractor with user-configured schema (structured extraction enabled)")
-                    relationship_schema = process_validation_schema(schema_config['validation_schema'])
-                    logger.info(f"Processed {len(relationship_schema) if relationship_schema else 0} relationship rules for structured schema")
-                elif use_structured_schema:
-                    # Use SAMPLE_SCHEMA for SchemaLLMPathExtractor with full structured validation
-                    logger.info("Using SchemaLLMPathExtractor with SAMPLE_SCHEMA (structured extraction enabled)")
-                    from config import SAMPLE_SCHEMA
-                    relationship_schema = process_validation_schema(SAMPLE_SCHEMA.get("validation_schema"))
-                    logger.info(f"Using SAMPLE_SCHEMA with {len(relationship_schema) if relationship_schema else 0} relationship rules")
-                else:
-                    logger.info("Using SchemaLLMPathExtractor without structured schema (unstructured mode)")
-            
-            # Use the proper embedding model based on LLM provider
+                    logger.warning(
+                        f"Ladybug: LADYBUG_STRUCTURED_SCHEMA=true but no schema could be derived "
+                        f"for schema_name='{schema_name}' — falling back to unstructured mode"
+                    )
+                    has_structured_schema = False
+
+            # Resolve embedding model
             if llm_provider and llm_config:
                 embed_model = LLMFactory.create_embedding_model(llm_provider, llm_config, settings=app_config)
-                provider_name = llm_provider.value if hasattr(llm_provider, 'value') else str(llm_provider)
-                logger.info(f"Embedding model: {provider_name}")
+                provider_name = llm_provider.value if hasattr(llm_provider, "value") else str(llm_provider)
+                logger.info(f"Ladybug embedding model: {provider_name}")
             else:
-                # Fallback to OpenAI if no provider specified
                 from llama_index.embeddings.openai import OpenAIEmbedding
                 embed_model = OpenAIEmbedding(model_name="text-embedding-3-small")
-                logger.warning("No LLM provider specified for Kuzu, falling back to OpenAI embeddings")
-            
-            # Log final configuration
-            logger.info(f"Final Kuzu configuration: use_structured_schema={use_structured_schema}, use_vector_index={use_vector_index}, relationship_schema_count={len(relationship_schema) if relationship_schema else 0}")
-            
-            # Create KuzuPropertyGraphStore with configuration from GRAPH_DB_CONFIG
-            graph_store = KuzuPropertyGraphStore(
-                kuzu_db,
-                has_structured_schema=use_structured_schema,
+                logger.warning("No LLM provider specified for Ladybug, falling back to OpenAI embeddings")
+
+            embed_dim = (
+                getattr(embed_model, "embed_dim", None)
+                or getattr(embed_model, "dimensions", None)
+                or getattr(embed_model, "output_dimensionality", None)
+            )
+            if embed_dim is None:
+                # OpenAI and most LlamaIndex embed models: detect by running a test embedding
+                try:
+                    test = embed_model.get_text_embedding("hello")
+                    embed_dim = len(test)
+                    logger.info(f"Ladybug: detected embed_dim={embed_dim} via test embedding")
+                except Exception as e:
+                    logger.warning(f"Ladybug: could not detect embed_dim: {e}")
+            logger.info(
+                f"Ladybug configuration: use_vector_index={use_vector_index}, "
+                f"has_structured_schema={has_structured_schema}, "
+                f"strict_schema={strict_schema}, "
+                f"embed_dim={embed_dim}, "
+                f"relationship_schema_count={len(relationship_schema) if relationship_schema else 0}"
+            )
+
+            graph_store = LadybugPropertyGraphStore(
+                ladybug_db,
+                relationship_schema=relationship_schema if has_structured_schema else None,
+                has_structured_schema=has_structured_schema,
+                strict_schema=strict_schema,
                 use_vector_index=use_vector_index,
                 embed_model=embed_model,
-                relationship_schema=relationship_schema if use_structured_schema else None
+                embed_dimension=embed_dim,
             )
-            
-            # Schema will be initialized right before PropertyGraphIndex creation for better timing
-            
             return graph_store
-        
+
         elif db_type == GraphDBType.FALKORDB:
             url = config.get("url", "falkor://localhost:6379")
             database = config.get("database", "falkor")
             logger.info(f"Creating FalkorDB graph store - URL: {url} database: {database}")
 
-            
+            ensure_falkordb_stringify_patch()
+
             # Use standard FalkorDB store (indexes are the key optimization)
             graph_store = FalkorDBPropertyGraphStore(
                 url=url,

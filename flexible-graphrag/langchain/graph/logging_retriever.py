@@ -68,16 +68,7 @@ class LoggingRetriever(BaseRetriever):
         return nodes
 
     async def _aretrieve(self, query_bundle: QueryBundle) -> List[NodeWithScore]:
-        # Delegate to async path of inner retriever if available,
-        # otherwise run sync in thread executor to stay non-blocking.
-        import asyncio
-
-        try:
-            nodes = await self._inner.aretrieve(query_bundle)
-        except Exception:
-            loop = asyncio.get_event_loop()
-            nodes = await loop.run_in_executor(None, self._retrieve, query_bundle)
-            return nodes
+        nodes = await self._inner.aretrieve(query_bundle)
         nodes = self._postprocess(nodes)
         self._log_nodes(nodes)
         return nodes

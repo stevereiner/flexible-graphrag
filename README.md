@@ -34,10 +34,12 @@
 - **Knowledge Graph GraphRAG**: Extracts entities and relationships from documents to auto create graphs in property graph databases for GraphRAG. Configuration for schemas to use or use
 as a starting point for LLM to expand on is supported.
 - **RDF/Ontology Support**: Load OWL/RDFS ontologies to guide KG extraction into any property graph or RDF store; SPARQL 1.1 queries; RDF 1.2 triple annotations; full UI pipeline (ingest, hybrid search, AI query/chat, incremental auto-sync). See [Ontology and RDF Support](#ontology-and-rdf-support) below.
-- **8 Property Graph Databases**: Neo4j, FalkorDB, ArcadeDB, Kuzu, MemGraph, NebulaGraph, Amazon Neptune, and Amazon Neptune Analytics — with KG extraction, hybrid search, and AI query/chat
+- **8 Property Graph Databases**: Neo4j, ArcadeDB, FalkorDB, Ladybug, MemGraph, NebulaGraph, Amazon Neptune, and Amazon Neptune Analytics — with KG extraction, hybrid search, and AI query/chat
 - **3 RDF Triple Stores**: Apache Jena Fuseki, Ontotext GraphDB, Oxigraph
 - **10 Vector Databases**: Qdrant, Elasticsearch, OpenSearch, Neo4j, Chroma, Milvus, Weaviate, Pinecone, PostgreSQL pgvector, LanceDB — for semantic similarity search
 - **3 Search Databases**: Elasticsearch, OpenSearch, BM25 (built-in) — for full-text search and hybrid ranking
+- **LLM providers (KG extraction & chat)**: Ollama, OpenAI, Azure OpenAI, Google Gemini, Anthropic Claude, Google Vertex AI, Amazon Bedrock, Groq, Fireworks AI, OpenAI-compatible endpoints (`openai_like`), OpenRouter, LiteLLM proxy, and vLLM — configurable via `LLM_PROVIDER`; see [Supported LLM Providers](#supported-llm-providers)
+- **Embedding providers**: OpenAI, Ollama, Azure OpenAI, Google GenAI, Vertex AI, Bedrock, Fireworks, OpenAI-like (`EMBEDDING_KIND=openai_like`), and LiteLLM — see [LLM Configuration](#llm-configuration)
 - **Configurable Architecture**: LlamaIndex provides abstractions for allowing multiple vector databases, property graph databases, RDF triple stores, search engines, and LLM providers to be supported
 - **Multi-Source Ingestion**: Processes documents from 13 data sources (file upload, cloud storage, enterprise repositories, web sources) with Docling (default) or LlamaParse (cloud API) document parsing.
 - **Observability**: Built-in OpenTelemetry instrumentation with automatic LlamaIndex tracing, Prometheus metrics, Jaeger traces, and Grafana dashboards for production monitoring
@@ -118,7 +120,7 @@ as a starting point for LLM to expand on is supported.
 - **Flexible Deployment**: Hybrid mode (databases in Docker, apps standalone) or full containerization
 - **NGINX Reverse Proxy**: Unified access to all services with proper routing
 - **Built-in Database Dashboards**: Most server dockers also provide built-in web interface dashboards (Neo4j browser, ArcadeDB, FalkorDB, OpenSearch, etc.)
-- **Separate Dashboards**: Additional dashboard dockers are provided: including Kibana for Elasticsearch and Kuzu Explorer.
+- **Separate Dashboards**: Additional dashboard dockers are provided: including Kibana for Elasticsearch and optional Ladybug Explorer (see `docker/includes/ladybug-explorer.yaml`).
 
 ## Data Sources
 
@@ -448,12 +450,12 @@ ENABLE_KNOWLEDGE_GRAPH=false
     GRAPH_DB_CONFIG={"uri": "bolt://localhost:7687", "username": "neo4j", "password": "your_password"}
     ```
 
-- **Kuzu**: Embedded graph database built for query speed and scalability, optimized for handling complex analytical workloads on very large graph databases. Supports the property graph data model and the Cypher query language. **(Note: Kuzu proper is no longer being developed. Will support LadybugDB fork when LlamaIndex support is available)**
-  - Dashboard: Kuzu Explorer (http://localhost:8002) for graph visualization and Cypher queries
+- **ArcadeDB**: Multi-model database supporting graph, document, key-value, and search capabilities with SQL and Cypher query support
+  - Dashboard: ArcadeDB Studio (http://localhost:2480) for graph visualization, SQL/Cypher queries, and database management
   - Configuration:
     ```bash
-    GRAPH_DB=kuzu
-    GRAPH_DB_CONFIG={"db_path": "./kuzu_db", "use_structured_schema": true, "use_vector_index": true}
+    GRAPH_DB=arcadedb
+    GRAPH_DB_CONFIG={"host": "localhost", "port": 2480, "username": "root", "password": "password", "database": "flexible_graphrag", "query_language": "sql"}
     ```
 
 - **FalkorDB**: "A super fast Graph Database uses GraphBLAS under the hood for its sparse adjacency matrix graph representation. Our goal is to provide the best Knowledge Graph for LLM (GraphRAG)."
@@ -464,13 +466,13 @@ ENABLE_KNOWLEDGE_GRAPH=false
     GRAPH_DB_CONFIG={"url": "falkor://localhost:6379", "database": "falkor"}
     ```
 
-- **ArcadeDB**: Multi-model database supporting graph, document, key-value, and search capabilities with SQL and Cypher query support
-  - Dashboard: ArcadeDB Studio (http://localhost:2480) for graph visualization, SQL/Cypher queries, and database management
+- **Ladybug**: Embedded property graph database (Cypher, single `.lbug` file) with optional structured schema and HNSW vector index on chunks; Explorer UI available via Docker (port 7003). See `docker/includes/ladybug-explorer.yaml`.
   - Configuration:
     ```bash
-    GRAPH_DB=arcadedb
-    GRAPH_DB_CONFIG={"host": "localhost", "port": 2480, "username": "root", "password": "password", "database": "flexible_graphrag", "query_language": "sql"}
+    GRAPH_DB=ladybug
+    GRAPH_DB_CONFIG={"db_dir": "./ladybug", "db_file": "database.lbug", "use_vector_index": true, "has_structured_schema": false, "strict_schema": false}
     ```
+  - Or use `LADYBUG_DB_DIR`, `LADYBUG_DB_FILE`, `LADYBUG_USE_VECTOR_INDEX`, `LADYBUG_STRUCTURED_SCHEMA`, `LADYBUG_STRICT_SCHEMA` (see `env-sample.txt`).
 
 - **MemGraph**: Real-time graph database with native support for streaming data and advanced graph algorithms
   - Dashboard: MemGraph Lab (http://localhost:3002) for graph visualization and Cypher queries
@@ -517,12 +519,12 @@ ENABLE_KNOWLEDGE_GRAPH=false
 Flexible GraphRAG supports RDF/RDFS/OWL ontologies to guide knowledge graph extraction, with optional RDF triple store backends. Ontology-guided extraction works with **any** configured store — property graph, RDF store, or both.
 
 - Load OWL/RDFS ontologies (`owl:Class`, `owl:ObjectProperty`, `owl:DatatypeProperty`, `rdfs:domain`, `rdfs:range`) to constrain entity/relation extraction; OWL is supported but not required
-- Works with all 8 property graph databases (Neo4j, FalkorDB, ArcadeDB, etc.) — no RDF store required to use ontology-guided extraction
+- Works with all 8 property graph databases (Neo4j, ArcadeDB, FalkorDB, Ladybug, etc.) — no RDF store required to use ontology-guided extraction
 - Full pipeline for all 3 RDF triple stores: UI document ingest → KG extraction → RDF storage; auto incremental data source change updates via the auto-sync checkbox; Hybrid Search and AI Query/Chat tabs fuse RDF store results alongside vector, BM25, and graph results
 - SPARQL 1.1 queries; RDF 1.2 triple terms and relation annotations (`{| |}` syntax); XSD-typed literals from OWL `DatatypeProperty` ranges
 
 **Storage Modes** (set via `INGESTION_STORAGE_MODE`):
-- **`property_graph`** — entities and relations go to the configured property graph (Neo4j, FalkorDB, ArcadeDB, etc.); no RDF store needed
+- **`property_graph`** — entities and relations go to the configured property graph (Neo4j, ArcadeDB, FalkorDB, Ladybug, etc.); no RDF store needed
 - **`rdf_only`** — triples written directly to enabled RDF store(s); native SPARQL 1.1 queries, RDF 1.2 annotations
 - **`both`** — written to property graph and RDF store(s) simultaneously; all retrievers active in hybrid search and AI query/chat
 
@@ -911,15 +913,6 @@ flexible-graphrag
 
    **Windows Note**: If installation fails with "Microsoft Visual C++ 14.0 or greater is required" error, install [Microsoft C++ Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/) (required for compiling Docling dependencies). Select "Desktop development with C++" during installation.
 
-   **Alternative (not recommended)**: Legacy requirements.txt approach:
-   ```bash
-   uv venv venv-3.13 --python 3.13
-   venv-3.13\Scripts\Activate  # Windows
-   source venv-3.13/bin/activate  # Linux/macOS
-   cd flexible-graphrag
-   uv pip install -r requirements.txt
-   ```
-
 3. Create a `.env` file by copying the sample and customizing:
    ```bash
    cp env-sample.txt .env   # Linux/macOS
@@ -1260,7 +1253,6 @@ See [docs/OBSERVABILITY/OBSERVABILITY.md](docs/OBSERVABILITY/OBSERVABILITY.md) f
     - `langchain/graph/`: Graph retrievers — RDF QA fusion, synonym expander, Neo4j entity vector, k-hop neighborhood, store adapters (Fuseki, GraphDB, Oxigraph, Neptune)
   - `pyproject.toml`: Modern Python package definition (PEP 517/518)
   - `uv.toml`: UV package manager configuration
-  - `requirements.txt`: Legacy pip requirements file (backward compatibility)
   - `start.py`: Startup script (`flexible-graphrag` console entry point)
   - `install.py`: Installation helper script
 

@@ -50,7 +50,7 @@ These control which backend to use:
 ```bash
 VECTOR_DB=neo4j        # neo4j, qdrant, elasticsearch, opensearch, none
 SEARCH_DB=elasticsearch # elasticsearch, opensearch, bm25, none  
-GRAPH_DB=neo4j         # neo4j, kuzu, falkordb, arcadedb, memgraph, nebula, neptune, neptune_analytics, none
+GRAPH_DB=neo4j         # neo4j, ladybug, falkordb, arcadedb, memgraph, nebula, neptune, neptune_analytics, none
 ```
 
 ### **Connection Configuration**
@@ -102,11 +102,11 @@ VECTOR_DB=neo4j
 SEARCH_DB=elasticsearch
 GRAPH_DB=neo4j
 
-# Switch to: OpenAI + Kuzu + OpenSearch
+# Switch to: OpenAI + Ladybug + OpenSearch
 LLM_PROVIDER=openai  
 VECTOR_DB=opensearch
 SEARCH_DB=opensearch
-GRAPH_DB=kuzu
+GRAPH_DB=ladybug
 ```
 
 ## 📝 **Configuration Best Practices**

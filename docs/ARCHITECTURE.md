@@ -366,7 +366,7 @@ LLAMAPARSE_AGENT_MODEL=openai-gpt-4-1-mini # Required for agent mode
 │  Graph Databases (9 options)                               │
 │  ┌────────────────────────────────────────────────────┐    │
 │  │ • Neo4j (property graph, Cypher)                   │    │
-│  │ • Kuzu (embedded, analytical)                      │    │
+│  │ • Ladybug (embedded, Cypher)                       │    │
 │  │ • FalkorDB (GraphBLAS, optimized for LLM)          │    │
 │  │ • ArcadeDB (multi-model: graph/doc/KV/search)      │    │
 │  │ • MemGraph (real-time, streaming)                  │    │
@@ -403,7 +403,7 @@ LLAMAPARSE_AGENT_MODEL=openai-gpt-4-1-mini # Required for agent mode
 │  │ All configurable via environment variables:        │    │
 │  │ • LLM_PROVIDER=openai/ollama/azure/...             │    │
 │  │ • VECTOR_DB=neo4j/qdrant/elasticsearch/...         │    │
-│  │ • GRAPH_DB=neo4j/kuzu/falkordb/arcadedb/...        │    │
+│  │ • GRAPH_DB=neo4j/ladybug/falkordb/arcadedb/...     │    │
 │  │ • SEARCH_DB=bm25/elasticsearch/opensearch          │    │
 │  └────────────────────────────────────────────────────┘    │
 │                                                            │
@@ -593,7 +593,7 @@ Edit `docker/docker-compose.yaml` to enable/disable services:
 ```yaml
 includes:
   - path: includes/neo4j.yaml        # * Keep
-  # - path: includes/kuzu.yaml       # * Comment out if not using
+  # - path: includes/ladybug-explorer.yaml  # optional Explorer UI
   - path: includes/qdrant.yaml       # * Keep
   # - path: includes/chroma.yaml     # * Comment out if not using
   - path: includes/elasticsearch.yaml # * Keep
@@ -707,7 +707,7 @@ For complete setup instructions, environment variables, volume management, and t
    ├─► LLM generates embeddings (OpenAI/Ollama)
    ├─► LLM extracts entities & relationships (knowledge graph)
    ├─► VectorStoreIndex → Vector database (Qdrant/Neo4j/...)
-   ├─► PropertyGraphIndex → Graph database (Neo4j/Kuzu/...)
+   ├─► PropertyGraphIndex → Graph database (Neo4j/Ladybug/...)
    └─► BM25/Elasticsearch → Search engine
    │
    ▼
@@ -740,7 +740,7 @@ flexible-graphrag/
 ├── .env                           # Main configuration
 │   ├── LLM_PROVIDER=openai/ollama
 │   ├── VECTOR_DB=qdrant/neo4j/...
-│   ├── GRAPH_DB=neo4j/kuzu/...
+│   ├── GRAPH_DB=neo4j/ladybug/...
 │   ├── SEARCH_DB=elasticsearch/opensearch/bm25
 │   ├── DOCUMENT_PARSER=docling/llamaparse
 │   └── [Database credentials]

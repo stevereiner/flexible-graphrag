@@ -26,7 +26,7 @@ class BaseDataSource(ABC):
         Returns:
             DocumentProcessor: Initialized document processor
         """
-        from document_processor import DocumentProcessor, get_parser_type_from_env
+        from process.document_processor import DocumentProcessor, get_parser_type_from_env
         from config import Settings
         
         parser_type = get_parser_type_from_env()
