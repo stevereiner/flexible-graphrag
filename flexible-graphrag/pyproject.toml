@@ -236,21 +236,15 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools]
 # Flat layout - Python files are in the same directory as pyproject.toml
 py-modules = [
-    "query_engine",
     "backend",
-    "check_elasticsearch",
-    "cleanup",
-    "cmis_util",
     "config",
-    "document_processor",
     "factories",
-    "retriever_setup",
     "hybrid_system",
     "incremental_system",
-    "install",
     "main",
-    "neptune_database_wrapper",
     "post_ingestion_state",
+    "query_engine",
+    "retriever_setup",
     "schema_manager",
     "start",
 ]
@@ -266,7 +260,6 @@ include = ["ingest*", "process*", "sources*", "observability*", "incremental_upd
 "." = [
     "Dockerfile",
     "env-sample.txt",
-    "requirements.txt",
     "uv.toml",
 ]
 
