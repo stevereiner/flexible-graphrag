@@ -36,6 +36,9 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Load .env before any Settings() so observability and ontology paths match the shell cwd.
+load_dotenv()
+
 # Initialize observability if enabled
 try:
     from observability import setup_observability
@@ -62,9 +65,6 @@ except Exception as e:
     logger.error(f"Failed to initialize observability: {e}")
     import traceback
     traceback.print_exc()
-
-# Load environment variables
-load_dotenv()
 
 # Fix for async event loop issues with containers and LlamaIndex
 if sys.platform == 'win32':

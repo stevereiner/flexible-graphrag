@@ -49,17 +49,20 @@ def create_rdf_graph_retriever(config):
             ontology_paths = getattr(config, "ontology_paths", None)
             ontology_path = getattr(config, "ontology_path", None)
 
+            from rdf.ontology_manager import resolve_user_config_path as _resolve_ontology_path
+
             if ontology_dir:
                 import glob as _glob, os as _os
-                ttl_files = sorted(_glob.glob(_os.path.join(ontology_dir, "*.ttl")))
+                _dir = _resolve_ontology_path(ontology_dir)
+                ttl_files = sorted(_glob.glob(_os.path.join(_dir, "*.ttl")))
                 if ttl_files:
                     ontology_file = ttl_files[0]
             elif ontology_paths:
                 first = ontology_paths.split(",")[0].strip()
                 if first:
-                    ontology_file = first
+                    ontology_file = _resolve_ontology_path(first)
             elif ontology_path:
-                ontology_file = ontology_path
+                ontology_file = _resolve_ontology_path(ontology_path)
 
             if ontology_file:
                 adapter_config["ontology_file"] = ontology_file

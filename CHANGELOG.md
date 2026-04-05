@@ -2,6 +2,24 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2026-04-05] - MCP Server Fix, ingest_text Fix, Schema Move
+
+### Fixed
+- **MCP HTTP mode crash** (`flexible-graphrag-mcp/main.py`) — `nest_asyncio.apply()` called before `asyncio.run()` broke `anyio` backend detection on Python 3.14; now only applied in stdio mode, not HTTP mode
+- **`ingest_text` / `test_with_sample` not working after modularization** (`ingest/ingest_from_text.py`) — still used pre-modularization `PropertyGraphIndex.from_documents([document], kg_extractors=[...])` which was missed when the pipeline was split into modules; aligned with `ingest_from_source.py`: run `run_kg_extractors_on_nodes` first, then `PropertyGraphIndex(nodes=nodes, kg_extractors=[])`; also added `storage_mode` check and RDF export path that were missing
+- **Silent exception swallowing** (`backend.py` `_process_text_async`) — `str(e)` was empty for bare exceptions; `exc_info=True` added to both `RuntimeError` and `Exception` catch blocks so full traceback appears in log
+
+
+
+### Fixed
+- **Ontology relative-path resolution** — `ontology_path_anchor()` in `rdf/ontology_manager.py` now resolves relative `ONTOLOGY_*` paths against `os.getcwd()` only (no `find_dotenv` walk-up); matches normal shell semantics and avoids stale anchors when installed as a wheel
+- **`FLEXIBLE_GRAPHRAG_PROJECT_DIR` removed** — env var and related logic removed from `ontology_manager.py`; not needed given cwd-based resolution
+
+### Changed
+- **Bundled TTL schemas removed from source tree** — `rdf/schemas/*.ttl` deleted from package; canonical schema files now live at repo-root `schemas/` (`C:\newdev3\flexible-graphrag\schemas\`)
+- **`env-sample.txt` ontology defaults** — example paths updated from `./rdf/schemas/...` to `../schemas/...` (relative to backend cwd `flexible-graphrag/flexible-graphrag/`); notes added for absolute paths, tilde expansion
+- **`config.py`** — `ontology_path` field description updated to reflect cwd-relative convention
+
 ## [2026-04-04] - FalkorDB ingest, 0.5.1, README, Ladybug replaces Kuzu
 
 ### Fixed

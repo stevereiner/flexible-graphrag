@@ -161,8 +161,10 @@ GRAPH_DB_CONFIG={"url": "bolt://localhost:7687", "username": "neo4j", "password"
 #LADYBUG_DB_DIR=./ladybug          # directory to store .lbug files (created if missing)
 #LADYBUG_DB_FILE=database.lbug     # filename inside that directory
 #LADYBUG_USE_VECTOR_INDEX=true
-#LADYBUG_STRUCTURED_SCHEMA=false   # true = enforce relationship_schema on storage (default false)
-#LADYBUG_STRICT_SCHEMA=false       # true = skip entities/relations not in schema (default false, only applies when LADYBUG_STRUCTURED_SCHEMA=true)
+#LADYBUG_STRUCTURED_SCHEMA=false   # false = don't enforce relationship_schema, only Entity type, LINKS/MENTIONS rel types (default false)
+#LADYBUG_STRUCTURED_SCHEMA=true   # true = enforce relationship_schema on node types, rel types (default false)
+#LADYBUG_STRICT_SCHEMA=false      # false = don't skip entities/relations not in schema (default false, only applies when LADYBUG_STRUCTURED_SCHEMA=true)
+#LADYBUG_STRICT_SCHEMA=true       # true = skip entities/relations not in schema (default false, only applies when LADYBUG_STRUCTURED_SCHEMA=true)
 # Optional: override via GRAPH_DB_CONFIG (takes precedence over individual vars above)
 #GRAPH_DB_CONFIG={"db_dir": "./ladybug", "db_file": "database.lbug", "use_vector_index": true, "has_structured_schema": false}
 
@@ -948,6 +950,13 @@ USE_LANGCHAIN_PG=false
 # ===========================
 # Ontology Configuration
 # ===========================
+# Relative ONTOLOGY_* paths resolve against the process current working directory (cwd)
+# when ontology files load -- same idea as shell-relative paths. Start the backend from
+# flexible-graphrag/flexible-graphrag/ so ../schemas/ points at the repo-level schemas/
+# folder. Keeps paths out of site-packages when installed as a wheel; use absolute paths
+# if your cwd is not fixed.
+# Absolute paths are supported as-is (Windows: C:\...\file.ttl; Linux/macOS: /path/...).
+# Tilde expands to your home directory on any OS (e.g. ~/my-ontologies/foo.ttl).
 # Enable ontology-based knowledge graph extraction
 # When enabled, uses RDF/RDFS/OWL ontology schemas for entity/relation extraction (OWL is optional)
 USE_ONTOLOGY=false
@@ -955,18 +964,18 @@ USE_ONTOLOGY=false
 
 # --- Single ontology file (simplest) ---
 # All classes, object properties, and datatype properties in one file.
-#ONTOLOGY_PATH=./rdf/schemas/company_ontology.ttl
+#ONTOLOGY_PATH=../schemas/company_ontology.ttl
 
 # --- Comma-separated list of specific files (second precedence) ---
 # Split ontologies are a common pattern: one file for classes/relations,
 # another for datatype properties, plus optional third-party ontologies
 # (FOAF, Dublin Core, schema.org) or a generic common_ontology.ttl.
-ONTOLOGY_PATHS=./rdf/schemas/company_classes.ttl,./rdf/schemas/company_properties.ttl,./rdf/schemas/common_ontology.ttl
+ONTOLOGY_PATHS=../schemas/company_classes.ttl,../schemas/company_properties.ttl,../schemas/common_ontology.ttl
 
 # --- Directory of ontology files (highest precedence) ---
 # All .ttl / .rdf / .owl / .n3 / .nt files in the directory are loaded and merged.
 # Useful when maintaining many domain ontologies or mixing published ontologies.
-#ONTOLOGY_DIR=./rdf/schemas/
+#ONTOLOGY_DIR=../schemas/
 
 # Serialization format for ONTOLOGY_PATH and ONTOLOGY_PATHS.
 # Directory loading (ONTOLOGY_DIR) auto-detects format from file extension.

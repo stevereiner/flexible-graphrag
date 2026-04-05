@@ -307,19 +307,18 @@ def main():
     sys.stderr.write("   • health_check\n")
     sys.stderr.flush()
     
-    # Run the MCP server
-    try:
-        # Apply nest_asyncio to handle nested event loops
-        import nest_asyncio
-        nest_asyncio.apply()
-    except ImportError:
-        pass
-    
     if http_mode:
-        # Run HTTP server for MCP Inspector
+        # HTTP mode: do NOT apply nest_asyncio — it breaks anyio's backend detection
+        # on Python 3.14 (NoEventLoopError inside run_http_async lifespan).
         asyncio.run(mcp.run_http_async(host=host, port=port))
     else:
-        # Run stdio server for Claude Desktop
+        # stdio mode for Claude Desktop — nest_asyncio may be needed if tools call
+        # sync wrappers that themselves call asyncio.run() internally.
+        try:
+            import nest_asyncio
+            nest_asyncio.apply()
+        except ImportError:
+            pass
         asyncio.run(mcp.run_async())
 
 if __name__ == "__main__":

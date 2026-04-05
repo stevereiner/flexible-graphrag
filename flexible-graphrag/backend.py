@@ -1825,19 +1825,19 @@ class FlexibleGraphRAGBackend:
                 # Clean up any partial indexes that might have been created
                 await self._cleanup_partial_processing(processing_id)
             else:
-                logger.error(f"Runtime error in text processing {processing_id}: {str(e)}")
+                logger.error(f"Runtime error in text processing {processing_id}: {str(e)}", exc_info=True)
                 self._update_processing_status(
-                    processing_id, 
-                    "failed", 
-                    f"Processing failed: {str(e)}", 
+                    processing_id,
+                    "failed",
+                    f"Processing failed: {str(e)}",
                     0
                 )
         except Exception as e:
-            logger.error(f"Error ingesting text {processing_id}: {str(e)}")
+            logger.error(f"Error ingesting text {processing_id}: {str(e)}", exc_info=True)
             self._update_processing_status(
-                processing_id, 
-                "failed", 
-                f"Processing failed: {str(e)}", 
+                processing_id,
+                "failed",
+                f"Processing failed: {repr(e)}",
                 0
             )
     

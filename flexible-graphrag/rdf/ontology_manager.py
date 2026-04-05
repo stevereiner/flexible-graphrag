@@ -10,6 +10,35 @@ import re
 
 logger = logging.getLogger(__name__)
 
+def ontology_path_anchor() -> str:
+    """Directory used to resolve relative ontology file paths from config.
+
+    Uses ``os.getcwd()`` only: relative paths are from the working directory of the process
+    when ontology files are loaded (e.g. ``cd`` into ``.../flexible-graphrag/flexible-graphrag``
+    before ``uvicorn`` so ``../schemas/foo.ttl`` is the repo-level ``schemas/`` folder).
+    Use absolute paths if cwd varies.
+    """
+    return os.getcwd()
+
+
+def resolve_user_config_path(path: str) -> str:
+    """Turn relative ontology paths into absolute paths using :func:`ontology_path_anchor`.
+
+    HTTP(S) and ``file:`` URIs are left unchanged. Installed wheels must not resolve these
+    against ``site-packages``.
+    """
+    p = (path or "").strip()
+    if not p:
+        return p
+    low = p.lower()
+    if low.startswith(("http://", "https://", "file:")):
+        return p
+    expanded = os.path.expanduser(p)
+    if os.path.isabs(expanded):
+        return os.path.normpath(expanded)
+    return os.path.normpath(os.path.join(ontology_path_anchor(), expanded))
+
+
 @dataclass
 class OntologyEntity:
     """Represents an entity type extracted from ontology"""
@@ -53,7 +82,7 @@ class OntologyManager:
         """
         if self.graph is None:
             self.graph = Graph()
-        self.graph.parse(source, format=format)
+        self.graph.parse(resolve_user_config_path(source), format=format)
         self._extract_schema()
 
     def load_ontology_files(self, paths: List[str], format: str = "turtle") -> None:
@@ -79,11 +108,12 @@ class OntologyManager:
             self.graph = Graph()
         loaded: List[str] = []
         for path in paths:
-            ext = os.path.splitext(path)[1].lower()
+            resolved = resolve_user_config_path(path)
+            ext = os.path.splitext(resolved)[1].lower()
             fmt = _EXT_FORMAT.get(ext, format)
             try:
-                self.graph.parse(path, format=fmt)
-                loaded.append(path)
+                self.graph.parse(resolved, format=fmt)
+                loaded.append(resolved)
             except Exception as exc:
                 logger.warning("OntologyManager: could not load %s (%s) — %s", path, fmt, exc)
         if loaded:
@@ -109,6 +139,7 @@ class OntologyManager:
                        recognised.
         """
         _ONTOLOGY_EXTS = {".ttl", ".rdf", ".owl", ".xml", ".n3", ".nt"}
+        directory = resolve_user_config_path(directory)
         if not os.path.isdir(directory):
             logger.warning("OntologyManager: ontology directory not found: %s", directory)
             return

@@ -71,28 +71,45 @@ async def ingest_text(system, content: str, source_name: str = "text_input", pro
         extractor_type=system.config.kg_extractor_type,
     )
 
-    if system.graph_index is None:
+    storage_mode = getattr(system.config, "ingestion_storage_mode", "property_graph")
+
+    # Run KG extraction on pre-chunked nodes (same pattern as ingest_from_source)
+    from process.kg_extractor import run_kg_extractors_on_nodes
+    nodes, num_entities, num_relations, _ = await run_kg_extractors_on_nodes(
+        nodes, [kg_extractor], system.config, span_name="rag.graph_extraction.text"
+    )
+    logger.info(f"Text KG extraction complete: {num_entities} entities, {num_relations} relations")
+
+    if storage_mode in ("rdf_only", "both"):
+        from stores.index_manager import export_nodes_to_rdf_stores
+        export_nodes_to_rdf_stores(nodes, system.config, schema_manager=system.schema_manager)
+
+    if storage_mode != "rdf_only":
         graph_storage_context = StorageContext.from_defaults(property_graph_store=system.graph_store)
-        create_gi = functools.partial(
-            PropertyGraphIndex.from_documents,
-            documents=[document],
-            llm=system.llm,
-            embed_model=system.embed_model,
-            kg_extractors=[kg_extractor],
-            storage_context=graph_storage_context,
-        )
-        system.graph_index = await loop.run_in_executor(None, create_gi)
-    else:
-        # Clear extractors and _use_async to avoid double-extraction and nested-loop issues
-        _orig_extractors = system.graph_index._kg_extractors
-        _orig_use_async = getattr(system.graph_index, '_use_async', False)
-        system.graph_index._kg_extractors = []
-        system.graph_index._use_async = False
-        try:
-            system.graph_index.insert_nodes(nodes)
-        finally:
-            system.graph_index._kg_extractors = _orig_extractors
-            system.graph_index._use_async = _orig_use_async
+        if system.graph_index is None:
+            graph_kwargs = {
+                "nodes": nodes,
+                "llm": system.llm,
+                "embed_model": system.embed_model,
+                "kg_extractors": [],
+                "property_graph_store": system.graph_store,
+                "storage_context": graph_storage_context,
+            }
+            if hasattr(system.graph_store, '__class__') and 'NeptuneAnalytics' in str(system.graph_store.__class__):
+                graph_kwargs["embed_kg_nodes"] = False
+            create_gi = functools.partial(PropertyGraphIndex, **graph_kwargs)
+            system.graph_index = await loop.run_in_executor(None, create_gi)
+            logger.info(f"PropertyGraphIndex created from text nodes")
+        else:
+            _orig_extractors = system.graph_index._kg_extractors
+            _orig_use_async = getattr(system.graph_index, '_use_async', False)
+            system.graph_index._kg_extractors = []
+            system.graph_index._use_async = False
+            try:
+                system.graph_index.insert_nodes(nodes)
+            finally:
+                system.graph_index._kg_extractors = _orig_extractors
+                system.graph_index._use_async = _orig_use_async
 
     if _check_cancellation(processing_id):
         raise RuntimeError("Processing cancelled by user")

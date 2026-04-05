@@ -699,7 +699,7 @@ an aristocratic family that rules the planet Caladan, the rainy planet, since 10
     
     # Ontology configuration
     use_ontology: bool = Field(default=False, description="Enable ontology-driven extraction")
-    ontology_path: Optional[str] = Field(None, description="Single ontology file path (e.g., ./rdf/schemas/company_ontology.ttl). Use ontology_dir or ontology_paths for multiple files.")
+    ontology_path: Optional[str] = Field(None, description="Single ontology file path (e.g., ../schemas/company_ontology.ttl relative to process cwd). Use ontology_dir or ontology_paths for multiple files.")
     ontology_dir: Optional[str] = Field(None, description="Directory of ontology files — all .ttl/.rdf/.owl/.n3/.nt files are loaded and merged. Takes precedence over ontology_path.")
     ontology_paths: Optional[str] = Field(None, description="Comma-separated list of ontology file paths. Takes precedence over ontology_path but not ontology_dir.")
     ontology_format: OntologyFormat = Field(default=OntologyFormat.TURTLE, description="Default RDF ontology serialization format (used for ontology_path and ontology_paths; directory loading auto-detects by extension)")
