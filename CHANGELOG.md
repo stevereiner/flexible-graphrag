@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2026-04-12] - Ladybug Package Rename, Version 0.5.2
+
+### Changed
+- **Version** — `flexible-graphrag` and `flexible-graphrag-mcp` bumped to **0.5.2** in their respective `pyproject.toml` files
+- **`factories.py` Ladybug import** — `import ladybug as lb` replaces the old `real-ladybug` package import; aligns with the upstream package rename on PyPI
+- **`pyproject.toml` Ladybug dependencies** — `real-ladybug` replaced by `ladybug>=0.15.3`; `llama-index-graph-stores-ladybug>=0.3.1` replaces the prior `llama-index-ladybug` specifier; both reflect the renamed packages now published under the `ladybug` namespace
+
 ## [2026-04-05] - MCP Server Fix, ingest_text Fix, Schema Move
 
 ### Fixed

@@ -1251,7 +1251,7 @@ class DatabaseFactory:
         elif db_type == GraphDBType.LADYBUG:
             import os
             from llama_index.graph_stores.ladybug import LadybugPropertyGraphStore
-            import real_ladybug as lb
+            import ladybug as lb
 
             db_dir = config.get("db_dir", "./ladybug")
             db_file = config.get("db_file", "database.lbug")

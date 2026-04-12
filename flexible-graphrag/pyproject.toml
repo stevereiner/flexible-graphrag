@@ -1,6 +1,6 @@
 [project]
 name = "flexible-graphrag"
-version = "0.5.1"
+version = "0.5.2"
 description = "Flexible GraphRAG system supporting multiple LLM providers, graph databases, vector stores, and data sources"
 readme = "README.md"
 requires-python = ">=3.12,<3.14"
@@ -78,8 +78,8 @@ dependencies = [
     "llama-index-graph-stores-nebula",
     "llama-index-graph-stores-neptune",
     # Ladybug graph database dependencies
-    "real-ladybug>=0.15.3",
-    "llama-index-graph-stores-ladybug>=0.3.0",
+    "ladybug>=0.15.3",
+    "llama-index-graph-stores-ladybug>=0.3.1",
     "llama-index-retrievers-bm25",
     # ArcadeDB graph database dependencies
     "arcadedb-python>=0.4.0",
