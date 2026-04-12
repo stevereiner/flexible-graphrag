@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## [2026-04-12] - Ladybug Package Rename, Version 0.5.2
 
+### Fixed
+- **MCP stdio crash on Python 3.14** (`flexible-graphrag-mcp/main.py`) — `nest_asyncio.apply()` in stdio mode (present since before 0.5.1, only now first tested on Python 3.14) patched `asyncio.run()` to use `loop.run_until_complete()`, causing anyio's task-state weakref lookup to receive `NoneType` as the host task (`TypeError: cannot create weak reference to 'NoneType' object`); Python 3.14 broke `nest_asyncio` compatibility (3.13 and earlier were unaffected); the 2026-04-05 fix removed it from HTTP mode only; now removed from stdio mode as well — all tools are `async def` using `await` so it was never needed in either mode; `nest-asyncio` dependency removed from `flexible-graphrag-mcp/pyproject.toml`
+- **`ingest_text` / `test_with_sample` crash on Python 3.14** (`ingest/ingest_from_text.py`) — `search_index.refresh_ref_docs()` was called synchronously inside the async FastAPI event loop; the Elasticsearch vector store's sync `add()` internally calls `asyncio.get_event_loop().run_until_complete()` which raises `RuntimeError: This event loop is already running` on Python 3.14 (previously masked by `nest_asyncio`); the UI does not call these endpoints so the bug went unnoticed — it surfaced when called via MCP inspector; fixed by replacing `refresh_ref_docs()` with `await system.search_store.async_add(nodes)` — the same direct async path already used by `ingest_from_source.py`; filesystem ingest was unaffected as it already used the async path
+
 ### Changed
 - **Version** — `flexible-graphrag` and `flexible-graphrag-mcp` bumped to **0.5.2** in their respective `pyproject.toml` files
 - **`factories.py` Ladybug import** — `import ladybug as lb` replaces the old `real-ladybug` package import; aligns with the upstream package rename on PyPI

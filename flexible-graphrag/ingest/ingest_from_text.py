@@ -8,7 +8,7 @@ ingest_text — wraps a raw string as a Document and runs the full pipeline
 import functools
 import logging
 
-from llama_index.core import StorageContext, VectorStoreIndex, Document
+from llama_index.core import StorageContext, VectorStoreIndex
 from llama_index.core.indices.property_graph import PropertyGraphIndex
 
 from process.node_pipeline import build_ingestion_pipeline
@@ -121,9 +121,8 @@ async def ingest_text(system, content: str, source_name: str = "text_input", pro
             create_si = functools.partial(VectorStoreIndex, nodes=nodes, storage_context=search_sc, show_progress=True)
             system.search_index = await loop.run_in_executor(None, create_si)
         else:
-            system.search_index.refresh_ref_docs(
-                [Document(text=n.text, metadata=n.metadata) for n in nodes if hasattr(n, 'text')]
-            )
+            node_ids = await system.search_store.async_add(nodes)
+            logger.info(f"Added {len(node_ids)} nodes to search store via async_add")
 
     if _check_cancellation(processing_id):
         raise RuntimeError("Processing cancelled by user")

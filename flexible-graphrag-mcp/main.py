@@ -308,17 +308,12 @@ def main():
     sys.stderr.flush()
     
     if http_mode:
-        # HTTP mode: do NOT apply nest_asyncio — it breaks anyio's backend detection
-        # on Python 3.14 (NoEventLoopError inside run_http_async lifespan).
         asyncio.run(mcp.run_http_async(host=host, port=port))
     else:
-        # stdio mode for Claude Desktop — nest_asyncio may be needed if tools call
-        # sync wrappers that themselves call asyncio.run() internally.
-        try:
-            import nest_asyncio
-            nest_asyncio.apply()
-        except ImportError:
-            pass
+        # Do NOT apply nest_asyncio in either mode — it patches asyncio.run() in a way
+        # that breaks anyio's task-state weakref lookup on Python 3.14 (host_task
+        # becomes None, triggering "cannot create weak reference to 'NoneType'").
+        # All tools are async def using await, so nest_asyncio is not needed.
         asyncio.run(mcp.run_async())
 
 if __name__ == "__main__":
