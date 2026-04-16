@@ -3,7 +3,7 @@
   "version": 1,
   "newProjectRoot": "projects",
   "projects": {
-    "cmis-graphrag-ui": {
+    "flexible-graphrag-ui": {
       "projectType": "application",
       "schematics": {
         "@schematics/angular:component": {
@@ -18,7 +18,7 @@
         "build": {
           "builder": "@angular-devkit/build-angular:browser",
           "options": {
-            "outputPath": "dist/cmis-graphrag-ui",
+            "outputPath": "dist/flexible-graphrag-ui",
             "index": "src/index.html",
             "main": "src/main.ts",
             "polyfills": ["zone.js"],
@@ -97,10 +97,10 @@
           },
           "configurations": {
             "production": {
-              "buildTarget": "cmis-graphrag-ui:build:production"
+              "buildTarget": "flexible-graphrag-ui:build:production"
             },
             "development": {
-              "buildTarget": "cmis-graphrag-ui:build:development"
+              "buildTarget": "flexible-graphrag-ui:build:development"
             }
           },
           "defaultConfiguration": "development"
@@ -108,7 +108,7 @@
         "extract-i18n": {
           "builder": "@angular-devkit/build-angular:extract-i18n",
           "options": {
-            "buildTarget": "cmis-graphrag-ui:build"
+            "buildTarget": "flexible-graphrag-ui:build"
           }
         },
         "test": {
