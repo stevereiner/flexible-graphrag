@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2026-04-16] - With existing / new md content will  how have a Zensical documentation website, including a user guide with coverage of the 13 data source forms and 4 tabs 
+
+### Added
+- **Zensical documentation site** — new `zensical.toml` config and `docs/` folder structure powering a full documentation site hosted on GitHub Pages at `https://stevereiner.github.io/flexible-graphrag/`; GitHub Actions workflow (`.github/workflows/docs.yml`) auto-deploys on push to `main`; new `HOME/`, `GETTING-STARTED/`, `CONFIGURATION/`, `UI-GUIDE/`, `DEVELOPER/`, `ADVANCED/` section folders with new index/hub pages for each section
+- **Documentation website sections and navigation** — full `nav` tree configured in `zensical.toml` covering Getting Started, Configuration, UI Guide, Data Sources, LLM, Databases, MCP, Developer, and Advanced; combines existing and new Markdown content into a navigable site covering the full product
+- **UI Guide with data source coverage** — new `UI-TAB-SOURCES.md` covers all 13 data source configuration forms; `UI-TAB-PROCESSING.md`, `UI-TAB-SEARCH.md`, `UI-TAB-CHAT.md` cover all 4 UI tabs; `UI-SCREENSHOTS.md` provides overview screenshots
+- **New UI screenshots** — React, Angular, and Vue frontend screenshots for all 4 tabs in dark and light themes (8 screenshots per frontend); 13 React data source form screenshots covering all supported sources
+- **New documentation pages** — `DEVELOPER-DOCS-SYSTEM.md` (local preview, build, deploy instructions) and HOME hub pages for all nav sections
+
+### Changed
+- **Documentation restructured into section folders** — existing `docs/` root files reorganized into section folders; `INCREMENTAL-UPDATE-AUTO-SYNC/` and `DOC-PROCESSING/` moved under `DATA-SOURCES/`; `GRAPH-DATABASES/`, `VECTOR-DATABASES/`, `RDF/` moved under `DATABASES/`; `OBSERVABILITY/` moved under `DEVELOPER/`; `LANGCHAIN/` moved under `ADVANCED/`; all cross-reference links updated in `zensical.toml`, docs files, and root `README.md`
+- **UI Screenshots page** — React section first (before Angular and Vue); dark and light theme tabs for all three frontends
+- **Angular UI** — replaced Alfresco favicon with standard Angular favicon; renamed leftover `cmis-graphrag-ui` project name to `flexible-graphrag-ui` in `package.json`, `angular.json` (project key, output path, and all `buildTarget` references)
+
 ## [2026-04-12] - Ladybug Package Rename, Version 0.5.2
 
 ### Fixed

@@ -301,7 +301,7 @@ Expected: ~33 nodes / 59 rels / ~296 RDF triples for both standard test docs.
 
 All graph databases show identical behavior based on LLM provider, not database choice:
 
-### Graph-Only Mode Testing (No Vector/Search Databases)
+### Graph-Only Mode Testing (No separate Vector / Search databases)
 
 Testing with OpenAI LLM, graph database only (no Elasticsearch, no Qdrant):
 
@@ -563,7 +563,7 @@ See `docs/LLM/LLM-EMBEDDING-CONFIG.md` Section 18 for full Docker setup.
 - vLLM Docker port: 8002 (host) → 8000 (container)
 - Default model: `Qwen/Qwen2.5-7B-Instruct` (configurable via `VLLM_MODEL` env var)
 - Windows: requires WSL2 with sufficient memory allocation (`memory=48GB` in `.wslconfig` for 128GB RAM systems)
-- See `docs/DOCKER-RESOURCE-CONFIGURATION.md` for WSL2/macOS/Linux sizing guide
+- See `docs/ADVANCED/DOCKER-RESOURCE-CONFIGURATION.md` for WSL2/macOS/Linux sizing guide
 
 ---
 
@@ -716,10 +716,10 @@ Successfully tested combinations:
 ### For Graph Building + Vector/Search:
 All providers listed above work correctly with full database stacks (vector + search + graph)
 
-### For Graph-Only Mode (No Vector/Search):
+### For Graph-Only Mode (No separate Vector / Search databases):
 - ✅ **Neo4j + OpenAI** - Fully functional graph-based retrieval
 - ✅ **FalkorDB + OpenAI** - Fully functional graph-based retrieval
-- ❌ **ArcadeDB + OpenAI** - Graph creation works, but retrieval requires external vector/search databases
+- ✅ **ArcadeDB + OpenAI** - Fully functional graph-based retrieval
 
 ### Extractor Information:
 - **SchemaLLMPathExtractor** (default): Uses predefined schema with strict entity/relationship types. Default for OpenAI, Azure, Gemini, Vertex, Claude, Ollama, and LiteLLM (cloud models).

@@ -233,7 +233,7 @@ SOURCE_PATHS=["/home/username/documents/reports"]
 - **Directory processing**: When you specify a directory, ALL files in it will be processed
 - **Backslashes**: Windows paths require escaped backslashes (`\\`) in config files
 
-For more examples, see also: `docs/SOURCE-PATH-EXAMPLES.md`
+For more examples, see also: `docs/DATA-SOURCES/SOURCE-PATH-EXAMPLES.md`
 
 ---
 

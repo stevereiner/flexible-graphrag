@@ -205,14 +205,14 @@ POSTGRES_INCREMENTAL_URL=postgresql://postgres:password@localhost:5433/postgres
 
 **PostgreSQL for State Management**:
 
-The `docker/includes/postgres-pgvector.yaml` sets up two databases automatically on first start: `flexible_graphrag` (for optional pgvector vector storage) and `flexible_graphrag_incremental` (for incremental update state management, with its schema created automatically). pgAdmin is also configured at http://localhost:5050 with both databases pre-registered — just enter the master password `admin` when prompted, then use `password` for the server connection and save it. See [docs/POSTGRES-SETUP.md](docs/POSTGRES-SETUP.md) for details.
+The `docker/includes/postgres-pgvector.yaml` sets up two databases automatically on first start: `flexible_graphrag` (for optional pgvector vector storage) and `flexible_graphrag_incremental` (for incremental update state management, with its schema created automatically). pgAdmin is also configured at http://localhost:5050 with both databases pre-registered — just enter the master password `admin` when prompted, then use `password` for the server connection and save it. See [docs/DATABASES/POSTGRES-SETUP.md](docs/DATABASES/POSTGRES-SETUP.md) for details.
 
 **Documentation**:
-- System overview: [`docs/INCREMENTAL-UPDATE-AUTO-SYNC/README.md`](docs/INCREMENTAL-UPDATE-AUTO-SYNC/README.md)
-- Quick start: [`docs/INCREMENTAL-UPDATE-AUTO-SYNC/QUICKSTART.md`](docs/INCREMENTAL-UPDATE-AUTO-SYNC/QUICKSTART.md)
-- Detailed setup: [`docs/INCREMENTAL-UPDATE-AUTO-SYNC/SETUP-GUIDE.md`](docs/INCREMENTAL-UPDATE-AUTO-SYNC/SETUP-GUIDE.md)
-- API reference: [`docs/INCREMENTAL-UPDATE-AUTO-SYNC/API-REFERENCE.md`](docs/INCREMENTAL-UPDATE-AUTO-SYNC/API-REFERENCE.md)
-- PostgreSQL setup: [`docs/POSTGRES-SETUP.md`](docs/POSTGRES-SETUP.md)
+- System overview: [`docs/DATA-SOURCES/INCREMENTAL-UPDATE-AUTO-SYNC/README.md`](docs/DATA-SOURCES/INCREMENTAL-UPDATE-AUTO-SYNC/README.md)
+- Quick start: [`docs/DATA-SOURCES/INCREMENTAL-UPDATE-AUTO-SYNC/QUICKSTART.md`](docs/DATA-SOURCES/INCREMENTAL-UPDATE-AUTO-SYNC/QUICKSTART.md)
+- Detailed setup: [`docs/DATA-SOURCES/INCREMENTAL-UPDATE-AUTO-SYNC/SETUP-GUIDE.md`](docs/DATA-SOURCES/INCREMENTAL-UPDATE-AUTO-SYNC/SETUP-GUIDE.md)
+- API reference: [`docs/DATA-SOURCES/INCREMENTAL-UPDATE-AUTO-SYNC/API-REFERENCE.md`](docs/DATA-SOURCES/INCREMENTAL-UPDATE-AUTO-SYNC/API-REFERENCE.md)
+- PostgreSQL setup: [`docs/DATABASES/POSTGRES-SETUP.md`](docs/DATABASES/POSTGRES-SETUP.md)
 
 **Scripts**:
 - `scripts/incremental/sync-now.sh|.ps1|.bat` - Trigger immediate synchronization
@@ -234,7 +234,7 @@ All data sources support two document parser options:
 - **New**: `DOCLING_DEVICE=auto|cpu|cuda|mps` - Control GPU vs CPU processing
 - **New**: `SAVE_PARSING_OUTPUT=true` - Save intermediate parsing results for inspection (works for both parsers)
 - **New**: `PARSER_FORMAT_FOR_EXTRACTION=auto|markdown|plaintext` - Control format used for knowledge graph extraction
-- See [Docling GPU Configuration Guide](docs/DOC-PROCESSING/DOCLING-GPU-CONFIGURATION.md) for setup details | [Quick Reference](DOCLING-QUICK-REFERENCE.md)
+- See [Docling GPU Configuration Guide](docs/DATA-SOURCES/DOC-PROCESSING/DOCLING-GPU-CONFIGURATION.md) for setup details | [Quick Reference](docs/DATA-SOURCES/DOC-PROCESSING/DOCLING-GPU-CONFIGURATION.md#quick-reference-installation-commands)
 
 **LlamaParse**:
 - Cloud-based API service with advanced AI
@@ -337,7 +337,7 @@ Flexible GraphRAG uses three types of databases for its hybrid search capabiliti
 - **Ollama**: 384 dimensions (all-minilm, default), 768 dimensions (nomic-embed-text), or 1024 dimensions (mxbai-embed-large)
 - **Azure OpenAI**: Same as OpenAI (1536 or 3072 dimensions)
 
-**See [docs/VECTOR-DATABASES/VECTOR-DIMENSIONS.md](docs/VECTOR-DATABASES/VECTOR-DIMENSIONS.md) for detailed cleanup instructions for each database.**
+**See [docs/DATABASES/VECTOR-DATABASES/VECTOR-DIMENSIONS.md](docs/DATABASES/VECTOR-DATABASES/VECTOR-DIMENSIONS.md) for detailed cleanup instructions for each database.**
 
 #### Supported Vector Databases
 
@@ -562,9 +562,9 @@ includes:
   # - includes/oxigraph.yaml
 ```
 
-**Complete Documentation:** [docs/RDF/RDF-ONTOLOGY-SUPPORT.md](docs/RDF/RDF-ONTOLOGY-SUPPORT.md) | [docs/RDF/RDF-STORE-USER-GUIDE.md](docs/RDF/RDF-STORE-USER-GUIDE.md)
+**Complete Documentation:** [docs/DATABASES/RDF/RDF-ONTOLOGY-SUPPORT.md](docs/DATABASES/RDF/RDF-ONTOLOGY-SUPPORT.md) | [docs/DATABASES/RDF/RDF-STORE-USER-GUIDE.md](docs/DATABASES/RDF/RDF-STORE-USER-GUIDE.md)
 
-**LangChain RDF retrieval** (`USE_LANGCHAIN_RDF=true`) fuses SPARQL-based results from the configured RDF store directly into hybrid search and AI query alongside vector and graph results. Supports `SynonymExpander` for query keyword expansion, `GraphEntityVectorRetriever` for Neo4j entity vector search, and `GraphNeighborhoodRetriever` for k-hop graph expansion. See [docs/RDF/RDF-STORE-USER-GUIDE.md](docs/RDF/RDF-STORE-USER-GUIDE.md#langchain-rdf-retrieval).
+**LangChain RDF retrieval** (`USE_LANGCHAIN_RDF=true`) fuses SPARQL-based results from the configured RDF store directly into hybrid search and AI query alongside vector and graph results. Supports `SynonymExpander` for query keyword expansion, `GraphEntityVectorRetriever` for Neo4j entity vector search, and `GraphNeighborhoodRetriever` for k-hop graph expansion. See [docs/DATABASES/RDF/RDF-STORE-USER-GUIDE.md](docs/DATABASES/RDF/RDF-STORE-USER-GUIDE.md#langchain-rdf-retrieval).
 
 ## LLM Configuration
 
@@ -633,7 +633,7 @@ EMBEDDING_DIMENSION=384  # Auto-detected if not specified
 - Ollama: 384 (all-minilm, default), 768 (nomic-embed-text), 1024 (mxbai-embed-large)
 - Google: 768 (text-embedding-004, configurable with output_dimensionality parameter)
 
-**Note**: When switching embedding models, you must delete existing vector indexes due to dimension incompatibility. See [docs/VECTOR-DATABASES/VECTOR-DIMENSIONS.md](docs/VECTOR-DATABASES/VECTOR-DIMENSIONS.md) for cleanup instructions.
+**Note**: When switching embedding models, you must delete existing vector indexes due to dimension incompatibility. See [docs/DATABASES/VECTOR-DATABASES/VECTOR-DIMENSIONS.md](docs/DATABASES/VECTOR-DATABASES/VECTOR-DIMENSIONS.md) for cleanup instructions.
 
 ### Ollama Configuration
 
@@ -919,7 +919,7 @@ flexible-graphrag
    copy env-sample.txt .env  # Windows
    ```
 
-   Edit `.env` with your specific configuration. See [docs/ENVIRONMENT-CONFIGURATION.md](docs/ENVIRONMENT-CONFIGURATION.md) for detailed setup guide.
+   Edit `.env` with your specific configuration. See [docs/GETTING-STARTED/ENVIRONMENT-CONFIGURATION.md](docs/GETTING-STARTED/ENVIRONMENT-CONFIGURATION.md) for detailed setup guide.
 
 **Note**: The system requires Python 3.12, 3.13, or 3.14 as specified in `pyproject.toml` (requires-python = ">=3.12,<3.15"). Python 3.12 and 3.13 are fully tested. Python 3.14 works with the patches applied automatically in `main.py` at startup. Virtual environment management is controlled by `managed = false` in `pyproject.toml` `[tool.uv]` section (you control venv creation and naming).
 
@@ -1086,8 +1086,8 @@ Interactive conversational interface for document Q&A:
 
 Between tests you can clean up data:
 - **Run `cleanup.py`**: Clears vector, graph, and search indexes in one step — run from the `flexible-graphrag` directory
-- **Vector Indexes**: See [docs/VECTOR-DATABASES/VECTOR-DIMENSIONS.md](docs/VECTOR-DATABASES/VECTOR-DIMENSIONS.md) for vector database cleanup instructions
-- **Graph Data**: See [docs/GRAPH-DATABASES/README-neo4j.md](docs/GRAPH-DATABASES/README-neo4j.md) for graph-related cleanup commands
+- **Vector Indexes**: See [docs/DATABASES/VECTOR-DATABASES/VECTOR-DIMENSIONS.md](docs/DATABASES/VECTOR-DATABASES/VECTOR-DIMENSIONS.md) for vector database cleanup instructions
+- **Graph Data**: See [docs/DATABASES/GRAPH-DATABASES/README-neo4j.md](docs/DATABASES/GRAPH-DATABASES/README-neo4j.md) for graph-related cleanup commands
 
 ## MCP Server Setup (Quickstart)
 
@@ -1166,7 +1166,7 @@ The FastAPI backend provides the following REST API endpoints:
 - **Swagger UI**: http://localhost:8000/docs
 - **ReDoc**: http://localhost:8000/redoc
 
-See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for detailed API workflow and examples.
+See [docs/ADVANCED/ARCHITECTURE.md](docs/ADVANCED/ARCHITECTURE.md) for detailed API workflow and examples.
 
 ## Full-Stack Debugging (Standalone Mode)
 
@@ -1230,7 +1230,7 @@ Flexible GraphRAG includes comprehensive observability features for production m
   </a>
 </p>
 
-See [docs/OBSERVABILITY/OBSERVABILITY.md](docs/OBSERVABILITY/OBSERVABILITY.md) for complete setup, custom instrumentation, and production best practices.
+See [docs/DEVELOPER/OBSERVABILITY/OBSERVABILITY.md](docs/DEVELOPER/OBSERVABILITY/OBSERVABILITY.md) for complete setup, custom instrumentation, and production best practices.
 
 ## Project Structure
 

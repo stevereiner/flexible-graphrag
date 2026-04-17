@@ -1,3 +1,6 @@
+# Zensical / MkDocs built output
+site/
+
 # Environment variables
 .env
 .env.local

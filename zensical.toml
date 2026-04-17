@@ -1,0 +1,175 @@
+# Flexible GraphRAG — Zensical documentation site
+# Native TOML config
+
+[project]
+site_name    = "Flexible GraphRAG"
+site_url     = "https://stevereiner.github.io/flexible-graphrag/"
+site_description = "Hybrid search, knowledge graphs, and AI chat — 13 data sources, 10 vector DBs, 8 property graph DBs, 3 RDF triple stores, and 13 LLM providers."
+site_author  = "Steve Reiner"
+docs_dir     = "docs"
+site_dir     = "site"
+dev_addr     = "localhost:8008"
+copyright    = "© 2025-2026 Integrated Semantics. Apache 2.0 License."
+repo_name    = "stevereiner/flexible-graphrag"
+repo_url     = "https://github.com/stevereiner/flexible-graphrag"
+
+nav = [
+  {"Home" = [
+    {"Overview"          = "index.md"},
+    {"Getting Started"   = "HOME/HOME-GETTING-STARTED.md"},
+    {"Docker Deployment" = "HOME/HOME-DOCKER.md"},
+    {"Configuration"     = "HOME/HOME-CONFIGURATION.md"},
+    {"UI Guide"          = "HOME/HOME-UI-GUIDE.md"},
+    {"Data Sources"      = "HOME/HOME-DATA-SOURCES.md"},
+    {"Databases"         = "HOME/HOME-DATABASES.md"},
+    {"MCP Server"        = "HOME/HOME-MCP.md"},
+    {"Developer"         = "HOME/HOME-DEVELOPER.md"}
+  ]},
+  {"Getting Started" = [
+    {"Overview"                  = "GETTING-STARTED/GETTING-STARTED.md"},
+    {"Quickstart"                = "GETTING-STARTED/QUICKSTART.md"},
+    {"Prerequisites"             = "GETTING-STARTED/PREREQUISITES.md"},
+    {"Setup Overview"            = "GETTING-STARTED/SETUP-OVERVIEW.md"},
+    {"Python Backend"            = "GETTING-STARTED/PYTHON-BACKEND.md"},
+    {"Frontend Setup"            = "GETTING-STARTED/FRONTEND-SETUP.md"},
+    {"Docker Deployment"         = "GETTING-STARTED/DOCKER-DEPLOYMENT.md"},
+    {"Environment Configuration" = "GETTING-STARTED/ENVIRONMENT-CONFIGURATION.md"}
+  ]},
+  {"Configuration" = [
+    {"Database Configuration" = [
+      {"Search Databases"         = "CONFIGURATION/CONFIG-SEARCH-DATABASES.md"},
+      {"Vector Databases"         = "CONFIGURATION/CONFIG-VECTOR-DATABASES.md"},
+      {"Property Graph Databases" = "CONFIGURATION/CONFIG-PROPERTY-GRAPH.md"},
+      {"RDF Graph Databases"      = "CONFIGURATION/CONFIG-RDF-STORES.md"}
+    ]},
+    {"Schema Examples (non RDF)"    = "CONFIGURATION/SCHEMA-EXAMPLES.md"},
+    {"RDF Ontology Examples"        = "DATABASES/RDF/ontology_examples_and_config.md"},
+    {"LangChain Configuration"      = "CONFIGURATION/LANGCHAIN-CONFIGURATION.md"},
+    {"Incremental Auto-Sync Setup"  = "DATA-SOURCES/INCREMENTAL-UPDATE-AUTO-SYNC/QUICKSTART.md"}
+  ]},
+  {"UI Guide" = [
+    {"Screenshots"           = "UI-GUIDE/UI-SCREENSHOTS.md"},
+    {"Tab Overview"          = "UI-GUIDE/UI-GUIDE.md"},
+    {"Tab 1 — Sources"       = "UI-GUIDE/UI-TAB-SOURCES.md"},
+    {"Tab 2 — Processing"    = "UI-GUIDE/UI-TAB-PROCESSING.md"},
+    {"Tab 3 — Hybrid Search" = "UI-GUIDE/UI-TAB-SEARCH.md"},
+    {"Tab 4 — AI Chat"       = "UI-GUIDE/UI-TAB-CHAT.md"}
+  ]},
+  {"Data Sources" = [
+    {"Overview"             = "DATA-SOURCES/OVERVIEW.md"},
+    {"Configuration"        = "DATA-SOURCES/DATA-SOURCE-CONFIGURATION.md"},
+    {"S3 Setup"             = "DATA-SOURCES/S3-SETUP.md"},
+    {"Azure Blob Setup"     = "DATA-SOURCES/AZURE-BLOB-SETUP.md"},
+    {"GCS Setup"            = "DATA-SOURCES/GCS-SETUP.md"},
+    {"CMIS Setup"           = "DATA-SOURCES/README-cmis.md"},
+    {"Source Path Examples" = "DATA-SOURCES/SOURCE-PATH-EXAMPLES.md"},
+    {"Incremental Auto-Sync" = [
+      {"Overview"      = "DATA-SOURCES/INCREMENTAL-UPDATE-AUTO-SYNC/README.md"},
+      {"Setup Guide"   = "DATA-SOURCES/INCREMENTAL-UPDATE-AUTO-SYNC/SETUP-GUIDE.md"}
+    ]},
+    {"Document Processing" = [
+      {"Supported File Formats"    = "DATA-SOURCES/DOC-PROCESSING/SUPPORTED-FILE-FORMATS.md"},
+      {"Docling GPU Configuration" = "DATA-SOURCES/DOC-PROCESSING/DOCLING-GPU-CONFIGURATION.md"},
+      {"Parser Output Files"       = "DATA-SOURCES/DOC-PROCESSING/PARSER-OUTPUT-FILES.md"}
+    ]}
+  ]},
+  {"LLM" = [
+    {"LLM & Embedding Config" = "LLM/LLM-EMBEDDING-CONFIG.md"},
+    {"Testing Results"        = "LLM/LLM-TESTING-RESULTS.md"},
+    {"Ollama Configuration"   = "LLM/OLLAMA-CONFIGURATION.md"}
+  ]},
+  {"Databases" = [
+    {"PostgreSQL Setup" = "DATABASES/POSTGRES-SETUP.md"},
+    {"Property Graph Databases" = [
+      {"Neo4j"                      = "DATABASES/GRAPH-DATABASES/README-neo4j.md"},
+      {"Neo4j URLs"                 = "DATABASES/GRAPH-DATABASES/Neo4j-URLs.md"},
+      {"Neptune Setup"              = "DATABASES/GRAPH-DATABASES/NEPTUNE-SETUP.md"},
+      {"Nebula Setup"               = "DATABASES/GRAPH-DATABASES/NEBULA-SETUP.md"},
+      {"Knowledge Graph Extractors" = "DATABASES/GRAPH-DATABASES/KNOWLEDGE-GRAPH-EXTRACTORS.md"},
+      {"Entity & Relation Counting" = "DATABASES/GRAPH-DATABASES/ENTITY-RELATION-COUNTING.md"}
+    ]},
+    {"RDF Graph Databases" = [
+      {"RDF Store User Guide"      = "DATABASES/RDF/RDF-STORE-USER-GUIDE.md"},
+      {"Ontology Support"          = "DATABASES/RDF/RDF-ONTOLOGY-SUPPORT.md"},
+      {"Ingestion & Storage Modes" = "DATABASES/RDF/INGESTION-AND-STORAGE-MODES.md"},
+      {"Ontology Enhancement"      = "DATABASES/RDF/flexible_graphrag_rdf_ontology_enhancement.md"}
+    ]},
+    {"Vector Databases" = [
+      {"Integration"             = "DATABASES/VECTOR-DATABASES/VECTOR-DATABASE-INTEGRATION.md"},
+      {"Dimensions"              = "DATABASES/VECTOR-DATABASES/VECTOR-DIMENSIONS.md"},
+      {"Chroma Deployment Modes" = "DATABASES/VECTOR-DATABASES/CHROMA-DEPLOYMENT-MODES.md"}
+    ]},
+    {"Search Databases" = [
+      {"Search Database Overview" = "DATABASES/SEARCH-DATABASES.md"}
+    ]}
+  ]},
+  {"MCP" = [
+    {"Quickstart"        = "MCP/MCP-SERVER.md"},
+    {"MCP Tools"         = "MCP/MCP-TOOLS.md"},
+    {"Quick Usage Guide" = "MCP/QUICK-USAGE-GUIDE.md"},
+    {"Full MCP README"   = "MCP/MCP-FULL-README.md"}
+  ]},
+  {"Developer" = [
+    {"REST API"             = "DEVELOPER/REST-API.md"},
+    {"Sync REST API"        = "DATA-SOURCES/INCREMENTAL-UPDATE-AUTO-SYNC/API-REFERENCE.md"},
+    {"MCP Developer Setup"  = "DEVELOPER/DEVELOPER-MCP.md"},
+    {"Testing & Cleanup"    = "DEVELOPER/DEVELOPER-TESTING-CLEANUP.md"},
+    {"Full-Stack Debugging" = "DEVELOPER/DEVELOPER-FULL-STACK-DEBUGGING.md"},
+    {"Documentation System" = "DEVELOPER/DEVELOPER-DOCS-SYSTEM.md"},
+    {"Observability" = [
+      {"Overview"        = "DEVELOPER/OBSERVABILITY/OBSERVABILITY.md"},
+      {"Installation"    = "DEVELOPER/OBSERVABILITY/INSTALLATION-OBSERVABILITY.md"},
+      {"Dual OTLP Guide" = "DEVELOPER/OBSERVABILITY/DUAL-OTLP-PRODUCERS-GUIDE.md"}
+    ]}
+  ]},
+  {"Advanced" = [
+    {"Architecture"                  = "ADVANCED/ARCHITECTURE.md"},
+    {"LangChain Integration"         = "ADVANCED/LANGCHAIN/LANGCHAIN-GRAPH-INTEGRATION.md"},
+    {"Deployment Configurations"     = "ADVANCED/DEPLOYMENT-CONFIGURATIONS.md"},
+    {"Docker Resource Configuration" = "ADVANCED/DOCKER-RESOURCE-CONFIGURATION.md"},
+    {"Port Mappings"                 = "ADVANCED/PORT-MAPPINGS.md"},
+    {"Timeout Configurations"        = "ADVANCED/TIMEOUT-CONFIGURATIONS.md"},
+    {"Default Usernames & Passwords" = "ADVANCED/DEFAULT-USERNAMES-PASSWORDS.md"}
+  ]}
+]
+
+# ── Theme ──────────────────────────────────────────────────────────────────────
+
+[project.theme]
+features = [
+  "navigation.instant",
+  "navigation.instant.prefetch",
+  "navigation.tracking",
+  "navigation.tabs",
+  "navigation.indexes",
+  "navigation.sections",
+  "navigation.expand",
+  "navigation.path",
+  "navigation.top",
+  "search.suggest",
+  "search.highlight",
+  "content.code.copy",
+  "toc.follow",
+]
+
+# ── Markdown extensions ────────────────────────────────────────────────────────
+# Simple extensions (no config) use empty section headers.
+# Extensions with options carry their settings as keys.
+
+[project.markdown_extensions.admonition]
+[project.markdown_extensions."pymdownx.details"]
+[project.markdown_extensions."pymdownx.superfences"]
+[project.markdown_extensions."pymdownx.inlinehilite"]
+[project.markdown_extensions."pymdownx.snippets"]
+[project.markdown_extensions.tables]
+[project.markdown_extensions.attr_list]
+[project.markdown_extensions.md_in_html]
+
+[project.markdown_extensions."pymdownx.highlight"]
+anchor_linenums = true
+
+[project.markdown_extensions."pymdownx.tabbed"]
+alternate_style = true
+
+[project.markdown_extensions.toc]
+permalink = true

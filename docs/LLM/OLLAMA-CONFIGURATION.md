@@ -1,7 +1,5 @@
 # Ollama Environment Configuration
 
-**Last Updated**: November 26, 2025
-
 ## Overview
 
 When using Ollama as your LLM provider (instead of OpenAI), you need to configure system-wide environment variables **before starting the Ollama service**. These settings optimize performance, enable parallel processing, and help manage resource constraints.
@@ -201,7 +199,7 @@ After configuration, verify the settings are active:
 
 - [Ollama Documentation](https://github.com/ollama/ollama/blob/main/docs/faq.md)
 - [LlamaIndex Ollama Integration](https://docs.llamaindex.ai/en/stable/examples/llm/ollama.html)
-- [Flexible GraphRAG Performance Documentation](PERFORMANCE.md)
+- [Flexible GraphRAG Performance Documentation](../ADVANCED/PERFORMANCE.md)
 
 ## Summary
 

@@ -563,7 +563,7 @@ Recommended models (no HF token required):
 | `microsoft/Phi-4` | ~10 GB | fast, strong reasoning |
 
 See `docker/includes/vllm.yaml` for port mapping and container configuration details.
-See `docs/DOCKER-RESOURCE-CONFIGURATION.md` for WSL2/Docker memory sizing guidance.
+See `docs/ADVANCED/DOCKER-RESOURCE-CONFIGURATION.md` for WSL2/Docker memory sizing guidance.
 
 #### Option 2: vLLM Python package — Linux / macOS (UNTESTED)
 
@@ -724,7 +724,7 @@ model_list:
 If you switch embedding providers, you may need to clear your vector database:
 
 ```bash
-# See docs/VECTOR-DIMENSIONS.md for cleanup instructions
+# See docs/DATABASES/VECTOR-DATABASES/VECTOR-DIMENSIONS.md for cleanup instructions
 ```
 
 ### Missing Package Errors
@@ -792,7 +792,7 @@ pip install llama-index-llms-openrouter
 
 ## See Also
 
-- [Vector Database Dimensions](../VECTOR-DATABASES/VECTOR-DIMENSIONS.md)
-- [Performance Benchmarks](../PERFORMANCE.md)
+- [Vector Database Dimensions](../DATABASES/VECTOR-DATABASES/VECTOR-DIMENSIONS.md)
+- [Performance Benchmarks](../ADVANCED/PERFORMANCE.md)
 - [Ollama Configuration](OLLAMA-CONFIGURATION.md)
 
