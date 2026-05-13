@@ -158,15 +158,27 @@ class FusekiAdapter(RDFStoreAdapter):
             raise
 
     def query_sparql(self, query: str) -> List[Dict]:
-        """Execute SPARQL query against Fuseki."""
-        if self.graph is None:
-            self.connect()
+        """Execute SPARQL SELECT query against Fuseki via direct HTTP POST."""
+        self._ensure_dataset_exists()
         try:
-            results = self.graph.query(query)
-            return [
-                {str(var): str(value) for var, value in row.asdict().items()}
-                for row in results
-            ]
+            resp = requests.post(
+                self.query_endpoint,
+                data={"query": query},
+                headers={"Accept": "application/sparql-results+json"},
+                auth=self.auth,
+                timeout=30,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            vars_ = data.get("head", {}).get("vars", [])
+            rows = []
+            for binding in data.get("results", {}).get("bindings", []):
+                row = {}
+                for var in vars_:
+                    val = binding.get(var, {})
+                    row[var] = val.get("value", "") if val else ""
+                rows.append(row)
+            return rows
         except Exception as e:
             self.logger.error("SPARQL query failed: %s", e)
             raise

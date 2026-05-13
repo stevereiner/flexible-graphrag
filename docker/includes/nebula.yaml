@@ -1,7 +1,16 @@
-# NebulaGraph Distributed Graph Database
+# NebulaGraph Distributed Graph Database — v3.8.0
+#
+# All four services pinned to v3.8.0 (released 2024-05-17, latest stable).
+# nebula-console is a one-shot container that registers the storage host
+# with the meta service (ADD HOSTS) automatically — this is the same
+# approach used by the official nebula-docker-compose repo since v3.1.0.
+#
+# Start command:
+#   docker compose -f docker-compose.yaml -f includes/nebula.yaml -p flexible-graphrag up -d
+
 services:
   nebula-metad:
-    image: vesoft/nebula-metad:v3.6.0
+    image: vesoft/nebula-metad:v3.8.0
     container_name: flexible-graphrag-nebula-metad
     environment:
       USER: root
@@ -19,8 +28,8 @@ services:
       test: ["CMD", "curl", "-f", "http://nebula-metad:19559/status"]
       interval: 30s
       timeout: 10s
-      retries: 3
-      start_period: 20s
+      retries: 5
+      start_period: 30s
     ports:
       - "9559:9559"
       - "19559:19559"
@@ -30,7 +39,7 @@ services:
     restart: unless-stopped
 
   nebula-storaged:
-    image: vesoft/nebula-storaged:v3.6.0
+    image: vesoft/nebula-storaged:v3.8.0
     container_name: flexible-graphrag-nebula-storaged
     environment:
       USER: root
@@ -45,13 +54,14 @@ services:
       - --v=0
       - --minloglevel=0
     depends_on:
-      - nebula-metad
+      nebula-metad:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://nebula-storaged:19779/status"]
       interval: 30s
       timeout: 10s
-      retries: 3
-      start_period: 20s
+      retries: 5
+      start_period: 30s
     ports:
       - "9779:9779"
       - "19779:19779"
@@ -61,7 +71,7 @@ services:
     restart: unless-stopped
 
   nebula-graphd:
-    image: vesoft/nebula-graphd:v3.6.0
+    image: vesoft/nebula-graphd:v3.8.0
     container_name: flexible-graphrag-nebula-graphd
     environment:
       USER: root
@@ -75,14 +85,16 @@ services:
       - --v=0
       - --minloglevel=0
     depends_on:
-      - nebula-metad
-      - nebula-storaged
+      nebula-metad:
+        condition: service_healthy
+      nebula-storaged:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://nebula-graphd:19669/status"]
       interval: 30s
       timeout: 10s
-      retries: 3
-      start_period: 20s
+      retries: 5
+      start_period: 30s
     ports:
       - "9669:9669"
       - "19669:19669"
@@ -90,12 +102,26 @@ services:
       - nebula_graph_logs:/logs
     restart: unless-stopped
 
+  # One-shot container: registers nebula-storaged with nebula-metad.
+  # Equivalent to manually running: ADD HOSTS "nebula-storaged":9779
+  # This is the official approach used in nebula-docker-compose since v3.1.0.
+  # Runs once and exits; restart: "no" prevents re-runs on compose restart.
+  nebula-console:
+    image: vesoft/nebula-console:v3.8.0
+    container_name: flexible-graphrag-nebula-console
+    depends_on:
+      nebula-graphd:
+        condition: service_healthy
+    command: >
+      -addr nebula-graphd -port 9669 -u root -p nebula
+      -e 'ADD HOSTS "nebula-storaged":9779'
+    restart: "no"
+
   nebula-studio:
     image: vesoft/nebula-graph-studio:v3.8.0
     container_name: flexible-graphrag-nebula-studio
     environment:
       USER: root
-      # Pre-configure connection to graphd service
       NEBULA_HOST: nebula-graphd
       NEBULA_PORT: 9669
       NEBULA_USER: root
@@ -118,4 +144,3 @@ volumes:
   nebula_storage_data:
   nebula_storage_logs:
   nebula_graph_logs:
-

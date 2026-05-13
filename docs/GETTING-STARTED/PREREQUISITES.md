@@ -13,6 +13,13 @@
 !!! tip
     The `docker/docker-compose.yaml` can provide all databases as Docker containers — no manual installs needed.
 
+## Install
+
+```bash
+cd flexible-graphrag
+uv pip install -e .
+```
+
 ## Optional (depending on features)
 
 - **LangChain integration** — RDF QA fusion retriever and property graph retrievers:

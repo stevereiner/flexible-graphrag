@@ -2,6 +2,29 @@
 
 This document provides examples for configuring knowledge graph schemas in Flexible GraphRAG.
 
+## When NOT using ontologies
+
+If you are **not** using RDF/OWL ontologies, set:
+
+```env
+USE_ONTOLOGY=false   # default — no ontology file loaded
+```
+
+With `USE_ONTOLOGY=false`, the extractor uses the schema defined by `SCHEMA_NAME` and `KG_EXTRACTOR_TYPE` below (built-in, sample, or custom). This is the standard mode for property graph extraction without any RDF/OWL guidance.
+
+```env
+# Standard property-graph-only setup (no ontology)
+USE_ONTOLOGY=false
+PG_GRAPH_DB=neo4j
+NEO4J_GRAPH_DB_CONFIG={"uri": "bolt://localhost:7687", "username": "neo4j", "password": "password"}
+SCHEMA_NAME=default          # built-in LlamaIndex schema
+KG_EXTRACTOR_TYPE=schema     # schema | simple | dynamic
+```
+
+To use ontology-guided extraction instead, see [RDF Ontology Examples](../DATABASES/RDF/ontology_examples_and_config.md).
+
+---
+
 ## 🏗️ **Schema Overview**
 
 Schemas control how entities and relationships are extracted from your documents. You can use:

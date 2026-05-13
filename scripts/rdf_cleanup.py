@@ -48,6 +48,15 @@ GRAPHDB_PASS = os.environ.get("GRAPHDB_PASSWORD",    "admin")
 # Oxigraph
 OXIGRAPH_URL = os.environ.get("OXIGRAPH_URL", "http://localhost:7878")
 
+# Amazon Neptune RDF/SPARQL
+NEPTUNE_RDF_HOST     = os.environ.get("NEPTUNE_RDF_HOST", "")
+NEPTUNE_RDF_PORT     = int(os.environ.get("NEPTUNE_RDF_PORT", "8182"))
+NEPTUNE_RDF_REGION   = os.environ.get("NEPTUNE_RDF_REGION", "us-east-1")
+NEPTUNE_RDF_USE_HTTPS = os.environ.get("NEPTUNE_RDF_USE_HTTPS", "true").lower() == "true"
+NEPTUNE_RDF_USE_IAM  = os.environ.get("NEPTUNE_RDF_USE_IAM_AUTH", "true").lower() == "true"
+NEPTUNE_RDF_KEY_ID   = os.environ.get("NEPTUNE_RDF_AWS_ACCESS_KEY_ID", "") or os.environ.get("AWS_ACCESS_KEY_ID", "")
+NEPTUNE_RDF_SECRET   = os.environ.get("NEPTUNE_RDF_AWS_SECRET_ACCESS_KEY", "") or os.environ.get("AWS_SECRET_ACCESS_KEY", "")
+
 
 # ---------------------------------------------------------------------------
 # SPARQL helpers
@@ -167,6 +176,58 @@ def _oxigraph_select(sparql: str) -> list:
     return r.json().get("results", {}).get("bindings", [])
 
 
+def _neptune_rdf_signed_headers(method: str, url: str, data: dict) -> dict:
+    """Build SigV4-signed headers for a Neptune SPARQL request."""
+    from types import SimpleNamespace
+    from botocore.awsrequest import AWSRequest
+    from botocore.auth import SigV4Auth
+    import json as _json
+
+    creds = SimpleNamespace(
+        access_key=NEPTUNE_RDF_KEY_ID,
+        secret_key=NEPTUNE_RDF_SECRET,
+        token=None,
+        region=NEPTUNE_RDF_REGION,
+    )
+    req = AWSRequest(method=method, url=url, data=data)
+    SigV4Auth(creds, "neptune-db", NEPTUNE_RDF_REGION).add_auth(req)  # type: ignore[arg-type]
+    headers = dict(req.headers)
+    headers["Content-Type"] = "application/x-www-form-urlencoded"
+    return headers
+
+
+def _neptune_rdf_endpoint() -> str:
+    protocol = "https" if NEPTUNE_RDF_USE_HTTPS else "http"
+    return f"{protocol}://{NEPTUNE_RDF_HOST}:{NEPTUNE_RDF_PORT}/sparql"
+
+
+def _neptune_rdf_update(sparql: str) -> None:
+    url = _neptune_rdf_endpoint()
+    data = {"update": sparql}
+    headers = _neptune_rdf_signed_headers("POST", url, data) if NEPTUNE_RDF_USE_IAM else {
+        "Content-Type": "application/x-www-form-urlencoded"
+    }
+    r = requests.post(url, data=data, headers=headers, timeout=60)
+    r.raise_for_status()
+
+
+def _neptune_rdf_select(sparql: str) -> list:
+    url = _neptune_rdf_endpoint()
+    data = {"query": sparql}
+    headers = _neptune_rdf_signed_headers("POST", url, data) if NEPTUNE_RDF_USE_IAM else {
+        "Content-Type": "application/x-www-form-urlencoded"
+    }
+    headers["Accept"] = "application/sparql-results+json"
+    r = requests.post(url, data=data, headers=headers, timeout=60)
+    r.raise_for_status()
+    return r.json().get("results", {}).get("bindings", [])
+
+
+def _neptune_rdf_clear_graph(graph_uri: str) -> None:
+    """Neptune supports SPARQL CLEAR GRAPH."""
+    _neptune_rdf_update(f"CLEAR GRAPH <{graph_uri}>")
+
+
 # ---------------------------------------------------------------------------
 # SPARQL query/update builders
 # ---------------------------------------------------------------------------
@@ -222,9 +283,10 @@ WHERE {{ GRAPH <{graph_uri}> {{ ?s ?p ?o }} }}
 # ---------------------------------------------------------------------------
 
 STORES = {
-    "fuseki":  {"update": _fuseki_update,  "select": _fuseki_select,  "clear": _fuseki_clear_graph},
-    "graphdb": {"update": _graphdb_update, "select": _graphdb_select, "clear": None},
-    "oxigraph":{"update": _oxigraph_update,"select": _oxigraph_select,"clear": _oxigraph_clear_graph},
+    "fuseki":      {"update": _fuseki_update,       "select": _fuseki_select,       "clear": _fuseki_clear_graph},
+    "graphdb":     {"update": _graphdb_update,      "select": _graphdb_select,      "clear": None},
+    "oxigraph":    {"update": _oxigraph_update,     "select": _oxigraph_select,     "clear": _oxigraph_clear_graph},
+    "neptune_rdf": {"update": _neptune_rdf_update,  "select": _neptune_rdf_select,  "clear": _neptune_rdf_clear_graph},
 }
 
 
@@ -247,10 +309,15 @@ def _run_on_stores(enabled: list, action: str, sparql_fn, *args) -> None:
 
 
 def _enabled_stores(args) -> list:
-    explicit = [s for s in ("fuseki", "graphdb", "oxigraph") if getattr(args, s, False)]
+    all_stores = ("fuseki", "graphdb", "oxigraph", "neptune_rdf")
+    explicit = [s for s in all_stores if getattr(args, s, False)]
     if explicit:
         return explicit
-    # Auto-detect from env
+    # Auto-detect from RDF_GRAPH_DB (modern single-store picker)
+    rdf_graph_db = os.environ.get("RDF_GRAPH_DB", "none").lower().strip()
+    if rdf_graph_db in all_stores:
+        return [rdf_graph_db]
+    # Legacy multi-store flags (FUSEKI_ENABLED=true etc.)
     detected = []
     if os.environ.get("FUSEKI_ENABLED", "").lower() == "true":
         detected.append("fuseki")
@@ -259,7 +326,7 @@ def _enabled_stores(args) -> list:
     if os.environ.get("OXIGRAPH_ENABLED", "").lower() == "true":
         detected.append("oxigraph")
     if not detected:
-        print("No RDF stores enabled in .env. Use --fuseki / --graphdb / --oxigraph to specify one explicitly.")
+        print("No RDF stores enabled in .env. Use --fuseki / --graphdb / --oxigraph / --neptune-rdf to specify one explicitly.")
         sys.exit(0)
     return detected
 
@@ -342,6 +409,8 @@ Examples:
     for flag in ("--fuseki", "--graphdb", "--oxigraph"):
         parser.add_argument(flag, action="store_true",
                             help=f"Target {flag[2:]} store")
+    parser.add_argument("--neptune-rdf", dest="neptune_rdf", action="store_true",
+                        help="Target Amazon Neptune RDF/SPARQL store")
 
     subparsers = parser.add_subparsers(dest="command", required=True)
 

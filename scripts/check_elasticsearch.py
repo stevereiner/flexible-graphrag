@@ -23,26 +23,38 @@ load_dotenv(_APP_DIR / ".env")
 from elasticsearch import AsyncElasticsearch
 
 INDEX = "hybrid_search_fulltext"
-PREVIEW_LEN = 300
+PREVIEW_LEN = 300  # default; overridden by --content-len
+
+# module-level mutable so list_docs can access the arg value
+_PREVIEW_LEN = PREVIEW_LEN
 
 
-def _print_hit(i, hit):
+def _print_hit(i, hit, preview_len: int = PREVIEW_LEN):
     doc = hit['_source']
     print(f"\n--- Document {i} (ID: {hit['_id']}) ---")
     print(f"Top-level fields: {list(doc.keys())}")
 
     meta = doc.get('metadata', {})
     if meta:
-        print(f"Metadata fields: {list(meta.keys())}")
-        for key in ('file_name', 'file_path', 'doc_id', 'ref_doc_id', 'document_id'):
-            if key in meta:
-                print(f"  metadata.{key}: {meta[key]}")
+        print(f"Metadata ({len(meta)} fields):")
+        for key, val in sorted(meta.items()):
+            val_str = str(val)
+            if len(val_str) > 120:
+                val_str = val_str[:120] + "..."
+            print(f"  {key}: {val_str}")
+    else:
+        print("  (no metadata)")
 
-    content = doc.get('content', '')
+    # LangChain ElasticsearchStore writes chunk text under 'text' key.
+    # Older paths / LlamaIndex may use 'content' or 'page_content'.
+    content = doc.get('text', '') or doc.get('content', '') or doc.get('page_content', '')
     if content:
-        preview = content[:PREVIEW_LEN]
-        truncated = "..." if len(content) > PREVIEW_LEN else ""
-        print(f"\nContent preview:\n  {preview}{truncated}")
+        preview = content[:preview_len]
+        truncated = f"... (+{len(content) - preview_len} chars)" if len(content) > preview_len else ""
+        print(f"\nText preview ({len(content)} chars total):")
+        print(f"  {preview}{truncated}")
+    else:
+        print("\n  (no text field found)")
 
     print("-" * 80)
 
@@ -66,7 +78,7 @@ async def list_docs(client, filename_filter: str, limit: int):
     print(f"\n=== TOTAL DOCS{filter_note}: {total} (showing {showing}) ===")
 
     for i, hit in enumerate(result['hits']['hits'], 1):
-        _print_hit(i, hit)
+        _print_hit(i, hit, preview_len=_PREVIEW_LEN)
 
     return result['hits']['hits']
 
@@ -128,6 +140,9 @@ async def test_queries_for_file(client, filename: str):
 
 
 async def main(args):
+    global _PREVIEW_LEN
+    _PREVIEW_LEN = args.content_len
+
     from elasticsearch import NotFoundError
     client = AsyncElasticsearch([f"http://localhost:{args.port}"])
     try:
@@ -148,4 +163,6 @@ if __name__ == "__main__":
                         help="Max docs to list (default: 10)")
     parser.add_argument("--port", type=int, default=9200,
                         help="Elasticsearch port (default: 9200)")
+    parser.add_argument("--content-len", type=int, default=PREVIEW_LEN,
+                        help=f"Characters of text to preview (default: {PREVIEW_LEN})")
     asyncio.run(main(parser.parse_args()))

@@ -1,4 +1,4 @@
-# Enhanced flexible-graphrag: RDF/Ontology Support with PropertyGraphIndex
+# RDF/Ontology Support Enhancement Overview
 
 ## Executive Summary
 

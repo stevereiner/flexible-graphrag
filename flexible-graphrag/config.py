@@ -34,7 +34,7 @@ class VectorDBType(str, Enum):
     POSTGRES = "postgres"
     LANCEDB = "lancedb"
 
-class GraphDBType(str, Enum):
+class PropertyGraphType(str, Enum):
     NONE = "none"  # Disable graph search
     NEO4J = "neo4j"
     LADYBUG = "ladybug"
@@ -44,6 +44,17 @@ class GraphDBType(str, Enum):
     NEBULA = "nebula"
     NEPTUNE = "neptune"
     NEPTUNE_ANALYTICS = "neptune_analytics"
+    # LangChain-only property graph backends (no LlamaIndex store equivalent)
+    ARANGODB = "arangodb"
+    APACHE_AGE = "apache_age"
+    COSMOS_GREMLIN = "cosmos_gremlin"
+    SPANNER = "spanner"
+    HUGEGRAPH = "hugegraph"
+    TIGERGRAPH = "tigergraph"
+    SURREALDB = "surrealdb"
+
+# Backward-compat alias
+GraphDBType = PropertyGraphType
 
 class SearchDBType(str, Enum):
     NONE = "none"  # Disable fulltext search
@@ -77,12 +88,20 @@ class ObservabilityBackend(str, Enum):
     BOTH = "both"                    # DUAL mode (recommended!) - Best of both worlds
 
 class RDFStoreType(str, Enum):
-    """RDF store backend types"""
+    """RDF store backend types (legacy — use RdfGraphType for new code)"""
     FUSEKI = "fuseki"
     GRAPHDB = "graphdb"
     ONTOTEXT = "ontotext"
     OXIGRAPH = "oxigraph"
     CUSTOM_SPARQL = "custom_sparql"
+
+class RdfGraphType(str, Enum):
+    """Selects exactly one RDF triple store for both ingestion and retrieval (or none)."""
+    NONE = "none"
+    FUSEKI = "fuseki"
+    OXIGRAPH = "oxigraph"
+    GRAPHDB = "graphdb"
+    NEPTUNE_RDF = "neptune_rdf"
 
 class OntologyFormat(str, Enum):
     """RDF ontology serialization formats"""
@@ -129,7 +148,7 @@ an aristocratic family that rules the planet Caladan, the rainy planet, since 10
     
     # Database configurations
     vector_db: VectorDBType = VectorDBType.NEO4J
-    graph_db: GraphDBType = GraphDBType.NEO4J
+    pg_graph_db: PropertyGraphType = PropertyGraphType.NEO4J
     search_db: SearchDBType = SearchDBType.BM25  # Built-in BM25 from LlamaIndex (default)
     
     # LLM configuration
@@ -177,10 +196,38 @@ an aristocratic family that rules the planet Caladan, the rainy planet, since 10
     )
     
     # RDF Retrieval Configuration (LangChain Integration)
-    use_langchain_rdf: bool = Field(False, description="Enable LangChain-based RDF graph retrieval in hybrid search")
-    rdf_store_type: Optional[str] = Field(None, description="RDF store type for LangChain QA retrieval: graphdb | fuseki | oxigraph | neptune_rdf")
+    # use_langchain_rdf and rdf_store_type removed — use rdf_graph_db instead
     rdf_retrieval_weight: float = Field(0.3, description="Weight for RDF retrieval results in fusion (0.0-1.0)")
     rdf_retrieval_top_k: int = Field(5, description="Number of results to return from RDF retriever")
+
+    # ------------------------------------------------------------------
+    # Backend selection — controls which framework handles each subsystem
+    # ------------------------------------------------------------------
+    # graph_backend:    'llamaindex' (default) | 'langchain'
+    # vector_backend:   'llamaindex' (default) | 'langchain'
+    # search_backend:   'llamaindex' (default) | 'langchain'
+    # llm_backend:      'llamaindex' (default) | 'langchain' | 'both'
+    # embedding_backend:'llamaindex' (default) | 'langchain' | 'both'
+    # chunker_backend:  'llamaindex' (default) | 'langchain'
+    # kg_extractor_backend: 'llamaindex' (default) | 'langchain'
+    #
+    # 'both' for llm_backend/embedding_backend instantiates native instances of
+    # each so mixed pipelines (e.g. LI vector + LC property graph) get the right
+    # model type without bridge adapters.
+    graph_backend: str = Field("llamaindex", description="Property graph backend: llamaindex | langchain")
+    vector_backend: str = Field("llamaindex", description="Vector store backend: llamaindex | langchain")
+    search_backend: str = Field("llamaindex", description="Search store backend: llamaindex | langchain")
+    llm_backend: str = Field("llamaindex", description="LLM backend: llamaindex | langchain | both")
+    embedding_backend: str = Field("llamaindex", description="Embedding backend: llamaindex | langchain | both")
+    chunker_backend: str = Field("llamaindex", description="Chunker backend: llamaindex | langchain")
+    lc_splitter_type: str = Field(
+        "recursive",
+        description=(
+            "LangChain splitter type (only used when CHUNKER_BACKEND=langchain). "
+            "Options: recursive | character | token | markdown | python | sentence_transformers"
+        ),
+    )
+    kg_extractor_backend: str = Field("llamaindex", description="KG extractor backend: llamaindex | langchain")
 
     # LangChain Property Graph Store Configuration
     # When use_langchain_pg=true the LangChain PG store is used for the graph
@@ -196,19 +243,31 @@ an aristocratic family that rules the planet Caladan, the rainy planet, since 10
             "hugegraph | nebula | tigergraph | arcadedb | spanner"
         ),
     )
-    langchain_pg_vector_search: bool = Field(
-        False,
+    langchain_pg_vector_search: Optional[bool] = Field(
+        None,
         description=(
             "Run a vector-similarity search against the graph store's entity vector index "
-            "and include results in fusion. Works independently of use_langchain_pg — "
-            "requires only that GRAPH_DB=neo4j ingestion has run (which creates the "
-            "__Entity__[embedding] index). Currently supported for neo4j."
+            "and include results in fusion. Defaults to false for all stores. "
+            "Set LANGCHAIN_PG_VECTOR_SEARCH=true to enable explicitly."
         ),
     )
     langchain_pg_vector_index: str = Field(
         "entity",
         description="Name of the Neo4j vector index to query when langchain_pg_vector_search=true. "
                     "Default 'entity' matches the index LlamaIndex creates on __Entity__[embedding].",
+    )
+    langchain_pg_intermediate_steps: bool = Field(
+        False,
+        description=(
+            "Hybrid search returns up to three result types per active graph: "
+            "(1) text chunks — always, from VECTOR_DB/SEARCH_DB; "
+            "(2) AI answer   — always, the LLM answer generated from graph context; "
+            "(3) graph input — optional (this flag): the raw text the LLM received "
+            "as context from the Cypher/SPARQL query (result rows fed into the LLM prompt). "
+            "When both PG and RDF graphs are active, types 2 and 3 each appear once per graph "
+            "(up to 5 result nodes total). "
+            "false = types 1+2 only (default). true = types 1+2+3."
+        ),
     )
     langchain_pg_vector_node_label: str = Field(
         "__Entity__",
@@ -244,6 +303,23 @@ an aristocratic family that rules the planet Caladan, the rainy planet, since 10
     )
 
     # ------------------------------------------------------------------
+    # LangChain text-to-query (Cypher / SPARQL / SurrealQL) opt-in flag
+    # ------------------------------------------------------------------
+    use_lc_text_to_graph: bool = Field(
+        False,
+        description=(
+            "When graph_backend=langchain and the store has built-in vector support "
+            "(neo4j, arcadedb, falkordb, ladybug, arangodb, surrealdb), the default graph "
+            "retriever is GraphEntityVectorRetriever (better quality than text-to-query). "
+            "Set USE_LC_TEXT_TO_GRAPH=true to additionally enable TextToGraphQueryRetriever "
+            "alongside vector retrieval. "
+            "For stores WITHOUT vector support (apache_age, hugegraph, nebula, tigergraph, "
+            "cosmos_gremlin, neptune) and all RDF stores, TextToGraphQueryRetriever is always "
+            "active regardless of this flag."
+        ),
+    )
+
+    # ------------------------------------------------------------------
     # Synonym exploder (LLM-based query rewriter for hybrid retrieval)
     # ------------------------------------------------------------------
     use_synonym_exploder: bool = Field(
@@ -260,28 +336,41 @@ an aristocratic family that rules the planet Caladan, the rainy planet, since 10
         description="Maximum number of synonym keywords the LLM should generate per query.",
     )
     synonym_exploder_scope: str = Field(
-        "langchain_pg_graph,langchain_pg_vector",
+        "none",
         description=(
             "Comma-separated list of retriever types that receive the synonym-enriched query. "
             "Special values: 'all' (wrap entire fusion retriever, one LLM call), 'none' (disable). "
+            "Best used for KEYWORD/BM25 search backends where exact token matching means "
+            "'Acme staff' and 'Acme employees' are different queries. "
+            "Vector retrievers (LI and LC) use embedding similarity — the model already handles "
+            "synonyms implicitly, so adding explicit expansion multiplies calls with little gain. "
+            "LI PropertyGraph also does vector seeding internally — same reasoning. "
             "Per-retriever tokens: "
-            "  llamaindex_vector    — LlamaIndex VectorStoreIndex retriever. "
-            "  llamaindex_search    — LlamaIndex BM25 / Elasticsearch / OpenSearch retriever. "
-            "  llamaindex_pg_graph  — LlamaIndex PropertyGraph graph_retriever (VectorContextRetriever). "
+            "  llamaindex_search    — LlamaIndex BM25 / Elasticsearch / OpenSearch (RECOMMENDED). "
+            "  langchain_search     — LangChain Elasticsearch / OpenSearch (RECOMMENDED). "
+            "  llamaindex_vector    — LlamaIndex VectorStoreIndex (not recommended — embedding handles it). "
+            "  langchain_vector     — LangChain vector store (not recommended — same reason). "
+            "  llamaindex_pg_graph  — LlamaIndex PropertyGraph VectorContextRetriever (not recommended). "
             "  langchain_pg_vector  — LangChain PG vector retriever (langchain_pg_vector_search). "
-            "  langchain_rdf_graph  — LangChain RDF/SPARQL retriever. "
-            "  langchain_pg_graph   — LangChain property-graph Cypher QA retriever. "
+            "  langchain_rdf_graph  — LangChain RDF/SPARQL retriever (avoid — one LLM call per synonym). "
+            "  langchain_pg_graph   — LangChain Cypher QA retriever (avoid — same reason). "
             "  langchain_pg_neighborhood — PG neighborhood k-hop retriever. "
-            "Example: 'langchain_pg_graph,langchain_pg_vector'"
         ),
     )
 
-    # GraphDB configuration for retrieval
-    graphdb_base_url: str = Field("http://localhost:7200", description="Ontotext GraphDB base URL")
-    graphdb_repository: str = Field("flexible-graphrag", description="GraphDB repository name")
-    graphdb_username: Optional[str] = Field("admin", description="GraphDB username")
-    graphdb_password: Optional[str] = Field("admin", description="GraphDB password")
-    
+    # ------------------------------------------------------------------
+    # Retrieval fusion framework
+    # ------------------------------------------------------------------
+    retrieval_fusion: str = Field(
+        "llamaindex",
+        description=(
+            "Fusion framework used to combine results from multiple retrievers. "
+            "'llamaindex' (default) — LlamaIndex QueryFusionRetriever (relative_score mode, works with any mix of LI/LC retrievers). "
+            "'langchain'           — LangChain EnsembleRetriever (RRF, only when ALL active retrievers are LC-native). "
+            "Falls back to 'llamaindex' automatically when LI-native retrievers are present."
+        ),
+    )
+
     # Neptune RDF configuration for retrieval
     neptune_host: Optional[str] = Field(None, description="Amazon Neptune cluster endpoint")
     neptune_port: int = Field(8182, description="Neptune port (default: 8182)")
@@ -325,6 +414,16 @@ an aristocratic family that rules the planet Caladan, the rainy planet, since 10
     docling_timeout: int = Field(600, description="Timeout for single document Docling conversion in seconds (default: 10 minutes) - separate from LLM request timeouts")
     docling_cancel_check_interval: float = Field(0.5, description="How often to check for cancellation during Docling processing in seconds - enables mid-file cancellation")
     docling_device: str = Field("auto", description="Device for Docling processing: 'auto' (default - GPU if available), 'cpu', 'cuda', 'mps' (Mac)")
+    docling_ocr: bool = Field(False, description="Enable OCR in Docling for scanned documents/images (default: False). Requires OCR backend installed.")
+    docling_ocr_engine: str = Field("auto", description=(
+        "OCR engine when DOCLING_OCR=true: "
+        "'auto' (docling picks best installed engine), "
+        "'rapidocr' (in docling-slim[standard], no extra needed), "
+        "'easyocr' (install docling-ocr-easyocr extra), "
+        "'tesseract_cli' (recommended on Windows — system Tesseract only, no tesserocr wheel build), "
+        "'tesserocr' (pip compiles bindings; fragile on Windows; Linux needs libtesseract-dev etc.), "
+        "'ocrmac' (macOS only, install docling-ocr-ocrmac extra)"
+    ))
     save_parsing_output: bool = Field(False, description="Save intermediate parsing results (markdown/text) from both Docling and LlamaParse to files for inspection")
     parser_format_for_extraction: str = Field("auto", description="Format to use for knowledge graph extraction: 'auto' (markdown if tables, else plaintext), 'markdown' (always), 'plaintext' (always)")
     
@@ -342,6 +441,24 @@ an aristocratic family that rules the planet Caladan, the rainy planet, since 10
         # Set LlamaParse API key from environment if not provided
         if not self.llamaparse_api_key:
             self.llamaparse_api_key = os.getenv("LLAMAPARSE_API_KEY")
+
+        # Kind-specific embedding model takes priority over generic EMBEDDING_MODEL
+        # e.g. OPENAI_EMBEDDING_MODEL=text-embedding-3-small when EMBEDDING_KIND=openai
+        _emb_kind = (self.embedding_kind or "").lower()
+        _emb_kind_env_map = {
+            "openai":      "OPENAI_EMBEDDING_MODEL",
+            "ollama":      "OLLAMA_EMBEDDING_MODEL",
+            "google":      "GOOGLE_EMBEDDING_MODEL",
+            "vertex":      "VERTEX_EMBEDDING_MODEL",
+            "azure":       "AZURE_EMBEDDING_MODEL",
+            "bedrock":     "BEDROCK_EMBEDDING_MODEL",
+            "fireworks":   "FIREWORKS_EMBEDDING_MODEL",
+            "openai_like": "OPENAI_LIKE_EMBEDDING_MODEL",
+            "litellm":     "LITELLM_EMBEDDING_MODEL",
+        }
+        _emb_kind_var = _emb_kind_env_map.get(_emb_kind)
+        if _emb_kind_var and os.getenv(_emb_kind_var):
+            self.embedding_model = os.getenv(_emb_kind_var)
         
         # Set default LLM config based on provider if not provided
         if not self.llm_config:
@@ -448,16 +565,26 @@ an aristocratic family that rules the planet Caladan, the rainy planet, since 10
                     "extraction_mode": os.getenv("LLM_EXTRACTION_MODE", "function"),
                 }
             elif self.llm_provider == LLMProvider.VLLM:
-                # vLLM server - high-performance local inference engine
-                # vLLM has its own native LlamaIndex class (not OpenAILike)
-                # Supports OpenAI-compatible API at /v1 endpoint
+                # vLLM — two modes selected via VLLM_MODE:
+                #   "server" (default) — OpenAI-compatible HTTP server (Docker or standalone vllm serve)
+                #                        Uses VLLM_API_BASE (full /v1 URL) → OpenAILike path
+                #   "inprocess"        — in-process Python package (Linux/macOS only; pip install vllm)
+                #                        Uses VLLM_API_URL (bare URL, no /v1) → Vllm class path
+                _vllm_mode = os.getenv("VLLM_MODE", "server").lower()
                 self.llm_config = {
-                    "model": os.getenv("VLLM_MODEL", "facebook/opt-125m"),
-                    "api_url": os.getenv("VLLM_API_URL", "http://localhost:8002"),
+                    "vllm_mode": _vllm_mode,
+                    "model": os.getenv("VLLM_MODEL", "Qwen/Qwen2.5-7B-Instruct"),
+                    "api_base": os.getenv("VLLM_API_BASE", "http://localhost:8002/v1"),
+                    "api_key": os.getenv("VLLM_API_KEY", "local"),
                     "temperature": float(os.getenv("VLLM_TEMPERATURE", "0.1")),
-                    "max_new_tokens": int(os.getenv("VLLM_MAX_NEW_TOKENS", "512")),
+                    "timeout": float(os.getenv("VLLM_TIMEOUT", "120.0")),
+                    "context_window": int(os.getenv("VLLM_CONTEXT_WINDOW", "8192")),
+                    "is_function_calling_model": os.getenv("VLLM_FUNCTION_CALLING", "false").lower() == "true",
                     "is_chat_model": os.getenv("VLLM_CHAT_MODEL", "true").lower() == "true",
                     "extraction_mode": os.getenv("LLM_EXTRACTION_MODE", "function"),
+                    # in-process path only (VLLM_MODE=inprocess)
+                    "api_url": os.getenv("VLLM_API_URL", "http://localhost:8002"),
+                    "max_new_tokens": int(os.getenv("VLLM_MAX_NEW_TOKENS", "2048")),
                 }
             elif self.llm_provider == LLMProvider.LITELLM:
                 # LiteLLM proxy - unified OpenAI-compatible API for 100+ providers
@@ -486,6 +613,15 @@ an aristocratic family that rules the planet Caladan, the rainy planet, since 10
                 }
 
         # Set default database configs if not provided
+        # Per-store config takes precedence: {TYPE}_VECTOR_DB_CONFIG > VECTOR_DB_CONFIG > individual vars
+        # (Pydantic loads VECTOR_DB_CONFIG before __init__, so we must re-check unconditionally)
+        _vtype = str(getattr(self.vector_db, 'value', self.vector_db) or "").upper()
+        _named_vec = _vtype and os.getenv(f"{_vtype}_VECTOR_DB_CONFIG")
+        if _named_vec:
+            try:
+                self.vector_db_config = json.loads(_named_vec)
+            except (json.JSONDecodeError, ValueError):
+                pass
         if not self.vector_db_config:
             if self.vector_db == VectorDBType.NEO4J:
                 self.vector_db_config = {
@@ -560,15 +696,23 @@ an aristocratic family that rules the planet Caladan, the rainy planet, since 10
                     "text_column_name": os.getenv("LANCEDB_TEXT_COLUMN", "text")
                 }
         
+        # Per-store config takes precedence: {TYPE}_GRAPH_DB_CONFIG > GRAPH_DB_CONFIG > individual vars
+        _gtype = str(getattr(self.pg_graph_db, 'value', self.pg_graph_db) or "").upper()
+        _named_graph = _gtype and os.getenv(f"{_gtype}_GRAPH_DB_CONFIG")
+        if _named_graph:
+            try:
+                self.graph_db_config = json.loads(_named_graph)
+            except (json.JSONDecodeError, ValueError):
+                pass
         if not self.graph_db_config:
-            if self.graph_db == GraphDBType.NEO4J:
+            if self.pg_graph_db == PropertyGraphType.NEO4J:
                 self.graph_db_config = {
                     "username": os.getenv("NEO4J_USER", "neo4j"),
                     "password": os.getenv("NEO4J_PASSWORD", "password"),
                     "url": os.getenv("NEO4J_URI", "bolt://localhost:7689"),  # Updated default port
                     "database": os.getenv("NEO4J_DATABASE", "neo4j")
                 }
-            elif self.graph_db == GraphDBType.LADYBUG:
+            elif self.pg_graph_db == PropertyGraphType.LADYBUG:
                 self.graph_db_config = {
                     "db_dir": os.getenv("LADYBUG_DB_DIR", "./ladybug"),
                     "db_file": os.getenv("LADYBUG_DB_FILE", "database.lbug"),
@@ -576,13 +720,14 @@ an aristocratic family that rules the planet Caladan, the rainy planet, since 10
                     "has_structured_schema": os.getenv("LADYBUG_STRUCTURED_SCHEMA", "false").lower() == "true",
                     "strict_schema": os.getenv("LADYBUG_STRICT_SCHEMA", "false").lower() == "true",
                 }
-            elif self.graph_db == GraphDBType.FALKORDB:
+            elif self.pg_graph_db == PropertyGraphType.FALKORDB:
                 self.graph_db_config = {
                     "url": os.getenv("FALKORDB_URL", "falkor://localhost:6379"),
                     "username": os.getenv("FALKORDB_USERNAME"),
-                    "password": os.getenv("FALKORDB_PASSWORD")
+                    "password": os.getenv("FALKORDB_PASSWORD"),
+                    "database": os.getenv("FALKORDB_DATABASE", "falkor"),
                 }
-            elif self.graph_db == GraphDBType.ARCADEDB:
+            elif self.pg_graph_db == PropertyGraphType.ARCADEDB:
                 self.graph_db_config = {
                     "mode": os.getenv("ARCADEDB_MODE", "remote"),
                     "host": os.getenv("ARCADEDB_HOST", "localhost"),
@@ -597,13 +742,13 @@ an aristocratic family that rules the planet Caladan, the rainy planet, since 10
                     "embedded_server_port": int(os.getenv("ARCADEDB_EMBEDDED_SERVER_PORT", "2482")),
                     "embedded_server_password": os.getenv("ARCADEDB_EMBEDDED_SERVER_PASSWORD"),
                 }
-            elif self.graph_db == GraphDBType.MEMGRAPH:
+            elif self.pg_graph_db == PropertyGraphType.MEMGRAPH:
                 self.graph_db_config = {
                     "username": os.getenv("MEMGRAPH_USERNAME", ""),
                     "password": os.getenv("MEMGRAPH_PASSWORD", ""),
                     "url": os.getenv("MEMGRAPH_URL", "bolt://localhost:7688")
                 }
-            elif self.graph_db == GraphDBType.NEBULA:
+            elif self.pg_graph_db == PropertyGraphType.NEBULA:
                 self.graph_db_config = {
                     "space": os.getenv("NEBULA_SPACE", "flexible_graphrag"),
                     "overwrite": os.getenv("NEBULA_OVERWRITE", "true").lower() == "true",
@@ -612,16 +757,82 @@ an aristocratic family that rules the planet Caladan, the rainy planet, since 10
                     "username": os.getenv("NEBULA_USERNAME", "root"),
                     "password": os.getenv("NEBULA_PASSWORD", "nebula")
                 }
-            elif self.graph_db == GraphDBType.NEPTUNE:
+            elif self.pg_graph_db == PropertyGraphType.NEPTUNE:
                 self.graph_db_config = {
                     "host": os.getenv("NEPTUNE_HOST"),
                     "port": int(os.getenv("NEPTUNE_PORT", "8182"))
                 }
-            elif self.graph_db == GraphDBType.NEPTUNE_ANALYTICS:
+            elif self.pg_graph_db == PropertyGraphType.NEPTUNE_ANALYTICS:
                 self.graph_db_config = {
                     "graph_identifier": os.getenv("NEPTUNE_ANALYTICS_GRAPH_ID")
                 }
+            # LangChain-only property graph stores
+            elif self.pg_graph_db == PropertyGraphType.ARANGODB:
+                self.graph_db_config = {
+                    "url": os.getenv("ARANGODB_URL", "http://localhost:8529"),
+                    "dbname": os.getenv("ARANGODB_DATABASE", "flexible_graphrag"),
+                    "username": os.getenv("ARANGODB_USERNAME", "root"),
+                    "password": os.getenv("ARANGODB_PASSWORD", ""),
+                }
+            elif self.pg_graph_db == PropertyGraphType.APACHE_AGE:
+                self.graph_db_config = {
+                    "host":            os.getenv("AGE_HOST", "localhost"),
+                    "port":            int(os.getenv("AGE_PORT", "5434")),
+                    "database":        os.getenv("AGE_DATABASE", "flexible_graphrag_age"),
+                    "username":        os.getenv("AGE_USERNAME", "postgres"),
+                    "password":        os.getenv("AGE_PASSWORD", "password"),
+                    "graph_name":      os.getenv("AGE_GRAPH", "knowledge_graph"),
+                    "collection_name": os.getenv("AGE_VECTOR_COLLECTION", "langchain_age_vectors"),
+                    "search_type":     os.getenv("AGE_SEARCH_TYPE", "hybrid"),
+                }
+            elif self.pg_graph_db == PropertyGraphType.COSMOS_GREMLIN:
+                self.graph_db_config = {
+                    "endpoint": os.getenv("COSMOS_ENDPOINT"),
+                    "key": os.getenv("COSMOS_KEY"),
+                    "database": os.getenv("COSMOS_DATABASE", "flexible_graphrag"),
+                    "container": os.getenv("COSMOS_CONTAINER", "graph"),
+                }
+            elif self.pg_graph_db == PropertyGraphType.SPANNER:
+                self.graph_db_config = {
+                    "project_id": os.getenv("SPANNER_PROJECT"),
+                    "instance_id": os.getenv("SPANNER_INSTANCE"),
+                    "database_id": os.getenv("SPANNER_DATABASE", "flexible-graphrag"),
+                    "graph_name": os.getenv("SPANNER_GRAPH", "knowledge_graph"),
+                    "credentials_file": os.getenv("SPANNER_CREDENTIALS_FILE"),
+                }
+            elif self.pg_graph_db == PropertyGraphType.HUGEGRAPH:
+                self.graph_db_config = {
+                    "host": os.getenv("HUGEGRAPH_HOST", "localhost"),
+                    "port": int(os.getenv("HUGEGRAPH_PORT", "8082")),
+                    "username": os.getenv("HUGEGRAPH_USERNAME", "admin"),
+                    "password": os.getenv("HUGEGRAPH_PASSWORD", "password"),
+                    "database": os.getenv("HUGEGRAPH_GRAPH", "hugegraph"),
+                }
+            elif self.pg_graph_db == PropertyGraphType.TIGERGRAPH:
+                self.graph_db_config = {
+                    "host": os.getenv("TIGERGRAPH_HOST", "localhost"),
+                    "port": int(os.getenv("TIGERGRAPH_PORT", "14240")),
+                    "username": os.getenv("TIGERGRAPH_USERNAME", "tigergraph"),
+                    "password": os.getenv("TIGERGRAPH_PASSWORD", ""),
+                    "graph_name": os.getenv("TIGERGRAPH_GRAPH", "flexible_graphrag"),
+                }
+            elif self.pg_graph_db == PropertyGraphType.SURREALDB:
+                self.graph_db_config = {
+                    "url": os.getenv("SURREALDB_URL", "ws://localhost:8010/rpc"),
+                    "username": os.getenv("SURREALDB_USERNAME", "root"),
+                    "password": os.getenv("SURREALDB_PASSWORD", "root"),
+                    "namespace": os.getenv("SURREALDB_NAMESPACE", "test"),
+                    "database": os.getenv("SURREALDB_DATABASE", "flexible_graphrag"),
+                }
         
+        # Per-store config takes precedence: {TYPE}_SEARCH_DB_CONFIG > SEARCH_DB_CONFIG > individual vars
+        _stype = str(getattr(self.search_db, 'value', self.search_db) or "").upper()
+        _named_search = _stype and os.getenv(f"{_stype}_SEARCH_DB_CONFIG")
+        if _named_search:
+            try:
+                self.search_db_config = json.loads(_named_search)
+            except (json.JSONDecodeError, ValueError):
+                pass
         if not self.search_db_config:
             if self.search_db == SearchDBType.OPENSEARCH:
                 self.search_db_config = {
@@ -639,6 +850,60 @@ an aristocratic family that rules the planet Caladan, the rainy planet, since 10
                     "username": os.getenv("ELASTICSEARCH_USERNAME"),
                     "password": os.getenv("ELASTICSEARCH_PASSWORD")
                 }
+
+        # --- Sync LangChain property-graph fusion flags (GRAPH_BACKEND, USE_LANGCHAIN_PG, LANGCHAIN_PG_STORE_TYPE)
+        _db_type_str = (
+            self.pg_graph_db.value if isinstance(self.pg_graph_db, PropertyGraphType)
+            else str(self.pg_graph_db or "")
+        ).lower()
+
+        # LI-only stores: force llamaindex regardless of GRAPH_BACKEND setting.
+        # (e.g. spanner — langchain-google-spanner requires langchain-core<1.0)
+        from adapters.graph.pg_store_adapter import LI_ONLY_PG_STORES
+        if _db_type_str in LI_ONLY_PG_STORES:
+            if (self.graph_backend or "llamaindex").strip().lower() == "langchain":
+                import logging as _li_log
+                _li_log.getLogger(__name__).warning(
+                    "GRAPH_BACKEND=langchain ignored for PG_GRAPH_DB=%s "
+                    "(LI-only store) — using llamaindex",
+                    _db_type_str,
+                )
+            self.graph_backend = "llamaindex"
+            self.use_langchain_pg = False
+
+        _gb = (self.graph_backend or "llamaindex").strip().lower()
+        if _gb == "langchain":
+            self.use_langchain_pg = True
+        elif self.use_langchain_pg:
+            self.graph_backend = "langchain"
+        if self.use_langchain_pg and not self.langchain_pg_store_type:
+            _pg = self.pg_graph_db
+            if _pg is not None and _pg != PropertyGraphType.NONE:
+                self.langchain_pg_store_type = (
+                    _pg.value if isinstance(_pg, PropertyGraphType) else str(_pg)
+                ).lower()
+
+        # Default to False when not explicitly set by the user.
+        if self.langchain_pg_vector_search is None:
+            self.langchain_pg_vector_search = False
+        import logging as _logging
+        _cfg_log = _logging.getLogger(__name__)
+        _cfg_log.debug(
+            "Property graph fusion flags: graph_backend=%s use_langchain_pg=%s "
+            "langchain_pg_store_type=%s pg_graph_db=%s",
+            self.graph_backend,
+            self.use_langchain_pg,
+            self.langchain_pg_store_type,
+            self.pg_graph_db,
+        )
+        if self.use_langchain_pg:
+            _cfg_log.debug(
+                "LangChain property graph retrieval enabled: graph_backend=%s "
+                "use_langchain_pg=%s langchain_pg_store_type=%s",
+                self.graph_backend,
+                self.use_langchain_pg,
+                self.langchain_pg_store_type,
+            )
     
     def get_active_schema(self) -> Optional[Dict[str, Any]]:
         """Get the currently active schema based on schema_name
@@ -652,23 +917,23 @@ an aristocratic family that rules the planet Caladan, the rainy planet, since 10
         
         logger.info(f"Getting active schema for schema_name: '{self.schema_name}'")
         schemas_list = self.schemas or []
-        logger.info(f"Available schemas: {len(schemas_list)} schemas loaded")
+        logger.debug(f"Available schemas: {len(schemas_list)} schemas loaded")
         for i, schema_def in enumerate(schemas_list):
-            logger.info(f"  Schema {i}: name='{schema_def.get('name')}', has_schema={bool(schema_def.get('schema'))}")
+            logger.debug(f"  Schema {i}: name='{schema_def.get('name')}', has_schema={bool(schema_def.get('schema'))}")
         
         # Handle unset/empty schema name - use internal schema
         if not self.schema_name or self.schema_name.strip() == "":
-            logger.info("Schema name is empty/unset - returning None (use internal LlamaIndex schema)")
+            logger.debug("Schema name empty/unset — no explicit schema; ontology or extractor defaults apply")
             return None
         
         # Handle explicit "none" - use internal schema
         if self.schema_name.lower() == "none":
-            logger.info("Schema name is 'none' - returning None (use internal LlamaIndex schema)")
+            logger.debug("Schema name='none' — no explicit schema; ontology or extractor defaults apply")
             return None
         
         # Handle "default" - use internal schema
         if self.schema_name == "default":
-            logger.info("Schema name is 'default' - returning None (use internal LlamaIndex schema)")
+            logger.debug("Schema name='default' — no explicit schema; ontology or extractor defaults apply")
             return None
         
         # Handle "sample" - use project's SAMPLE_SCHEMA
@@ -707,30 +972,41 @@ an aristocratic family that rules the planet Caladan, the rainy planet, since 10
     disable_properties: bool = Field(default=False, description="Disable entity and relation properties extraction (default: False - properties enabled for all providers including OpenAI via function calling mode)")
     
     # RDF store configuration (stored as strings, validated to lists)
-    rdf_enabled_stores: Optional[str] = Field(default=None, description="Comma-separated list of enabled RDF stores")
-    rdf_stores: Optional[str] = Field(default=None, description="RDF store configurations as JSON")
-    default_rdf_backend: Optional[str] = Field(default=None, description="Default RDF backend (must match a name in rdf_stores)")
+    rdf_enabled_stores: Optional[str] = Field(default=None, description="Comma-separated list of enabled RDF stores (legacy; use rdf_graph_db)")
+    rdf_stores: Optional[str] = Field(default=None, description="RDF store configurations as JSON (legacy; use rdf_graph_db + individual connection fields)")
+    default_rdf_backend: Optional[str] = Field(default=None, description="Default RDF backend (legacy)")
     
-    # Standalone RDF store configurations (override JSON if provided)
+    # RDF_GRAPH_DB: selects exactly one RDF store for both ingestion and retrieval (or none)
+    # Controls both what gets written during ingestion and which QA chain is used for retrieval.
+    # Combined with pg_graph_db: pg_graph_db=neo4j + rdf_graph_db=fuseki writes to both.
+    rdf_graph_db: RdfGraphType = Field(default=RdfGraphType.NONE, description="RDF store for ingestion + retrieval: none | fuseki | oxigraph | graphdb")
+    
+    # Standalone RDF store configurations (connection details for the store selected by rdf_graph_db)
     # Fuseki
-    fuseki_enabled: bool = Field(default=False, description="Enable Apache Fuseki RDF store")
     fuseki_base_url: str = Field(default="http://localhost:3030", description="Fuseki base URL")
     fuseki_dataset: str = Field(default="flexible-graphrag", description="Fuseki dataset name")
     fuseki_username: Optional[str] = Field(default=None, description="Fuseki username (required when auth is enabled)")
     fuseki_password: Optional[str] = Field(default=None, description="Fuseki password")
     
     # GraphDB / Ontotext
-    graphdb_enabled: bool = Field(default=False, description="Enable Ontotext GraphDB RDF store")
     graphdb_base_url: str = Field(default="http://localhost:7200", description="GraphDB base URL")
     graphdb_repository: str = Field(default="flexible-graphrag", description="GraphDB repository name")
     graphdb_username: Optional[str] = Field(default="admin", description="GraphDB username")
     graphdb_password: Optional[str] = Field(default="admin", description="GraphDB password")
     
     # Oxigraph
-    oxigraph_enabled: bool = Field(default=False, description="Enable Oxigraph RDF store")
     oxigraph_store_path: Optional[str] = Field(default=None, description="Oxigraph embedded store directory path (pyoxigraph). Use only when NOT running the Docker container. Mutually exclusive with oxigraph_url.")
     oxigraph_url: Optional[str] = Field(default=None, description="Oxigraph HTTP server URL (e.g. http://localhost:7878). Preferred over oxigraph_store_path — no file locking issues.")
-    
+
+    # Amazon Neptune RDF/SPARQL (used when RDF_GRAPH_DB=neptune_rdf)
+    neptune_rdf_host: Optional[str] = Field(default=None, description="Neptune cluster endpoint hostname (without protocol/port)")
+    neptune_rdf_port: int = Field(default=8182, description="Neptune SPARQL port")
+    neptune_rdf_region: str = Field(default="us-east-1", description="AWS region for Neptune RDF")
+    neptune_rdf_use_iam_auth: bool = Field(default=True, description="Use AWS IAM SigV4 auth for Neptune SPARQL")
+    neptune_rdf_use_https: bool = Field(default=True, description="Use HTTPS for Neptune SPARQL endpoint")
+    neptune_rdf_aws_access_key_id: Optional[str] = Field(default=None, description="AWS access key for Neptune RDF (uses env credentials if not set)")
+    neptune_rdf_aws_secret_access_key: Optional[str] = Field(default=None, description="AWS secret key for Neptune RDF (uses env credentials if not set)")
+
     # Query routing configuration
     query_routing_default: QueryRoutingMode = Field(default=QueryRoutingMode.HYBRID, description="Default query routing strategy")
     support_sparql: bool = Field(default=True, description="Enable SPARQL query support")
@@ -740,14 +1016,14 @@ an aristocratic family that rules the planet Caladan, the rainy planet, since 10
     enable_rdf_export: bool = Field(default=False, description="Enable RDF export API endpoints")
     rdf_export_format: OntologyFormat = Field(default=OntologyFormat.TURTLE, description="Default RDF export format")
     auto_export_to_rdf: bool = Field(default=False, description="Automatically export to RDF stores after ingestion")
-    ingestion_storage_mode: str = Field(default="property_graph", description="Where to store ingested data: 'property_graph', 'rdf_only', or 'both'")
-    rdf_base_namespace: str = Field(default="https://integratedsemantics.org/flexible-graphrag/kg/", description="Base namespace for entity instance URIs in RDF export (e.g. https://integratedsemantics.org/flexible-graphrag/kg/)")
+    rdf_base_namespace: str = Field(default="https://integratedsemantics.org/flexible-graphrag/kg/", description="Base namespace for entity instance URIs in RDF export (e.g. https://integratedsemantics.org/flexible-graphrag/kg/). Set RDF_BASE_NAMESPACE in .env to override.")
+    rdf_ontology_namespace: str = Field(default="https://integratedsemantics.org/flexible-graphrag/ontology#", description="Namespace for ontology types and relation predicates in RDF export (e.g. https://integratedsemantics.org/flexible-graphrag/ontology#). Set RDF_ONTOLOGY_NAMESPACE in .env to override.")
     rdf_annotation_syntax: str = Field(default="rdf_1.2", description="How to encode relation properties in RDF output. 'rdf_1.2' = RDF 1.2 inline {| |} annotation syntax (recommended, requires Fuseki 5 / Jena 5, GraphDB 10+, Oxigraph 0.4+). 'rdf_star' = legacy << >> annotation lines (same stores, older syntax). 'flat' = plain compound-predicate triples, works with any SPARQL 1.1 store.")
     
     @field_validator('rdf_enabled_stores', mode='after')
     @classmethod
     def parse_rdf_enabled_stores(cls, v):
-        """Parse comma-separated RDF store names"""
+        """Parse comma-separated RDF store names (legacy field)"""
         if v is None or v == '':
             return []
         if isinstance(v, str):
@@ -755,11 +1031,11 @@ an aristocratic family that rules the planet Caladan, the rainy planet, since 10
         if isinstance(v, list):
             return v
         return []
-    
+
     @field_validator('rdf_stores', mode='after')
     @classmethod
     def parse_rdf_stores(cls, v):
-        """Parse RDF store configurations from JSON string or list"""
+        """Parse RDF store configurations from JSON string or list (legacy field)"""
         if v is None or v == '':
             return []
         if isinstance(v, str):
@@ -773,22 +1049,18 @@ an aristocratic family that rules the planet Caladan, the rainy planet, since 10
         if isinstance(v, list):
             return v
         return []
-    
-    def get_rdf_store_configs(self) -> List[Dict[str, Any]]:
+
+    def get_rdf_store_config(self) -> Optional[Dict[str, Any]]:
+        """Get connection config for the single selected RDF store (rdf_graph_db).
+
+        Returns None when rdf_graph_db == 'none'.
+        Replaces the old get_rdf_store_configs() which returned a list.
         """
-        Get RDF store configurations, with standalone env vars overriding JSON config.
-        
-        Priority:
-        1. Standalone env vars (FUSEKI_ENABLED, GRAPHDB_ENABLED, etc.) - highest priority
-        2. RDF_STORES JSON array - fallback
-        
-        Returns list of store configurations for enabled stores.
-        """
-        configs = []
-        
-        # Check standalone Fuseki config
-        if self.fuseki_enabled:
-            cfg = {
+        rdf_db = str(self.rdf_graph_db)
+        if rdf_db == "none":
+            return None
+        if rdf_db == "fuseki":
+            cfg: Dict[str, Any] = {
                 "base_url": self.fuseki_base_url,
                 "dataset": self.fuseki_dataset,
             }
@@ -796,50 +1068,45 @@ an aristocratic family that rules the planet Caladan, the rainy planet, since 10
                 cfg["username"] = self.fuseki_username
             if self.fuseki_password:
                 cfg["password"] = self.fuseki_password
-            configs.append({
-                "name": "fuseki",
-                "type": "fuseki",
-                "config": cfg
-            })
-        
-        # Check standalone GraphDB config
-        if self.graphdb_enabled:
-            configs.append({
+            return {"name": "fuseki", "type": "fuseki", "config": cfg}
+        if rdf_db == "graphdb":
+            return {
                 "name": "graphdb",
                 "type": "graphdb",
                 "config": {
                     "base_url": self.graphdb_base_url,
                     "repository": self.graphdb_repository,
                     "username": self.graphdb_username,
-                    "password": self.graphdb_password
-                }
-            })
-        
-        # Check standalone Oxigraph config
-        if self.oxigraph_enabled:
+                    "password": self.graphdb_password,
+                },
+            }
+        if rdf_db == "oxigraph":
             oxigraph_cfg: Dict[str, Any] = {}
             if self.oxigraph_url:
                 oxigraph_cfg["url"] = self.oxigraph_url
             elif self.oxigraph_store_path:
                 oxigraph_cfg["store_path"] = self.oxigraph_store_path
             else:
-                # Default to HTTP endpoint if Docker container is the likely setup
                 oxigraph_cfg["url"] = "http://localhost:7878"
-            configs.append({
-                "name": "oxigraph",
-                "type": "oxigraph",
-                "config": oxigraph_cfg
-            })
-        
-        # If no standalone configs, use JSON array
-        if not configs and self.rdf_stores:
-            configs = self.rdf_stores
-        
-        # Filter by rdf_enabled_stores if specified
-        if self.rdf_enabled_stores:
-            configs = [c for c in configs if c.get("name") in self.rdf_enabled_stores]
-        
-        return configs
+            return {"name": "oxigraph", "type": "oxigraph", "config": oxigraph_cfg}
+        if rdf_db == "neptune_rdf":
+            if not self.neptune_rdf_host:
+                raise ValueError(
+                    "NEPTUNE_RDF_HOST is required when RDF_GRAPH_DB=neptune_rdf"
+                )
+            neptune_rdf_cfg: Dict[str, Any] = {
+                "host": self.neptune_rdf_host,
+                "port": self.neptune_rdf_port,
+                "region": self.neptune_rdf_region,
+                "use_iam_auth": self.neptune_rdf_use_iam_auth,
+                "use_https": self.neptune_rdf_use_https,
+            }
+            if self.neptune_rdf_aws_access_key_id:
+                neptune_rdf_cfg["aws_access_key_id"] = self.neptune_rdf_aws_access_key_id
+            if self.neptune_rdf_aws_secret_access_key:
+                neptune_rdf_cfg["aws_secret_access_key"] = self.neptune_rdf_aws_secret_access_key
+            return {"name": "neptune_rdf", "type": "neptune_rdf", "config": neptune_rdf_cfg}
+        return None
 
     model_config = {
         "env_file": ".env",

@@ -1,4 +1,4 @@
-# RDF Graph Database Configuration
+﻿# Configure RDF Graph Databases
 
 Flexible GraphRAG supports RDF/RDFS/OWL ontologies to guide knowledge graph extraction, with optional RDF triple store backends. Ontology-guided extraction works with **any** configured store — property graph, RDF store, or both.
 
@@ -17,24 +17,33 @@ Set via `INGESTION_STORAGE_MODE`:
 
 ## RDF Store Configuration
 
-All three stores support RDF 1.2 triple terms.
+Select one RDF store with `RDF_GRAPH_DB`. All three stores support RDF 1.2 triple terms.
+
+```env
+RDF_GRAPH_DB=fuseki      # Apache Jena Fuseki
+RDF_GRAPH_DB=graphdb     # Ontotext GraphDB
+RDF_GRAPH_DB=oxigraph    # Oxigraph
+RDF_GRAPH_DB=none        # disabled (default)
+```
 
 ### Apache Jena Fuseki
 
 SPARQL 1.1 server — dashboard: http://localhost:3030
 
-```bash
-FUSEKI_ENABLED=true
+```env
+RDF_GRAPH_DB=fuseki
 FUSEKI_BASE_URL=http://localhost:3030
 FUSEKI_DATASET=flexible-graphrag
+FUSEKI_USERNAME=admin
+FUSEKI_PASSWORD=admin
 ```
 
 ### Ontotext GraphDB
 
 Enterprise RDF store with OWL reasoning — dashboard: http://localhost:7200
 
-```bash
-GRAPHDB_ENABLED=true
+```env
+RDF_GRAPH_DB=graphdb
 GRAPHDB_BASE_URL=http://localhost:7200
 GRAPHDB_REPOSITORY=flexible-graphrag
 GRAPHDB_USERNAME=admin
@@ -45,8 +54,8 @@ GRAPHDB_PASSWORD=admin
 
 Lightweight local store, native RDF 1.2 — dashboard: http://localhost:7878
 
-```bash
-OXIGRAPH_ENABLED=true
+```env
+RDF_GRAPH_DB=oxigraph
 OXIGRAPH_URL=http://localhost:7878
 ```
 
@@ -78,6 +87,6 @@ ONTOLOGY_DIR=./schemas/
 
 ## LangChain RDF Retrieval
 
-`USE_LANGCHAIN_RDF=true` fuses SPARQL-based results from the configured RDF store directly into hybrid search and AI query alongside vector and graph results.
+Setting `RDF_GRAPH_DB` to a non-`none` value automatically fuses SPARQL-based results from the configured RDF store into hybrid search and AI query alongside vector and graph results.
 
 See [RDF Store User Guide](../DATABASES/RDF/RDF-STORE-USER-GUIDE.md) | [Ontology Support](../DATABASES/RDF/RDF-ONTOLOGY-SUPPORT.md) for complete documentation.

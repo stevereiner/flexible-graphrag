@@ -19,15 +19,16 @@ Flexible GraphRAG includes built-in support for production-grade observability u
 Install observability dependencies (optional):
 
 ```bash
-# Using uv (recommended)
 cd flexible-graphrag
+
+# OpenInference only (LlamaIndex + LangChain traces)
 uv pip install -e ".[observability]"
 
-# Or using pip
-pip install -e ".[observability]"
+# DUAL mode (OpenInference + OpenLIT — recommended for token metrics + cost tracking)
+uv pip install -e ".[observability-dual]"
 
 # Or install individually
-pip install openinference-instrumentation-llama-index opentelemetry-exporter-otlp opentelemetry-sdk opentelemetry-api
+uv pip install openinference-instrumentation-llama-index openinference-instrumentation-langchain opentelemetry-exporter-otlp opentelemetry-sdk opentelemetry-api
 ```
 
 Edit your `.env` file:

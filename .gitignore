@@ -188,6 +188,19 @@ flexible-graphrag/log/
 ladybug/
 *.lbug
 
+# Integration / matrix test data directories (created during test runs)
+flexible-graphrag/lancedb_integration_test/
+flexible-graphrag/lancedb_matrix_test/
+flexible-graphrag/*_integration_test/
+flexible-graphrag/*_matrix_test/
+lancedb_integration_test/
+lancedb_matrix_test/
+*_integration_test/
+*_matrix_test/
+tests/integration/logs/
+tests/integration/envs/
+tests/integration/results/
+
 # Document processing output directories
 flexible-graphrag/parsing_output/
 parsing_output/
@@ -209,3 +222,14 @@ memory-bank/
 flexible-graphrag/.claude/settings.local.json
 .claude/settings.local.json
 
+# GCS service account credentials (machine-specific, never commit)
+flexible-graphrag/gcs.json
+gcs.json
+
+# Google Vertex AI / gen-lang client credentials (machine-specific, never commit)
+flexible-graphrag/gen-lang-client.json
+gen-lang-client.json
+
+
+# pyright
+pyrightconfig.json

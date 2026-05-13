@@ -175,7 +175,7 @@ The system is now monitoring your data source and will automatically:
 
 - **[Setup Guide](./SETUP-GUIDE.md)** - Detailed configuration options
 - **[API Reference](./API-REFERENCE.md)** - REST API for programmatic control
-- **[S3 Setup](./S3-SETUP.md)** - Configure S3 with SQS event notifications for real-time updates
+- **[S3 Setup](../S3-SETUP.md)** - Configure S3 with SQS event notifications for real-time updates
 - **Diagnostic Queries**: Use `diagnostic_queries.sql` to inspect system state
 - **Manual Sync**: Trigger on-demand sync via API or will be available in UI
 

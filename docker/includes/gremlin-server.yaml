@@ -1,0 +1,22 @@
+# Apache TinkerPop Gremlin Server
+# Use as local substitute for Azure Cosmos DB (Gremlin API) and any Gremlin-compatible store
+# LangChain: langchain-community -> GremlinGraph (use ws://localhost:8182/gremlin as endpoint)
+#
+# For local development and testing — NOT a full Cosmos Gremlin replacement.
+# Cosmos Gremlin is a managed cloud service; configure via:
+#   COSMOS_GREMLIN_URL=wss://<account>.gremlin.cosmos.azure.com:443/
+#   COSMOS_GREMLIN_USERNAME=/dbs/<db>/colls/<collection>
+#   COSMOS_GREMLIN_PASSWORD=<primary-key>
+services:
+  gremlin-server:
+    image: tinkerpop/gremlin-server:3.7.3
+    container_name: flexible-graphrag-gremlin-server
+    ports:
+      - "8182:8182"    # WebSocket/Gremlin protocol
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -s -o /dev/null -w '%{http_code}' http://localhost:8182/ | grep -q '200\\|405'"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 20s

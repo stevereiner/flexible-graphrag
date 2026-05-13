@@ -1,14 +1,24 @@
 {
   "Servers": {
     "1": {
-      "Name": "Flexible GraphRAG PostgreSQL",
+      "Name": "Flexible GraphRAG PostgreSQL (pgvector)",
       "Group": "Servers",
       "Host": "postgres-pgvector",
       "Port": 5432,
       "MaintenanceDB": "postgres",
       "Username": "postgres",
       "SSLMode": "prefer",
-      "Comment": "PostgreSQL with pgvector extension for Flexible GraphRAG"
+      "Comment": "PostgreSQL 16 + pgvector: flexible_graphrag (vector store) + flexible_graphrag_incremental (inc sync)"
+    },
+    "2": {
+      "Name": "Flexible GraphRAG Apache AGE (graph+vector)",
+      "Group": "Servers",
+      "Host": "apache-age",
+      "Port": 5432,
+      "MaintenanceDB": "postgres",
+      "Username": "postgres",
+      "SSLMode": "prefer",
+      "Comment": "PostgreSQL 18 + AGE + pgvector: flexible_graphrag_age (graph + AGEVector)"
     }
   }
 }

@@ -3,3 +3,4 @@
 # This file allows pgAdmin to connect without prompting for password
 
 postgres-pgvector:5432:*:postgres:password
+apache-age:5432:*:postgres:password

@@ -6,16 +6,16 @@ How to configure Flexible GraphRAG to write extracted knowledge graphs to RDF tr
 
 ## Configuration
 
-### Ingestion Mode
+### Store Selection
 
-Set in `.env` — controls where extracted KG data is written:
+Set both picker vars in `.env` to control where extracted KG data is written:
 
 ```env
-# property_graph   — Neo4j / Ladybug / other LPG stores (default)
-# rdf_only         — RDF stores only (skips property graph)
-# both             — property graph AND RDF stores simultaneously
-INGESTION_STORAGE_MODE=both
+PG_GRAPH_DB=neo4j       # property graph store (or none)
+RDF_GRAPH_DB=fuseki     # rdf graph store: fuseki | graphdb | oxigraph | none
 ```
+
+Setting both to non-`none` writes to both simultaneously. Set either to `none` to skip that store.
 
 ### RDF 1.2 Annotation Syntax
 
@@ -50,6 +50,20 @@ Named graph URI = base namespace with trailing slash stripped:
 
 ---
 
+## Skipping Graph Extraction
+
+Both the property graph and RDF graph stores can be bypassed at ingest time without deleting previously extracted data.
+
+**`skip_graph=true`** (per-document) — available from the UI, REST API (`POST /api/ingest`, `POST /api/ingest-text`, `POST /api/test-sample`), MCP tools (`ingest_documents`, `ingest_text`, `test_with_sample`), and the Python API (`backend.ingest_documents(skip_graph=True)`, `backend.ingest_text(skip_graph=True)`, `system.ingest_documents(skip_graph=True)`). Also persisted per-datasource in the incremental sync config (applies to every auto-sync cycle). Skips LLM KG extraction and all graph writes for that document only. Vector and full-text stores are still updated.
+
+**`ENABLE_KNOWLEDGE_GRAPH=false`** (global) — equivalent to `skip_graph=true` on every ingest call.
+
+In both cases, **previously ingested RDF triples are not deleted**. Hybrid Search and AI Query / Chat still return results from earlier extractions. To remove old data: `scripts/rdf_cleanup.py clear-doc <ref_doc_id>` or `clear-all`.
+
+See [Ingestion and Storage Modes](INGESTION-AND-STORAGE-MODES.md) for full details.
+
+---
+
 ## Apache Fuseki
 
 **Dashboard:** http://localhost:3030  
@@ -58,7 +72,7 @@ Named graph URI = base namespace with trailing slash stripped:
 ### `.env` settings
 
 ```env
-FUSEKI_ENABLED=true
+RDF_GRAPH_DB=fuseki
 FUSEKI_BASE_URL=http://localhost:3030
 FUSEKI_DATASET=flexible-graphrag
 FUSEKI_USERNAME=admin
@@ -139,7 +153,7 @@ Accept: text/turtle
 ### `.env` settings
 
 ```env
-GRAPHDB_ENABLED=true
+RDF_GRAPH_DB=graphdb
 GRAPHDB_BASE_URL=http://localhost:7200
 GRAPHDB_REPOSITORY=flexible-graphrag
 GRAPHDB_USERNAME=admin
@@ -188,7 +202,7 @@ Explore → Class hierarchy → shows all `onto:` types extracted (company, empl
 ### `.env` settings — HTTP mode (recommended)
 
 ```env
-OXIGRAPH_ENABLED=true
+RDF_GRAPH_DB=oxigraph
 OXIGRAPH_URL=http://localhost:7878
 ```
 
@@ -197,7 +211,7 @@ Uses the Oxigraph Docker container as an HTTP server. No file-locking issues; sa
 ### `.env` settings — Embedded mode
 
 ```env
-OXIGRAPH_ENABLED=true
+RDF_GRAPH_DB=oxigraph
 OXIGRAPH_STORE_PATH=./data/oxigraph_store
 ```
 
@@ -295,16 +309,16 @@ Accept: text/turtle
 
 ---
 
-## LangChain RDF Retrieval
+## RDF Retrieval at Query Time
 
-When `USE_LANGCHAIN_RDF=true`, extracted RDF data is queried at search/Q&A time via LangChain graph QA chains fused into the same `QueryFusionRetriever` as vector, BM25, and property graph results.
+When `RDF_GRAPH_DB` is set to a non-`none` value, extracted RDF data is automatically queried at search/Q&A time via a LangChain SPARQL QA chain. The RDF retriever is fused into the same retrieval pipeline as vector, BM25, and property graph results — no separate flag required.
 
 ### How it works
 
 1. A natural language query arrives at `/api/search` or `/api/qa`
-2. **`SynonymExpander`** (if `USE_SYNONYM_EXPLODER=true`) generates related keywords and adds them to the query bundle — the original query string is preserved unchanged for SPARQL generation
-3. **`TextToGraphQueryRetriever`** translates the query to SPARQL via LangChain and executes it against the configured RDF store
-4. Results are returned as a synthesized answer node, scored and ranked alongside all other retriever results
+2. **`TextToGraphQueryRetriever`** makes **one LLM call** to translate the query to SPARQL and executes it against the configured RDF store — this is the only LLM call in the RDF path (vector/BM25 retrievers make zero LLM calls per query)
+3. Results are returned as a synthesized answer node, scored and ranked alongside all other retriever results
+4. Results are fused via **`QueryFusionRetriever`** (when `RETRIEVAL_FUSION=llamaindex`, default) or **`EnsembleRetriever`** (when `RETRIEVAL_FUSION=langchain`)
 
 ### Per-store chain type
 
@@ -318,20 +332,14 @@ When `USE_LANGCHAIN_RDF=true`, extracted RDF data is queried at search/Q&A time 
 ### Configuration
 
 ```env
-USE_LANGCHAIN_RDF=true
-RDF_STORE_TYPE=graphdb        # graphdb | fuseki | oxigraph
+RDF_GRAPH_DB=graphdb          # graphdb | fuseki | oxigraph — enables RDF retrieval
+
+RETRIEVAL_FUSION=llamaindex   # llamaindex (QueryFusionRetriever, default) | langchain (EnsembleRetriever)
 
 # Optional: expand query keywords before SPARQL generation
-USE_SYNONYM_EXPLODER=true
-SYNONYM_EXPLODER_SCOPE=langchain_rdf_graph   # or: all | none | comma-separated tag list
+# USE_SYNONYM_EXPLODER=true
+# SYNONYM_EXPLODER_SCOPE=langchain_rdf_graph
 ```
-
-### Additional LangChain PG retrievers (property graphs)
-
-When `GRAPH_DB=neo4j` is set, two additional retrievers can be enabled alongside the RDF retriever:
-
-- **`GraphEntityVectorRetriever`** (`LANGCHAIN_PG_VECTOR_SEARCH=true`) — Neo4j entity embedding similarity search via LangChain
-- **`GraphNeighborhoodRetriever`** (`USE_PG_NEIGHBORHOOD=true`) — k-hop graph expansion from seed entity nodes
 
 ---
 
@@ -345,8 +353,8 @@ These paths are confirmed working end-to-end.
 
 | Component | Notes |
 |-----------|-------|
-| **Document ingestion via UI** | Upload docs in the UI → KG extracted → entities/relations written to all enabled RDF stores simultaneously; works with `INGESTION_STORAGE_MODE=rdf_only` or `both` |
-| **Hybrid Search tab (UI)** | RDF store results fused into search results alongside vector, BM25, and property graph; requires `USE_LANGCHAIN_RDF=true` and at least one store enabled; all three stores confirmed working |
+| **Document ingestion via UI** | Upload docs in the UI → KG extracted → entities/relations written to the configured RDF store; set `RDF_GRAPH_DB=fuseki` (or `graphdb`/`oxigraph`) to enable |
+| **Hybrid Search tab (UI)** | RDF store results fused into search results alongside vector, BM25, and property graph; enabled automatically when `RDF_GRAPH_DB != none`; all three stores confirmed working |
 | **AI Query / Chat tab (UI)** | Same fusion pipeline as Hybrid Search; RDF store contributes SPARQL-generated answers to AI responses; all three stores confirmed working |
 | **Incremental update / auto-sync** | Auto-sync checkbox in UI triggers incremental update engine; on document delete or modify, `_delete_from_rdf_stores(ref_doc_id)` is called across all enabled stores before re-ingest; two-pass SPARQL DELETE by `onto:ref_doc_id` |
 | Ontology loading | Loads `.ttl` / RDF/OWL; extracts entity + relation type lists for `SchemaLLMPathExtractor` / `DynamicLLMPathExtractor` |
@@ -356,10 +364,8 @@ These paths are confirmed working end-to-end.
 | Oxigraph adapter | pyoxigraph parses RDF 1.2 Turtle in-process, re-serialises to N-Quads, POSTs to HTTP store — confirmed working |
 | RDF store factory | Creates correct adapter from `rdf/store/rdf_store_factory.py` by type string (`fuseki`, `graphdb`, `oxigraph`) |
 | Hybrid system ingest integration | `_export_nodes_to_rdf_stores()` called after every KG extraction; pushes to all enabled stores |
-| LangChain RDF QA fusion | `TextToGraphQueryRetriever` via all three store adapters (Fuseki, GraphDB, Oxigraph); fused into `QueryFusionRetriever` alongside vector/BM25/PG |
+| LangChain RDF QA fusion | `TextToGraphQueryRetriever` via all three store adapters (Fuseki, GraphDB, Oxigraph); fused into `QueryFusionRetriever` (`RETRIEVAL_FUSION=llamaindex`) or `EnsembleRetriever` (`RETRIEVAL_FUSION=langchain`) alongside vector/BM25/PG |
 | `SynonymExpander` | LLM-based query keyword expansion applied per-retriever |
-| `GraphEntityVectorRetriever` | Neo4j entity vector search via LangChain (`LANGCHAIN_PG_VECTOR_SEARCH=true`) |
-| `GraphNeighborhoodRetriever` | k-hop graph expansion from seed nodes (`USE_PG_NEIGHBORHOOD=true`) |
 | Manual cleanup utility | `scripts/rdf_cleanup.py` — `list-docs`, `count`, `clear-doc <ref_doc_id>`, `clear-all` |
 | XSD-typed literals | `OntologyManager.get_xsd_type_map()` + `_infer_xsd_type()` emit `xsd:date`, `xsd:decimal`, etc. from OWL `DatatypeProperty` range |
 
@@ -371,13 +377,19 @@ Code exists and is wired into the app, but these paths have not been verified in
 |-----------|----------------|-------|
 | `GET /api/rdf/ontology/info` | REST API | Returns loaded ontology entity/relation type lists |
 | `POST /api/rdf/ontology/upload` | REST API | Upload a new ontology file at runtime |
-| `POST /api/rdf/query/sparql` | REST API | Routes to `UnifiedQueryEngine` → SPARQL against configured RDF store |
-| `POST /api/rdf/query/cypher` | REST API | Routes to `UnifiedQueryEngine` → Cypher against configured property graph |
-| `POST /api/rdf/query/natural-language` | REST API | Routes to `UnifiedQueryEngine` → NL-to-query via LLM |
-| `POST /api/rdf/rdf-store/*` | REST API | Connect/list/disconnect RDF stores at runtime |
-| `UnifiedQueryEngine` | `rdf/unified_query_engine.py` | Query routing between SPARQL (RDF stores) and Cypher (PG); not called by the UI — use Hybrid Search / AI Query tabs instead |
-| Neptune RDF adapter | `langchain/graph/langchain_adapters/neptune_rdf_adapter.py` | `NeptuneRDFAdapter` + `GraphSparqlQAChain`; implemented, no test environment |
+| `POST /api/rdf/rdf-store/*` | REST API | Connect/list/disconnect RDF stores at runtime (`/list`, `/connect`, `/{name}` DELETE) |
+| `UnifiedQueryEngine` | `rdf/unified_query_engine.py` | Query routing between SPARQL (RDF stores) and native query languages (PG); not called by the UI — use Hybrid Search / AI Query tabs instead |
 | `delete_doc()` on all adapters | All three adapters | Called automatically by incremental update engine on document delete/modify; also callable manually via `rdf_cleanup.py clear-doc <ref_doc_id>`. **Not called automatically when re-ingesting the same document manually** via the upload UI without first deleting it — use `rdf_cleanup.py clear-doc <ref_doc_id>` to avoid duplicate triples in that case |
+
+### Implemented and Tested
+
+These endpoints were previously listed as "not yet tested" and have now been verified end-to-end:
+
+| Component | How to reach it | Notes |
+|-----------|----------------|-------|
+| `POST /api/rdf/query/sparql` | REST API | Routes to configured RDF store (Fuseki, GraphDB, Oxigraph, Neptune RDF); returns raw SPARQL results |
+| `POST /api/graph/query` | REST API | Execute a native graph query against the configured PG or RDF store — Cypher, AQL, SurrealQL, Gremlin, GSQL, openCypher, GQL, or SPARQL (RDF fallback). **Replaces the former `/api/rdf/query/cypher` and `/api/rdf/query/natural-language` endpoints**, which have been removed (Cypher and other PG languages are not RDF-specific). |
+| Neptune RDF adapter | `langchain/graph/rdf_store_adapters/neptune_rdf_adapter.py` | `NeptuneRDFAdapter` + `GraphSparqlQAChain`; IAM SigV4 auth; incremental add/modify/delete tested |
 
 ### Not Implemented / Stubbed
 

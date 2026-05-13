@@ -2,6 +2,173 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2026-05-08] - Incremental Delete Fixes, Docling OCR, Dependency Compatibility
+
+### Added
+
+Configurable Docling OCR: `DOCLING_OCR=true` + `DOCLING_OCR_ENGINE` (auto / rapidocr / easyocr / tesseract_cli / tesserocr / ocrmac). Optional extras `docling-ocr-easyocr`, `docling-ocr-tesserocr`, `docling-ocr-ocrmac`. `Docling OCR config (app):` log line records the requested engine separately from Docling's own runtime selection message.
+
+### Fixed
+
+**Incremental delete** now works end-to-end for all active databases in LangChain-backed mode:
+- Qdrant — `QdrantVectorAdapter.delete()` queries `metadata.ref_doc_id`, `metadata.doc_id`, and flat variants
+- Elasticsearch — `ElasticsearchSearchAdapter.delete()` uses `delete_by_query` across both `ref_doc_id` and `doc_id` metadata keys
+- Neo4j — `ref_doc_id` injected into entity node properties and stamped on `Chunk` nodes after `add_graph_documents`
+- RDF (GraphDB) — SPARQL DELETE confirmed working; debug logging added to adapter
+- LlamaIndex Elasticsearch — uses `await store.adelete()` to avoid event-loop conflict in async engine path
+
+**`langchain-age` Python 3.14** — pinned to `langchain-age==0.1.2` (standalone package; requires `antlr4>=4.11`). The PyPI `0.2.0` used `antlr4<4.11` causing `TypeError: ord()` on startup. New `age-extras` optional group.
+
+**`omegaconf` / `antlr4` conflict** — `extras-overrides.txt` pins `omegaconf>=2.4.0.dev10` so `rapidocr` (bundled in `docling-slim[standard]`) and `langchain-age==0.1.2` coexist in one environment.
+
+**SPARQL hallucination** — `_GraphDBQAChain` and `_GenericSparqlQAChain` return an empty string (skip LLM call) when a query yields 0 rows; previously the LLM answered from training data.
+
+**`check_elasticsearch.py`** — reads document text from `text` key (LangChain) in addition to `content`/`page_content`; `--content-len` arg; all metadata fields printed.
+
+---
+
+## [2026-05-07] - v0.6.0 — Spanner + Cosmos Gremlin Cloud Graphs, Cleanup for All 15 PG Stores
+
+### Added
+
+`PG_GRAPH_DB=spanner` — Google Cloud Spanner Graph via LlamaIndex (`llama-index-spanner`), `spanner-extras` dependency group. Auto-creates `{graph_name}_NODE` / `{graph_name}_EDGE` tables and property graph on first ingest.
+
+Auto-create graph container on first ingest for Cosmos Gremlin (uses `ClientSecretCredential` to avoid antivirus false positives) and Spanner — no manual setup required.
+
+Per-store setup guides: `COSMOS-GREMLIN-SETUP.md`, `NEPTUNE-SETUP.md` (rewritten), `SPANNER-SETUP.md` — linked from `DATABASE-CONFIGURATION.md` and docs nav.
+
+### Fixed / Improved
+
+`scripts/cleanup.py` — all 15 property graph stores now have native-client cleanup (previously LC-only stores had no automated path). Spanner table names corrected (`{graph_name}_NODE` / `_EDGE`). Early exit before slow imports when `VECTOR_DB=none` / `SEARCH_DB=none` / `PG_GRAPH_DB=none`. PostgreSQL incremental state cleanup skipped when `ENABLE_INCREMENTAL_UPDATES=false`. Windows `ProactorEventLoop` teardown error suppressed.
+
+### Updated
+
+`pyproject.toml` version `0.6.0` for flexible-graphrag and flexible-graphrag-mcp. `PG_GRAPH_DB` picker in `.env` / `env-sample.txt` reorganised: **LI + LC** (8), **LI only** (Spanner), **LC only** (6)
+
+---
+
+## [2026-05-06] - Spanner LI Adapter, Cosmos Gremlin Cloud Config, Neptune Analytics + Neptune RDF, Namespace From Config
+
+### Added
+
+`PG_GRAPH_DB=spanner` — Google Cloud Spanner property graph now uses **LlamaIndex** via `llama-index-spanner` (`SpannerPropertyGraphStore`). Supports cloud and emulator. New `spanner-extras` optional dependency group (`uv pip install -e ".[spanner-extras]"`). Config keys: `project_id`, `instance_id`, `database_id`, `graph_name`, `credentials_file` (optional; uses ADC if absent). This supersedes the LC-only `langchain-google-spanner` which requires `langchain-core<1.0` and is incompatible.
+
+`PG_GRAPH_DB=cosmos_gremlin` cloud config documented — `COSMOS_GREMLIN_GRAPH_DB_CONFIG` cloud format added to `.env`, `env-sample.txt`, and `CONFIG-PROPERTY-GRAPH.md`: `{"url": "wss://my-cosmos.gremlin.cosmos.azure.com:443/", "username": "/dbs/<db>/colls/<graph>", "password": "<primary_key>"}`.
+
+`RDF_GRAPH_DB=neptune_rdf` — Amazon Neptune RDF/SPARQL backend with IAM SigV4 auth. Included in the integration test matrix.
+
+`PG_GRAPH_DB=neptune_analytics` LangChain backend — `NeptuneAnalyticsAdapter` passes explicit AWS credentials via `SecretStr` (no env-var race), wraps `NeptuneAnalyticsGraph` in `_NeptuneGraphWithWrite` to add `add_graph_documents` support. Both LlamaIndex and LangChain backends validated end-to-end.
+
+### Fixed
+
+SPARQL namespace prefixes and graph URIs now use `RDF_BASE_NAMESPACE` / `RDF_ONTOLOGY_NAMESPACE` from `config.py` across all RDF adapters (Fuseki, Oxigraph, GraphDB, Neptune). Defaults are unchanged.
+
+### Updated
+
+Property graph database counts corrected: **15 total** — 8 both LI+LC, 1 LI-only (Spanner), 6 LC-only (ArangoDB, Apache AGE, Cosmos Gremlin, HugeGraph, SurrealDB, TigerGraph). Updated in `DATABASE-CONFIGURATION.md`, `CONFIG-PROPERTY-GRAPH.md`, and `README.md`.
+
+---
+
+## [2026-04-06 → 2026-05-06] - LangChain as Full Peer Framework, New Databases, Retriever Refactor, Docs Site, Matrix Testing
+
+### Added — LangChain as Full Peer Framework
+
+Every pipeline stage can independently run on LlamaIndex or LangChain via env var pickers: `GRAPH_BACKEND`, `VECTOR_BACKEND`, `SEARCH_BACKEND`, `CHUNKER_BACKEND`, `KG_EXTRACTOR_BACKEND`, `RETRIEVAL_FUSION`. LangChain-only graph stores auto-select `GRAPH_BACKEND=langchain`.
+
+`LC_SPLITTER_TYPE` selects from 6 LangChain text splitters: `recursive`, `character`, `token`, `markdown`, `python`, `sentence_transformers`.
+
+`skip_graph` parameter added to `POST /api/ingest-text`, `POST /api/test-sample`, and corresponding MCP tools — ingests into vector/search without KG extraction.
+
+### Added — New LangChain-Only Property Graph Backends
+
+Seven new graph databases (auto-select `GRAPH_BACKEND=langchain`):
+
+| `PG_GRAPH_DB` | Database | Port |
+|---|---|---|
+| `arangodb` | ArangoDB | 8529 |
+| `apache_age` | Apache AGE (PostgreSQL + Cypher) | 5434 |
+| `cosmos_gremlin` | Azure Cosmos DB Gremlin / TinkerPop | 8182 |
+| `hugegraph` | Apache HugeGraph | 8082 |
+| `surrealdb` | SurrealDB | 8010 |
+| `tigergraph` | TigerGraph | 9002 / 14240 |
+| `spanner` | Google Cloud Spanner (emulator supported) | 9010 / 9020 |
+
+LangChain-backed ingestion + retrieval also added for all existing LlamaIndex-supported stores: `neo4j`, `arcadedb`, `falkordb`, `memgraph`, `nebula`, `neptune`, `neptune_analytics`, `ladybug`.
+
+### Added — New LangChain Vector and Search Backends
+
+New LC vector adapters (`VECTOR_BACKEND=langchain`): Milvus, Weaviate, LanceDB, Chroma, Pinecone, pgvector, OpenSearch — alongside existing Qdrant, Elasticsearch, Neo4j paths.
+
+New LC search adapters (`SEARCH_BACKEND=langchain`): BM25 (in-memory), Elasticsearch, OpenSearch.
+
+### Added — Adapter Layer Refactor
+
+- **`adapters/`** — framework-neutral ABCs and factories for graph, vector, search, process, and LLM subsystems
+- **`llamaindex/`** — all LlamaIndex-specific implementations extracted into subpackages (`graph/`, `llm/`, `vector/`, `search/`, `process/`)
+- **`langchain/graph/pg_store_adapters/`** — one file per LC property graph store (15 stores)
+- **`langchain/graph/retrievers/`** — `li_`/`lc_` two-layer retriever classes; `langchain/retriever_bridge.py` bridge classes
+- **`langchain/vector/`**, **`langchain/search/`**, **`langchain/process/`** — LC adapters for each subsystem
+- **`ingest/`** — fully modular pipeline steps: `run_chunk_pipeline`, `update_pg_graph`, `update_rdf_graph`, `update_vector`, `update_search`, `ingest_lc_graph`
+
+### Added — New Docker Containers
+
+| Service | Port(s) |
+|---|---|
+| Apache AGE (PostgreSQL + Cypher) | 5434 |
+| Apache HugeGraph + Hubble UI | 8082, 8085 |
+| SurrealDB + Surrealist UI | 8010, 8011 |
+| TigerGraph Community 4.2.2 | 9002, 14240 |
+| Apache TinkerPop Gremlin Server | 8182 |
+| Google Spanner emulator | 9010, 9020 |
+
+Standalone pgvector container added at port 5433 (separate from Alfresco PostgreSQL at 5432).
+
+### Added — Retriever Architecture and Search Quality
+
+- Result deduplication and rank-based re-scoring after fusion (`query_engine.py`)
+- Source database label on every search result (e.g. *"file.txt | Qdrant vector"*, *"file.txt | Ontotext GraphDB rdf graph"*)
+- SPARQL bi-directional fallback retry and improved keyword extraction for zero-result queries
+- Cypher tri-part UNION pattern for organizational structure queries (Neo4j, ArcadeDB, Memgraph)
+- NebulaGraph dynamic schema patch — `ALTER TAG/EDGE ... ADD` on `SemanticError` during arbitrary property insertion
+
+### Added — Matrix Integration Testing
+
+Full matrix test runner covering 44 backend profiles across both frameworks:
+- `tests/integration/run_all_profiles.py` — sequential profile runner with `--clean`, `--include`/`--exclude`, per-profile backend logs, JSON result file
+- 44 profiles: 17 property graph × 2 frameworks, 3 RDF stores, 10 vector stores, 4 search stores, combined and LC-pipe profiles
+- Test files: `test_ingest_search.py`, `test_incremental.py`, `test_lc_pipeline.py`
+
+### Added — Observability
+
+- **LangChain OpenInference tracing** — `openinference-instrumentation-langchain` added to `observability` and `observability-dual` pyproject.toml groups; `LangChainInstrumentor` initialised alongside `LlamaIndexInstrumentor` in `telemetry_setup.py`; all `custom_hooks.py` span decorators made framework-agnostic with a `framework` kwarg and duck-typed result extraction for both LlamaIndex and LangChain response shapes
+- **OpenLIT minimum version bumped to `>=1.41.2`** — this release fixed the long-standing `openai` downgrade (1.x → 2.x); all OpenLIT pyproject.toml groups (`observability-openlit`, `observability-dual`) updated; openai downgrade warnings removed from docs and README
+- **Separate KG extraction and graph store timings** — ingestion log now shows distinct elapsed times for the KG extraction phase (LLM calls) and the graph store write phase, making it easier to identify whether latency comes from the LLM or the database
+
+### Changed — Configuration
+
+- **DB pickers**: `PG_GRAPH_DB` (15 stores), `RDF_GRAPH_DB` (4 stores), `VECTOR_DB` (10 stores), `SEARCH_DB` (4 stores) — replace the old generic env vars
+- **Per-store config precedence**: `{TYPE}_GRAPH_DB_CONFIG` / `{TYPE}_VECTOR_DB_CONFIG` / `{TYPE}_SEARCH_DB_CONFIG` take priority over generic blobs
+- **Per-kind embedding vars**: `OPENAI_EMBEDDING_MODEL`, `OLLAMA_EMBEDDING_MODEL`, `GOOGLE_EMBEDDING_MODEL`, etc. — override generic `EMBEDDING_MODEL` per provider
+- **`.env` / `env-sample.txt`** restructured: DB selection section first, then framework config section
+
+### Changed — Documentation
+
+- `README.md` — LangChain framework config, new graph/vector/search databases, framework pickers, updated project structure
+- `docs/ADVANCED/LANGCHAIN/LANGCHAIN-GRAPH-INTEGRATION.md` — LangChain architecture, new graph store adapters
+- `docs/ADVANCED/PORT-MAPPINGS.md` — new database service ports (AGE, HugeGraph, SurrealDB, TigerGraph, Gremlin, Spanner)
+- `docs/CONFIGURATION/CONFIG-PROPERTY-GRAPH.md` — `PG_GRAPH_DB` picker, all 15 stores, per-store config
+- `docs/CONFIGURATION/CONFIG-SEARCH-DATABASES.md` — `SEARCH_DB` picker, LC search backends
+- `docs/CONFIGURATION/CONFIG-VECTOR-DATABASES.md` — `VECTOR_DB` picker, LC vector backends
+- `docs/CONFIGURATION/LANGCHAIN-CONFIGURATION.md` — framework backend pickers, LC splitter types
+- `docs/DATABASES/DATABASE-CONFIGURATION.md` — updated database overview
+- `docs/DATABASES/GRAPH-DATABASES/NEBULA-SETUP.md` — dynamic schema patch notes
+- `docs/DATABASES/GRAPH-DATABASES/NEBULA-LANGCHAIN-SETUP.md` — new: NebulaGraph LangChain backend setup guide
+- `docs/GETTING-STARTED/ENVIRONMENT-CONFIGURATION.md` — restructured env sections
+- `docs/HOME/HOME-DATABASES.md` — new LC-only graph databases
+- `docs/MCP/MCP-TOOLS.md` — `skip_graph` parameter on `ingest_text` and `test_with_sample`
+
+---
+
 ## [2026-04-16] - With existing / new md content will  how have a Zensical documentation website, including a user guide with coverage of the 13 data source forms and 4 tabs 
 
 ### Added

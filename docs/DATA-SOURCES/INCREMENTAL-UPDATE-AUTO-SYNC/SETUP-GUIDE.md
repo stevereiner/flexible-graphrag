@@ -294,7 +294,7 @@ LIMIT 10;
 ```
 
 **Setup SQS Event Notifications:**
-See [S3-SETUP.md](./S3-SETUP.md) for detailed AWS configuration.
+See [S3-SETUP.md](../S3-SETUP.md) for detailed AWS configuration.
 
 ### Google Drive
 
@@ -570,5 +570,5 @@ Edit detector configuration in `detectors/` folder:
 
 - **[Quick Start](./QUICKSTART.md)** - Test basic functionality
 - **[API Reference](./API-REFERENCE.md)** - Programmatic control
-- **[S3 Setup](./S3-SETUP.md)** - Configure S3 event notifications
+- **[S3 Setup](../S3-SETUP.md)** - Configure S3 event notifications
 - **Diagnostic Queries**: Explore `diagnostic_queries.sql` and `datasource-queries.sql`

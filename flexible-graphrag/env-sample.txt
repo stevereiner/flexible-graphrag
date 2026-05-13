@@ -1,5 +1,93 @@
 # Flexible GraphRAG Configuration
 
+# ====================================================================
+# Property Graph, RDF Graph, Vector, Search Database Selection
+# ====================================================================
+
+# Property graph store
+# LI + LC (both LlamaIndex and LangChain backends supported):
+PG_GRAPH_DB=neo4j
+#PG_GRAPH_DB=arcadedb
+#PG_GRAPH_DB=falkordb
+#PG_GRAPH_DB=ladybug
+#PG_GRAPH_DB=memgraph
+#PG_GRAPH_DB=nebula
+#PG_GRAPH_DB=neptune
+#PG_GRAPH_DB=neptune_analytics
+# LI only (LlamaIndex backend only):
+#PG_GRAPH_DB=spanner
+# LC only (LangChain backend only — auto-sets GRAPH_BACKEND=langchain):
+#PG_GRAPH_DB=arangodb
+#PG_GRAPH_DB=apache_age
+#PG_GRAPH_DB=cosmos_gremlin
+#PG_GRAPH_DB=hugegraph
+#PG_GRAPH_DB=tigergraph
+#PG_GRAPH_DB=surrealdb
+#PG_GRAPH_DB=none
+
+# RDF graph store
+# (can have both a rdf and a property graph store)
+#RDF_GRAPH_DB=fuseki
+#RDF_GRAPH_DB=oxigraph
+#RDF_GRAPH_DB=graphdb
+#RDF_GRAPH_DB=neptune_rdf
+RDF_GRAPH_DB=none
+
+#VECTOR_DB=neo4j
+VECTOR_DB=qdrant
+#VECTOR_DB=elasticsearch
+#VECTOR_DB=opensearch
+#VECTOR_DB=chroma
+#VECTOR_DB=milvus
+#VECTOR_DB=weaviate
+#VECTOR_DB=pinecone
+#VECTOR_DB=postgres
+#VECTOR_DB=lancedb
+#VECTOR_DB=none
+
+#SEARCH_DB=bm25
+SEARCH_DB=elasticsearch
+#SEARCH_DB=opensearch
+#SEARCH_DB=none
+
+
+# ====================================================================
+# FRAMEWORK CONFIGURATION (LamaIndex, LangChain)
+# ====================================================================
+
+# Chunker, Graph, Vector, Search, KG Extractor, Fusion Retrieval settings framework
+# allow all llamaindex (default) or all langchain, or mixed to be configured.
+# Ingest/reading always uses LlamaIndex readers
+
+# Chunker backend: llamaindex (default, SentenceSplitter) | langchain (text splitters)
+CHUNKER_BACKEND=llamaindex
+#CHUNKER_BACKEND=langchain
+
+# Property graph backend.
+# LC-only stores (arangodb, apache_age, cosmos_gremlin, spanner, hugegraph, tigergraph,
+# surrealdb) auto-select langchain — no need to set explicitly for those.
+GRAPH_BACKEND=llamaindex
+#GRAPH_BACKEND=langchain
+
+VECTOR_BACKEND=llamaindex
+#VECTOR_BACKEND=langchain
+
+SEARCH_BACKEND=llamaindex
+#SEARCH_BACKEND=langchain
+
+# KG extraction: llamaindex (default, SchemaLLMPathExtractor / DynamicLLMPathExtractor)
+# or langchain (LLMGraphTransformer). Does NOT auto-select for LC-only stores —
+# set explicitly when GRAPH_BACKEND=langchain and you want LLMGraphTransformer.
+KG_EXTRACTOR_BACKEND=llamaindex
+#KG_EXTRACTOR_BACKEND=langchain
+
+# Retrieval fusion framework
+# 'llamaindex' (default) — QueryFusionRetriever with relative_score mode;
+# 'langchain'            — LangChain EnsembleRetriever (RRF);
+RETRIEVAL_FUSION=llamaindex
+#RETRIEVAL_FUSION=langchain
+
+
 # =============================================================================
 # Document Parser Configuration (Docling / LlamaParse)
 # =============================================================================
@@ -44,8 +132,31 @@ DOCUMENT_PARSER=docling
 #DOCLING_DEVICE=cpu
 #DOCLING_DEVICE=cuda
 
+# Enable OCR for scanned documents or images (default: false)
+# Only needed if ingesting scanned PDFs or image files with no embedded text layer.
+# Engine choices:
+#   auto          — docling picks best available engine (default when DOCLING_OCR=true)
+#   rapidocr      — already in docling-slim[standard], no extra install needed
+#   easyocr       — install: uv pip install -e ".[docling-ocr-easyocr]"
+#   tesseract_cli — RECOMMENDED on Windows — uses system tesseract.exe only (no pip package).
+#                   Install Tesseract then ensure it is on PATH (new terminal after install).
+#                   Typical path: "C:\\Program Files\\Tesseract-OCR"
+#                   Linux: apt install tesseract-ocr
+#   tesserocr     — rarely worth it on Windows: pip must compile C++ bindings; the build runs
+#                   "tesseract" during install, so tesseract.exe must already be on PATH (same terminal).
+#                   You also need MSVC Build Tools + Tesseract/Leptonica dev headers; errors like
+#                   "Tesseract library not found in LIBPATH" or "Failed to extract tesseract version"
+#                   mean use tesseract_cli instead or fix PATH and install a full dev stack.
+#                   Linux: apt install tesseract-ocr libtesseract-dev libleptonica-dev build-essential
+#                   then: uv pip install -e ".[docling-ocr-tesserocr]"
+#   ocrmac        — macOS only; install: uv pip install -e ".[docling-ocr-ocrmac]"
+#DOCLING_OCR=false
+#DOCLING_OCR_ENGINE=auto
+
 # =============================================================================
 # LlamaParse Config
+# Note: uses llama-parse 0.6.x (1.0 API) pinned in pyproject.toml with llama-cloud<2.0.
+# The 2.0 unified SDK (llama-cloud-py) requires a separate migration — not yet implemented.
 
 # LlamaParse API Key (only needed if DOCUMENT_PARSER=llamaparse)
 # Get your API key from https://cloud.llamaindex.ai/  bottom left "API Keys", then "Generate New Key"
@@ -57,7 +168,9 @@ DOCUMENT_PARSER=docling
 #   "parse_page_without_llm" - 1 credit/page (cheapest, simple, text-only output, no markdown)
 #   "parse_page_with_llm" - 3 credits/page (good balance, uses LLM, markdown output) - DEFAULT
 #   "parse_page_with_agent" - 10-90 credits/page (best quality, markdown output, requires LLAMAPARSE_AGENT_MODEL)
-#LLAMAPARSE_MODE=parse_page_with_llm
+#LLAMAPARSE_MODE=parse_page_without_llm
+LLAMAPARSE_MODE=parse_page_with_llm
+#LLAMAPARSE_MODE=parse_page_with_agent
 
 # LlamaParse Agent Model (only used if LLAMAPARSE_MODE=parse_page_with_agent)
 # Available models from LlamaCloud (costs vary by model):
@@ -122,19 +235,10 @@ DOCUMENT_PARSER=docling
 # Sample Text for Testing (optional - overrides default Dune text)
 # SAMPLE_TEXT="Luke Skywalker is a Jedi Knight from Tatooine. His father is Darth Vader, formerly known as Anakin Skywalker."
 
-# ====================================================================
-# 1. GRAPH DATABASE CONFIGURATION
-# ====================================================================
 
-GRAPH_DB=neo4j
-#GRAPH_DB=arcadedb
-#GRAPH_DB=falkordb
-#GRAPH_DB=ladybug
-#GRAPH_DB=memgraph
-#GRAPH_DB=nebula
-#GRAPH_DB=neptune
-#GRAPH_DB=neptune_analytics
-#GRAPH_DB=none
+# ====================================================================
+# GRAPH DATABASE CONFIGURATION
+# ====================================================================
 
 # Enable knowledge graph extraction 
 #ENABLE_KNOWLEDGE_GRAPH=false
@@ -152,73 +256,175 @@ KG_EXTRACTOR_TYPE=schema
 #KG_EXTRACTOR_TYPE=simple
 
 # Graph Database Connection Configurations:
+# Each store has its own config variable — set once, switch stores by changing PG_GRAPH_DB= above.
+# All configs can coexist in this file; only the one matching PG_GRAPH_DB is active.
+# Precedence: {TYPE}_GRAPH_DB_CONFIG > GRAPH_DB_CONFIG > individual env vars
 
-# Neo4j
-GRAPH_DB_CONFIG={"url": "bolt://localhost:7687", "username": "neo4j", "password": "password"}
+# Neo4j (active when PG_GRAPH_DB=neo4j)
+NEO4J_GRAPH_DB_CONFIG={"url": "bolt://localhost:7687", "username": "neo4j", "password": "password"}
 
-# Ladybug (embedded property graph — single .lbug file, created automatically)
+# Ladybug — embedded property graph (active when PG_GRAPH_DB=ladybug)
 # use_vector_index: true (default) - use Ladybug's built-in vector index for similarity search
-#LADYBUG_DB_DIR=./ladybug          # directory to store .lbug files (created if missing)
-#LADYBUG_DB_FILE=database.lbug     # filename inside that directory
+#LADYBUG_GRAPH_DB_CONFIG={"db_dir": "./ladybug", "db_file": "database.lbug", "use_vector_index": true, "has_structured_schema": false}
+LADYBUG_GRAPH_DB_CONFIG={"db_dir": "./ladybug", "db_file": "database.lbug", "use_vector_index": false, "has_structured_schema": true, "strict_schema": false}
+#LADYBUG_GRAPH_DB_CONFIG={"db_dir": "./ladybug", "db_file": "database.lbug", "use_vector_index": false, "has_structured_schema": true, "strict_schema": true}
+# individual vars still work as fallback:
+#LADYBUG_DB_DIR=./ladybug
+#LADYBUG_DB_FILE=database.lbug
 #LADYBUG_USE_VECTOR_INDEX=true
-#LADYBUG_STRUCTURED_SCHEMA=false   # false = don't enforce relationship_schema, only Entity type, LINKS/MENTIONS rel types (default false)
-#LADYBUG_STRUCTURED_SCHEMA=true   # true = enforce relationship_schema on node types, rel types (default false)
-#LADYBUG_STRICT_SCHEMA=false      # false = don't skip entities/relations not in schema (default false, only applies when LADYBUG_STRUCTURED_SCHEMA=true)
-#LADYBUG_STRICT_SCHEMA=true       # true = skip entities/relations not in schema (default false, only applies when LADYBUG_STRUCTURED_SCHEMA=true)
-# Optional: override via GRAPH_DB_CONFIG (takes precedence over individual vars above)
-#GRAPH_DB_CONFIG={"db_dir": "./ladybug", "db_file": "database.lbug", "use_vector_index": true, "has_structured_schema": false}
+#LADYBUG_USE_VECTOR_INDEX=false
+#LADYBUG_STRUCTURED_SCHEMA=false
+#LADYBUG_STRUCTURED_SCHEMA=true
+#LADYBUG_STRICT_SCHEMA=false
+#LADYBUG_STRICT_SCHEMA=true
 
-# FalkorDB
-#GRAPH_DB_CONFIG={"url": "falkor://localhost:6379"}
-#GRAPH_DB_CONFIG={"url": "falkor://localhost:6379", "database": "falkor"}
+# FalkorDB (active when PG_GRAPH_DB=falkordb)
+#FALKORDB_GRAPH_DB_CONFIG={"url": "falkor://localhost:6379"}
+FALKORDB_GRAPH_DB_CONFIG={"url": "falkor://localhost:6379", "database": "falkor"}
 
-# ArcadeDB (multi-model database with graph capabilities)
-# include_basic_schema: True (default) - initial types: PERSON, ORGANIZATION, LOCATION, PLACE + Entity, TextChunk, MENTIONS
-#                       False - initial types: Entity, TextChunk, MENTIONS only
-#                       For both settings: LlamaIndex PathExtractors/KG_EXTRACTOR_TYPE control additional types
+
+# ArcadeDB (active when PG_GRAPH_DB=arcadedb)
+
 # Remote mode (default) — requires a running ArcadeDB server
-#GRAPH_DB_CONFIG={"host": "localhost", "port": 2480, "username": "root", "password": "playwithdata", "database": "flexible_graphrag", "include_basic_schema": true}
-#GRAPH_DB_CONFIG={"host": "localhost", "port": 2480, "username": "root", "password": "playwithdata", "database": "flexible_graphrag", "include_basic_schema": false}
+
+# With LlamaIndex (GRAPH_BACKEND=llamaindex) (default)
+# include_basic_schema: true (default) - initial types: PERSON, ORGANIZATION, LOCATION, PLACE + Entity, TextChunk, MENTIONS
+#                       false - initial types: Entity, TextChunk, MENTIONS only
+ARCADEDB_GRAPH_DB_CONFIG={"host": "localhost", "port": 2480, "username": "root", "password": "playwithdata", "database": "flexible_graphrag", "include_basic_schema": true}
+#ARCADEDB_GRAPH_DB_CONFIG={"host": "localhost", "port": 2480, "username": "root", "password": "playwithdata", "database": "flexible_graphrag", "include_basic_schema": false}
+
+# With LangChain (GRAPH_BACKEND=langchain) not llamaindex 
+# requires Bolt port 7689 and Bolt plugin config — see docker/includes/arcadedb.yaml 
+# Note: bolt_port 7689 avoids conflict with Neo4j (7687) and MemGraph (7688).  Also need port 2480
+#ARCADEDB_GRAPH_DB_CONFIG={"host": "localhost", "port": 2480, "bolt_port": 7689, "username": "root", "password": "playwithdata", "database": "flexible_graphrag"}
+
 # Embedded mode — no separate server required; install arcadedb-embedded>=26.2.1 first
+
 # embedded_server: false (default) - pure in-process, no HTTP endpoint exposed
 # embedded_server: true - also starts an HTTP server on embedded_server_port (default 2482)
-#GRAPH_DB_CONFIG={"mode": "embedded", "db_path": "./arcadedb_data", "database": "flexible_graphrag", "include_basic_schema": true}
-#GRAPH_DB_CONFIG={"mode": "embedded", "db_path": "./arcadedb_data", "database": "flexible_graphrag", "embedded_server": true, "embedded_server_port": 2482, "embedded_server_password": "playwithdata", "include_basic_schema": true}
+# include_basic_schema: true (default) - initial types: PERSON, ORGANIZATION, LOCATION, PLACE + Entity, TextChunk, MENTIONS
+#                       false - initial types: Entity, TextChunk, MENTIONS only
+# With LlamaIndex (GRAPH_BACKEND=llamaindex) (default)
+#ARCADEDB_GRAPH_DB_CONFIG={"mode": "embedded", "db_path": "./arcadedb_data", "database": "flexible_graphrag", "include_basic_schema": true}
+#ARCADEDB_GRAPH_DB_CONFIG={"mode": "embedded", "db_path": "./arcadedb_data", "database": "flexible_graphrag", "embedded_server": true, "embedded_server_port": 2482, "embedded_server_password": "playwithdata", "include_basic_schema": true}
 
-# MemGraph (real-time graph database)
-# Basic configuration:
-#GRAPH_DB_CONFIG={"url": "bolt://localhost:7688", "username": "", "password": ""}
-# Full configuration with database parameter:
-#GRAPH_DB_CONFIG={"url": "bolt://localhost:7688", "username": "", "password": "", "database": "memgraph"}
 
-# NebulaGraph (distributed graph database)
+# Memgraph (active when PG_GRAPH_DB=memgraph)
+#MEMGRAPH_GRAPH_DB_CONFIG={"url": "bolt://localhost:7688", "username": "", "password": ""}
+MEMGRAPH_GRAPH_DB_CONFIG={"url": "bolt://localhost:7688", "username": "", "password": "", "database": "memgraph"}
+
+# NebulaGraph (active when PG_GRAPH_DB=nebula)
+# Note: Nebula Studio (localhost:7001) login — use host "nebula-graphd", port 9669, user root, password nebula.
+NEBULA_GRAPH_DB_CONFIG={"space": "flexible_graphrag", "overwrite": true, "address": "localhost", "port": 9669, "username": "root", "password": "nebula"}
 # Basic configuration (uses defaults for connection):
-#GRAPH_DB_CONFIG={"space": "flexible_graphrag", "overwrite": true}
-# Full configuration with connection parameters (address/port format):
-#GRAPH_DB_CONFIG={"space": "flexible_graphrag", "overwrite": true, "address": "localhost", "port": 9669, "username": "root", "password": "nebula"}
+#NEBULA_GRAPH_DB_CONFIG={"space": "flexible_graphrag", "overwrite": true}
+# Without overwrite (space must be pre-created manually):
+#NEBULA_GRAPH_DB_CONFIG={"space": "flexible_graphrag", "address": "localhost", "port": 9669, "username": "root", "password": "nebula"}
 # Full configuration with URL format:
-#GRAPH_DB_CONFIG={"space": "flexible_graphrag", "overwrite": true, "url": "nebula://localhost:9669", "username": "root", "password": "nebula"}
+#NEBULA_GRAPH_DB_CONFIG={"space": "flexible_graphrag", "overwrite": true, "url": "nebula://localhost:9669", "username": "root", "password": "nebula"}
 # Alternative format (space_name also supported for backward compatibility):
-#GRAPH_DB_CONFIG={"space_name": "flexible_graphrag", "address": "localhost", "port": 9669, "username": "root", "password": "nebula"}
+#NEBULA_GRAPH_DB_CONFIG={"space_name": "flexible_graphrag", "address": "localhost", "port": 9669, "username": "root", "password": "nebula"}
 
-# Amazon Neptune (managed graph database service)
+# Amazon Neptune (active when PG_GRAPH_DB=neptune)
+#NEPTUNE_GRAPH_DB_CONFIG={"host": "your-neptune-cluster.cluster-xyz.us-east-1.neptune.amazonaws.com", "port": 8182, "region": "us-east-1"}
 # With explicit AWS credentials:
-#GRAPH_DB_CONFIG={"host": "your-neptune-cluster.cluster-xyz.us-east-1.neptune.amazonaws.com", "port": 8182, "region": "us-east-1", "access_key": "your_access_key", "secret_key": "your_secret_key"}
+#NEPTUNE_GRAPH_DB_CONFIG={"host": "your-neptune-cluster.cluster-xyz.us-east-1.neptune.amazonaws.com", "port": 8182, "region": "us-east-1", "access_key": "your_access_key", "secret_key": "your_secret_key"}
 # With AWS credentials profile (alternative approach):
-#GRAPH_DB_CONFIG={"host": "your-neptune-cluster.cluster-xyz.us-east-1.neptune.amazonaws.com", "port": 8182, "region": "us-east-1", "credentials_profile_name": "my-aws-profile"}
+#NEPTUNE_GRAPH_DB_CONFIG={"host": "your-neptune-cluster.cluster-xyz.us-east-1.neptune.amazonaws.com", "port": 8182, "region": "us-east-1", "credentials_profile_name": "my-aws-profile"}
 
-# Amazon Neptune Analytics (serverless graph analytics engine)
-# NOTE: Neptune Analytics has non-atomic vector index limitations
-# The system automatically sets embed_kg_nodes=False for Neptune Analytics to avoid vector conflicts
-# Use a separate VECTOR_DB for embeddings when using Neptune Analytics
+# Amazon Neptune Analytics (active when PG_GRAPH_DB=neptune_analytics)
 # With explicit AWS credentials:
-#GRAPH_DB_CONFIG={"graph_identifier": "g-1234567890", "region": "us-east-1", "access_key": "your_access_key", "secret_key": "your_secret_key"}
+NEPTUNE_ANALYTICS_GRAPH_DB_CONFIG={"graph_identifier": "g-1234567890", "region": "us-east-1", "access_key": "your_access_key", "secret_key": "your_secret_key"}
 # With AWS credentials profile (alternative approach):
-#GRAPH_DB_CONFIG={"graph_identifier": "g-1234567890", "region": "us-east-1", "credentials_profile_name": "my-aws-profile"}
+#NEPTUNE_ANALYTICS_GRAPH_DB_CONFIG={"graph_identifier": "g-1234567890", "region": "us-east-1", "credentials_profile_name": "my-aws-profile"}
 # Using default AWS credentials (from environment variables, IAM role, etc.):
-#GRAPH_DB_CONFIG={"graph_identifier": "g-1234567890", "region": "us-east-1"}
-# Note: Neptune Analytics requires a region to be specified
-# Recommended: Use Neptune Analytics for graph + separate VECTOR_DB for embeddings
+#NEPTUNE_ANALYTICS_GRAPH_DB_CONFIG={"graph_identifier": "g-1234567890", "region": "us-east-1"}
+
+# LangChain-only property graph stores
+
+# ArangoDB (active when PG_GRAPH_DB=arangodb)
+ARANGODB_GRAPH_DB_CONFIG={"url": "http://localhost:8529", "database": "flexible-graphrag", "username": "root", "password": "testpass", "graph_name": "knowledge_graph"}
+
+# Apache AGE / PostgreSQL — AGE graph + pgvector in one database (port 5434)
+# Database: flexible_graphrag_age  (separate from postgres-pgvector at 5433)
+# AGE_SEARCH_TYPE: "hybrid" (vector + full-text RRF) or "vector" (pure similarity)
+APACHE_AGE_GRAPH_DB_CONFIG={"host": "localhost", "port": 5434, "database": "flexible_graphrag_age", "username": "postgres", "password": "password", "graph_name": "knowledge_graph", "collection_name": "langchain_age_vectors", "search_type": "hybrid"}
+
+# Azure Cosmos DB Gremlin API (active when PG_GRAPH_DB=cosmos_gremlin)
+# Cloud (Azure Cosmos DB for Gremlin):
+#   url:                   wss://<account>.gremlin.cosmos.azure.com:443/
+#   username:              /dbs/<database>/colls/<graph-container>
+#   password:              primary key from Azure portal (Keys -> Primary Key)
+#   partition_key_property: property name matching your container's partition key path
+#                           (e.g. container created with /partitionKey -> use "partitionKey")
+#                           Default: "partitionKey" (auto-applied for cosmos.azure.com URLs)
+#   partition_key_value:    fixed value written on every vertex — keeps all graph data in one
+#                           logical partition so traversals never cross partition boundaries.
+#                           Do NOT use entity type — that scatters vertices. Default: "graph"
+#
+# Auto-create graph container (optional): add resource_group + subscription_id.
+#   Requires: pip install azure-mgmt-cosmosdb azure-identity
+#   The adapter will create the Gremlin database and graph container on startup if they
+#   don't exist. Without these keys the auto-create is silently skipped.
+#
+#   IMPORTANT — use ClientSecretCredential (service principal) to avoid antivirus false
+#   positives on Windows. DefaultAzureCredential spawns az CLI / PowerShell subprocesses
+#   to fetch tokens, which Norton 360 and similar tools flag as suspicious behavior.
+#   Add tenant_id + client_id + client_secret to use pure-HTTPS auth instead:
+#     tenant_id:    Azure AD tenant ID (Portal: Azure Active Directory -> Overview)
+#     client_id:    App registration Application (client) ID
+#     client_secret: App registration client secret value
+#   Create a service principal: az ad sp create-for-rbac --name flexible-graphrag-cosmos
+#   Grant it the Cosmos DB Operator role on your account:
+#     az role assignment create --assignee <client_id> \
+#       --role "Cosmos DB Operator" --scope /subscriptions/<sub>/resourceGroups/<rg>
+#
+# Manual creation (Azure Portal): Cosmos DB account -> Data Explorer -> New Graph
+#   Database id: graphdb | Graph id: knowledge_graph | Partition key: /partitionKey
+# Manual creation (Azure CLI):
+#   az cosmosdb gremlin database create --account-name <acct> --name graphdb --resource-group <rg>
+#   az cosmosdb gremlin graph create --account-name <acct> --database-name graphdb \
+#       --name knowledge_graph --partition-key-path /partitionKey --resource-group <rg>
+#COSMOS_GREMLIN_GRAPH_DB_CONFIG={"url": "wss://my-cosmos.gremlin.cosmos.azure.com:443/", "username": "/dbs/graphdb/colls/knowledge_graph", "password": "your_primary_key==", "partition_key_property": "partitionKey", "partition_key_value": "graph"}
+#COSMOS_GREMLIN_GRAPH_DB_CONFIG={"url": "wss://my-cosmos.gremlin.cosmos.azure.com:443/", "username": "/dbs/graphdb/colls/knowledge_graph", "password": "your_primary_key==", "partition_key_property": "partitionKey", "partition_key_value": "graph", "subscription_id": "your-sub-id", "resource_group": "your-rg", "tenant_id": "your-tenant-id", "client_id": "your-client-id", "client_secret": "your-client-secret"}
+# Local TinkerPop Gremlin Server (Docker port 8182 — docker/includes/gremlin-server.yaml):
+COSMOS_GREMLIN_GRAPH_DB_CONFIG={"url": "ws://localhost:8182/gremlin", "username": "/", "password": ""}
+
+# Google Cloud Spanner Graph (active when PG_GRAPH_DB=spanner)
+# LI-only: uses llama-index-spanner (SpannerPropertyGraphStore). Cloud only — no emulator support
+# (the Spanner emulator supports SQL only, not Spanner Graph).
+# Install: uv pip install -e ".[spanner-extras]" && uv pip uninstall llama-index
+# (having both llama-index and llama-index-core causes version conflicts — uninstall the meta-package)
+# LC is not supported — langchain-google-spanner requires langchain-core<1.0 (incompatible).
+#
+# use_flexible_schema (default true): creates {graph_name}_NODE + {graph_name}_EDGE Spanner
+#   tables with a JSON properties column — "schemaless" mode. DO NOT pre-create tables or run
+#   CREATE PROPERTY GRAPH manually; the library creates everything on first ingest.
+#
+# Authentication (in order of priority):
+#   1. credentials_file key in config (service-account JSON)
+#   2. GOOGLE_APPLICATION_CREDENTIALS environment variable
+#   3. gcs.json auto-detected next to flexible-graphrag/ root (if present)
+#   4. Application Default Credentials (gcloud auth application-default login / GCE)
+#SPANNER_GRAPH_DB_CONFIG={"project_id": "my-gcp-project", "instance_id": "my-spanner-instance", "database_id": "my-database", "graph_name": "knowledge_graph"}
+SPANNER_GRAPH_DB_CONFIG={"project_id": "my-gcp-project", "instance_id": "my-spanner-instance", "database_id": "my-database", "graph_name": "knowledge_graph", "credentials_file": "./gcs.json"}
+
+# HugeGraph (active when PG_GRAPH_DB=hugegraph; retrieval-only — add_graph_documents limited)
+HUGEGRAPH_GRAPH_DB_CONFIG={"host": "localhost", "port": 8082, "username": "admin", "password": "password", "database": "hugegraph"}
+
+# TigerGraph (active when PG_GRAPH_DB=tigergraph; retrieval-only — GSQL-based)
+# Docker: docker/includes/tigergraph.yaml  — GraphStudio UI: http://localhost:14240
+# Port 14240 = GraphStudio / REST API (direct 1:1 host mapping)
+# Port 9002  = RESTPP / GSQL HTTP API (container 9000 remapped; 9000 conflicts with Milvus MinIO)
+TIGERGRAPH_GRAPH_DB_CONFIG={"host": "http://localhost", "port": 14240, "restpp_port": 9002, "database": "MyGraph", "username": "tigergraph", "password": "tigergraph"}
+
+# SurrealDB (active when PG_GRAPH_DB=surrealdb)
+# Requires the surrealdb-extras group — NOT included in langchain-extras due to conflict:
+#   langchain-surrealdb==0.2.x pins surrealdb==1.0.8 strictly, conflicting with surrealdb>=2.0.0
+#   and downgrading langchain-core from 1.3.x to 1.1.3.
+# Install separately (accepts the downgrade):
+#   uv pip install -e ".[surrealdb-extras]"
+SURREALDB_GRAPH_DB_CONFIG={"url": "ws://localhost:8010/rpc", "namespace": "test", "database": "flexible_graphrag", "username": "root", "password": "root"}
 
 
 # ====================================================================
@@ -238,91 +444,92 @@ SCHEMA_NAME=default
 #SCHEMA_NAME=cmis_press
 #SCHEMAS=[{"name": "cmis_press", "schema": {"entities": ["PERSON", "ORGANIZATION", "TECHNOLOGY", "SPECIFICATION", "CONCEPT"], "relations": ["WORKS_FOR", "DEVELOPS", "SUPPORTS", "IMPLEMENTS", "COLLABORATES_WITH", "ANNOUNCES"], "validation_schema": [["PERSON", "WORKS_FOR", "ORGANIZATION"], ["PERSON", "DEVELOPS", "TECHNOLOGY"], ["ORGANIZATION", "SUPPORTS", "SPECIFICATION"], ["ORGANIZATION", "IMPLEMENTS", "TECHNOLOGY"], ["ORGANIZATION", "COLLABORATES_WITH", "ORGANIZATION"], ["ORGANIZATION", "ANNOUNCES", "SPECIFICATION"]], "strict": false}}]
 
-STRICT_SCHEMA_VALIDATION=false  # true = only extract types in schema; false = schema guides but LLM can go beyond it (default)
+STRICT_SCHEMA_VALIDATION=false
+#STRICT_SCHEMA_VALIDATION=true
+# true = only extract types in schema; false = schema guides but LLM can go beyond it (default)
 
 # Disable entity and relation property extraction
 # Default: false - properties enabled for all providers (OpenAI uses function calling to avoid the
 # "additionalProperties: false" structured output constraint)
 # Set to true only if a specific LLM provider or model produces errors during property extraction
-#DISABLE_PROPERTIES=false
+DISABLE_PROPERTIES=false
+#DISABLE_PROPERTIES=true
 
 
 # ====================================================================
-# 2. VECTOR DATABASE CONFIGURATION  
+# VECTOR DATABASE CONFIGURATION  
 # ====================================================================
 
-#VECTOR_DB=neo4j
-VECTOR_DB=qdrant
-#VECTOR_DB=elasticsearch
-#VECTOR_DB=opensearch
-#VECTOR_DB=chroma
-#VECTOR_DB=milvus
-#VECTOR_DB=weaviate
-#VECTOR_DB=pinecone
-#VECTOR_DB=postgres
-#VECTOR_DB=lancedb
-#VECTOR_DB=none
 
 # Vector Database Connection Configurations:
+# Each store has its own config variable — set once, switch stores by changing VECTOR_DB= above.
+# All configs can coexist in this file; only the one matching VECTOR_DB is active.
+# Precedence: {TYPE}_VECTOR_DB_CONFIG > VECTOR_DB_CONFIG > individual env vars
+#
+# NOTE: If you change embedding dimensions (e.g. switching models), you must
+# delete and recreate the vector index — existing embeddings are incompatible.
 
-# Qdrant
-VECTOR_DB_CONFIG={"host": "localhost", "port": 6333, "collection_name": "hybrid_search_vector", "https": false}
+# Qdrant (active when VECTOR_DB=qdrant)
+QDRANT_VECTOR_DB_CONFIG={"host": "localhost", "port": 6333, "collection_name": "hybrid_search_vector", "https": false}
 
-# Elasticsearch
-#VECTOR_DB_CONFIG={"url": "http://localhost:9200", "index_name": "hybrid_search_vector"}
+# Elasticsearch (active when VECTOR_DB=elasticsearch)
+ELASTICSEARCH_VECTOR_DB_CONFIG={"url": "http://localhost:9200", "index_name": "hybrid_search_vector"}
 
-# OpenSearch Configuration (Vector Store) - Dense vector search
-#VECTOR_DB_CONFIG={"url": "http://localhost:9201", "index_name": "hybrid_search_vector"}
+# OpenSearch (active when VECTOR_DB=opensearch)
+OPENSEARCH_VECTOR_DB_CONFIG={"url": "http://localhost:9201", "index_name": "hybrid_search_vector"}
 
-# Neo4j VECTOR database configuration (separate from graph)
-#VECTOR_DB_CONFIG={"url": "bolt://localhost:7687", "username": "neo4j", "password": "password", "index_name": "hybrid_search_vector", "database": "neo4j"}
+# Neo4j vector store (active when VECTOR_DB=neo4j; separate from PG_GRAPH_DB)
+NEO4J_VECTOR_DB_CONFIG={"url": "bolt://localhost:7687", "username": "neo4j", "password": "password", "index_name": "hybrid_search_vector", "database": "neo4j"}
 
-# Chroma (local vector database with persistence)
-# Local mode (file-based storage):
-#VECTOR_DB_CONFIG={"persist_directory": "./chroma_db", "collection_name": "hybrid_search"}
-# HTTP mode (connect to remote ChromaDB server):
-#VECTOR_DB_CONFIG={"host": "localhost", "port": 8001, "collection_name": "hybrid_search"}
+# Chroma (active when VECTOR_DB=chroma)
+# Local file mode:
+CHROMA_VECTOR_DB_CONFIG={"persist_directory": "./chroma_db", "collection_name": "hybrid_search"}
+# HTTP client mode:
+#CHROMA_VECTOR_DB_CONFIG={"host": "localhost", "port": 8001, "collection_name": "hybrid_search"}
 
-# Milvus (scalable vector database)
-#VECTOR_DB_CONFIG={"host": "localhost", "port": 19530, "collection_name": "hybrid_search", "username": "root", "password": "milvus"}
+# Milvus (active when VECTOR_DB=milvus)
+MILVUS_VECTOR_DB_CONFIG={"host": "localhost", "port": 19530, "collection_name": "hybrid_search", "username": "root", "password": "milvus"}
 
-# Weaviate (vector search engine with semantic capabilities)
+# Weaviate (active when VECTOR_DB=weaviate)
 # For local Docker instance (no authentication):
-#VECTOR_DB_CONFIG={"url": "http://localhost:8081", "index_name": "HybridSearch"}
+WEAVIATE_VECTOR_DB_CONFIG={"url": "http://localhost:8081", "index_name": "HybridSearch"}
 # For authenticated instance (with API key):
-#VECTOR_DB_CONFIG={"url": "http://localhost:8081", "index_name": "HybridSearch", "api_key": "your_weaviate_api_key"}
+#WEAVIATE_VECTOR_DB_CONFIG={"url": "http://localhost:8081", "index_name": "HybridSearch", "api_key": "your_weaviate_api_key"}
 
-# Pinecone (managed serverless vector database service)
+# Pinecone (active when VECTOR_DB=pinecone)
 # Sign up at https://app.pinecone.io (free starter plan available)
 # Note: dimension is auto-detected from your embedding model, don't include it in config
-#VECTOR_DB_CONFIG={"api_key": "your_pinecone_api_key", "region": "us-east-1", "cloud": "aws", "index_name": "hybrid-search", "metric": "cosine"}
+PINECONE_VECTOR_DB_CONFIG={"api_key": "your_pinecone_api_key", "region": "us-east-1", "cloud": "aws", "index_name": "hybrid-search", "metric": "cosine"}
 
-# PostgreSQL with pgvector extension
-#VECTOR_DB_CONFIG={"host": "localhost", "port": 5433, "database": "postgres", "username": "postgres", "password": "password", "table_name": "hybrid_search_vectors"}
+# PostgreSQL pgvector (active when VECTOR_DB=postgres)
+POSTGRES_VECTOR_DB_CONFIG={"host": "localhost", "port": 5433, "database": "postgres", "username": "postgres", "password": "password", "table_name": "hybrid_search_vectors"}
 
-# LanceDB (modern embedded vector database)
-#VECTOR_DB_CONFIG={"uri": "./lancedb", "table_name": "hybrid_search", "vector_column_name": "vector", "text_column_name": "text"}
+# LanceDB (active when VECTOR_DB=lancedb)
+LANCEDB_VECTOR_DB_CONFIG={"uri": "./lancedb", "table_name": "hybrid_search", "vector_column_name": "vector", "text_column_name": "text"}
 
 
 # ====================================================================
-# 3. SEARCH DATABASE CONFIGURATION
+# SEARCH DATABASE CONFIGURATION
 # ====================================================================
 
-#SEARCH_DB=bm25
-SEARCH_DB=elasticsearch
-#SEARCH_DB=opensearch
-#SEARCH_DB=none
 
 # Search Database Connection Configurations:
-# Elasticsearch
-SEARCH_DB_CONFIG={"url": "http://localhost:9200", "index_name": "hybrid_search_fulltext"}
+# Precedence: {TYPE}_SEARCH_DB_CONFIG > SEARCH_DB_CONFIG > individual env vars
 
-# OpenSearch Configuration (Search Store) - BM25 fulltext search
-#SEARCH_DB_CONFIG={"url": "http://localhost:9201", "index_name": "hybrid_search_fulltext"}
+# Elasticsearch (active when SEARCH_DB=elasticsearch)
+ELASTICSEARCH_SEARCH_DB_CONFIG={"url": "http://localhost:9200", "index_name": "hybrid_search_fulltext"}
+#ELASTICSEARCH_SEARCH_DB_CONFIG={"url": "https://localhost:9200", "index_name": "hybrid_search_fulltext", "username": "elastic", "password": "password", "verify_certs": false}
+
+# OpenSearch (active when SEARCH_DB=opensearch)
+# Default port for OpenSearch is 9200; use 9201 if running alongside Elasticsearch
+OPENSEARCH_SEARCH_DB_CONFIG={"url": "http://localhost:9201", "index_name": "hybrid_search_fulltext"}
+#OPENSEARCH_SEARCH_DB_CONFIG={"url": "https://localhost:9201", "index_name": "hybrid_search_fulltext", "username": "admin", "password": "admin", "verify_certs": false}
+
 
 # ====================================================================
-# 4. LLM CONFIGURATION
+# LLM CONFIGURATION
 # ====================================================================
+
 # For detailed configuration examples and all options, see: docs/LLM-EMBEDDING-CONFIG.md
 
 # LLM Provider Selection
@@ -358,46 +565,47 @@ OPENAI_TEMPERATURE=0.0  # 0.0 = deterministic extraction (recommended)
 # Ollama Configuration (if using Ollama - local LLM)
 # See docs/OLLAMA-CONFIGURATION.md for detailed setup and optimization
 # See docs/LLM/LLM-TESTING-RESULTS.md for full Ollama benchmark results
-#OLLAMA_MODEL=gpt-oss:20b             # 20B params - RECOMMENDED for graph extraction
+OLLAMA_MODEL=gpt-oss:20b             # 20B params - RECOMMENDED for graph extraction
 #OLLAMA_MODEL=llama3.1:8b             # 8B params  - NOT RECOMMENDED: very slow, hangs on 2nd doc
 #OLLAMA_MODEL=llama3.2:3b             # 3B params  - NOT RECOMMENDED: stalls at 8192 context, low entity count
-#OLLAMA_BASE_URL=http://localhost:11434
-#OLLAMA_TIMEOUT=900.0  # 15 minutes timeout for graph extraction (default: 900.0)
+OLLAMA_BASE_URL=http://localhost:11434
+OLLAMA_TIMEOUT=900.0  # 15 minutes timeout for graph extraction (default: 900.0)
 
 # Azure OpenAI Configuration (if using Azure OpenAI)
 # See docs/LLM-EMBEDDING-CONFIG.md for detailed examples
-# AZURE_OPENAI_API_KEY=your-azure-openai-key
-# AZURE_OPENAI_ENDPOINT=https://your-resource.openai.azure.com/
-# AZURE_OPENAI_ENGINE=gpt-4o-mini  # Your deployment name
-# AZURE_OPENAI_MODEL=gpt-4o-mini
-# AZURE_OPENAI_API_VERSION=2024-12-01-preview
+AZURE_OPENAI_API_KEY=your-azure-openai-key
+AZURE_OPENAI_ENDPOINT=https://your-resource.openai.azure.com/
+AZURE_OPENAI_ENGINE=gpt-4.1-mini
+AZURE_OPENAI_MODEL=gpt-4.1-mini
+AZURE_OPENAI_API_VERSION=2024-12-01-preview
 
 # Google Gemini Configuration (if using Gemini)
 # See docs/LLM-EMBEDDING-CONFIG.md for detailed examples
-# GOOGLE_API_KEY=your-google-api-key
-# GEMINI_MODEL=gemini-3-flash-preview    # fast model - recommended default
-# GEMINI_MODEL=gemini-3.1-pro-preview    # pro quality - use instead of deprecated gemini-3-pro-preview
-# GEMINI_MODEL=gemini-2.5-flash          # alternative
-# Note: text-embedding-004 was deprecated 2026-01-14 — use gemini-embedding-2-preview (768 dims)
+GOOGLE_API_KEY=your-google-api-key
+GEMINI_MODEL=gemini-3-flash-preview    # fast model - recommended default (gemini-2.5 shutdown 6/17/26)
+# GEMINI_MODEL=gemini-3.1-pro-preview    # pro quality
+# GEMINI_MODEL=gemini-2.5-flash          # shutdown 6/17/26
 
 # Anthropic Claude Configuration (if using Claude)
 # See docs/LLM-EMBEDDING-CONFIG.md for detailed examples
-# ANTHROPIC_API_KEY=your-anthropic-api-key
-# ANTHROPIC_MODEL=claude-sonnet-4-5-20250929
-# Note: Claude only creates chunk nodes during graph building (no entity/relationship extraction)
+ANTHROPIC_API_KEY=your-anthropic-api-key
+ANTHROPIC_MODEL=claude-sonnet-4-5-20250929
 
 # Google Vertex AI Configuration (if using Vertex AI)
 # See docs/LLM-EMBEDDING-CONFIG.md for detailed examples and package options
 # VERTEX_AI_PROJECT=your-gcp-project-id  # Required
 # VERTEX_AI_LOCATION=us-central1
-# VERTEX_AI_MODEL=gemini-2.5-flash        # recommended — gemini-3-flash-preview not available on Vertex AI
+
+VERTEX_AI_MODEL=gemini-3-flash-preview
+# VERTEX_AI_MODEL=gemini-2.5-flash        # shutdown no earlier than 10/16/26
 # VERTEX_AI_MODEL=gemini-3.1-pro-preview  # pro quality option
 # VERTEX_AI_CREDENTIALS_PATH=/path/to/service-account-key.json  # Optional
 # See: https://developers.llamaindex.ai/python/examples/llm/google_genai/#vertex-ai-support
 
 # Amazon Bedrock Configuration (if using Bedrock)
 # See docs/LLM-EMBEDDING-CONFIG.md for detailed examples and available models
-# BEDROCK_MODEL=anthropic.claude-3-5-sonnet-20241022-v2:0
+BEDROCK_MODEL=us.anthropic.claude-sonnet-4-5-20250929-v1:0
+# BEDROCK_MODEL=openai.gpt-oss-20b-1:0
 # BEDROCK_REGION=us-east-1
 # BEDROCK_ACCESS_KEY=your-aws-access-key  # Optional: uses default AWS credentials if not provided
 # BEDROCK_SECRET_KEY=your-aws-secret-key
@@ -408,7 +616,7 @@ OPENAI_TEMPERATURE=0.0  # 0.0 = deterministic extraction (recommended)
 # All Groq models have 131,072 context window; LlamaIndex doesn't know Groq-specific models
 # and defaults to 3900 tokens — flexible-graphrag overrides this automatically.
 # GROQ_API_KEY=your-groq-api-key  # Get from https://console.groq.com
-# GROQ_MODEL=openai/gpt-oss-20b      # 131072 ctx, 65536 max completion, 1000 t/s — recommended
+GROQ_MODEL=openai/gpt-oss-20b      # 131072 ctx, 65536 max completion, 1000 t/s — recommended
 # GROQ_MODEL=openai/gpt-oss-120b     # 131072 ctx, 65536 max completion, 500 t/s
 # GROQ_MODEL=llama-3.3-70b-versatile # 131072 ctx, 32768 max completion, 280 t/s
 # GROQ_MODEL=llama-3.1-8b-instant    # 131072 ctx, 131072 max completion, 560 t/s (smaller model)
@@ -421,35 +629,43 @@ OPENAI_TEMPERATURE=0.0  # 0.0 = deterministic extraction (recommended)
 # flexible-graphrag uses streaming mode (_FireworksStreaming subclass) to bypass the
 #   non-streaming 4096 max_tokens cap. Default max_tokens=16384.
 # FIREWORKS_API_KEY=your-fireworks-api-key  # Get from https://fireworks.ai
-# FIREWORKS_MODEL=accounts/fireworks/models/gpt-oss-120b
+FIREWORKS_MODEL=accounts/fireworks/models/gpt-oss-120b
 #FIREWORKS_MODEL=accounts/fireworks/models/deepseek-v3p2
 #FIREWORKS_MODEL=accounts/fireworks/models/minimax-m2p5
 #FIREWORKS_MODEL=accounts/fireworks/models/kimi-k2p5
 #FIREWORKS_MODEL=accounts/fireworks/models/qwen3-vl-30b-a3b-thinking
 
-# OpenAI-Like Configuration (any OpenAI-compatible API — including vLLM Docker)
-# Use for: Ollama /v1 endpoint, vLLM Docker container, or any other OpenAI-compatible server.
-# See docs/LLM/LLM-EMBEDDING-CONFIG.md section 17 for examples (Ollama quick-test, vLLM Docker).
-# LLM_PROVIDER=openai_like
-# OPENAI_LIKE_MODEL=local-model               # Model name as reported by your server
-# OPENAI_LIKE_API_BASE=http://localhost:PORT/v1
+# OpenAI-Like Configuration (any OpenAI-compatible API — LM Studio, LocalAI, Llamafile, Jan, etc.)
+# Use for third-party OpenAI-compatible servers that are NOT vLLM.
+# For vLLM use LLM_PROVIDER=vllm and the VLLM_* vars below.
+# Examples: localhost:1234/v1 (LM Studio), localhost:8181/v1 (LocalAI — note: 8080 conflicts with Alfresco), localhost:11434/v1 (Ollama /v1)
+OPENAI_LIKE_MODEL=local-model
+OPENAI_LIKE_API_BASE=http://localhost:1234/v1
 # OPENAI_LIKE_API_KEY=local                   # Any string if not required
 # OPENAI_LIKE_CONTEXT_WINDOW=4096
 # OPENAI_LIKE_FUNCTION_CALLING=true           # Set false if model doesn't support tool calling
 # OPENAI_LIKE_TIMEOUT=120.0
 
-# vLLM — Two Options (see docs/LLM/LLM-EMBEDDING-CONFIG.md section 18 for full setup guide)
+# vLLM Configuration — high-performance local inference (Docker or in-process)
+# See docs/LLM/LLM-EMBEDDING-CONFIG.md section 18 for full setup guide.
 #
-# OPTION 1: vLLM via Docker (all platforms — Windows, macOS, Linux)
-# Start: uncomment includes/vllm.yaml in docker/docker-compose.yaml, then set below:
-# LLM_PROVIDER=openai_like
-# OPENAI_LIKE_MODEL=Qwen/Qwen2.5-7B-Instruct
-# OPENAI_LIKE_API_BASE=http://localhost:8002/v1
-# OPENAI_LIKE_API_KEY=fake
-# OPENAI_LIKE_CONTEXT_WINDOW=8192
-# OPENAI_LIKE_FUNCTION_CALLING=false
-# OPENAI_LIKE_TIMEOUT=120.0
-# Docker Compose substitutes VLLM_* vars into the container's startup command (override defaults here):
+# VLLM_MODE controls which path is used:
+#   server    (default) — connects to a running vLLM HTTP server (Docker or vllm serve)
+#   inprocess           — loads the model in-process via the vLLM Python package (Linux/macOS only)
+#
+# OPTION 1: vLLM via Docker (all platforms — Windows, macOS, Linux) — RECOMMENDED
+# Start: uncomment includes/vllm.yaml in docker/docker-compose.yaml
+# LLM_PROVIDER=vllm
+# VLLM_MODE=server
+# VLLM_API_BASE=http://localhost:8002/v1     # standalone backend; use http://vllm:8000/v1 in full-stack Docker
+# VLLM_MODEL=Qwen/Qwen2.5-7B-Instruct       # HuggingFace model ID served by the container
+# VLLM_API_KEY=local                         # any string (vLLM server doesn't require auth by default)
+# VLLM_CONTEXT_WINDOW=8192
+# VLLM_FUNCTION_CALLING=false                # set true only if model supports tool calling
+# VLLM_TIMEOUT=120.0
+# VLLM_TEMPERATURE=0.1
+#
+# Docker Compose also substitutes these VLLM_* vars into the container startup command:
 # VLLM_MODEL=Qwen/Qwen2.5-7B-Instruct   # HuggingFace model ID (default: Qwen2.5-7B-Instruct)
 # VLLM_MAX_MODEL_LEN=8192               # max context length in tokens (default: 8192)
 # VLLM_GPU_UTIL=0.90                    # fraction of GPU VRAM to use, 0.0-1.0 (default: 0.90)
@@ -457,31 +673,36 @@ OPENAI_TEMPERATURE=0.0  # 0.0 = deterministic extraction (recommended)
 # VLLM_MAX_NUM_SEQS=16                  # max concurrent sequences (default: 16)
 # HF_TOKEN=                             # HuggingFace token — only needed for gated models
 #
-# OPTION 2: vLLM Python package — LLM_PROVIDER=vllm (Linux / macOS — UNTESTED)
-# Not available on Windows. Requires: uv pip install vllm
+# OPTION 2: vLLM Python package (Linux / macOS only — not available on Windows)
+# Requires: uv pip install vllm  (CUDA required)
+# If SchemaLLMPathExtractor returns 0 entities, add KG_EXTRACTOR_TYPE=dynamic in .env.
 # LLM_PROVIDER=vllm
+# VLLM_MODE=inprocess
 # VLLM_MODEL=Qwen/Qwen2.5-7B-Instruct
+# VLLM_API_URL=http://localhost:8002     # optional: connect to an already-running vLLM process
 # VLLM_MAX_MODEL_LEN=8192
+# VLLM_MAX_NEW_TOKENS=2048              # max tokens to generate per request
 # VLLM_GPU_UTIL=0.90
 # VLLM_DTYPE=auto
 # VLLM_MAX_NUM_SEQS=16
+# VLLM_TEMPERATURE=0.1
 # HF_TOKEN=
 
 # LiteLLM Configuration (proxy for 100+ providers)
 # Requires proxy extra: pip install "litellm[proxy]"  (cmd: pip install litellm[proxy])
 # Run: litellm --model ollama/gpt-oss:20b --port 4000
 # Docs: https://docs.litellm.ai/docs/proxy/quick_start
-# LLM_PROVIDER=litellm
-# LITELLM_MODEL=gpt-4o-mini                   # Model name as configured in LiteLLM
-# LITELLM_API_BASE=http://localhost:4000/v1    # LiteLLM proxy endpoint
+# LITELLM_MODEL=ollama/gpt-oss:20b            # Model name as configured in LiteLLM
+# LITELLM_API_BASE=http://localhost:11434     # Direct to Ollama (LiteLLM routes ollama/* models here automatically)
+LITELLM_MODEL=gpt-4.1-mini                   # Model name as configured in LiteLLM
+LITELLM_API_BASE=http://localhost:4000/v1    # LiteLLM proxy endpoint
 # LITELLM_API_KEY=local                       # LiteLLM master key (or "local" if none)
 # LITELLM_FUNCTION_CALLING=true
 
 # OpenRouter Configuration (unified API for 200+ models)
 # Get API key from https://openrouter.ai/keys (free tier available)
-# LLM_PROVIDER=openrouter
 # OPENROUTER_API_KEY=sk-or-your-key-here
-# OPENROUTER_MODEL=openai/gpt-4o-mini         # or anthropic/claude-3-5-sonnet, meta-llama/llama-3.3-70b-instruct, etc.
+OPENROUTER_MODEL=openai/gpt-4.1-mini         # or anthropic/claude-3-5-sonnet, meta-llama/llama-3.3-70b-instruct, etc.
 
 
 # LLM Extraction Mode
@@ -493,74 +714,80 @@ OPENAI_TEMPERATURE=0.0  # 0.0 = deterministic extraction (recommended)
 # Only change this if a specific model/server behaves poorly with function calling.
 # Per-provider overrides: OPENAI_LIKE_FUNCTION_CALLING, LITELLM_FUNCTION_CALLING
 #LLM_EXTRACTION_MODE=function
-
+#LLM_EXTRACTION_MODE=json_schema
+#LLM_EXTRACTION_MODE=auto
 
 # ====================================================================
 # EMBEDDING CONFIGURATION (Independent of LLM Provider)
 # ====================================================================
+
 # Embeddings are configured independently of your LLM provider.
 # You can mix any LLM provider with any embedding provider.
 # For detailed configuration examples, see: docs/LLM/LLM-EMBEDDING-CONFIG.md
 #
-# EMBEDDING_KIND: openai, ollama, google, vertex, azure, bedrock, fireworks, openai_like, litellm
-# EMBEDDING_MODEL: Specific model name
 # EMBEDDING_DIMENSION: Optional explicit dimension override (auto-detected for known models)
+#EMBEDDING_DIMENSION=768   
 
-# Quick Examples (see docs for full details):
-# - Local Ollama embeddings: EMBEDDING_KIND=ollama, EMBEDDING_MODEL=nomic-embed-text (768 dims)
-# - OpenAI embeddings: EMBEDDING_KIND=openai, EMBEDDING_MODEL=text-embedding-3-small (1536 dims)
-# - Vertex AI embeddings: EMBEDDING_KIND=vertex, EMBEDDING_MODEL=text-embedding-005 (768 dims)  # or gemini-embedding-2-preview / gemini-embedding-001
-# - Google Gemini embeddings: EMBEDDING_KIND=google, EMBEDDING_MODEL=gemini-embedding-2-preview (768 dims)  # or gemini-embedding-001
-# - Bedrock embeddings: EMBEDDING_KIND=bedrock, EMBEDDING_MODEL=amazon.titan-embed-text-v2:0 (1024 dims)
-# - Fireworks embeddings: EMBEDDING_KIND=fireworks, EMBEDDING_MODEL=nomic-ai/nomic-embed-text-v1.5 (768 dims)
-
-# OpenAI Embeddings (default)
 EMBEDDING_KIND=openai
-EMBEDDING_MODEL=text-embedding-3-small
+#EMBEDDING_KIND=ollama
+#EMBEDDING_KIND=google
+#EMBEDDING_KIND=vertex
+#EMBEDDING_KIND=azure
+#EMBEDDING_KIND=bedrock
+#EMBEDDING_KIND=fireworks
+#EMBEDDING_KIND=openai_like
+#EMBEDDING_KIND=litellm
 
-# Ollama Embeddings (if using Ollama embeddings)
-# See docs/LLM-EMBEDDING-CONFIG.md for detailed model options
+# OpenAI Embeddings (default — active when EMBEDDING_KIND=openai)
+OPENAI_EMBEDDING_MODEL=text-embedding-3-small       # 1536 dims
+#OPENAI_EMBEDDING_MODEL=text-embedding-3-large      # 3072 dims
+
+# Ollama Embeddings (active when EMBEDDING_KIND=ollama)
 # WARNING: all-minilm (384 dims, 512 context) is NOT recommended - its 512-token limit causes errors
 # when embedding graph nodes (combined entity + relationship text). Use nomic-embed-text instead.
-# EMBEDDING_KIND=ollama
-#EMBEDDING_MODEL=nomic-embed-text       # 768 dims, 8192 context - recommended default
-#EMBEDDING_MODEL=mxbai-embed-large      # 1024 dims, 512 context - higher quality but limited context
-#EMBEDDING_MODEL=all-minilm             # 384 dims, 512 context - NOT RECOMMENDED (context too small)
+OLLAMA_EMBEDDING_MODEL=nomic-embed-text              # 768 dims, 8192 context - recommended
+#OLLAMA_EMBEDDING_MODEL=mxbai-embed-large            # 1024 dims, 512 context - higher quality but limited context
+#OLLAMA_EMBEDDING_MODEL=all-minilm                   # 384 dims, 512 context - NOT RECOMMENDED (context too small)
 
-# Google Gemini Embeddings (if using Gemini LLM or standalone)
-# EMBEDDING_KIND=google
-# EMBEDDING_MODEL=gemini-embedding-2-preview  # 768 dims - recommended (text-embedding-004 deprecated 2026-01-14)
-# EMBEDDING_MODEL=gemini-embedding-001        # 768 dims - stable GA alternative
+# Google Gemini Embeddings (active when EMBEDDING_KIND=google)
+GOOGLE_EMBEDDING_MODEL=gemini-embedding-2-preview    # 768 dims - recommended
+#GOOGLE_EMBEDDING_MODEL=gemini-embedding-001         # 768 dims - stable GA alternative
 
-# Google Vertex AI Embeddings (if using Vertex AI LLM or standalone)
-# EMBEDDING_KIND=vertex
-# EMBEDDING_MODEL=gemini-embedding-2-preview  # 768 dims - recommended
-# EMBEDDING_MODEL=gemini-embedding-001        # 768 dims - stable GA alternative
-# EMBEDDING_MODEL=text-embedding-005          # 768 dims - text-only option (text-embedding-004 deprecated 2026-01-14)
+# Google Vertex AI Embeddings (active when EMBEDDING_KIND=vertex)
+VERTEX_EMBEDDING_MODEL=gemini-embedding-2-preview    # 768 dims - recommended
+#VERTEX_EMBEDDING_MODEL=gemini-embedding-001         # 768 dims - stable GA alternative
+#VERTEX_EMBEDDING_MODEL=text-embedding-005           # 768 dims - text-only option
 
-# OpenAI-Like Embeddings (uses OpenAILikeEmbedding class)
-# Any server with a /v1/embeddings endpoint: LM Studio, LocalAI, vLLM, Llamafile, etc.
-# Can be used with ANY LLM provider - e.g. OpenAI LLM + local embeddings for privacy/cost savings
+# Azure Embeddings (active when EMBEDDING_KIND=azure)
+AZURE_EMBEDDING_DEPLOYMENT=text-embedding-3-small    # deployment name (if different from model name)
+AZURE_EMBEDDING_MODEL=text-embedding-3-small         # model name in your Azure resource
+AZURE_EMBEDDING_API_VERSION=2024-02-01
+
+# Bedrock Embeddings (active when EMBEDDING_KIND=bedrock)
+BEDROCK_EMBEDDING_MODEL=amazon.titan-embed-text-v2:0 # 1024 dims
+
+# Fireworks Embeddings (active when EMBEDDING_KIND=fireworks)
+FIREWORKS_EMBEDDING_MODEL=nomic-ai/nomic-embed-text-v1.5  # 768 dims
+
+# OpenAI-Like Embeddings (active when EMBEDDING_KIND=openai_like)
+# Any server with a /v1/embeddings endpoint: Ollama, LM Studio, LocalAI, vLLM, Llamafile, etc.
 # Confirmed working: nomic-embed-text via Ollama (localhost:11434/v1) with OpenAI gpt-4.1-mini (2026-03-20)
-# See docs/LLM/LLM-EMBEDDING-CONFIG.md for full details and examples
-# EMBEDDING_KIND=openai_like
-# EMBEDDING_MODEL=nomic-embed-text                         # Model name served by your local server
-# OPENAI_LIKE_EMBEDDING_API_BASE=http://localhost:11434/v1      # Ollama default — or your server's /v1 URL
-# OPENAI_LIKE_API_KEY=local                                # Any string if auth not required
-# EMBEDDING_DIMENSION=768                                       # Required for nomic-embed-text
+OPENAI_LIKE_EMBEDDING_MODEL=nomic-embed-text
+OPENAI_LIKE_EMBEDDING_API_BASE=http://localhost:11434/v1  # Ollama default — or your server's /v1 URL
+# OPENAI_LIKE_API_KEY=local
+# Use EMBEDDING_DIMENSION above (e.g. 768 for nomic-embed-text) — required, no auto-detection for openai_like
 
-# LiteLLM Embeddings (uses LiteLLMEmbedding class)
+# LiteLLM Embeddings (active when EMBEDDING_KIND=litellm)
 # Route embeddings through a LiteLLM proxy to any backend (OpenAI, Ollama, Bedrock, etc.)
-# Can be used with ANY LLM provider - e.g. Groq LLM + LiteLLM embeddings
 # Confirmed working: text-embedding-3-small via LiteLLM proxy (2026-03-19)
-# See docs/LLM/LLM-EMBEDDING-CONFIG.md for full details and examples
-# EMBEDDING_KIND=litellm
-# EMBEDDING_MODEL=text-embedding-3-small                   # Model as configured in your LiteLLM proxy
-# LITELLM_EMBEDDING_API_BASE=http://localhost:4000/v1           # Must include /v1 suffix
-# LITELLM_API_KEY=local                                    # LiteLLM master key
+LITELLM_EMBEDDING_MODEL=text-embedding-3-small
+#LITELLM_EMBEDDING_MODEL=ollama/nomic-embed-text
+#LITELLM_EMBEDDING_API_BASE=http://localhost:11434
+LITELLM_EMBEDDING_API_BASE=http://localhost:4000/v1       # Must include /v1 suffix
+# LITELLM_API_KEY=local                                   # LiteLLM master key
 
 # ====================================================================
-# 5. CONTENT SOURCES CONFIGURATION
+# CONTENT SOURCES CONFIGURATION
 # ====================================================================
 
 # Data Source Type (mainly for REST API and MCP server usage)
@@ -588,7 +815,7 @@ ALFRESCO_USERNAME=admin
 ALFRESCO_PASSWORD=admin
 # ALFRESCO_STOMP_PORT: ActiveMQ STOMP port for real-time events (default: 61613)
 # Note: If you've changed the ActiveMQ STOMP port in docker-compose (e.g., to 8613), set it here
-#ALFRESCO_STOMP_PORT=8613
+ALFRESCO_STOMP_PORT=8613
 
 # Amazon S3 Configuration (if using S3)
 # Note: These values serve as defaults/fallbacks when S3_CONFIG is not provided or incomplete
@@ -641,8 +868,13 @@ OPENSEARCH_USERNAME=
 OPENSEARCH_PASSWORD=
 
 # Processing Configuration
-CHUNK_SIZE=1024
+
+# CHUNK_SIZE and CHUNK_OVERLAP are in CHARACTERS for both llamaindex and langchain backends.
+CHUNK_SIZE=2048
 CHUNK_OVERLAP=128
+
+#CHUNK_SIZE=1024
+#CHUNK_OVERLAP=128
 
 #CHUNK_SIZE=512
 #CHUNK_OVERLAP=64
@@ -674,11 +906,10 @@ MAX_PATHS_PER_CHUNK=20
 # KG_EXTRACTION_TIMEOUT=3600  # Knowledge graph extraction timeout per document
 # KG_CANCEL_CHECK_INTERVAL=2.0  # How often to check for cancellation during KG extraction
 # 
-# OPENAI_TIMEOUT=120.0  # For OpenAI LLM requests
-# OLLAMA_TIMEOUT=300.0  # For Ollama LLM requests
+
 
 # ====================================================================
-# 6. INCREMENTAL UPDATES CONFIGURATION (Optional - for auto-sync monitoring)
+# INCREMENTAL UPDATES CONFIGURATION (Optional - for auto-sync monitoring)
 # ====================================================================
 
 # Enable incremental updates system (automatic monitoring and sync)
@@ -686,12 +917,13 @@ MAX_PATHS_PER_CHUNK=20
 # Requires PostgreSQL for state management
 # Default: false (incremental updates disabled)
 ENABLE_INCREMENTAL_UPDATES=false
+#ENABLE_INCREMENTAL_UPDATES=true
 
 # PostgreSQL connection for state management (required if ENABLE_INCREMENTAL_UPDATES=true)
 # Recommended: Reuse existing postgres-pgvector service on port 5433
 # Create database: flexible_graphrag_incremental (separate from pgvector database)
 # Setup: See flexible-graphrag/incremental_updates/schema.sql
-# POSTGRES_INCREMENTAL_URL=postgresql://postgres:password@localhost:5433/flexible_graphrag_incremental
+POSTGRES_INCREMENTAL_URL=postgresql://postgres:password@localhost:5433/flexible_graphrag_incremental
 
 # Optional: Periodic refresh interval (seconds) - how often to scan datasources
 # Default: 3600 (1 hour) - datasources refresh automatically every hour
@@ -713,11 +945,13 @@ ENABLE_INCREMENTAL_UPDATES=false
 # - Troubleshooting guide
 
 # =============================================================================
-# 7. OBSERVABILITY CONFIGURATION (OpenTelemetry Traces and Metrics)
+# OBSERVABILITY CONFIGURATION (OpenTelemetry Traces and Metrics)
 # =============================================================================
+
 # Enable observability with OpenTelemetry, Prometheus, Grafana, Jaeger
 # Set to "true" to enable automatic instrumentation of LlamaIndex operations
 ENABLE_OBSERVABILITY=false
+#ENABLE_OBSERVABILITY=true
 
 # Observability Backend Mode (choose your telemetry producer)
 # Options:
@@ -728,6 +962,9 @@ ENABLE_OBSERVABILITY=false
 #     - OpenLIT: Token metrics, cost tracking, VectorDB metrics out-of-the-box
 #     - Custom metrics: Graph extraction, retrieval, document processing
 # Recommendation: Use "both" for complete observability with all metrics
+
+#OBSERVABILITY_BACKEND=openlit
+#OBSERVABILITY_BACKEND=openinference
 OBSERVABILITY_BACKEND=both
 
 # OTLP (OpenTelemetry Protocol) exporter endpoint
@@ -745,20 +982,156 @@ OTEL_SERVICE_NAMESPACE=llm-apps
 # Set to "false" if you only want manual tracing with custom decorators
 ENABLE_LLAMA_INDEX_INSTRUMENTATION=true
 
+
+# =============================================================================
+# LangChain Configuration Details
+# =============================================================================
+
+# When GRAPH_BACKEND=langchain, LangChain's add_graph_documents() handles ingestion
+# and a LangChain property graph QA chain handles retrieval.  For LangChain-only
+# stores (arangodb, apache_age, cosmos_gremlin, spanner, hugegraph, tigergraph,
+# surrealdb), GRAPH_BACKEND=langchain is selected automatically.
+#
+# Set PG_GRAPH_DB to the graph database you want to use; set GRAPH_BACKEND=langchain
+# to use LangChain for both ingestion and retrieval against that store.
+#
+# Supported PG_GRAPH_DB values for LangChain backend:
+#   neo4j            - Neo4j (bolt) via langchain_neo4j > langchain_community
+#   memgraph         - Memgraph (bolt) via langchain_memgraph > langchain_community
+#   ladybug          - not supported for LangChain backend (LlamaIndex only)
+#   falkordb         - FalkorDB via langchain_community
+#   hugegraph        - Apache HugeGraph via langchain_community        [LC-only]
+#   nebula           - NebulaGraph via langchain_community
+#   tigergraph       - TigerGraph via langchain_community              [LC-only]
+#   arcadedb         - ArcadeDB via langchain_arcadedb  (uv pip install langchain-arcadedb)
+#   arangodb         - ArangoDB via langchain_community chains         [LC-only]
+#   neptune          - Neptune Database OpenCypher via langchain_aws
+#   neptune_analytics- Neptune Analytics via langchain_aws
+#   apache_age       - Apache AGE (PostgreSQL Cypher) via langchain_community [LC-only]
+#   cosmos_gremlin   - Azure Cosmos DB Gremlin via langchain_community  [LC-only]
+#   spanner          - Google Spanner Graph via langchain_google_spanner [LC-only]
+#   surrealdb        - SurrealDB via langchain_community               [LC-only]
+#
+# Connection details are read from the same PG_GRAPH_DB connection as for llama-index
+# (e.g. for neo4j: graph_config url/username/password, from NEO4J_GRAPH_DB_CONFIG)
+
+# USE_LC_TEXT_TO_GRAPH: opt-in Cypher/SPARQL/SurrealQL text-to-query retrieval.
+# Only applies when GRAPH_BACKEND=langchain. Ignored for GRAPH_BACKEND=llamaindex.
+#
+# Non-vector stores (apache_age, hugegraph, nebula, tigergraph, cosmos_gremlin, neptune):
+#   TextToGraphQueryRetriever is ALWAYS active — this flag has no effect.
+# Vector-capable stores (neo4j):
+#   Default false — GraphEntityVectorRetriever handles graph retrieval.
+#   Set true to also add TextToGraphQueryRetriever alongside vector retrieval.
+#USE_LC_TEXT_TO_GRAPH=true
+USE_LC_TEXT_TO_GRAPH=false
+
+# LangChain PG vector search — entity embedding similarity search (GraphEntityVectorRetriever).
+# neo4j: searches the __Entity__[embedding] index (Neo4jVector).
+# FalkorDB: searches its own Chunk-node vector index (FalkorDBVector).
+# For neo4j only: USE_PG_NEIGHBORHOOD is auto-enabled so entity seeds are walked to text chunks.
+#LANGCHAIN_PG_VECTOR_SEARCH=true
+LANGCHAIN_PG_VECTOR_SEARCH=false
+
+# LangChain PG neighborhood — k-hop graph walk from entity seeds to connected text chunks.
+# Neo4j only (other stores not implemented). Requires LANGCHAIN_PG_VECTOR_SEARCH=true for seeds.
+# Auto-enabled for neo4j when LANGCHAIN_PG_VECTOR_SEARCH=true; set explicitly to silence the log.
+#USE_PG_NEIGHBORHOOD=true
+USE_PG_NEIGHBORHOOD=false
+#PG_NEIGHBORHOOD_HOPS=2
+#PG_NEIGHBORHOOD_TOP_K_SEEDS=10
+
+# Index / label / property names.
+# NODE_LABEL: __Entity__ works for BOTH ingestion backends —
+#   LlamaIndex (PropertyGraphIndex) always creates __Entity__ nodes.
+#   LangChain (add_graph_documents + baseEntityLabel=True) adds __Entity__ as a second label
+#   alongside the specific type (Person, Organization, ...) on every node.
+# TEXT_PROPERTY depends on ingestion backend:
+#   name  — LlamaIndex ingestion (GRAPH_BACKEND=llamaindex, default)
+#   id    — LangChain ingestion  (GRAPH_BACKEND=langchain)
+#LANGCHAIN_PG_VECTOR_INDEX=entity
+#LANGCHAIN_PG_VECTOR_NODE_LABEL=__Entity__
+#LANGCHAIN_PG_VECTOR_EMBEDDING_PROPERTY=embedding
+#LANGCHAIN_PG_VECTOR_TEXT_PROPERTY=id      # default when GRAPH_BACKEND=langchain writes id
+#LANGCHAIN_PG_VECTOR_TEXT_PROPERTY=name    # default: LlamaIndex ingestion writes name
+
+# Hybrid search returns up to three types of result nodes per active graph:
+#   1. Text chunks  — always returned from VECTOR_DB / SEARCH_DB
+#   2. AI answer    — always: the LLM answer generated from graph context
+#   3. Graph input  — optional: the entity names / rows the LLM received as
+#                     input (formatted as "Graph results: Alice (Person), ...")
+# When BOTH a property graph (PG_GRAPH_DB) and an RDF graph (RDF_GRAPH_DB) are
+# active, types 2 and 3 appear once per graph — up to 5 results total:
+#   1. Text chunks  (VECTOR_DB / SEARCH_DB)
+#   2. AI answer    from property graph
+#   3. AI answer    from RDF graph
+#   4. Graph input  from property graph  (only when true)
+#   5. Graph input  from RDF graph       (only when true)
+# false = types 1 + 2 (+ 3 if RDF active)  — default, cleaner
+# true  = all types including raw graph input rows (prefixed "Graph results: ...")
+#LANGCHAIN_PG_INTERMEDIATE_STEPS=false
+#LANGCHAIN_PG_INTERMEDIATE_STEPS=true
+
+# Synonym exploder — LLM-based query rewriter applied before selected retrievers.
+# Generates synonyms/related keywords to improve KEYWORD/BM25 recall.
+#
+# WHEN TO USE: keyword/BM25 search (Elasticsearch, OpenSearch, BM25).
+#   "Acme staff" and "Acme employees" are different BM25 queries — synonyms fix this.
+#
+# WHEN NOT TO USE: vector and graph retrievers.
+#   Vector stores (LI + LC) use embedding similarity — the model handles synonyms
+#   implicitly. Explicit expansion just multiplies vector calls with little gain.
+#   LI PropertyGraph seeds entity lookup via vector search — same reasoning.
+#   Graph QA chains (RDF, Cypher) fire a full LLM call per synonym — N cycles =
+#   N near-duplicate answers and N× latency.
+#
+# SYNONYM_EXPLODER_SCOPE: comma-separated retriever tags, or all / none.
+# Tags (use only RECOMMENDED ones unless you have a specific reason):
+#   llamaindex_search           — LI BM25 / Elasticsearch / OpenSearch  [RECOMMENDED]
+#   langchain_search            — LC Elasticsearch / OpenSearch          [RECOMMENDED]
+#   llamaindex_vector           — LI VectorStoreIndex  [not recommended — embedding handles it]
+#   langchain_vector            — LC vector store      [not recommended — same reason]
+#   llamaindex_pg_graph         — LI PropertyGraph VectorContextRetriever [not recommended]
+#   langchain_pg_vector         — LC PG entity vector retriever
+#   langchain_pg_neighborhood   — PG neighborhood k-hop retriever
+#   langchain_rdf_graph         — LC RDF/SPARQL retriever  [AVOID — N LLM cycles per synonym]
+#   langchain_pg_graph          — LC Cypher QA retriever   [AVOID — same reason]
+USE_SYNONYM_EXPLODER=false
+#USE_SYNONYM_EXPLODER=true
+SYNONYM_EXPLODER_MAX_KEYWORDS=8
+# Default scope: none (disabled). To enable for keyword search backends:
+# Unused tags are silently pruned at startup — no error if backend doesn't match.
+SYNONYM_EXPLODER_SCOPE=none
+#SYNONYM_EXPLODER_SCOPE=llamaindex_search,langchain_search            # BM25 / Elasticsearch only
+#SYNONYM_EXPLODER_SCOPE=llamaindex_search,langchain_search,langchain_pg_vector  # + LC PG vector
+
+# LangChain splitter type — only active when CHUNKER_BACKEND=langchain
+# Options:
+#   recursive           — RecursiveCharacterTextSplitter (default, best for prose/code)
+#   character           — CharacterTextSplitter (simple separator-based)
+#   token               — TokenTextSplitter (tiktoken token-accurate)
+#   markdown            — MarkdownTextSplitter (preserves Markdown structure)
+#   python              — PythonCodeTextSplitter (syntax-aware for .py files)
+#   sentence_transformers — SentenceTransformersTokenTextSplitter (requires sentence-transformers)
+#LC_SPLITTER_TYPE=recursive
+
+# Each can be: llamaindex | langchain | both (default llamaindex)
+# Pre-setups llm / embedding, but mixed llamaindex , langchain will get dynamically
+#LLM_BACKEND=llamaindex
+#EMBEDDING_BACKEND=llamaindex
+
+
 # ====================================================================
 # RDF / TRIPLE STORE CONFIGURATION
 # ====================================================================
+
 # Flexible GraphRAG supports storing extracted knowledge graphs in RDF
 # triple stores (Fuseki, GraphDB, Oxigraph) in addition to or instead
 # of the configured property graph (Neo4j, etc.).
 #
-# INGESTION_STORAGE_MODE controls where extracted KG data is written:
-#   property_graph (default) - property graph only (Neo4j, etc.)
-#   rdf_only                 - RDF stores only (skips PropertyGraphIndex)
-#   both                     - property graph AND RDF stores simultaneously
-#INGESTION_STORAGE_MODE=property_graph
-#INGESTION_STORAGE_MODE=rdf_only
-#INGESTION_STORAGE_MODE=both
+# Use RDF_GRAPH_DB (set near the top of this file) to select the RDF store.
+# Setting RDF_GRAPH_DB=none (the default) disables all RDF storage and retrieval.
+# RDF_GRAPH_DB controls both ingestion AND retrieval in one setting.
 
 # RDF_ANNOTATION_SYNTAX: how relation properties are encoded in RDF output
 #   rdf_1.2      (default) - RDF 1.2 inline {| |} annotation syntax
@@ -782,42 +1155,38 @@ RDF_BASE_NAMESPACE=https://integratedsemantics.org/flexible-graphrag/kg/
 # All three stores support RDF-star natively: Fuseki (Jena 4+), GraphDB, Oxigraph
 
 # -------------------------------------------------------------------
-# RDF Store Connections (METHOD 1 - Standalone vars, recommended)
+# RDF Store Connection vars (used when RDF_GRAPH_DB != none)
 # -------------------------------------------------------------------
 
-# Apache Fuseki
-#FUSEKI_ENABLED=false
-#FUSEKI_ENABLED=true
-#FUSEKI_BASE_URL=http://localhost:3030
-#FUSEKI_DATASET=flexible-graphrag
-#FUSEKI_USERNAME=admin
-#FUSEKI_PASSWORD=admin
+# Apache Fuseki  (used when RDF_GRAPH_DB=fuseki)
+FUSEKI_BASE_URL=http://localhost:3030
+FUSEKI_DATASET=flexible-graphrag
+FUSEKI_USERNAME=admin
+FUSEKI_PASSWORD=admin
 
-# Ontotext GraphDB
-#GRAPHDB_ENABLED=false
-#GRAPHDB_ENABLED=true
-#GRAPHDB_BASE_URL=http://localhost:7200
-#GRAPHDB_REPOSITORY=flexible-graphrag
-#GRAPHDB_USERNAME=admin
-#GRAPHDB_PASSWORD=admin
+# Ontotext GraphDB  (used when RDF_GRAPH_DB=graphdb)
+GRAPHDB_BASE_URL=http://localhost:7200
+GRAPHDB_REPOSITORY=flexible-graphrag
+GRAPHDB_USERNAME=admin
+GRAPHDB_PASSWORD=admin
 
-# Oxigraph (embedded with file path or HTTP mode with docker container)
-#OXIGRAPH_ENABLED=false
-#OXIGRAPH_ENABLED=true
+# Oxigraph  (used when RDF_GRAPH_DB=oxigraph)
 # HTTP mode (preferred — uses Docker container at port 7878, no file locking):
-#OXIGRAPH_URL=http://localhost:7878
+OXIGRAPH_URL=http://localhost:7878
 # Embedded mode (single-process only, not recommended when API server is running):
 #OXIGRAPH_STORE_PATH=./data/oxigraph_store
 
-# -------------------------------------------------------------------
-# RDF Store Connections (METHOD 2 - JSON array, advanced/dynamic)
-# -------------------------------------------------------------------
-# Only used when no standalone vars above are enabled.
-# Comma-separated list of store names to activate:
-#RDF_ENABLED_STORES=fuseki,graphdb
-#
-# Full store definitions as a JSON array:
-#RDF_STORES=[{"name":"fuseki","type":"fuseki","config":{"base_url":"http://localhost:3030","dataset":"flexible-graphrag"}},{"name":"graphdb","type":"graphdb","config":{"base_url":"http://localhost:7200","repository":"flexible-graphrag","username":"admin","password":"admin"}}]
+# Amazon Neptune RDF/SPARQL  (used when RDF_GRAPH_DB=neptune_rdf)
+# Same cluster that PG_GRAPH_DB=neptune uses — Neptune is "OneGraph" (RDF + OpenCypher coexist).
+# NEPTUNE_RDF_HOST is the cluster endpoint hostname only (no https://, no port).
+#NEPTUNE_RDF_HOST=db-neptune-1.cluster-xxxxxxxxxxxx.us-east-1.neptune.amazonaws.com
+#NEPTUNE_RDF_PORT=8182
+#NEPTUNE_RDF_REGION=us-east-1
+#NEPTUNE_RDF_USE_IAM_AUTH=true
+#NEPTUNE_RDF_USE_HTTPS=true
+# Explicit AWS credentials (optional — omit to use env AWS_ACCESS_KEY_ID / instance profile):
+#NEPTUNE_RDF_AWS_ACCESS_KEY_ID=
+#NEPTUNE_RDF_AWS_SECRET_ACCESS_KEY=
 
 # ===========================
 # Query Routing Defaults
@@ -829,9 +1198,6 @@ RDF_BASE_NAMESPACE=https://integratedsemantics.org/flexible-graphrag/kg/
 #  - auto: Automatically choose based on query structure
 # Note: This is different from "hybrid search" (vector+fulltext+graph)
 QUERY_ROUTING_DEFAULT=property_graph
-
-# DEFAULT_RDF_BACKEND: reserved for future query routing — not currently used by the code.
-#DEFAULT_RDF_BACKEND=fuseki
 
 # Enable/disable query language support
 SUPPORT_SPARQL=true
@@ -845,30 +1211,18 @@ ENABLE_RDF_EXPORT=false
 # Serialization format: turtle | ntriples | rdfxml | nquads
 RDF_EXPORT_FORMAT=turtle
 
-# ===========================
-# RDF Retrieval Configuration (LangChain Integration)
-# ===========================
-# Enable LangChain-based RDF graph retrieval in hybrid search
-# When enabled, adds natural language to SPARQL query capability
-# Required packages (install manually based on your provider):
-#   uv pip install langchain langchain-community langchain-openai SPARQLWrapper   # GraphDB/Fuseki/Oxigraph + OpenAI
-#   uv pip install langchain-google-genai                 # Gemini
-#   uv pip install langchain-google-vertexai              # Vertex AI
-#   uv pip install langchain-anthropic                    # Anthropic / Claude
-#   uv pip install langchain-aws                          # Bedrock or Neptune RDF
-#   uv pip install langchain-ollama                       # Ollama
-#   uv pip install langchain-groq                         # Groq
-#   uv pip install langchain-fireworks                    # Fireworks AI
-USE_LANGCHAIN_RDF=false
+# Base namespace for entity instance URIs (named-graph URI = this value without trailing slash).
+# Default: https://integratedsemantics.org/flexible-graphrag/kg/
+#RDF_BASE_NAMESPACE=https://integratedsemantics.org/flexible-graphrag/kg/
 
-# RDF store type for retrieval: graphdb | fuseki | oxigraph | neptune_rdf
-# Must match one of the enabled RDF stores (GRAPHDB_ENABLED, FUSEKI_ENABLED, OXIGRAPH_ENABLED)
-# graphdb    - Ontotext GraphDB via LangChain OntotextGraphDBGraph + GraphSparqlQAChain
-# fuseki     - Apache Fuseki (Jena) via LangChain RdfGraph + GraphSparqlQAChain
-# oxigraph   - Oxigraph HTTP server via LangChain RdfGraph + GraphSparqlQAChain
-# neptune_rdf - Amazon Neptune RDF via LangChain NeptuneRdfGraph + create_neptune_sparql_qa_chain
-RDF_STORE_TYPE=graphdb
+# Namespace for ontology predicates / types (onto: prefix in SPARQL queries).
+# Default: https://integratedsemantics.org/flexible-graphrag/ontology#
+#RDF_ONTOLOGY_NAMESPACE=https://integratedsemantics.org/flexible-graphrag/ontology#
 
+# ===========================
+# RDF Retrieval Configuration
+# ===========================
+# RDF retrieval is automatically enabled when RDF_GRAPH_DB != none.
 # Weight for RDF retrieval results in fusion (0.0-1.0)
 # Higher = more emphasis on graph-based context
 RDF_RETRIEVAL_WEIGHT=0.3
@@ -876,76 +1230,6 @@ RDF_RETRIEVAL_WEIGHT=0.3
 # Number of results to return from RDF retriever
 RDF_RETRIEVAL_TOP_K=5
 
-# ===========================
-# LangChain Property Graph Store (fusion retriever)
-# ===========================
-# When USE_LANGCHAIN_PG=true, a LangChain property graph QA chain is used for
-# the graph retriever slot in the hybrid fusion pipeline instead of the
-# LlamaIndex graph_index (PropertyGraphIndex).  Only one is active at a time.
-#
-# IMPORTANT: ingestion and retrieval must target the same store.
-# GRAPH_DB=none with USE_LANGCHAIN_PG=true results in an empty graph — the
-# LangChain chain has nothing to query.  Always set GRAPH_DB= to the same
-# store type as LANGCHAIN_PG_STORE_TYPE when ingesting via this pipeline.
-#
-# Supported LANGCHAIN_PG_STORE_TYPE values:
-#   neo4j            - Neo4j (bolt) via langchain_neo4j > langchain_community
-#   memgraph         - Memgraph (bolt) via langchain_memgraph > langchain_community
-#   ladybug          - not supported for USE_LANGCHAIN_PG (use GRAPH_DB=ladybug with default LlamaIndex graph retriever)
-#   falkordb         - FalkorDB via langchain_community
-#   hugegraph        - Apache HugeGraph via langchain_community
-#   nebula           - NebulaGraph via langchain_community
-#   tigergraph       - TigerGraph via langchain_community
-#   arcadedb         - ArcadeDB via langchain_arcadedb  (uv pip install langchain-arcadedb)
-#   arangodb         - ArangoDB via langchain_community chains
-#   neptune          - Neptune Database OpenCypher via langchain_aws
-#   neptune_analytics- Neptune Analytics via langchain_aws
-#   apache_age       - Apache AGE (PostgreSQL Cypher) via langchain_community
-#   cosmos_gremlin   - Azure Cosmos DB Gremlin via langchain_community
-#   spanner          - Google Spanner Graph via langchain_google_spanner
-#
-# Connection details are read from the same GRAPH_DB connection fields
-# (e.g. for neo4j: graph_config url/username/password, for arangodb:
-# ARANGODB_URL / ARANGODB_USERNAME / ARANGODB_PASSWORD, etc.)
-USE_LANGCHAIN_PG=false
-#LANGCHAIN_PG_STORE_TYPE=neo4j
-
-# LangChain PG vector search — embedding similarity search against graph entity nodes.
-# Works independently of USE_LANGCHAIN_PG and GRAPH_DB — only requires that
-# GRAPH_DB=neo4j ingestion has run (which creates the __Entity__[embedding] index).
-# Can run alongside the LlamaIndex graph_retriever; fusion deduplicates overlapping hits.
-#LANGCHAIN_PG_VECTOR_SEARCH=false
-# Index / label / property names (defaults match LlamaIndex ingestion schema):
-#LANGCHAIN_PG_VECTOR_INDEX=entity
-#LANGCHAIN_PG_VECTOR_NODE_LABEL=__Entity__
-#LANGCHAIN_PG_VECTOR_EMBEDDING_PROPERTY=embedding
-#LANGCHAIN_PG_VECTOR_TEXT_PROPERTY=name
-
-# LangChain PG neighborhood retriever — k-hop graph expansion from vector seeds.
-# Mirrors LlamaIndex VectorContextRetriever for stores that only have LangChain support.
-# Skipped automatically when the LlamaIndex graph_retriever is active.
-#USE_PG_NEIGHBORHOOD=false
-#PG_NEIGHBORHOOD_HOPS=2             # max relationship hops (default 2)
-#PG_NEIGHBORHOOD_TOP_K_SEEDS=10     # vector hits used as expansion seeds
-
-# Synonym exploder — LLM-based query rewriter applied before selected retrievers.
-# Generates synonyms/related keywords (^ separated, same convention as LLMSynonymRetriever)
-# to improve lexical + embedding recall.
-#
-# SYNONYM_EXPLODER_SCOPE accepts a comma-separated list of retriever tags, or:
-#   all   — wrap the entire fusion retriever (one LLM call covers everything)
-#   none  — disable
-# Per-retriever tags (combine freely):
-#   llamaindex_vector           — LlamaIndex VectorStoreIndex retriever
-#   llamaindex_search           — LlamaIndex BM25 / Elasticsearch / OpenSearch
-#   llamaindex_pg_graph         — LlamaIndex PropertyGraph graph_retriever
-#   langchain_pg_vector         — LangChain PG vector retriever
-#   langchain_rdf_graph         — LangChain RDF/SPARQL retriever
-#   langchain_pg_graph          — LangChain property-graph Cypher QA retriever
-#   langchain_pg_neighborhood   — PG neighborhood k-hop retriever
-#USE_SYNONYM_EXPLODER=false
-#SYNONYM_EXPLODER_MAX_KEYWORDS=8
-#SYNONYM_EXPLODER_SCOPE=langchain_pg_graph,langchain_pg_vector
 
 # ===========================
 # Ontology Configuration

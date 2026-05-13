@@ -1,7 +1,6 @@
 # Full-Stack Debugging (Standalone Mode)
 
-!!! note
-    This debugging setup is for standalone backend and frontends (Scenario A or C), not for Full Stack in Docker (Scenario B).
+*Note: This debugging setup is for standalone backend and frontends (Scenario A or C), not for Full Stack in Docker (Scenario B).*
 
 ---
 
@@ -22,8 +21,7 @@ copy sample-launch.json .vscode\launch.json
 2. **Full Stack with Angular and Python** — Debug both the Angular frontend and Python backend simultaneously
 3. **Full Stack with Vue and Python** — Debug both the Vue frontend and Python backend simultaneously
 
-!!! tip
-    When ending debugging, you will need to stop the Python backend and the frontend separately.
+*Tip: When ending debugging, you will need to stop the Python backend and the frontend separately.*
 
 Each configuration sets up the appropriate ports, source maps, and debugging tools for a seamless development experience. You may need to adjust the ports and paths in the `launch.json` file to match your specific setup.
 

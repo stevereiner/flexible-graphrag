@@ -45,7 +45,7 @@ Default services started:
     uv pip install -e .
     ```
 
-    See [Getting Started — Source Install](GETTING-STARTED.md#option-b----install-from-source-editable) for full details.
+    See [Getting Started — Source Install](PYTHON-BACKEND.md) for full details.
 
 ## Step 3 — Configure environment
 

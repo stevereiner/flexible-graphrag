@@ -5,23 +5,21 @@
 After the LLM extracts entities and relations from your documents, Flexible GraphRAG
 can store the resulting knowledge graph in:
 
-- **Property Graph** (Neo4j, Ladybug, FalkorDB, Memgraph, …) — LPG model, Cypher queries
-- **RDF Stores** (Fuseki, GraphDB, Oxigraph) — triple store, SPARQL queries
-- **Both simultaneously**
-
-The `INGESTION_STORAGE_MODE` setting controls this.
+- **Property Graph** (Neo4j, FalkorDB, ArcadeDB, Memgraph, …) — LPG model, Cypher queries
+- **RDF Graph Store** (Fuseki, GraphDB, Oxigraph) — triple store, SPARQL queries
+- **Both simultaneously** — set both `PG_GRAPH_DB` and `RDF_GRAPH_DB` to non-`none` values
 
 ---
 
 ## Configuration
 
+Use the two picker vars to control where extracted knowledge graph data is written:
+
 ```env
-# Where to store extracted knowledge graph data
-# property_graph (default) | rdf_only | both
-INGESTION_STORAGE_MODE=property_graph
+PG_GRAPH_DB=neo4j        # neo4j | arcadedb | falkordb | ... | none
+RDF_GRAPH_DB=fuseki      # fuseki | graphdb | oxigraph | none
 
 # Base namespace for entity instance URIs in RDF output
-# "Alice Johnson" -> <http://example.org/kg/alice_johnson>
 RDF_BASE_NAMESPACE=https://integratedsemantics.org/flexible-graphrag/kg/
 ```
 
@@ -29,14 +27,13 @@ RDF_BASE_NAMESPACE=https://integratedsemantics.org/flexible-graphrag/kg/
 
 ## Storage Modes
 
-### `property_graph` (Default)
+### Property Graph Only (Default)
 
-Stores extracted entities and relations in the configured property graph store only.
-RDF stores are not written during ingestion.
+Set `RDF_GRAPH_DB=none`. Stores extracted entities and relations in the configured property graph store only.
 
 ```env
-GRAPH_DB=neo4j
-INGESTION_STORAGE_MODE=property_graph
+PG_GRAPH_DB=neo4j
+RDF_GRAPH_DB=none
 ```
 
 **Data flow:**
@@ -46,14 +43,13 @@ Documents → LLM Extraction → PropertyGraphIndex → Neo4j (Cypher)
 
 ---
 
-### `rdf_only`
+### RDF Graph Store Only
 
-Skips `PropertyGraphIndex` entirely. Extracted entities and relations are converted
-to RDF and pushed directly to all enabled RDF stores. No property graph is written.
+Set `PG_GRAPH_DB=none`. Extracted entities and relations are converted to RDF and pushed directly to the selected RDF store. No property graph is written.
 
 ```env
-INGESTION_STORAGE_MODE=rdf_only
-FUSEKI_ENABLED=true
+PG_GRAPH_DB=none
+RDF_GRAPH_DB=fuseki
 FUSEKI_BASE_URL=http://localhost:3030
 FUSEKI_DATASET=flexible-graphrag
 ```
@@ -67,15 +63,13 @@ Documents → LLM Extraction → KGToRDFConverter → Fuseki / GraphDB / Oxigrap
 
 ---
 
-### `both`
+### Both Simultaneously
 
-Stores in the property graph **and** all enabled RDF stores. Extraction runs once;
-the same nodes are written to both destinations.
+Set both `PG_GRAPH_DB` and `RDF_GRAPH_DB` to non-`none` values. Extraction runs once; the same nodes are written to both destinations.
 
 ```env
-INGESTION_STORAGE_MODE=both
-GRAPH_DB=neo4j
-FUSEKI_ENABLED=true
+PG_GRAPH_DB=neo4j
+RDF_GRAPH_DB=fuseki
 FUSEKI_BASE_URL=http://localhost:3030
 FUSEKI_DATASET=flexible-graphrag
 ```
@@ -87,8 +81,50 @@ Documents → LLM Extraction ──┤
                               └→ KGToRDFConverter  → Fuseki / GraphDB / Oxigraph (SPARQL)
 ```
 
-**Use case:** Best of both worlds — fast Cypher traversal in Neo4j + SPARQL reasoning
-in a triple store.
+**Use case:** Best of both worlds — fast Cypher traversal + SPARQL reasoning in a triple store.
+
+---
+
+## Skipping Graph Extraction
+
+Both the property graph and RDF graph stores can be bypassed at ingest time, while leaving previously extracted data intact for search and Q&A.
+
+### Per-document: `skip_graph`
+
+Pass `skip_graph=true` on a per-ingest call to skip KG extraction (and therefore skip both PG and RDF writes) for that document only. Available from:
+
+| Entry point | How |
+|---|---|
+| UI | "Skip graph extraction" checkbox on the ingest form |
+| REST API | `POST /api/ingest`, `POST /api/ingest-text`, `POST /api/test-sample` — `skip_graph` in body |
+| MCP tools | `ingest_documents`, `ingest_text`, `test_with_sample` — `skip_graph` parameter |
+| Python API | `backend.ingest_documents(skip_graph=True)`, `backend.ingest_text(skip_graph=True)` |
+| Python API | `system.ingest_documents(skip_graph=True)`, `system.ingest_text(skip_graph=True)` |
+| Datasource config | `skip_graph` field persisted in DB — applies to every auto-sync cycle for that datasource (filesystem, S3, GCS, Azure Blob, Google Drive, OneDrive, Alfresco, Box) |
+
+When `skip_graph=true`:
+- LLM KG extraction is skipped entirely (faster ingest)
+- No new triples are written to the RDF graph store
+- No new nodes/edges are written to the property graph store
+- Vector and full-text (BM25/search) stores are still updated normally
+
+### Global: `ENABLE_KNOWLEDGE_GRAPH=false`
+
+Set in `.env` to disable KG extraction for all ingestion globally:
+
+```env
+ENABLE_KNOWLEDGE_GRAPH=false
+```
+
+Equivalent to passing `skip_graph=true` on every ingest call — KG extraction and graph writes are skipped for both PG and RDF stores.
+
+### Previously extracted data is preserved
+
+In both cases, **previously ingested graph data is not deleted**. Hybrid Search and AI Query / Chat will still return results from graph extractions that happened before `skip_graph` was used or `ENABLE_KNOWLEDGE_GRAPH` was disabled. To remove stale graph data, use:
+
+- `scripts/rdf_cleanup.py clear-doc <ref_doc_id>` — remove one document's RDF triples
+- `scripts/rdf_cleanup.py clear-all` — wipe the entire RDF named graph
+- `scripts/cleanup.py` — clear the property graph store
 
 ---
 
@@ -121,7 +157,6 @@ which is supported natively by all three stores:
 
 ```turtle
 # RDF 1.2 annotation syntax (default: RDF_ANNOTATION_SYNTAX=rdf_1.2)
-# The {| |} block annotates the relation triple with its properties.
 :alice_johnson  onto:works_for  :techcorp
     {| onto:since  "2020"^^xsd:string ;
        onto:role   "Engineer"^^xsd:string |} .
@@ -171,43 +206,29 @@ types align with the loaded OWL ontology.
 
 ## RDF Store Connection Configuration
 
-Configure which stores to write to using standalone env vars (recommended):
+Configure connection details for the store selected by `RDF_GRAPH_DB`:
 
 ```env
 # Apache Fuseki
-FUSEKI_ENABLED=true
+RDF_GRAPH_DB=fuseki
 FUSEKI_BASE_URL=http://localhost:3030
 FUSEKI_DATASET=flexible-graphrag
+FUSEKI_USERNAME=admin
+FUSEKI_PASSWORD=admin
 
 # Ontotext GraphDB
-GRAPHDB_ENABLED=true
+RDF_GRAPH_DB=graphdb
 GRAPHDB_BASE_URL=http://localhost:7200
 GRAPHDB_REPOSITORY=flexible-graphrag
 GRAPHDB_USERNAME=admin
 GRAPHDB_PASSWORD=admin
 
-# Oxigraph (embedded)
-OXIGRAPH_ENABLED=true
-OXIGRAPH_STORE_PATH=./data/oxigraph_store
+# Oxigraph (HTTP mode)
+RDF_GRAPH_DB=oxigraph
+OXIGRAPH_URL=http://localhost:7878
 ```
 
-Multiple stores can be enabled simultaneously — ingestion writes to all of them.
-
-See `env-sample.txt` (RDF / Triple Store Configuration section) for the full reference.
-
----
-
-## Query Routing
-
-`QUERY_ROUTING_DEFAULT` controls where **queries** go — independent of where data
-was stored:
-
-```env
-QUERY_ROUTING_DEFAULT=property_graph  # Cypher only
-QUERY_ROUTING_DEFAULT=sparql          # SPARQL only
-QUERY_ROUTING_DEFAULT=hybrid          # Both, merge results
-QUERY_ROUTING_DEFAULT=auto            # Auto-detect from query
-```
+See `env-sample.txt` (RDF / Graph Store Configuration section) for the full reference.
 
 ---
 
@@ -216,9 +237,8 @@ QUERY_ROUTING_DEFAULT=auto            # Auto-detect from query
 | Term | Meaning |
 |---|---|
 | **Hybrid Search** | Vector + Fulltext + Graph retrieval (main search feature) |
-| **Query Routing** | Choosing between Property Graph vs RDF stores for queries |
-| **Property Graph** | LPG store: Neo4j, Ladybug, FalkorDB, Memgraph, etc. |
-| **RDF Store** | Triple store: Fuseki, GraphDB, Oxigraph |
+| **Property Graph** | LPG store: Neo4j, FalkorDB, ArcadeDB, Memgraph, etc. |
+| **RDF Graph Store** | Triple store: Fuseki, GraphDB, Oxigraph |
 | **Ontology** | OWL/RDF schema defining entity/relation types |
 | **Knowledge Graph** | Extracted entity/relation instances from documents |
 | **RDF 1.2** | W3C Recommendation (2024) that standardizes triple terms, `rdf:reifies`, and the `{| |}` annotation shorthand |

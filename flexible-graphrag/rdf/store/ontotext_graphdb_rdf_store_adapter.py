@@ -161,6 +161,14 @@ class OntotextGraphDBAdapter(RDFStoreAdapter):
         if self.username and self.password:
             auth = (self.username, self.password)
 
+        self.logger.debug(
+            "GraphDB store_rdf_annotations: posting %d chars to %s (graph_uri=%s)",
+            len(ttl_data), self.update_endpoint, graph_uri,
+        )
+        if "ref_doc_id" in ttl_data:
+            self.logger.debug("GraphDB store_rdf_annotations: Turtle CONTAINS ref_doc_id annotation")
+        else:
+            self.logger.debug("GraphDB store_rdf_annotations: Turtle does NOT contain ref_doc_id annotation")
         try:
             resp = requests.post(
                 self.update_endpoint,
@@ -211,6 +219,7 @@ WHERE  {{
 """
         sparql_update_endpoint = f"{self.base_url}/repositories/{self.repository}/statements"
         auth = (self.username, self.password) if self.username and self.password else None
+        self.logger.debug("GraphDB delete_doc SPARQL:\n%s", update_query)
         try:
             resp = requests.post(
                 sparql_update_endpoint,
@@ -230,24 +239,27 @@ WHERE  {{
             )
 
     def query_sparql(self, query: str) -> List[Dict[str, Any]]:
-        """Execute SPARQL SELECT/CONSTRUCT/DESCRIBE queries against GraphDB."""
-        if self.graph is None:
-            self.connect()
+        """Execute SPARQL SELECT/CONSTRUCT/DESCRIBE queries against GraphDB via direct HTTP."""
         try:
-            results = self.graph.query(query)
-            # rdflib returns Result or Graph depending on query form
-            if hasattr(results, "vars"):  # SELECT
-                return [
-                    {str(var): str(val) for var, val in row.asdict().items()}
-                    for row in results
-                ]
-            else:
-                # CONSTRUCT / DESCRIBE: serialize as triple list
-                out_graph: Graph = results.graph if hasattr(results, "graph") else results
-                return [
-                    {"s": str(s), "p": str(p), "o": str(o)}
-                    for s, p, o in out_graph
-                ]
+            auth = (self.username, self.password) if self.username and self.password else None
+            resp = requests.post(
+                self.query_endpoint,
+                data={"query": query},
+                headers={"Accept": "application/sparql-results+json"},
+                auth=auth,
+                timeout=30,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            vars_ = data.get("head", {}).get("vars", [])
+            rows = []
+            for binding in data.get("results", {}).get("bindings", []):
+                row = {}
+                for var in vars_:
+                    val = binding.get(var, {})
+                    row[var] = val.get("value", "") if val else ""
+                rows.append(row)
+            return rows
         except Exception as e:
             self.logger.error(f"GraphDB SPARQL query failed: {e}")
             raise

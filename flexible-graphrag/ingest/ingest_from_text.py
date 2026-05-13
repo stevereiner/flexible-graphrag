@@ -5,19 +5,25 @@ ingest_text — wraps a raw string as a Document and runs the full pipeline
               (chunk, embed, vector index, graph index, search index).
 """
 
-import functools
 import logging
 
-from llama_index.core import StorageContext, VectorStoreIndex
-from llama_index.core.indices.property_graph import PropertyGraphIndex
-
-from process.node_pipeline import build_ingestion_pipeline
 from ingest._helpers import _check_cancellation, _get_loop
+from ingest.run_chunk_pipeline import run_chunk_pipeline
+from ingest.update_vector import update_vector
+from ingest.update_search import update_search
+from ingest.update_pg_graph import update_pg_graph
+from ingest.update_rdf_graph import update_rdf_graph
 
 logger = logging.getLogger(__name__)
 
 
-async def ingest_text(system, content: str, source_name: str = "text_input", processing_id: str = None):
+async def ingest_text(
+    system,
+    content: str,
+    source_name: str = "text_input",
+    processing_id: str = None,
+    skip_graph: bool = False,
+):
     """Ingest raw text content.
 
     Args:
@@ -25,6 +31,7 @@ async def ingest_text(system, content: str, source_name: str = "text_input", pro
         content: Raw text to ingest
         source_name: Display name for the text source
         processing_id: Optional ID for cancellation checking
+        skip_graph: Skip knowledge graph extraction (faster, vector+search only)
     """
     from retriever_setup import setup_hybrid_retriever
 
@@ -39,93 +46,42 @@ async def ingest_text(system, content: str, source_name: str = "text_input", pro
     if _check_cancellation(processing_id):
         raise RuntimeError("Processing cancelled by user")
 
-    # Chunk + embed via canonical pipeline
-    pipeline = build_ingestion_pipeline(system.config, system.embed_model)
+    # Step 1: Chunk + embed
     loop = _get_loop()
-    run_pipeline = functools.partial(pipeline.run, documents=[document])
-    nodes = await loop.run_in_executor(None, run_pipeline)
+    nodes, chunk_duration = await run_chunk_pipeline(system, [document], loop)
 
     if _check_cancellation(processing_id):
         raise RuntimeError("Processing cancelled by user")
 
-    # Vector index
-    if system.vector_index is None:
-        storage_context = StorageContext.from_defaults(vector_store=system.vector_store)
-        create_vi = functools.partial(
-            VectorStoreIndex,
-            nodes=nodes,
-            storage_context=storage_context,
-            show_progress=False,
-        )
-        system.vector_index = await loop.run_in_executor(None, create_vi)
-    else:
-        system.vector_index.insert_nodes(nodes)
+    # Step 2: Vector index  (insert — always additive for text)
+    vector_duration = await update_vector(system, nodes, loop)
 
     if _check_cancellation(processing_id):
         raise RuntimeError("Processing cancelled by user")
 
-    # Graph index
-    kg_extractor = system.schema_manager.create_extractor(
-        system.llm,
-        llm_provider=system.config.llm_provider,
-        extractor_type=system.config.kg_extractor_type,
+    # Step 3: Search index
+    search_duration = await update_search(system, nodes, loop)
+
+    if _check_cancellation(processing_id):
+        raise RuntimeError("Processing cancelled by user")
+
+    # Step 4: PG graph
+    nodes, nodes_kg_extracted, kg_duration, graph_duration, _, _ = await update_pg_graph(
+        system, nodes, [document], loop, skip_graph=skip_graph
     )
 
-    storage_mode = getattr(system.config, "ingestion_storage_mode", "property_graph")
-
-    # Run KG extraction on pre-chunked nodes (same pattern as ingest_from_source)
-    from process.kg_extractor import run_kg_extractors_on_nodes
-    nodes, num_entities, num_relations, _ = await run_kg_extractors_on_nodes(
-        nodes, [kg_extractor], system.config, span_name="rag.graph_extraction.text"
+    # Step 4b: RDF graph
+    rdf_kg_duration, rdf_store_duration = await update_rdf_graph(
+        system, nodes, nodes_kg_extracted=nodes_kg_extracted, skip_graph=skip_graph
     )
-    logger.info(f"Text KG extraction complete: {num_entities} entities, {num_relations} relations")
-
-    if storage_mode in ("rdf_only", "both"):
-        from stores.index_manager import export_nodes_to_rdf_stores
-        export_nodes_to_rdf_stores(nodes, system.config, schema_manager=system.schema_manager)
-
-    if storage_mode != "rdf_only":
-        graph_storage_context = StorageContext.from_defaults(property_graph_store=system.graph_store)
-        if system.graph_index is None:
-            graph_kwargs = {
-                "nodes": nodes,
-                "llm": system.llm,
-                "embed_model": system.embed_model,
-                "kg_extractors": [],
-                "property_graph_store": system.graph_store,
-                "storage_context": graph_storage_context,
-            }
-            if hasattr(system.graph_store, '__class__') and 'NeptuneAnalytics' in str(system.graph_store.__class__):
-                graph_kwargs["embed_kg_nodes"] = False
-            create_gi = functools.partial(PropertyGraphIndex, **graph_kwargs)
-            system.graph_index = await loop.run_in_executor(None, create_gi)
-            logger.info(f"PropertyGraphIndex created from text nodes")
-        else:
-            _orig_extractors = system.graph_index._kg_extractors
-            _orig_use_async = getattr(system.graph_index, '_use_async', False)
-            system.graph_index._kg_extractors = []
-            system.graph_index._use_async = False
-            try:
-                system.graph_index.insert_nodes(nodes)
-            finally:
-                system.graph_index._kg_extractors = _orig_extractors
-                system.graph_index._use_async = _orig_use_async
-
-    if _check_cancellation(processing_id):
-        raise RuntimeError("Processing cancelled by user")
-
-    # Search index
-    if system.search_store is not None:
-        if not hasattr(system, 'search_index') or system.search_index is None:
-            search_sc = StorageContext.from_defaults(vector_store=system.search_store)
-            create_si = functools.partial(VectorStoreIndex, nodes=nodes, storage_context=search_sc, show_progress=True)
-            system.search_index = await loop.run_in_executor(None, create_si)
-        else:
-            node_ids = await system.search_store.async_add(nodes)
-            logger.info(f"Added {len(node_ids)} nodes to search store via async_add")
 
     if _check_cancellation(processing_id):
         raise RuntimeError("Processing cancelled by user")
 
     setup_hybrid_retriever(system)
-    logger.info("Text content ingestion completed successfully!")
+    logger.info(
+        f"Text ingestion completed -- "
+        f"Chunk: {chunk_duration:.2f}s, Vector: {vector_duration:.2f}s, "
+        f"Search: {search_duration:.2f}s, KG: {kg_duration + rdf_kg_duration:.2f}s, "
+        f"Graph: {graph_duration:.2f}s, RDF: {rdf_store_duration:.2f}s"
+    )

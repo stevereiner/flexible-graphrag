@@ -93,10 +93,17 @@ class IncrementalUpdateEngine:
             self._delete_from_graph_helper(doc_id, graph_index)
             logger.info(f"  Deleted from graph index")
 
-        # Delete from RDF stores (when ingestion_storage_mode is 'rdf_only' or 'both')
+        # Delete from RDF stores (when rdf_graph_db != none)
         if self.hybrid_system is not None:
             try:
-                self.hybrid_system._delete_from_rdf_stores(doc_id)
+                rdf_adapter = getattr(self.hybrid_system, "rdf_adapter", None)
+                if rdf_adapter is not None:
+                    from rdf.kg_to_rdf_converter import DEFAULT_BASE_NS
+                    graph_uri = DEFAULT_BASE_NS.rstrip("/")
+                    rdf_adapter.delete(doc_id, graph_uri=graph_uri)
+                    logger.info(f"  Deleted RDF triples for ref_doc_id={doc_id}")
+                else:
+                    self.hybrid_system._delete_from_rdf_stores(doc_id)
             except Exception as e:
                 logger.warning(f"  RDF store delete error for doc '{doc_id}': {e}")
     
@@ -163,7 +170,7 @@ class IncrementalUpdateEngine:
                 should_skip_graph = (
                     skip_graph or 
                     not self.config.enable_knowledge_graph or 
-                    self.config.graph_db.lower() == 'none'
+                    self.config.pg_graph_db.lower() == 'none'
                 )
                 if self.graph_index is not None and not should_skip_graph:
                     await self.state_manager.mark_target_synced(doc_id, 'graph')
@@ -217,7 +224,7 @@ class IncrementalUpdateEngine:
         should_skip_graph = (
             skip_graph or 
             not self.config.enable_knowledge_graph or 
-            self.config.graph_db.lower() == 'none'
+            self.config.pg_graph_db.lower() == 'none'
         )
         
         if self.graph_index is not None and not should_skip_graph:
@@ -230,7 +237,7 @@ class IncrementalUpdateEngine:
                 logger.exception(f"  ERROR: Error inserting to graph index: {e}")
                 raise
         elif should_skip_graph:
-            logger.info(f"  SKIP: Graph extraction (skip_graph={skip_graph}, enable_knowledge_graph={self.config.enable_knowledge_graph}, graph_db={self.config.graph_db})")
+            logger.info(f"  SKIP: Graph extraction (skip_graph={skip_graph}, enable_knowledge_graph={self.config.enable_knowledge_graph}, graph_db={self.config.pg_graph_db})")
     
     async def _delete_from_all_indexes(self, doc_id: str) -> None:
         """
@@ -240,160 +247,127 @@ class IncrementalUpdateEngine:
         this simple doc_id-based delete will work correctly!
         """
         
-        # Delete from vector index
-        if self.vector_index:
-            try:
-                logger.info(f"  Attempting to delete from vector index (doc_id: {doc_id})...")
-                
-                # Check if this is Weaviate with async client
-                if self.hybrid_system and self.hybrid_system.vector_store:
-                    vector_store_type = type(self.hybrid_system.vector_store).__name__
-                    
-                    if vector_store_type == "WeaviateVectorStore":
-                        # For Weaviate with async client, use async delete method
-                        if hasattr(self.hybrid_system.vector_store, '_aclient') and self.hybrid_system.vector_store._aclient is not None:
-                            # Ensure connected
-                            if not self.hybrid_system.vector_store._aclient.is_connected():
-                                await self.hybrid_system.vector_store._aclient.connect()
-                                logger.info("  Connected Weaviate async client for delete operation")
-                            
-                            # Use async delete method directly on vector store
-                            await self.hybrid_system.vector_store.adelete(doc_id)
-                            logger.info(f"  Deleted from Weaviate using adelete() (ref_doc_id: {doc_id})")
-                        else:
-                            # Sync client - use standard method
-                            result = self.vector_index.delete_ref_doc(doc_id, delete_from_docstore=True)
-                            logger.info(f"  Deleted from vector index (result: {result})")
-                    else:
-                        # Other vector stores - use standard sync delete
-                        result = self.vector_index.delete_ref_doc(doc_id, delete_from_docstore=True)
-                        logger.info(f"  Deleted from vector index (result: {result})")
-                else:
-                    # No hybrid_system reference, use standard delete
-                    result = self.vector_index.delete_ref_doc(doc_id, delete_from_docstore=True)
-                    logger.info(f"  Deleted from vector index (result: {result})")
-            except Exception as e:
-                logger.warning(f"  Vector delete failed: {e}")
-                
-        # Also try direct Qdrant deletion as fallback (for Qdrant specifically)
-        if self.vector_index and hasattr(self.vector_index, '_client'):
-            try:
-                from qdrant_client import models
-                qdrant_client = self.vector_index._client
-                collection_name = self.vector_index._collection_name
-                
-                # Delete by filter (ref_doc_id payload field)
-                logger.info(f"  Attempting direct Qdrant delete by ref_doc_id filter...")
-                delete_result = qdrant_client.delete(
-                    collection_name=collection_name,
-                    points_selector=models.FilterSelector(
-                        filter=models.Filter(
-                            must=[
-                                models.FieldCondition(
-                                    key="ref_doc_id",
-                                    match=models.MatchValue(value=doc_id),
-                                )
-                            ]
-                        )
-                    )
-                )
-                logger.info(f"  Direct Qdrant delete result: {delete_result}")
-            except Exception as e:
-                logger.debug(f"  Direct Qdrant delete not applicable or failed: {e}")
-        
-        # Delete from search index (Elasticsearch/OpenSearch)
-        logger.info(f"  Attempting to delete from search index...")
-        logger.info(f"  hybrid_system exists: {self.hybrid_system is not None}")
-        if self.hybrid_system:
-            logger.info(f"  search_store exists: {self.hybrid_system.search_store is not None}")
-        
-        if self.hybrid_system and self.hybrid_system.search_store:
-            try:
-                from elasticsearch import AsyncElasticsearch
-                from opensearchpy import AsyncOpenSearch
-                
-                search_store = self.hybrid_system.search_store
-                logger.info(f"  search_store type: {type(search_store)}")
-                
-                # Get the underlying client - check both _client and client attributes
-                client = None
-                if hasattr(search_store, '_client'):
-                    client = search_store._client
-                    logger.info(f"  Found _client attribute")
-                elif hasattr(search_store, 'client'):
-                    client = search_store.client
-                    logger.info(f"  Found client attribute")
-                
-                if client:
-                    logger.info(f"  client type: {type(client)}")
-                    logger.info(f"  is AsyncElasticsearch: {isinstance(client, AsyncElasticsearch)}")
-                    
-                    if isinstance(client, (AsyncElasticsearch, AsyncOpenSearch)):
-                        index_name = "hybrid_search_fulltext"
-                        logger.info(f"  Executing delete_by_query for doc_id: {doc_id}")
-                        
-                        # First, try to find documents to see what fields exist
-                        try:
-                            search_result = await client.search(
-                                index=index_name,
-                                body={
-                                    "query": {"match_all": {}},
-                                    "size": 1
-                                }
-                            )
-                            if search_result.get('hits', {}).get('hits'):
-                                sample_doc = search_result['hits']['hits'][0]['_source']
-                                logger.info(f"  Sample document fields in Elasticsearch: {list(sample_doc.keys())}")
-                                if 'metadata' in sample_doc:
-                                    logger.info(f"  Sample metadata fields: {list(sample_doc['metadata'].keys())}")
-                        except Exception as e:
-                            logger.debug(f"  Could not get sample document: {e}")
-                        
-                        # Delete by metadata.ref_doc_id (primary) and metadata.doc_id (fallback)
-                        # Note: ref_doc_id is stored inside the metadata object in Elasticsearch
-                        # Use 'match' instead of 'term' because these fields don't have .keyword mapping
-                        result = await client.delete_by_query(
-                            index=index_name,
-                            body={
-                                "query": {
-                                    "bool": {
-                                        "should": [
-                                            {"match": {"metadata.ref_doc_id": doc_id}},
-                                            {"match": {"metadata.doc_id": doc_id}}
-                                        ],
-                                        "minimum_should_match": 1
-                                    }
-                                }
-                            },
-                            refresh=True
-                        )
-                        deleted = result.get('deleted', 0)
-                        logger.info(f"  Deleted {deleted} docs from search index")
-                        if deleted == 0:
-                            logger.warning(f"  No documents found in search index with doc_id: {doc_id}")
-                    else:
-                        logger.warning(f"  Client is not AsyncElasticsearch or AsyncOpenSearch!")
-                else:
-                    logger.warning(f"  search_store has no _client or client attribute!")
-            except Exception as e:
-                logger.warning(f"  Search delete failed: {e}")
-                import traceback
-                traceback.print_exc()
-        else:
-            logger.warning(f"  No search_store available for deletion")
-        
-        # Delete from graph index
-        if self.graph_index:
-            try:
-                self._delete_from_graph_helper(doc_id, self.graph_index, "graph")
-                logger.info(f"  Deleted from graph index")
-            except Exception as e:
-                logger.warning(f"  Graph delete failed: {e}")
+        hs = self.hybrid_system
 
-        # Delete from RDF stores (when ingestion_storage_mode is 'rdf_only' or 'both')
+        # ── Vector store delete ───────────────────────────────────────────────
+        # Both LC and LI adapters expose delete(ref_doc_id).
+        # LC adapter: custom delete using native client (Qdrant FilterSelector, ES delete_by_query, etc.)
+        # LI adapter: delegates to self._store.delete(ref_doc_id) — works for Qdrant, pgvector, etc.
+        _vector_adapter = getattr(hs, "vector_store", None) if hs else None
+        _vector_is_lc = (
+            _vector_adapter is not None
+            and callable(getattr(_vector_adapter, "is_langchain", None))
+            and _vector_adapter.is_langchain()
+        )
+        if _vector_adapter is not None and _vector_is_lc:
+            try:
+                _vector_adapter.delete(doc_id)
+                logger.info(f"  Deleted from LC vector store (ref_doc_id={doc_id})")
+            except Exception as e:
+                logger.warning(f"  LC vector delete failed: {e}")
+        elif _vector_adapter is not None and hasattr(_vector_adapter, "delete"):
+            # LI adapter: use adapter.delete() which calls self._store.delete()
+            try:
+                _vector_adapter.delete(doc_id)
+                logger.info(f"  Deleted from LI vector store (ref_doc_id={doc_id})")
+            except Exception as e:
+                logger.warning(f"  LI vector delete failed: {e}")
+        elif self.vector_index:
+            # Fallback: use VectorStoreIndex.delete_ref_doc
+            try:
+                if hs and hs.vector_store:
+                    vector_store_type = type(hs.vector_store).__name__
+                    if vector_store_type == "WeaviateVectorStore":
+                        if hasattr(hs.vector_store, '_aclient') and hs.vector_store._aclient is not None:
+                            if not hs.vector_store._aclient.is_connected():
+                                await hs.vector_store._aclient.connect()
+                            await hs.vector_store.adelete(doc_id)
+                            logger.info(f"  Deleted from Weaviate adelete() (ref_doc_id={doc_id})")
+                        else:
+                            self.vector_index.delete_ref_doc(doc_id, delete_from_docstore=True)
+                    else:
+                        self.vector_index.delete_ref_doc(doc_id, delete_from_docstore=True)
+                else:
+                    self.vector_index.delete_ref_doc(doc_id, delete_from_docstore=True)
+                logger.info(f"  Deleted from LI vector index (delete_ref_doc)")
+            except Exception as e:
+                logger.warning(f"  LI vector index delete failed: {e}")
+
+        # ── Search store delete ───────────────────────────────────────────────
+        # LC mode: custom delete using ES/OpenSearch delete_by_query.
+        # LI mode: use search_index.delete_ref_doc (LI async-safe path).
+        _search_adapter = getattr(hs, "search_store", None) if hs else None
+        _search_is_lc = (
+            _search_adapter is not None
+            and callable(getattr(_search_adapter, "is_langchain", None))
+            and _search_adapter.is_langchain()
+        )
+        if _search_adapter is not None and _search_is_lc:
+            try:
+                _search_adapter.delete(doc_id)
+                logger.info(f"  Deleted from LC search store (ref_doc_id={doc_id})")
+            except Exception as e:
+                logger.warning(f"  LC search delete failed: {e}")
+        elif _search_adapter is not None:
+            # LI mode: prefer the async delete path on the underlying store to avoid
+            # "There is no current event loop" errors from asyncio.run() inside sync delete().
+            _li_store = getattr(_search_adapter, "_store", None)
+            try:
+                if _li_store is not None and hasattr(_li_store, "adelete"):
+                    await _li_store.adelete(doc_id)
+                    logger.info(f"  Deleted from LI search store async (ref_doc_id={doc_id})")
+                elif _li_store is not None and hasattr(_li_store, "delete"):
+                    _li_store.delete(doc_id)
+                    logger.info(f"  Deleted from LI search store (ref_doc_id={doc_id})")
+                elif hasattr(_search_adapter, "delete"):
+                    _search_adapter.delete(doc_id)
+                    logger.info(f"  Deleted from LI search adapter (ref_doc_id={doc_id})")
+            except Exception as e:
+                logger.warning(f"  LI search delete failed: {e}")
+        elif self.search_index:
+            # Final fallback: use delete_ref_doc on the search index
+            try:
+                self.search_index.delete_ref_doc(doc_id, delete_from_docstore=True)
+                logger.info(f"  Deleted from LI search index (ref_doc_id={doc_id})")
+            except Exception as e:
+                logger.warning(f"  LI search delete failed: {e}")
+
+        # ── Property graph delete ─────────────────────────────────────────────
+        # LC mode: LangChainPGAdapter.delete() uses Cypher/AQL/etc. with ref_doc_id.
+        # LI mode: _delete_from_graph_helper uses graph_index.delete_ref_doc() + store.delete().
+        _pg_adapter = getattr(hs, "pg_adapter", None) if hs else None
+        _pg_is_lc = (
+            _pg_adapter is not None
+            and callable(getattr(_pg_adapter, "is_langchain", None))
+            and _pg_adapter.is_langchain()
+        )
+        if _pg_adapter is not None and _pg_is_lc:
+            try:
+                _pg_adapter.delete(doc_id)
+                logger.info(f"  Deleted from LC property graph (ref_doc_id={doc_id})")
+            except Exception as e:
+                logger.warning(f"  LC graph delete failed: {e}")
+        else:
+            # LI mode: cascading delete via graph_index.delete_ref_doc + store.delete(properties)
+            _li_graph_index = self.graph_index or (getattr(hs, "graph_index", None) if hs else None)
+            if _li_graph_index is not None:
+                try:
+                    self._delete_from_graph_helper(doc_id, _li_graph_index, "graph")
+                    logger.info(f"  Deleted from LI graph index (ref_doc_id={doc_id})")
+                except Exception as e:
+                    logger.warning(f"  LI graph delete failed: {e}")
+
+        # Delete from RDF stores (when rdf_graph_db != none)
         if self.hybrid_system is not None:
             try:
-                self.hybrid_system._delete_from_rdf_stores(doc_id)
+                rdf_adapter = getattr(self.hybrid_system, "rdf_adapter", None)
+                if rdf_adapter is not None:
+                    from rdf.kg_to_rdf_converter import DEFAULT_BASE_NS
+                    graph_uri = DEFAULT_BASE_NS.rstrip("/")
+                    rdf_adapter.delete(doc_id, graph_uri=graph_uri)
+                    logger.info(f"  Deleted RDF triples for ref_doc_id={doc_id}")
+                else:
+                    self.hybrid_system._delete_from_rdf_stores(doc_id)
             except Exception as e:
                 logger.warning(f"  RDF store delete error for doc '{doc_id}': {e}")
 
@@ -420,13 +394,13 @@ class IncrementalUpdateEngine:
             # Note: May log "ref_doc_id not found" warning from LlamaIndex - this is expected
             try:
                 logger.debug(f"  Deleting {prefix}chunk nodes")
-                self.graph_index.delete_ref_doc(ref_doc_id=doc_id, delete_from_docstore=True)
+                graph_index.delete_ref_doc(ref_doc_id=doc_id, delete_from_docstore=True)
             except Exception as e:
                 # Expected: document might not exist in graph docstore
                 logger.debug(f"  {prefix}chunk nodes not found or already deleted")
             
             # Step 2: Delete entities by doc_id property
-            graph_store = self.graph_index.property_graph_store
+            graph_store = graph_index.property_graph_store
             if hasattr(graph_store, 'delete') and callable(graph_store.delete):
                 try:
                     logger.debug(f"  Deleting {prefix}entities")
@@ -756,9 +730,49 @@ class IncrementalUpdateEngine:
                 return
             else:
                 # File already exists in document_state
-                # For detectors with real-time events, skip (already processed)
-                # For detectors without real-time events (GCS, Azure), we should check for updates
-                # but this requires downloading content, so skip for now (rely on timestamp check above)
+                detector_name = detector.__class__.__name__ if hasattr(detector, '__class__') else 'unknown'
+
+                # For FilesystemDetector: if mtime has changed, re-process (MODIFY = DELETE + ADD).
+                # The timestamp-unchanged check above returned early when mtime matched,
+                # so reaching here means the mtime DID change (or was not recorded).
+                if detector_name == 'FilesystemDetector':
+                    # Guard: only re-process if the ordinal (mtime×1e6) actually changed.
+                    # If ordinal is unchanged, the file content is the same — skip.
+                    if existing_state and existing_state.ordinal and metadata.ordinal and existing_state.ordinal >= metadata.ordinal:
+                        logger.debug(f"SKIP: {metadata.path}: ordinal unchanged ({existing_state.ordinal})")
+                        return
+
+                    logger.info(f"MODIFY: {metadata.path}: mtime changed (ordinal {getattr(existing_state, 'ordinal', '?')} -> {metadata.ordinal}) — emitting DELETE+ADD event")
+                    full_path = metadata.path
+
+                    async def _modify_add_callback():
+                        logger.info(f"MODIFY: DELETE completed, now re-ingesting {full_path}")
+                        try:
+                            relative_path = os.path.basename(full_path)
+                            await detector._process_via_backend(full_path, relative_path)
+                            logger.info(f"MODIFY: re-ingest succeeded for {full_path}")
+                        except Exception as exc:
+                            logger.error(f"MODIFY: re-ingest failed for {full_path}: {exc}")
+
+                    delete_event = ChangeEvent(
+                        metadata=FileMetadata(
+                            source_type='filesystem',
+                            path=full_path,
+                            ordinal=metadata.ordinal,
+                            extra={},
+                        ),
+                        change_type=ChangeType.DELETE,
+                        timestamp=event.timestamp,
+                        is_modify_delete=True,
+                        modify_callback=_modify_add_callback,
+                    )
+                    await self.process_change_event(delete_event, detector, config_id)
+                    return
+
+                # For detectors with real-time events (Box, Drive, S3, Alfresco), skip —
+                # the event stream already handles MODIFY events.
+                # For GCS/Azure periodic mode without real-time events, updating would require
+                # downloading content to compare; skip for now (rely on timestamp check above).
                 logger.info(f"SKIP: {metadata.path}: Backend-integrated detector (existing file)")
                 return
         
@@ -949,8 +963,29 @@ class IncrementalUpdateEngine:
         
         logger.info(f"Existing document_state identifiers ({len(existing_identifiers)}): {existing_identifiers}")
         
-        # Detect deletions - files in document_state but not in current source
-        deleted_identifiers = existing_identifiers - current_identifiers
+        # Detect deletions - files in document_state but not in current source.
+        # On Windows, paths may be stored with different case (C:\ vs c:\) across
+        # the initial REST ingest and the filesystem detector.  Normalize both sets
+        # so that "C:\foo\bar.txt" and "c:\foo\bar.txt" are treated as equal.
+        import sys as _sys
+        if _sys.platform == "win32":
+            try:
+                from incremental_updates.path_utils import normalize_filesystem_path as _norm
+                _current_norm  = {_norm(i) for i in current_identifiers}
+                _existing_norm = {_norm(i) for i in existing_identifiers}
+                # Rebuild state_by_id with normalized keys so the deletion loop finds states
+                _state_by_id_norm = {_norm(k): v for k, v in state_by_id.items()}
+                deleted_norm = _existing_norm - _current_norm
+                # Map normalized deleted keys back to original identifiers for logging
+                deleted_identifiers = {k for k in existing_identifiers if _norm(k) in deleted_norm}
+                # Update state_by_id lookup to use normalized key for deleted entries
+                for _k in list(deleted_identifiers):
+                    if _norm(_k) in _state_by_id_norm and _k not in state_by_id:
+                        state_by_id[_k] = _state_by_id_norm[_norm(_k)]
+            except Exception:
+                deleted_identifiers = existing_identifiers - current_identifiers
+        else:
+            deleted_identifiers = existing_identifiers - current_identifiers
         if deleted_identifiers:
             logger.info(f"Detected {len(deleted_identifiers)} deleted file(s): {deleted_identifiers}")
             logger.info(f"   These files are in document_state but NOT in current source listing")

@@ -29,7 +29,7 @@ All three stores support **RDF 1.2** triple terms and annotations (relation prov
 ### 3. UI Search and Query
 
 Regardless of which stores are configured, the UI always provides:
-- **Hybrid Search tab** — combines results from all enabled retrievers: vector, BM25/full-text, property graph, and RDF store (via LangChain QA chain when `USE_LANGCHAIN_RDF=true`)
+- **Hybrid Search tab** — combines results from all enabled retrievers: vector, BM25/full-text, property graph, and RDF store (when `RDF_GRAPH_DB != none`)
 - **AI Query / AI Chat tabs** — natural language Q&A over all enabled stores simultaneously
 
 RDF store results are fused into the same retrieval pipeline as vector, search, and property graph results — no separate query interface needed.
@@ -89,11 +89,7 @@ RDF store results are fused into the same retrieval pipeline as vector, search, 
 
 ### Environment Variables
 
-Add these to your `.env` file. You can use either **standalone variables** (recommended for simplicity) or **JSON array** (for advanced configurations).
-
-#### Method 1: Standalone Variables (Recommended)
-
-Simple, clear configuration with dedicated variables for each store:
+Add these to your `.env` file:
 
 ```bash
 # ===========================
@@ -103,101 +99,31 @@ USE_ONTOLOGY=true
 ONTOLOGY_PATH=./rdf/schemas/company_ontology.ttl
 ONTOLOGY_FORMAT=turtle          # turtle | rdfxml | ntriples | nquads
 STRICT_SCHEMA_VALIDATION=false  # true = only extract types in schema; false = schema guides but LLM can go beyond it (default)
-# ===========================
-# RDF Store Configuration (Standalone Variables)
-# ===========================
 
-# Apache Fuseki
-FUSEKI_ENABLED=true
+# ===========================
+# RDF Graph Store Selection
+# ===========================
+PG_GRAPH_DB=neo4j               # property graph store (or none)
+RDF_GRAPH_DB=fuseki             # fuseki | graphdb | oxigraph | none
+
+# Apache Fuseki connection details
 FUSEKI_BASE_URL=http://localhost:3030
 FUSEKI_DATASET=flexible-graphrag
 
-# Ontotext GraphDB
-GRAPHDB_ENABLED=true
-GRAPHDB_BASE_URL=http://localhost:7200
-GRAPHDB_REPOSITORY=flexible-graphrag
-GRAPHDB_USERNAME=admin
-GRAPHDB_PASSWORD=admin
+# Ontotext GraphDB connection details (use when RDF_GRAPH_DB=graphdb)
+# GRAPHDB_BASE_URL=http://localhost:7200
+# GRAPHDB_REPOSITORY=flexible-graphrag
+# GRAPHDB_USERNAME=admin
+# GRAPHDB_PASSWORD=admin
 
-# Oxigraph (optional)
-OXIGRAPH_ENABLED=false
-OXIGRAPH_STORE_PATH=./data/oxigraph_store
+# Oxigraph connection details (use when RDF_GRAPH_DB=oxigraph)
+# OXIGRAPH_URL=http://localhost:7878
 
 # ===========================
-# Query Routing
+# RDF Annotation Syntax
 # ===========================
-QUERY_ROUTING_DEFAULT=hybrid    # property_graph | sparql | hybrid | auto
-DEFAULT_RDF_BACKEND=graphdb
-SUPPORT_SPARQL=true
-SUPPORT_CYPHER=true
-
-# ===========================
-# RDF Export
-# ===========================
-ENABLE_RDF_EXPORT=true
-RDF_EXPORT_FORMAT=turtle        # turtle | rdfxml | ntriples | nquads
-```
-
-#### Method 2: JSON Array (Advanced)
-
-For dynamic or complex configurations, use the JSON array format:
-
-```bash
-# ===========================
-# Ontology Configuration
-# ===========================
-USE_ONTOLOGY=true
-ONTOLOGY_PATH=./rdf/schemas/company_ontology.ttl
-ONTOLOGY_FORMAT=turtle
-STRICT_SCHEMA_VALIDATION=false  # true = only extract types in schema; false = schema guides but LLM can go beyond it (default)
-# ===========================
-# RDF Store Configuration (JSON Array)
-# ===========================
-# Comma-separated list of enabled RDF stores
-RDF_ENABLED_STORES=fuseki,graphdb,oxigraph
-
-# RDF store configurations (JSON array)
-RDF_STORES=[
-  {
-    "name": "fuseki",
-    "type": "fuseki",
-    "config": {
-      "base_url": "http://localhost:3030",
-      "dataset": "flexible-graphrag"
-    }
-  },
-  {
-    "name": "graphdb",
-    "type": "graphdb",
-    "config": {
-      "base_url": "http://localhost:7200",
-      "repository": "flexible-graphrag",
-      "username": "admin",
-      "password": "admin"
-    }
-  },
-  {
-    "name": "oxigraph",
-    "type": "oxigraph",
-    "config": {
-      "store_path": "./data/oxigraph_store"
-    }
-  }
-]
-
-# ===========================
-# Query Routing
-# ===========================
-QUERY_ROUTING_DEFAULT=hybrid    # property_graph | sparql | hybrid | auto
-DEFAULT_RDF_BACKEND=graphdb
-SUPPORT_SPARQL=true
-SUPPORT_CYPHER=true
-
-# ===========================
-# RDF Export
-# ===========================
-ENABLE_RDF_EXPORT=true
-RDF_EXPORT_FORMAT=turtle        # turtle | rdfxml | ntriples | nquads
+RDF_ANNOTATION_SYNTAX=rdf_1.2  # rdf_1.2 (default) | rdf_star | flat
+RDF_BASE_NAMESPACE=https://integratedsemantics.org/flexible-graphrag/kg/
 ```
 
 ### Docker Compose Integration
@@ -224,15 +150,13 @@ Access dashboards:
 
 ## Storage Modes
 
-Set `INGESTION_STORAGE_MODE` to control where extracted entities and triples go on ingest. Documents are written directly to whichever stores are configured — there is no automatic export step.
+Use `PG_GRAPH_DB` and `RDF_GRAPH_DB` pickers to control where extracted entities and triples go on ingest. Documents are written directly to whichever stores are configured — there is no automatic export step.
 
 ### Mode 1: Property Graph Only
 
-Extracted entities and relations go to the configured property graph store (Neo4j, FalkorDB, ArcadeDB, etc.). No RDF store required.
-
 ```bash
-INGESTION_STORAGE_MODE=property_graph
-GRAPH_DB=neo4j
+PG_GRAPH_DB=neo4j
+RDF_GRAPH_DB=none
 
 # Optional: load an ontology to guide extraction types
 USE_ONTOLOGY=true
@@ -243,46 +167,34 @@ ONTOLOGY_PATH=./rdf/schemas/company_ontology.ttl
 
 ---
 
-### Mode 2: RDF Stores Only
+### Mode 2: RDF Graph Store Only
 
-Extracted triples go directly to the configured RDF store(s). Use when you want native SPARQL 1.1 queries and RDF 1.2 annotation storage.
+Extracted triples go directly to the configured RDF store. Use when you want native SPARQL 1.1 queries and RDF 1.2 annotation storage.
 
 ```bash
-INGESTION_STORAGE_MODE=rdf_only
-
-# Enable one or more RDF stores
-FUSEKI_ENABLED=true
+PG_GRAPH_DB=none
+RDF_GRAPH_DB=fuseki
 FUSEKI_BASE_URL=http://localhost:3030
 FUSEKI_DATASET=flexible-graphrag
-
-GRAPHDB_ENABLED=true
-GRAPHDB_BASE_URL=http://localhost:7200
-GRAPHDB_REPOSITORY=flexible-graphrag
 
 # Optional ontology
 USE_ONTOLOGY=true
 ONTOLOGY_PATH=./rdf/schemas/company_ontology.ttl
 ```
 
-**UI**: Hybrid Search and AI Query/Chat include RDF store results when `USE_LANGCHAIN_RDF=true`. Vector and BM25 still active; property graph retriever inactive (no PG store configured).
+**UI**: Hybrid Search and AI Query/Chat include RDF store results when `RDF_GRAPH_DB` is set. Vector and BM25 still active; property graph retriever inactive.
 
 ---
 
-### Mode 3: Property Graph + RDF Stores Side by Side
+### Mode 3: Property Graph + RDF Store Side by Side
 
-Extracted entities go to both stores simultaneously on ingest — no export step. Each store is written independently in the same pipeline pass.
+Extracted entities go to both stores simultaneously on ingest — no export step.
 
 ```bash
-INGESTION_STORAGE_MODE=both
-GRAPH_DB=neo4j
-
-FUSEKI_ENABLED=true
+PG_GRAPH_DB=neo4j
+RDF_GRAPH_DB=fuseki
 FUSEKI_BASE_URL=http://localhost:3030
 FUSEKI_DATASET=flexible-graphrag
-
-# Optional: add GraphDB and/or Oxigraph alongside
-GRAPHDB_ENABLED=true
-OXIGRAPH_ENABLED=false
 
 USE_ONTOLOGY=true
 ONTOLOGY_PATH=./rdf/schemas/company_ontology.ttl
@@ -292,14 +204,25 @@ ONTOLOGY_PATH=./rdf/schemas/company_ontology.ttl
 
 ---
 
+### Skipping Graph Extraction
+
+KG extraction (and therefore all graph writes — both PG and RDF) can be bypassed at ingest time:
+
+- **`skip_graph=true`** on a per-ingest call (UI; REST API `POST /api/ingest`, `POST /api/ingest-text`, `POST /api/test-sample`; MCP tools `ingest_documents`, `ingest_text`, `test_with_sample`; Python API `backend.ingest_documents()` / `backend.ingest_text()` / `system.ingest_documents()`; also persisted per-datasource for incremental sync) — skips LLM extraction and graph writes for that document; vector and full-text stores are still updated
+- **`ENABLE_KNOWLEDGE_GRAPH=false`** in `.env` — same effect globally for every ingest
+
+Previously extracted RDF triples are **not deleted** when either option is used. Hybrid Search and AI Query / Chat still return results from earlier extractions until you explicitly clear them with `scripts/rdf_cleanup.py`.
+
+---
+
 ### Store Comparison
 
 | | Property Graph | RDF Store |
 |---|---|---|
 | **Storage** | Nodes + edges (Cypher) | Triples + named graphs (SPARQL 1.1) |
 | **Annotations** | Properties on relations | RDF 1.2 triple terms |
-| **Hybrid Search** | ✅ Yes | ✅ Yes (with `USE_LANGCHAIN_RDF=true`) |
-| **AI Query / Chat** | ✅ Yes | ✅ Yes (with `USE_LANGCHAIN_RDF=true`) |
+| **Hybrid Search** | ✅ Yes | ✅ Yes (when `RDF_GRAPH_DB != none`) |
+| **AI Query / Chat** | ✅ Yes | ✅ Yes (when `RDF_GRAPH_DB != none`) |
 | **SPARQL** | Via wrapper (not native) | ✅ Native SPARQL 1.1 |
 | **OWL Reasoning** | ❌ No | ✅ GraphDB only |
 
@@ -322,7 +245,7 @@ All RDF endpoints are available under `/api/rdf/`:
 
 ### Direct SPARQL / Cypher Queries
 
-> **Note**: The `/api/rdf/query/` endpoints use the `UnifiedQueryEngine` which is currently untested. For natural language queries over RDF stores, use the standard UI (Hybrid Search / AI Query / AI Chat) with `USE_LANGCHAIN_RDF=true` — that path is fully tested.
+> **Note**: The `/api/rdf/query/` endpoints use the `UnifiedQueryEngine` which is currently untested. For natural language queries over RDF stores, use the standard UI (Hybrid Search / AI Query / AI Chat) with `RDF_GRAPH_DB` set — that path is fully tested.
 
 - **POST** `/api/rdf/query/sparql` - Execute SPARQL query directly
   ```bash
@@ -424,10 +347,7 @@ uv pip install -e .
 ```
 
 ### Optional: Full RDF Stack
-For advanced SPARQL features:
-```bash
-uv pip install -e ".[rdf-full]"
-```
+For advanced SPARQL features: `uv pip install -e '.[rdf-full]'`
 
 ## Performance Considerations
 
@@ -577,7 +497,7 @@ SELECT (COUNT(*) AS ?triples) WHERE {
 
 A command-line utility for managing RDF store data without recreating Docker containers or volumes. Run from the project root with the venv active.
 
-> **Note:** The script auto-detects which stores to target from your `.env` (`FUSEKI_ENABLED`, `GRAPHDB_ENABLED`, `OXIGRAPH_ENABLED`). Use the store flags to override and target a specific store regardless of `.env`.
+> **Note:** The script auto-detects which store to target from your `.env` (`RDF_GRAPH_DB`). Use the store flags to override and target a specific store regardless of `.env`.
 
 #### Setup
 
@@ -676,14 +596,12 @@ The script reads the same `.env` as the main application:
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `FUSEKI_ENABLED` | `false` | Auto-detect Fuseki |
-| `FUSEKI_BASE_URL` | `http://localhost:3030` | Fuseki URL |
+| `RDF_GRAPH_DB` | `none` | Active RDF store: `fuseki` / `graphdb` / `oxigraph` / `none` |
+| `FUSEKI_BASE_URL` | `http://localhost:3030` | Fuseki URL (when `RDF_GRAPH_DB=fuseki`) |
 | `FUSEKI_DATASET` | `flexible-graphrag` | Fuseki dataset name |
-| `GRAPHDB_ENABLED` | `false` | Auto-detect GraphDB |
-| `GRAPHDB_BASE_URL` | `http://localhost:7200` | GraphDB URL |
+| `GRAPHDB_BASE_URL` | `http://localhost:7200` | GraphDB URL (when `RDF_GRAPH_DB=graphdb`) |
 | `GRAPHDB_REPOSITORY` | `flexible-graphrag` | GraphDB repository name |
-| `OXIGRAPH_ENABLED` | `false` | Auto-detect Oxigraph |
-| `OXIGRAPH_URL` | `http://localhost:7878` | Oxigraph HTTP URL |
+| `OXIGRAPH_URL` | `http://localhost:7878` | Oxigraph HTTP URL (when `RDF_GRAPH_DB=oxigraph`) |
 | `RDF_BASE_NAMESPACE` | `https://integratedsemantics.org/flexible-graphrag/kg` | Named graph URI |
 
 ### RDF 1.2 Annotation Serialisation Differences Between Stores

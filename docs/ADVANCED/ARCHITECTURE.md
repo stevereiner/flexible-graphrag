@@ -18,7 +18,7 @@ Flexible GraphRAG is a multi-layered document intelligence platform that support
 - **13 data sources**: File upload, cloud storage (S3, GCS, Azure Blob, OneDrive, SharePoint, Box, Google Drive), repositories (CMIS, Alfresco), and web sources (Web pages, Wikipedia, YouTube)
 - **Hybrid search**: Vector similarity, full-text search (BM25/Elasticsearch/OpenSearch), and graph traversal (GraphRAG)
 - **Multiple interfaces**: REST API, MCP protocol for AI assistants, and web UIs (Angular, React, Vue)
-- **Flexible databases**: 10 vector stores, 9 graph databases, 3 search engines
+- **Flexible databases**: 10 vector stores, 15 property graph databases, 3 RDF graph stores, 3 search engines, 13 LLM providers
 
 ```
 +--------------------------------------------------------------------------+
@@ -207,7 +207,7 @@ The MCP server uses an **HTTP client pattern** to communicate with the backend, 
 ```toml
 [project]
 name = "flexible-graphrag-mcp"
-version = "1.0.0"
+version = "0.5.2"
 dependencies = [
     "fastmcp",      # MCP protocol
     "nest-asyncio",  # Event loop patching
@@ -288,14 +288,20 @@ flexible-graphrag-mcp = "main:main"  # Entry point
 |  +--------------------+-------------------------------+    |
 |                       |                                    |
 |                       v                                    |
-|  LlamaIndex Ingestion Pipeline                             |
+|  Ingestion Pipeline (CHUNKER_BACKEND/KG_EXTRACTOR_BACKEND) |
 |  +----------------------------------------------------+    |
-|  | 1. Text chunking (SentenceSplitter)                |    |
-|  | 2. Embedding generation (OpenAI/Ollama)            |    |
+|  | 1. Text chunking:                                  |    |
+|  |    • LlamaIndex SentenceSplitter (default)         |    |
+|  |    • LangChain splitters: recursive, character,    |    |
+|  |      token, markdown, python, sentence_transformers|    |
+|  | 2. Embedding generation (OpenAI/Ollama/Gemini/...) |    |
 |  | 3. Knowledge graph extraction:                     |    |
-|  |    • SimpleLLMPathExtractor (basic)                |    |
-|  |    • SchemaLLMPathExtractor (with schema)          |    |
+|  |    LlamaIndex extractors:                          |    |
+|  |    • SchemaLLMPathExtractor (ontology-guided)      |    |
 |  |    • DynamicLLMPathExtractor (LLM-guided)          |    |
+|  |    • SimpleLLMPathExtractor (basic)                |    |
+|  |    LangChain extractor:                            |    |
+|  |    • LLMGraphTransformer (graph documents)         |    |
 |  +-------------------+--------------------------------+    |
 |                      |                                     |
 |                      v                                     |
@@ -362,17 +368,32 @@ LLAMAPARSE_AGENT_MODEL=openai-gpt-4-1-mini # Required for agent mode
 |  | • LanceDB (modern embedded)                        |    |
 |  +----------------------------------------------------+    |
 |                                                            |
-|  Graph Databases (9 options)                               |
+|  Property Graph Databases (15, set via PG_GRAPH_DB)        |
 |  +----------------------------------------------------+    |
+|  | LlamaIndex backend:                                |    |
 |  | • Neo4j (property graph, Cypher)                   |    |
-|  | • Ladybug (embedded, Cypher)                       |    |
 |  | • FalkorDB (GraphBLAS, optimized for LLM)          |    |
-|  | • ArcadeDB (multi-model: graph/doc/KV/search)      |    |
-|  | • MemGraph (real-time, streaming)                  |    |
+|  | • ArcadeDB (multi-model: graph/doc/KV/vector)      |    |
+|  | • Memgraph (real-time, Cypher)                     |    |
 |  | • NebulaGraph (distributed, large-scale)           |    |
-|  | • Neptune (AWS managed, property/RDF)              |    |
-|  | • Neptune Analytics (serverless analytics)         |    |
-|  | • None (disable knowledge graph)                   |    |
+|  | • Ladybug (embedded local, Cypher)                 |    |
+|  | • Neptune (AWS managed property graph)             |    |
+|  | • Neptune Analytics (AWS serverless analytics)     |    |
+|  | LangChain backend (additional stores):             |    |
+|  | • ArangoDB (multi-model, AQL)                      |    |
+|  | • Apache AGE (PostgreSQL extension, Cypher)        |    |
+|  | • HugeGraph (distributed, Cypher/Gremlin)          |    |
+|  | • SurrealDB (multi-model, SurrealQL)               |    |
+|  | • Azure Cosmos DB for Gremlin (cloud Gremlin)      |    |
+|  | • TigerGraph (GSQL, analytics)                     |    |
+|  | • Spanner (Google Cloud, Spanner Graph)            |    |
+|  +----------------------------------------------------+    |
+|                                                            |
+|  RDF Graph Stores (3, set via RDF_GRAPH_DB)                |
+|  +----------------------------------------------------+    |
+|  | • Ontotext GraphDB (SPARQL 1.1, OWL reasoning)     |    |
+|  | • Apache Jena Fuseki (open-source SPARQL server)   |    |
+|  | • Oxigraph (embedded/HTTP, RDF 1.2)                |    |
 |  +----------------------------------------------------+    |
 |                                                            |
 |  Search Engines (3 options)                                |
@@ -382,13 +403,21 @@ LLAMAPARSE_AGENT_MODEL=openai-gpt-4-1-mini # Required for agent mode
 |  | • OpenSearch (AWS fork, hybrid scoring)            |    |
 |  +----------------------------------------------------+    |
 |                                                            |
-|  LLM Providers (5 options)                                 |
+|  LLM Providers (13 options, set via LLM_PROVIDER)          |
 |  +----------------------------------------------------+    |
-|  | • OpenAI (GPT-4o, GPT-4o-mini)                     |    |
-|  | • Ollama (local: llama3.1, llama3.2, gpt-oss)      |    |
+|  | • OpenAI (GPT-4o, GPT-4.1-mini, etc.)              |    |
+|  | • Ollama (local: gpt-oss:20b, llama3, etc.)        |    |
 |  | • Azure OpenAI (enterprise GPT models)             |    |
 |  | • Anthropic (Claude models)                        |    |
-|  | • Google Gemini (Gemini models)                    |    |
+|  | • Google Gemini (gemini-3-flash-preview, etc.)     |    |
+|  | • Google Vertex AI (Gemini via Vertex endpoint)    |    |
+|  | • AWS Bedrock (Claude, Titan, etc.)                |    |
+|  | • Groq (fast cloud inference)                      |    |
+|  | • Fireworks AI (OSS models at scale)               |    |
+|  | • OpenAI-compatible / vLLM (self-hosted)           |    |
+|  | • LiteLLM (proxy: 100+ providers)                  |    |
+|  | • OpenRouter (unified cloud routing)               |    |
+|  | • VLLM (Linux/GPU local serving)                   |    |
 |  +----------------------------------------------------+    |
 |                                                            |
 |  factories.py (Database Factory Pattern)                   |
@@ -400,10 +429,13 @@ LLAMAPARSE_AGENT_MODEL=openai-gpt-4-1-mini # Required for agent mode
 |  | • create_text_search() - Search engine selection   |    |
 |  |                                                    |    |
 |  | All configurable via environment variables:        |    |
-|  | • LLM_PROVIDER=openai/ollama/azure/...             |    |
+|  | • LLM_PROVIDER=openai/ollama/azure/gemini/...      |    |
 |  | • VECTOR_DB=neo4j/qdrant/elasticsearch/...         |    |
-|  | • GRAPH_DB=neo4j/ladybug/falkordb/arcadedb/...     |    |
+|  | • PG_GRAPH_DB=neo4j/arangodb/falkordb/...          |    |
+|  | • RDF_GRAPH_DB=graphdb/fuseki/oxigraph             |    |
 |  | • SEARCH_DB=bm25/elasticsearch/opensearch          |    |
+|  | • GRAPH_BACKEND=llamaindex/langchain               |    |
+|  | • CHUNKER_BACKEND=llamaindex/langchain             |    |
 |  +----------------------------------------------------+    |
 |                                                            |
 +------------------------------------------------------------+
@@ -415,8 +447,8 @@ For simpler deployments without knowledge graph extraction:
 
 ```bash
 # .env configuration
-GRAPH_DB=none
-ENABLE_KNOWLEDGE_GRAPH=false
+PG_GRAPH_DB=none
+RDF_GRAPH_DB=none
 VECTOR_DB=qdrant              # Any vector store
 SEARCH_DB=elasticsearch        # Any search engine
 ```
@@ -760,27 +792,42 @@ flexible-graphrag/
 ### Environment Variable Hierarchy
 
 1. **LLM Configuration**
-   - `LLM_PROVIDER`: openai, ollama, azure_openai, anthropic, gemini
-   - `EMBEDDING_PROVIDER`: openai, ollama, azure_openai
+   - `LLM_PROVIDER`: openai, ollama, azure_openai, anthropic, gemini, vertex_ai, bedrock, groq, fireworks, openai_like, vllm, litellm, openrouter
+   - `EMBEDDING_KIND`: openai, ollama, azure_openai, google, vertex, bedrock, fireworks, openai_like, litellm
    - Provider-specific: `OPENAI_API_KEY`, `OLLAMA_BASE_URL`, etc.
+   - Per-kind embedding model: `OPENAI_EMBEDDING_MODEL`, `OLLAMA_EMBEDDING_MODEL`, `GOOGLE_EMBEDDING_MODEL`, etc.
 
-2. **Database Configuration**
-   - `VECTOR_DB` + `VECTOR_DB_CONFIG` (JSON)
-   - `GRAPH_DB` + `GRAPH_DB_CONFIG` (JSON)
-   - `SEARCH_DB` + `SEARCH_DB_CONFIG` (JSON)
+2. **Database Selection**
+   - `VECTOR_DB`: neo4j, qdrant, elasticsearch, opensearch, chroma, milvus, weaviate, pinecone, postgres, lancedb
+   - `PG_GRAPH_DB`: neo4j, falkordb, arcadedb, memgraph, nebula, ladybug, neptune, neptune_analytics, arangodb, apache_age, hugegraph, surrealdb, cosmos_gremlin, tigergraph, spanner, none
+   - `RDF_GRAPH_DB`: graphdb, fuseki, oxigraph, none
+   - `SEARCH_DB`: bm25, elasticsearch, opensearch
 
-3. **Document Processing**
+3. **Per-Store Config** (preferred; avoids collisions between stores)
+   - `{TYPE}_VECTOR_DB_CONFIG` (JSON) — e.g. `NEO4J_VECTOR_DB_CONFIG`, `QDRANT_VECTOR_DB_CONFIG`
+   - `{TYPE}_GRAPH_DB_CONFIG` (JSON) — e.g. `NEO4J_GRAPH_DB_CONFIG`, `FALKORDB_GRAPH_DB_CONFIG`
+   - `{TYPE}_SEARCH_DB_CONFIG` (JSON) — e.g. `ELASTICSEARCH_SEARCH_DB_CONFIG`
+
+4. **Framework Backends** (all default to llamaindex)
+   - `GRAPH_BACKEND`: llamaindex | langchain
+   - `VECTOR_BACKEND`: llamaindex | langchain
+   - `SEARCH_BACKEND`: llamaindex | langchain
+   - `CHUNKER_BACKEND`: llamaindex | langchain (LC splitter type: `LC_SPLITTER_TYPE`)
+   - `KG_EXTRACTOR_BACKEND`: llamaindex | langchain
+   - `RETRIEVAL_FUSION`: llamaindex | langchain
+
+5. **Document Processing**
    - `DOCUMENT_PARSER`: docling (default), llamaparse
    - `LLAMAPARSE_MODE`: parse_page_with_llm (default), parse_page_without_llm, parse_page_with_agent
    - `LLAMAPARSE_API_KEY`: Required for LlamaParse
 
-4. **Knowledge Graph**
+6. **Knowledge Graph**
    - `ENABLE_KNOWLEDGE_GRAPH`: true (default), false
-   - `KG_EXTRACTOR_TYPE`: schema (default), simple, dynamic
-   - `SCHEMA_NAME`: none, default, custom
-   - `SCHEMAS`: JSON array of schemas
+   - `KG_EXTRACTOR_BACKEND`: llamaindex | langchain
+   - `KG_EXTRACTOR_TYPE`: schema (default), dynamic, simple
+   - `USE_ONTOLOGY`: true | false (use RDF ontology to guide extraction)
 
-5. **Timeouts**
+7. **Timeouts**
    - `OPENAI_TIMEOUT`: 120.0
    - `OLLAMA_TIMEOUT`: 300.0
    - `KG_EXTRACTION_TIMEOUT`: 3600
@@ -798,7 +845,7 @@ The Flexible GraphRAG architecture demonstrates:
    - Frontend clients (Angular, React, Vue)
 
 2. **Database Flexibility**
-   - 10 vector stores, 9 graph databases, 3 search engines
+   - 10 vector stores, 15 property graph databases, 3 RDF stores, 3 search engines, 13 LLM providers
    - Easy switching via environment variables
    - Factory pattern abstracts database complexity
 

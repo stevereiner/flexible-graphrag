@@ -77,7 +77,7 @@ The Incremental Update System provides real-time and periodic synchronization of
 - **[Quick Start Guide](./QUICKSTART.md)** - Get running in 5 minutes
 - **[Setup Guide](./SETUP-GUIDE.md)** - Complete installation and configuration
 - **[API Reference](./API-REFERENCE.md)** - REST API documentation
-- **[S3 Setup Guide](./S3-SETUP.md)** - Configure S3 with event notifications
+- **[S3 Setup Guide](../S3-SETUP.md)** - Configure S3 with event notifications
 
 ## How It Works
 

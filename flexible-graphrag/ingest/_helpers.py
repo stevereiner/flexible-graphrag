@@ -10,6 +10,15 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+def make_kg_extractor(system):
+    """Create a KG extractor from system config (shared across all ingest paths)."""
+    return system.schema_manager.create_extractor(
+        system.llm,
+        llm_provider=system.config.llm_provider,
+        extractor_type=system.config.kg_extractor_type,
+    )
+
+
 def _check_cancellation(processing_id: str) -> bool:
     """Return True if processing_id has been cancelled."""
     if processing_id:
@@ -39,8 +48,13 @@ def generate_completion_message(config, doc_count: int, skip_graph: bool = False
         skip_graph: If True, graph was skipped for this ingest
     """
     has_vector = str(config.vector_db) != "none"
-    has_graph = str(config.graph_db) != "none" and config.enable_knowledge_graph and not skip_graph
+    has_graph = str(config.pg_graph_db) != "none" and config.enable_knowledge_graph and not skip_graph
     has_search = str(config.search_db) != "none"
+    has_rdf_graph = (
+        str(getattr(config, "rdf_graph_db", "none")).lower() not in ("none", "")
+        and config.enable_knowledge_graph
+        and not skip_graph
+    )
 
     db_name_map = {
         "opensearch": "OpenSearch",
@@ -51,25 +65,38 @@ def generate_completion_message(config, doc_count: int, skip_graph: bool = False
         "weaviate": "Weaviate",
         "milvus": "Milvus",
         "neo4j": "Neo4j",
-        "ladybug": "Ladybug",
+        "ladybug": "LadybugDB",
         "falkordb": "FalkorDB",
         "nebula": "NebulaGraph",
         "neptune": "Neptune",
+        "neptune_analytics": "Neptune Analytics",
         "memgraph": "Memgraph",
         "arcadedb": "ArcadeDB",
+        "arangodb": "ArangoDB",
+        "apache_age": "Apache AGE",
+        "cosmos_gremlin": "Azure Cosmos DB for Gremlin",
+        "spanner": "Spanner Graph",
+        "hugegraph": "HugeGraph",
+        "tigergraph": "TigerGraph",
+        "surrealdb": "SurrealDB",
+        "fuseki": "Apache Jena Fuseki",
+        "oxigraph": "Oxigraph",
+        "graphdb": "Ontotext GraphDB",
         "bm25": "BM25",
     }
 
+    def _db_label(key: str) -> str:
+        return db_name_map.get(str(key).lower(), str(key).title())
+
     features = []
     if has_vector:
-        vector_db = str(config.vector_db).lower()
-        features.append(f"{db_name_map.get(vector_db, vector_db.title())} vector index")
+        features.append(f"{_db_label(config.vector_db)} vector")
     if has_search:
-        search_db = str(config.search_db).lower()
-        features.append(f"{db_name_map.get(search_db, search_db.title())} search")
+        features.append(f"{_db_label(config.search_db)} search")
     if has_graph:
-        graph_db = str(config.graph_db).lower()
-        features.append(f"{db_name_map.get(graph_db, graph_db.title())} knowledge graph")
+        features.append(f"{_db_label(config.pg_graph_db)} property graph")
+    if has_rdf_graph:
+        features.append(f"{_db_label(config.rdf_graph_db)} rdf graph")
 
     if features:
         if len(features) == 1:

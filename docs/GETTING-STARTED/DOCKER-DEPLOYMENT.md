@@ -66,7 +66,7 @@ docker-compose -f docker-compose.yaml -p flexible-graphrag up -d
 
 ### Run Backend and UI Locally
 
-Follow [Getting Started — Backend](GETTING-STARTED.md#python-backend-installation) and [Frontend Setup](GETTING-STARTED.md#frontend-setup-standalone).
+Follow [Getting Started — Backend](PYTHON-BACKEND.md) and [Frontend Setup](FRONTEND-SETUP.md#standalone-installation).
 
 ---
 
@@ -114,20 +114,42 @@ Comment or uncomment includes in `docker-compose.yaml` to choose your stack:
 | Include File | Database | Dashboard |
 |---|---|---|
 | `includes/qdrant.yaml` | Qdrant | http://localhost:6333/dashboard |
+| `includes/elasticsearch-dev.yaml` | Elasticsearch (also as vector) | — (Kibana: http://localhost:5601) |
+| `includes/opensearch.yaml` | OpenSearch (also as vector) | http://localhost:9201 |
 | `includes/milvus.yaml` | Milvus | http://localhost:9091 |
 | `includes/weaviate.yaml` | Weaviate | http://localhost:8080 |
 | `includes/chroma.yaml` | Chroma | — |
 | `includes/postgres-pgvector.yaml` | PostgreSQL pgvector | http://localhost:5050 (pgAdmin) |
 | `includes/lancedb.yaml` | LanceDB | — |
+| `includes/neo4j.yaml` | Neo4j (also as vector) | http://localhost:7474 |
+
+Pinecone is a cloud service — no Docker include required.
 
 ### Property Graph Databases
+
+**LlamaIndex + LangChain (both frameworks):**
 
 | Include File | Database | Dashboard |
 |---|---|---|
 | `includes/neo4j.yaml` | Neo4j | http://localhost:7474 |
 | `includes/arcadedb.yaml` | ArcadeDB | http://localhost:2480 |
-| `includes/falkordb.yaml` | FalkorDB | http://localhost:3000 |
+| `includes/falkordb.yaml` | FalkorDB | http://localhost:3001 |
+| `includes/memgraph.yaml` | Memgraph | http://localhost:3002 |
 | `includes/nebula.yaml` | NebulaGraph | http://localhost:7001 |
+| `includes/ladybug-explorer.yaml` | Ladybug Explorer (UI only) | http://localhost:7003 |
+
+Amazon Neptune and Neptune Analytics are cloud services — no Docker include required.
+
+**LangChain-only property graph databases:**
+
+| Include File | Database | Dashboard |
+|---|---|---|
+| `includes/arangodb.yaml` | ArangoDB | http://localhost:8529 |
+| `includes/apache-age.yaml` | Apache AGE (PostgreSQL + Cypher) | — |
+| `includes/hugegraph.yaml` | Apache HugeGraph | http://localhost:8085 (Hubble) |
+| `includes/surrealdb.yaml` | SurrealDB + Surrealist UI | http://localhost:8011 |
+| `includes/tigergraph.yaml` | TigerGraph | http://localhost:14240 (GraphStudio) |
+| `includes/gremlin-server.yaml` | Gremlin Server (Cosmos Gremlin local) | — |
 
 ### Search Databases
 

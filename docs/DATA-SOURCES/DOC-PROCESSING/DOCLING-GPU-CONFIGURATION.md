@@ -519,6 +519,38 @@ DOCLING_DEVICE=auto  # or cuda, mps, cpu
 SAVE_PARSING_OUTPUT=true
 ```
 
+## OCR Configuration
+
+OCR is disabled by default. Enable it for scanned PDFs and image-only documents.
+
+```bash
+DOCLING_OCR=true
+DOCLING_OCR_ENGINE=auto   # auto | rapidocr | easyocr | tesseract_cli | tesserocr | ocrmac
+```
+
+| Engine | Install | Notes |
+|---|---|---|
+| `auto` | nothing extra | Docling picks best installed engine at runtime |
+| `rapidocr` | nothing extra | Included in `docling-slim[standard]` |
+| `easyocr` | `uv pip install -e ".[docling-ocr-easyocr]"` | CPU-based; GPU not used |
+| `tesseract_cli` | system Tesseract on PATH | **Recommended on Windows** — no native build needed |
+| `tesserocr` | `uv pip install -e ".[docling-ocr-tesserocr]"` | Compiles C++ extension; fragile on Windows (prefer `tesseract_cli`) |
+| `ocrmac` | `uv pip install -e ".[docling-ocr-ocrmac]"` | macOS only |
+
+### Windows — Tesseract CLI setup
+
+1. Install Tesseract: `choco install tesseract` (or from [UB Mannheim builds](https://github.com/UB-Mannheim/tesseract/wiki))
+2. Verify: `where tesseract` → should show `C:\Program Files\Tesseract-OCR\tesseract.exe`
+3. Set in `.env`: `DOCLING_OCR=true` and `DOCLING_OCR_ENGINE=tesseract_cli`
+
+### Log messages
+
+When OCR is configured, the startup log shows:
+```
+Docling OCR config (app): enabled=true requested_engine='tesseract_cli' pipeline_ocr_options=TesseractCliOcrOptions
+```
+Docling's own runtime message (`Auto OCR model selected ...`) shows the *effective* engine chosen when using `auto`.
+
 ## Related Documentation
 
 **User Guides (docs/):**

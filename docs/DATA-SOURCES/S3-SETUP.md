@@ -624,8 +624,8 @@ See AWS documentation for SNS fan-out setup.
 
 ## Next Steps
 
-- **[Setup Guide](./SETUP-GUIDE.md)** - Configure other data sources
-- **[API Reference](./API-REFERENCE.md)** - Manage datasources via API
-- **[Quick Start](./QUICKSTART.md)** - Test your setup
+- **[Setup Guide](./INCREMENTAL-UPDATE-AUTO-SYNC/SETUP-GUIDE.md)** - Configure other data sources
+- **[API Reference](./INCREMENTAL-UPDATE-AUTO-SYNC/API-REFERENCE.md)** - Manage datasources via API
+- **[Quick Start](./INCREMENTAL-UPDATE-AUTO-SYNC/QUICKSTART.md)** - Test your setup
 - **AWS S3 Event Notifications**: https://docs.aws.amazon.com/AmazonS3/latest/userguide/NotificationHowTo.html
 - **AWS SQS Long Polling**: https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/sqs-short-and-long-polling.html

@@ -1,0 +1,19 @@
+# Apache AGE (PG18) + pgvector image
+#
+# Extends apache/age:latest (PostgreSQL 18 with AGE graph extension)
+# with postgresql-18-pgvector for graph-native vector similarity search.
+#
+# Serves the flexible_graphrag_age database (port 5434) alongside the
+# separate postgres-pgvector container (port 5433) for standalone pgvector
+# and incremental sync state.
+#
+# Build:
+#   docker build -f docker/Dockerfile.age-pgvector -t flexible-graphrag/postgres-age:latest .
+#
+# Or let docker compose build it automatically (build: context in apache-age.yaml).
+
+FROM apache/age:latest
+
+RUN apt-get update -qq \
+    && apt-get install -y --no-install-recommends postgresql-18-pgvector \
+    && rm -rf /var/lib/apt/lists/*

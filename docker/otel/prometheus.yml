@@ -9,24 +9,24 @@ global:
     environment: 'local'
 
 scrape_configs:
-  # Scrape metrics from OpenTelemetry Collector
-  - job_name: 'otel-collector'
-    static_configs:
-      - targets: ['otel-collector:8888']
-        labels:
-          service: 'otel-collector'
-  
-  # Scrape Prometheus metrics endpoint from OTEL Collector
+  # port 8888 = OTel Collector zpages/health — not a Prometheus metrics endpoint, connection refused
+  # - job_name: 'otel-collector'
+  #   static_configs:
+  #     - targets: ['otel-collector:8888']
+  #       labels:
+  #         service: 'otel-collector'
+
+  # Scrape Prometheus metrics endpoint from OTEL Collector (working)
   - job_name: 'otel-collector-metrics'
     static_configs:
       - targets: ['otel-collector:8889']
         labels:
           service: 'otel-metrics'
-  
-  # Optional: Scrape metrics directly from your app if exposed
-  - job_name: 'flexible-graphrag'
-    static_configs:
-      - targets: ['flexible-graphrag-backend:8000']
-        labels:
-          service: 'flexible-graphrag'
+
+  # Backend direct scrape — hostname not resolvable on Docker network; app uses OTLP not Prometheus exporter
+  # - job_name: 'flexible-graphrag'
+  #   static_configs:
+  #     - targets: ['flexible-graphrag-backend:8000']
+  #       labels:
+  #         service: 'flexible-graphrag'
 

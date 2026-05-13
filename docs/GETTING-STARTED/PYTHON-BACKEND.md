@@ -54,4 +54,4 @@ flexible-graphrag
 The backend will be available at `http://localhost:8000`.
 
 !!! note "Windows Build Tools"
-    If installation fails with "Microsoft Visual C++ 14.0 or greater is required", install [Microsoft C++ Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/) — select "Desktop development with C++".
+    Several dependencies (`spacy`, `lancedb`, `psycopg2`, and some database drivers) include C extensions that must be compiled on Windows. When running on Windows, `uv pip install` may need to build a platform-specific wheel if a pre-built one is not available for your Python version. If installation fails with "Microsoft Visual C++ 14.0 or greater is required", install [Microsoft C++ Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/) and select "Desktop development with C++".

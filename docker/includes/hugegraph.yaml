@@ -1,0 +1,35 @@
+# HugeGraph — distributed property graph database (Apache incubator)
+# LangChain: langchain-community -> HugeGraphStore
+# Server REST API: http://localhost:8082
+# HugeGraph Hubble (web UI): http://localhost:8085
+services:
+  hugegraph:
+    image: hugegraph/hugegraph:1.5.0
+    container_name: flexible-graphrag-hugegraph
+    ports:
+      - "8082:8080"    # REST API (offset from backend 8000 + Chroma 8001 + vLLM 8002)
+    volumes:
+      - hugegraph_data:/hugegraph/hugegraph-incubating-1.5.0/data
+    environment:
+      - hugegraph.backend=rocksdb
+      - hugegraph.serializer=binary
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/versions"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  hugegraph-hubble:
+    image: hugegraph/hubble:1.5.0
+    container_name: flexible-graphrag-hugegraph-hubble
+    ports:
+      - "8085:8080"    # Web UI
+    depends_on:
+      hugegraph:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  hugegraph_data:

@@ -8,19 +8,26 @@ services:
     ports:
       - "2480:2480"  # HTTP API (and ArcadeDB Studio browser console)
       - "2424:2424"  # Binary protocol
+      # Bolt (GRAPH_BACKEND=langchain only): host 7689 → container 7687
+      # WARNING: enabling Bolt plugin breaks ArcadeDB Studio — use only without Studio
+      # Also conflicts with Neo4j (7687) and MemGraph (7688) on the host
+      - "7689:7687"
     environment:
-      - JAVA_OPTS=-Darcadedb.server.rootPassword=playwithdata -Darcadedb.server.mode=development
+      # LangChain (GRAPH_BACKEND=langchain): Bolt enabled — Studio will NOT work
+      - JAVA_OPTS=-Darcadedb.server.rootPassword=playwithdata -Darcadedb.server.mode=development -Darcadedb.server.plugins=Bolt:com.arcadedb.bolt.BoltProtocolPlugin
+      # Default (GRAPH_BACKEND=llamaindex): no Bolt — Studio works, LI adapter uses HTTP port 2480
+      #- JAVA_OPTS=-Darcadedb.server.rootPassword=playwithdata -Darcadedb.server.mode=development
     volumes:
       - arcadedb_data:/home/arcadedb/databases
     stdin_open: true
     tty: true
-    healthcheck:
-      test: ["CMD-SHELL", "curl -f http://127.0.0.1:2480/api/v1/server || exit 1"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-      start_period: 40s
-    restart: unless-stopped
+    #healthcheck:
+    #  test: ["CMD-SHELL", "curl -f http://127.0.0.1:2480/api/v1/server || exit 1"]
+    #  interval: 30s
+    #  timeout: 10s
+    #  retries: 5
+    #  start_period: 40s
+    #restart: unless-stopped
 
 volumes:
   arcadedb_data:

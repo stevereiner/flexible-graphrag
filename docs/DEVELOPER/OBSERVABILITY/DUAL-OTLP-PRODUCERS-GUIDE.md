@@ -1,12 +1,5 @@
 # DUAL OTLP Producers Guide
 
-!!! warning "OpenLIT compatibility issue (as of openlit py-1.40.3)"
-    Installing OpenLIT **downgrades `openai` from 2.30.0 to 1.109.1**, which may impact OpenAI functionality.
-    Use a fresh virtual environment when experimenting with DUAL mode, and run `uv pip install -e .`
-    again after you are done. OpenLIT provides **automatic LLM token metrics, cost tracking, and VectorDB metrics**
-    that OpenInference does not — but these come at the cost of the openai version conflict.
-    For normal development, use OpenInference only (the default).
-
 ---
 
 ## DUAL Mode Architecture
@@ -41,19 +34,19 @@
 ```
 
 **Benefits:**
-- ✅ OpenInference: Detailed LlamaIndex traces
-- ✅ OpenLIT: Token metrics, costs, VectorDB metrics
-- ✅ Custom metrics: Graph extraction, retrieval
-- ✅ **No conflicts** - they coexist perfectly!
+- OpenInference: Detailed LlamaIndex + LangChain traces
+- OpenLIT: Token metrics, costs, VectorDB metrics
+- Custom metrics: Graph extraction, retrieval
+- No conflicts — they coexist perfectly
 
 ---
 
-## 🚀 Quick Setup (3 minutes!)
+## Quick Setup (3 minutes)
 
-### Step 1: Install OpenLIT
+### Step 1: Install DUAL mode packages
 
 ```bash
-pip install openlit
+uv pip install -e ".[observability-dual]"
 ```
 
 ### Step 2: Enable DUAL Mode
@@ -82,19 +75,20 @@ setup_observability(backend="both")
 ```bash
 # Your app will automatically initialize both backends
 # Check logs for:
-# 🚀 Setting up observability with backend: both
-# ✅ OpenLIT active - token metrics enabled!
-# ✅ OpenInference instrumentation enabled
-# 🎉 Observability setup complete - DUAL MODE
+# Setting up observability with backend: both
+# OpenLIT active - token metrics enabled!
+# OpenInference LlamaIndex instrumentation enabled
+# OpenInference LangChain instrumentation enabled
+# Observability setup complete - DUAL MODE
 ```
 
-That's it! 🎉
+That's it!
 
 ---
 
-## 📊 What You Get
+## What You Get
 
-### From OpenLIT (Automatic!)
+### From OpenLIT (Automatic)
 
 ```promql
 # Token metrics (GUARANTEED!)
@@ -114,11 +108,12 @@ gen_ai_request_duration_seconds_bucket{gen_ai_request_model="gpt-4"}
 db_total_requests{db_system="neo4j"}
 ```
 
-### From OpenInference (Still Active!)
+### From OpenInference (LlamaIndex + LangChain traces)
 
 ```
 # Detailed traces in Jaeger
 - All LlamaIndex operations
+- All LangChain operations
 - Rich span attributes
 - Token counts as attributes
 ```
@@ -141,7 +136,7 @@ llm_requests_total
 
 ---
 
-## 🎨 Grafana Dashboard Updates
+## Grafana Dashboard Updates
 
 ### Update "Tokens Generated/sec" Panel
 
@@ -180,7 +175,7 @@ Visit: https://docs.openlit.io/latest/sdk/destinations/prometheus-jaeger#3-impor
 
 ---
 
-## 🔧 OTEL Collector (No Changes Needed!)
+## OTEL Collector (No Changes Needed)
 
 Your existing config works perfectly! Both OpenInference and OpenLIT send to the same OTLP endpoint.
 
@@ -209,23 +204,23 @@ service:
 
 ---
 
-## ✅ Verification Steps
+## Verification Steps
 
 ### 1. Check Application Logs
 
 ```bash
 # Should see:
-🚀 Setting up observability with backend: both
-📡 Initializing OpenLIT as OTLP producer...
-✅ OpenLIT active - token metrics enabled!
-📡 Initializing OpenInference as additional OTLP producer...
-✅ OpenInference instrumentation enabled
-✅ Custom RAG metrics initialized
-🎉 Observability setup complete - DUAL MODE
-   📊 OpenLIT → Token metrics, costs, VectorDB metrics
-   📊 OpenInference → Detailed traces
-   📊 Custom metrics → Graph extraction, retrieval, etc.
-   🎯 Best of both worlds!
+Setting up observability with backend: both
+Initializing OpenLIT as OTLP producer...
+OpenLIT active - token metrics enabled!
+Initializing OpenInference as additional OTLP producer...
+OpenInference LlamaIndex instrumentation enabled
+OpenInference LangChain instrumentation enabled
+Custom RAG metrics initialized
+Observability setup complete - DUAL MODE
+   OpenLIT -> Token metrics, costs, VectorDB metrics
+   OpenInference -> Detailed traces (LlamaIndex + LangChain)
+   Custom metrics -> Graph extraction, retrieval, etc.
 ```
 
 ### 2. Check Prometheus Metrics
@@ -233,32 +228,32 @@ service:
 Visit http://localhost:9090 and search for:
 
 **OpenLIT metrics:**
-- `gen_ai_usage_input_tokens_total` ✅
-- `gen_ai_usage_output_tokens_total` ✅
-- `gen_ai_total_requests` ✅
-- `gen_ai_total_cost` ✅
+- `gen_ai_usage_input_tokens_total`
+- `gen_ai_usage_output_tokens_total`
+- `gen_ai_total_requests`
+- `gen_ai_total_cost`
 
-**Custom metrics (still work):**
-- `rag_graph_entities_extracted_total` ✅
-- `rag_graph_relations_extracted_total` ✅
+**Custom metrics:**
+- `rag_graph_entities_extracted_total`
+- `rag_graph_relations_extracted_total`
 
-**Spanmetrics (bonus from OpenInference):**
-- `calls_total` ✅
-- `duration_milliseconds_bucket` ✅
+**Spanmetrics (from OpenInference):**
+- `calls_total`
+- `duration_milliseconds_bucket`
 
 ### 3. Check Jaeger Traces
 
 Visit http://localhost:16686
 
 **Should see traces from:**
-- OpenInference (llama_index.* spans)
+- OpenInference (llama_index.* and langchain.* spans)
 - OpenLIT (gen_ai.* spans)
 
-Both coexist! 🎉
+Both coexist.
 
 ---
 
-## 🤔 FAQ
+## FAQ
 
 ### Q: Won't this create duplicate data?
 
@@ -296,17 +291,17 @@ But keep it for now - it provides additional call count and latency metrics that
 
 | Metric/Feature | OpenInference Only | OpenLIT Only | DUAL Mode |
 |----------------|-------------------|--------------|-----------|
-| Token metrics | Need spanmetrics | Direct | Direct |
-| Detailed traces | Rich | Good | Rich |
+| Token metrics | Via spanmetrics | Direct | Direct |
+| LlamaIndex traces | Rich | Basic | Rich |
+| LangChain traces | Rich | Basic | Rich |
 | Cost tracking | No | Yes | Yes |
 | VectorDB metrics | No | Yes | Yes |
 | Custom metrics | Yes | Yes | Yes |
-| Setup complexity | Medium | Low | Low |
-| openai version | Unaffected | Downgrades to 1.109.1 | Downgrades to 1.109.1 |
+| Setup complexity | Low | Low | Low |
 
 ---
 
-## 📈 Real-World Benefits
+## Real-World Benefits
 
 ### Scenario 1: Debugging Performance Issues
 - **OpenInference traces:** See exactly where slowdown occurs
@@ -325,13 +320,13 @@ But keep it for now - it provides additional call count and latency metrics that
 
 ---
 
-## 🚀 Migration Path
+## Migration Path
 
 ### If You're Currently Using OpenInference
 
 ```bash
-# Just add OpenLIT!
-pip install openlit
+# Add OpenLIT (1.41.2+ no longer downgrades openai)
+uv pip install "openlit>=1.41.2"
 export OBSERVABILITY_BACKEND=both
 # Restart - instant token metrics!
 ```
@@ -339,8 +334,8 @@ export OBSERVABILITY_BACKEND=both
 ### If You're Currently Using OpenLIT
 
 ```bash
-# OpenInference should already be installed
-# Just enable both mode
+# Add OpenInference for LlamaIndex + LangChain traces
+uv pip install openinference-instrumentation-llama-index openinference-instrumentation-langchain
 export OBSERVABILITY_BACKEND=both
 # Restart - get richer traces!
 ```
@@ -348,14 +343,14 @@ export OBSERVABILITY_BACKEND=both
 ### If You're Starting Fresh
 
 ```bash
-pip install openlit openinference-instrumentation-llama-index
+uv pip install -e ".[observability-dual]"
 export OBSERVABILITY_BACKEND=both
 # Perfect from day 1!
 ```
 
 ---
 
-## 📚 References
+## References
 
 - [OpenLIT with OTEL Collector](https://docs.openlit.io/latest/sdk/destinations/otelcol) - "OpenLIT just becomes another OTLP producer"
 - [OpenLIT + Prometheus + Jaeger](https://docs.openlit.io/latest/sdk/destinations/prometheus-jaeger)
@@ -366,7 +361,7 @@ export OBSERVABILITY_BACKEND=both
 
 ## Summary
 
-DUAL mode combines OpenInference traces with OpenLIT token/cost metrics. The trade-off is that OpenLIT downgrades `openai` to 1.109.1 — use a fresh virtual environment if you need this combination.
+DUAL mode combines OpenInference traces (LlamaIndex + LangChain) with OpenLIT token/cost metrics. OpenLIT 1.41.2+ no longer downgrades openai.
 
 **DUAL mode provides:**
 
@@ -378,7 +373,7 @@ DUAL mode combines OpenInference traces with OpenLIT token/cost metrics. The tra
 
 **To enable:**
 ```bash
-pip install openlit
+uv pip install -e ".[observability-dual]"
 export OBSERVABILITY_BACKEND=both
 # Restart app — check Prometheus for gen_ai_usage_*_tokens_total
 ```

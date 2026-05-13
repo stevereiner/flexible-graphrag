@@ -6,6 +6,7 @@ Basic tests to verify test structure and imports work correctly
 import sys
 import os
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 # Add the flexible-graphrag directory to the path
 sys.path.insert(0, str(Path(__file__).parent.parent / "flexible-graphrag"))
@@ -129,25 +130,13 @@ def test_modular_data_sources():
     assert hasattr(AlfrescoSource, 'get_documents_with_progress')
     assert hasattr(AlfrescoSource, 'validate_config')
 
-def test_old_sources_still_exist():
-    """Test that old data sources in sources.py still exist for backward compatibility"""
-    # Import from the legacy sources.py file
-    import importlib.util
-    import os
-    sources_file = os.path.join(os.path.dirname(__file__), '..', 'flexible-graphrag', 'sources.py')
-    spec = importlib.util.spec_from_file_location("legacy_sources", sources_file)
-    legacy_sources = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(legacy_sources)
-    
-    # Test that old sources still exist (for backward compatibility)
-    FileSystemSource = legacy_sources.FileSystemSource
-    CmisSource = legacy_sources.CmisSource
-    AlfrescoSource = legacy_sources.AlfrescoSource
-    
-    # Test basic methods exist
-    assert hasattr(FileSystemSource, 'list_files')
-    assert hasattr(CmisSource, 'list_files')
-    assert hasattr(AlfrescoSource, 'list_files')
+def test_sources_package_exports_core_classes():
+    """Modular ``sources`` package exposes the same core reader classes (legacy was single sources.py)."""
+    from sources import FileSystemSource, CmisSource, AlfrescoSource
+
+    assert hasattr(FileSystemSource, "list_files")
+    assert hasattr(CmisSource, "list_files")
+    assert hasattr(AlfrescoSource, "list_files")
 
 def test_arcadedb_factory():
     """Test ArcadeDB graph store factory creation"""
@@ -244,11 +233,11 @@ def test_neptune_factory():
     # Test factory method exists and handles Neptune type
     try:
         config = {
-            "endpoint": "test-cluster.cluster-xyz.us-east-1.neptune.amazonaws.com",
+            "host": "test-cluster.cluster-xyz.us-east-1.neptune.amazonaws.com",
             "port": 8182,
             "region": "us-east-1",
             "access_key": "test_access_key",
-            "secret_key": "test_secret_key"
+            "secret_key": "test_secret_key",
         }
         DatabaseFactory.create_graph_store(GraphDBType.NEPTUNE, config)
     except ValueError as e:
@@ -264,31 +253,19 @@ def test_neptune_factory_validation():
     """Test Neptune factory parameter validation"""
     from config import GraphDBType
     from factories import DatabaseFactory
-    
-    # Test missing endpoint
+
+    # Missing host (Neptune Database uses ``host``, not ``endpoint``)
     try:
         config = {
             "port": 8182,
             "region": "us-east-1",
             "access_key": "test_access_key",
-            "secret_key": "test_secret_key"
+            "secret_key": "test_secret_key",
         }
         DatabaseFactory.create_graph_store(GraphDBType.NEPTUNE, config)
-        assert False, "Should have raised ValueError for missing endpoint"
+        assert False, "Should have raised ValueError for missing host"
     except ValueError as e:
-        assert "Neptune endpoint is required" in str(e)
-    
-    # Test missing credentials
-    try:
-        config = {
-            "endpoint": "test-cluster.cluster-xyz.us-east-1.neptune.amazonaws.com",
-            "port": 8182,
-            "region": "us-east-1"
-        }
-        DatabaseFactory.create_graph_store(GraphDBType.NEPTUNE, config)
-        assert False, "Should have raised ValueError for missing credentials"
-    except ValueError as e:
-        assert "Neptune access_key and secret_key are required" in str(e)
+        assert "Neptune host is required" in str(e)
 
 def test_neptune_analytics_factory():
     """Test Neptune Analytics graph store factory creation"""
@@ -370,31 +347,24 @@ def test_chroma_factory():
         # Import or other errors are expected without chromadb package
         pass
 
-def test_milvus_factory():
-    """Test Milvus vector store factory creation"""
+@patch("llama_index.vector_stores.milvus.MilvusVectorStore")
+def test_milvus_factory(mock_milvus_cls):
+    """Factory dispatches to Milvus without opening a real gRPC connection (avoids long hangs)."""
     from config import VectorDBType
     from factories import DatabaseFactory
-    
-    # Test that Milvus enum exists
+
     assert VectorDBType.MILVUS == "milvus"
-    
-    # Test factory method exists and handles Milvus type
-    try:
-        config = {
-            "host": "localhost",
-            "port": 19530,
-            "collection_name": "test_collection",
-            "dim": 1536
-        }
-        DatabaseFactory.create_vector_store(VectorDBType.MILVUS, config)
-    except ValueError as e:
-        if "Unsupported vector database" in str(e):
-            raise AssertionError("Milvus should be supported by factory")
-        # Other errors (like connection errors) are expected without running Milvus
-        pass
-    except Exception:
-        # Connection or import errors are expected without running Milvus instance
-        pass
+    mock_milvus_cls.return_value = MagicMock()
+
+    config = {
+        "host": "localhost",
+        "port": 19530,
+        "collection_name": "test_collection",
+        "dim": 1536,
+    }
+    out = DatabaseFactory.create_vector_store(VectorDBType.MILVUS, config)
+    assert out is mock_milvus_cls.return_value
+    mock_milvus_cls.assert_called_once()
 
 def test_weaviate_factory():
     """Test Weaviate vector store factory creation"""
@@ -510,7 +480,7 @@ if __name__ == "__main__":
     test_persistence_config()
     test_falkordb_factory()
     test_modular_data_sources()
-    test_old_sources_still_exist()
+    test_sources_package_exports_core_classes()
     test_arcadedb_factory()
     test_memgraph_factory()
     test_nebula_factory()

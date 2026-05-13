@@ -12,6 +12,7 @@ dev_addr     = "localhost:8008"
 copyright    = "© 2025-2026 Integrated Semantics. Apache 2.0 License."
 repo_name    = "stevereiner/flexible-graphrag"
 repo_url     = "https://github.com/stevereiner/flexible-graphrag"
+#validation   = false
 
 nav = [
   {"Home" = [
@@ -44,7 +45,7 @@ nav = [
     ]},
     {"Schema Examples (non RDF)"    = "CONFIGURATION/SCHEMA-EXAMPLES.md"},
     {"RDF Ontology Examples"        = "DATABASES/RDF/ontology_examples_and_config.md"},
-    {"LangChain Configuration"      = "CONFIGURATION/LANGCHAIN-CONFIGURATION.md"},
+    {"Framework Configuration"       = "CONFIGURATION/LANGCHAIN-CONFIGURATION.md"},
     {"Incremental Auto-Sync Setup"  = "DATA-SOURCES/INCREMENTAL-UPDATE-AUTO-SYNC/QUICKSTART.md"}
   ]},
   {"UI Guide" = [
@@ -69,7 +70,7 @@ nav = [
     ]},
     {"Document Processing" = [
       {"Supported File Formats"    = "DATA-SOURCES/DOC-PROCESSING/SUPPORTED-FILE-FORMATS.md"},
-      {"Docling GPU Configuration" = "DATA-SOURCES/DOC-PROCESSING/DOCLING-GPU-CONFIGURATION.md"},
+      {"Docling GPU + OCR Configuration" = "DATA-SOURCES/DOC-PROCESSING/DOCLING-GPU-CONFIGURATION.md"},
       {"Parser Output Files"       = "DATA-SOURCES/DOC-PROCESSING/PARSER-OUTPUT-FILES.md"}
     ]}
   ]},
@@ -79,14 +80,18 @@ nav = [
     {"Ollama Configuration"   = "LLM/OLLAMA-CONFIGURATION.md"}
   ]},
   {"Databases" = [
-    {"PostgreSQL Setup" = "DATABASES/POSTGRES-SETUP.md"},
+    {"Database Configuration" = "DATABASES/DATABASE-CONFIGURATION.md"},
+    {"PostgreSQL Setup"       = "DATABASES/POSTGRES-SETUP.md"},
     {"Property Graph Databases" = [
-      {"Neo4j"                      = "DATABASES/GRAPH-DATABASES/README-neo4j.md"},
-      {"Neo4j URLs"                 = "DATABASES/GRAPH-DATABASES/Neo4j-URLs.md"},
-      {"Neptune Setup"              = "DATABASES/GRAPH-DATABASES/NEPTUNE-SETUP.md"},
-      {"Nebula Setup"               = "DATABASES/GRAPH-DATABASES/NEBULA-SETUP.md"},
-      {"Knowledge Graph Extractors" = "DATABASES/GRAPH-DATABASES/KNOWLEDGE-GRAPH-EXTRACTORS.md"},
-      {"Entity & Relation Counting" = "DATABASES/GRAPH-DATABASES/ENTITY-RELATION-COUNTING.md"}
+      {"Neo4j"                         = "DATABASES/GRAPH-DATABASES/README-neo4j.md"},
+      {"Neo4j URLs"                    = "DATABASES/GRAPH-DATABASES/Neo4j-URLs.md"},
+      {"Neptune Setup"                 = "DATABASES/GRAPH-DATABASES/NEPTUNE-SETUP.md"},
+      {"Nebula Setup"                  = "DATABASES/GRAPH-DATABASES/NEBULA-SETUP.md"},
+      {"Nebula LangChain Schema"       = "DATABASES/GRAPH-DATABASES/NEBULA-LANGCHAIN-SETUP.md"},
+      {"Cosmos DB for Gremlin Setup"   = "DATABASES/GRAPH-DATABASES/COSMOS-GREMLIN-SETUP.md"},
+      {"Google Spanner Graph Setup"    = "DATABASES/GRAPH-DATABASES/SPANNER-SETUP.md"},
+      {"Knowledge Graph Extractors"    = "DATABASES/GRAPH-DATABASES/KNOWLEDGE-GRAPH-EXTRACTORS.md"},
+      {"Entity & Relation Counting"    = "DATABASES/GRAPH-DATABASES/ENTITY-RELATION-COUNTING.md"}
     ]},
     {"RDF Graph Databases" = [
       {"RDF Store User Guide"      = "DATABASES/RDF/RDF-STORE-USER-GUIDE.md"},
@@ -124,7 +129,7 @@ nav = [
   ]},
   {"Advanced" = [
     {"Architecture"                  = "ADVANCED/ARCHITECTURE.md"},
-    {"LangChain Integration"         = "ADVANCED/LANGCHAIN/LANGCHAIN-GRAPH-INTEGRATION.md"},
+    {"Framework Integration"          = "ADVANCED/LANGCHAIN/LANGCHAIN-GRAPH-INTEGRATION.md"},
     {"Deployment Configurations"     = "ADVANCED/DEPLOYMENT-CONFIGURATIONS.md"},
     {"Docker Resource Configuration" = "ADVANCED/DOCKER-RESOURCE-CONFIGURATION.md"},
     {"Port Mappings"                 = "ADVANCED/PORT-MAPPINGS.md"},
@@ -155,6 +160,11 @@ features = [
 # ── Markdown extensions ────────────────────────────────────────────────────────
 # Simple extensions (no config) use empty section headers.
 # Extensions with options carry their settings as keys.
+
+# invalid_links disabled: zensical 0.0.40 serve mode gives false positives for
+# cross-folder relative links that are valid in the nav (build is clean).
+[project.validation]
+invalid_links = false
 
 [project.markdown_extensions.admonition]
 [project.markdown_extensions."pymdownx.details"]

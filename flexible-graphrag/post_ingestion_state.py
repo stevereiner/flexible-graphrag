@@ -393,7 +393,21 @@ class PostIngestionStateManager:
                     
                     logger.info(f"{data_source.title()}: source_path={source_path}, stable_path={stable_path}")
         
-        # For filesystem and others, source_path and stable_path are the same
+        # For filesystem and others, source_path and stable_path are the same.
+        # Normalize the stable_path on Windows so that the stored doc_id matches the
+        # lowercase paths produced by the filesystem detector (normalize_filesystem_path).
+        # Without this, an initial REST ingest stores "C:\..." but the detector compares
+        # "c:\..." → false "deleted" detection → phantom delete+re-ingest cycle every sync.
+        if data_source in ("filesystem", "local") or (
+            "://" not in stable_path and not stable_path.startswith("alfresco://")
+            and not stable_path.startswith("onedrive://") and not stable_path.startswith("sharepoint://")
+        ):
+            try:
+                from incremental_updates.path_utils import normalize_filesystem_path
+                stable_path = normalize_filesystem_path(stable_path)
+                source_path = normalize_filesystem_path(source_path)
+            except Exception:
+                pass
         return source_path, stable_path
     
     def _extract_metadata(
@@ -498,9 +512,15 @@ class PostIngestionStateManager:
             logger.info(f"Extracted source_id (GCS): {source_id}")
             return modified_timestamp, source_id
         
-        # For filesystem, use file_path as source_id
+        # For filesystem, use file_path as source_id — normalized to lowercase on Windows
+        # so that it matches what the filesystem detector produces via normalize_filesystem_path().
         if 'file_path' in doc.metadata and data_source == 'filesystem':
-            source_id = doc.metadata['file_path']
+            raw_path = doc.metadata['file_path']
+            try:
+                from incremental_updates.path_utils import normalize_filesystem_path
+                source_id = normalize_filesystem_path(raw_path)
+            except Exception:
+                source_id = raw_path
             logger.info(f"Extracted source_id (file_path): {source_id}")
         else:
             logger.info(f"DEBUG: source_id not found in metadata")

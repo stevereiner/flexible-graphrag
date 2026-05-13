@@ -10,27 +10,24 @@ For file paths see ingest/ingest_from_files.py.
 For raw text see ingest/ingest_from_text.py.
 """
 
-import asyncio
-import functools
 import time
 from typing import List
 import logging
 
-from llama_index.core import StorageContext, VectorStoreIndex
-from llama_index.core.indices.property_graph import PropertyGraphIndex
-
-from process.node_pipeline import build_ingestion_pipeline
 from ingest._helpers import _check_cancellation, _get_loop, generate_completion_message
+from ingest.run_chunk_pipeline import run_chunk_pipeline
+from ingest.update_vector import update_vector
+from ingest.update_search import update_search
+from ingest.update_pg_graph import update_pg_graph
+from ingest.update_rdf_graph import update_rdf_graph
 
 logger = logging.getLogger(__name__)
 
 try:
-    from observability import get_tracer
     from observability.metrics import get_rag_metrics
     OBSERVABILITY_AVAILABLE = True
 except ImportError:
     OBSERVABILITY_AVAILABLE = False
-    get_tracer = None
     get_rag_metrics = None
 
 
@@ -101,7 +98,15 @@ def _assign_stable_doc_ids(documents: List, config_id: str) -> None:
                 f"{config_id}:{file_path}" if file_path else f"{config_id}:{file_name}"
             )
         elif file_path:
-            stable_doc_id = f"{config_id}:{file_path}"
+            # Normalize filesystem paths on Windows so the doc_id stored in metadata
+            # and vector stores matches what the filesystem detector produces (lowercase).
+            # Without this, LanceDB/Milvus/Chroma store "C:\..." but delete gets "c:\...".
+            try:
+                from incremental_updates.path_utils import normalize_filesystem_path
+                _norm_path = normalize_filesystem_path(file_path)
+            except Exception:
+                _norm_path = file_path
+            stable_doc_id = f"{config_id}:{_norm_path}"
         elif file_name:
             stable_doc_id = f"{config_id}:{file_name}"
         else:
@@ -140,7 +145,6 @@ async def ingest_source_documents(
         config_id: Optional stable config_id for incremental sync (assigns stable doc_ids)
     """
     from retriever_setup import setup_hybrid_retriever
-    from stores.index_manager import export_nodes_to_rdf_stores
 
     logger.info(f"Processing {len(documents)} documents directly...")
     start_time = time.time()
@@ -158,266 +162,32 @@ async def ingest_source_documents(
     if _check_cancellation(processing_id):
         raise RuntimeError("Processing cancelled by user")
 
-    # Step 1: Chunk + embed — single canonical pipeline
-    pipeline_start = time.time()
-    pipeline = build_ingestion_pipeline(system.config, system.embed_model)
+    # Step 1: Chunk + embed
     loop = _get_loop()
-    run_pipeline = functools.partial(pipeline.run, documents=documents)
-    nodes = await loop.run_in_executor(None, run_pipeline)
-    pipeline_duration = time.time() - pipeline_start
-
-    logger.info(f"IngestionPipeline: {pipeline_duration:.2f}s, {len(nodes)} nodes from {len(documents)} docs")
-    logger.info(f"  Chunk size: {system.config.chunk_size}, overlap: {system.config.chunk_overlap}")
-    for i, node in enumerate(nodes[:5]):
-        logger.info(f"  Node[{i}] {len(node.text)} chars, metadata: {node.metadata}")
-    if len(nodes) > 5:
-        logger.info(f"  ... and {len(nodes)-5} more nodes")
+    nodes, chunk_duration = await run_chunk_pipeline(system, documents, loop)
 
     if _check_cancellation(processing_id):
         raise RuntimeError("Processing cancelled by user")
 
     # Step 2: Vector index
-    vector_duration = 0
-    if system.vector_store is not None:
-        vector_start = time.time()
-        vector_store_type = type(system.vector_store).__name__
-        logger.info(f"Creating vector index from {len(nodes)} nodes ({vector_store_type})")
-
-        if system.vector_index is None:
-            sc = StorageContext.from_defaults(vector_store=system.vector_store)
-            create_vi = functools.partial(VectorStoreIndex, nodes=nodes, storage_context=sc, show_progress=False)
-            system.vector_index = await loop.run_in_executor(None, create_vi)
-        else:
-            if (type(system.vector_store).__name__ == "WeaviateVectorStore" and
-                    hasattr(system.vector_store, '_aclient') and system.vector_store._aclient is not None):
-                if not system.vector_store._aclient.is_connected():
-                    await system.vector_store._aclient.connect()
-                node_ids = await system.vector_store.async_add(nodes)
-                logger.info(f"Added {len(node_ids)} nodes to Weaviate via async_add")
-            else:
-                await loop.run_in_executor(None, system.vector_index.insert_nodes, nodes)
-
-        vector_duration = time.time() - vector_start
-        logger.info(f"Vector index: {vector_duration:.2f}s")
-    else:
-        logger.info("Vector search disabled")
+    vector_duration = await update_vector(system, nodes, loop)
 
     if _check_cancellation(processing_id):
         raise RuntimeError("Processing cancelled by user")
 
-    # Step 2.5: Search index
-    search_duration = 0
-    if system.search_store is not None:
-        search_start = time.time()
-        search_store_type = type(system.search_store).__name__
-        logger.info(f"Creating search index from {len(nodes)} nodes ({search_store_type})")
-
-        if not hasattr(system, 'search_index') or system.search_index is None:
-            search_sc = StorageContext.from_defaults(vector_store=system.search_store)
-            create_si = functools.partial(VectorStoreIndex, nodes=nodes, storage_context=search_sc, show_progress=False)
-            system.search_index = await loop.run_in_executor(None, create_si)
-        else:
-            node_ids = await system.search_store.async_add(nodes)
-            logger.info(f"Added {len(node_ids)} nodes to {search_store_type} via async_add")
-
-        search_duration = time.time() - search_start
-        logger.info(f"Search index: {search_duration:.2f}s")
-    else:
-        logger.info("Search database not configured")
+    # Step 3: Search index
+    search_duration = await update_search(system, nodes, loop)
 
     if _check_cancellation(processing_id):
         raise RuntimeError("Processing cancelled by user")
 
-    # Step 3: Knowledge graph
-    logger.info(f"skip_graph={skip_graph}, graph_db={system.config.graph_db}, enable_kg={system.config.enable_knowledge_graph}")
-    should_skip_graph = str(system.config.graph_db) == "none" or skip_graph or not system.config.enable_knowledge_graph
-    graph_creation_duration = 0
+    # Step 4: PG graph
+    nodes, nodes_kg_extracted, kg_duration, graph_duration, _, _ = await update_pg_graph(
+        system, nodes, documents, loop, skip_graph=skip_graph
+    )
 
-    if should_skip_graph:
-        if skip_graph and system.config.enable_knowledge_graph:
-            logger.info("Knowledge graph SKIPPED (per-ingest skip_graph flag)")
-            system.graph_intentionally_skipped = True
-        elif not system.config.enable_knowledge_graph:
-            logger.info("Knowledge graph disabled in config")
-            system.graph_index = None
-            system.graph_intentionally_skipped = False
-
-        # Standalone RDF export when GRAPH_DB=none but rdf_only mode is active
-        storage_mode = getattr(system.config, "ingestion_storage_mode", "property_graph")
-        if storage_mode in ("rdf_only", "both") and getattr(system.config, "use_langchain_rdf", False):
-            logger.info("rdf_only/both + GRAPH_DB=none: running standalone KG extraction for RDF export")
-            try:
-                rdf_nodes = list(nodes)
-                kg_extractor = system.schema_manager.create_extractor(
-                    system.llm,
-                    llm_provider=system.config.llm_provider,
-                    extractor_type=system.config.kg_extractor_type,
-                )
-                from process.kg_extractor import run_kg_extractors_on_nodes
-                rdf_nodes, num_entities, num_relations, _ = await run_kg_extractors_on_nodes(
-                    rdf_nodes, [kg_extractor], system.config, span_name="rag.graph_extraction.rdf_only"
-                )
-                logger.info(f"Standalone RDF extraction: {num_entities} entities, {num_relations} relations")
-                export_nodes_to_rdf_stores(rdf_nodes, system.config, schema_manager=system.schema_manager)
-            except Exception as rdf_exc:
-                logger.error("Standalone RDF export failed: %s", rdf_exc, exc_info=True)
-    else:
-        # Knowledge graph is enabled and not skipped
-        system.graph_intentionally_skipped = False
-        graph_store_type = type(system.graph_store).__name__
-        llm_model_name = getattr(system.llm, 'model', type(system.llm).__name__)
-
-        kg_extractor = system.schema_manager.create_extractor(
-            system.llm,
-            llm_provider=system.config.llm_provider,
-            extractor_type=system.config.kg_extractor_type,
-        )
-        logger.info(f"KG extractor setup for {graph_store_type}, LLM: {llm_model_name}")
-
-        if system.graph_index is None:
-            graph_storage_context = StorageContext.from_defaults(property_graph_store=system.graph_store)
-            graph_creation_start = time.time()
-            logger.info(f"New PropertyGraphIndex — {len(nodes)} pre-chunked nodes, LLM={llm_model_name}")
-
-            graph_span = None
-            if OBSERVABILITY_AVAILABLE:
-                try:
-                    tracer = get_tracer(__name__)
-                    graph_span = tracer.start_span("rag.graph_extraction.create")
-                    graph_span.set_attribute("graph.num_documents", len(documents))
-                    graph_span.set_attribute("graph.llm_model", llm_model_name)
-                    graph_span.set_attribute("graph.database_type", graph_store_type)
-                    graph_span.set_attribute("graph.extractor_type", system.config.kg_extractor_type)
-                except Exception:
-                    graph_span = None
-
-            try:
-                from process.kg_extractor import run_kg_extractors_on_nodes
-                nodes, num_entities, num_relations, _ = await run_kg_extractors_on_nodes(
-                    nodes, [kg_extractor], system.config, span_name="rag.graph_extraction.create"
-                )
-
-                storage_mode = getattr(system.config, "ingestion_storage_mode", "property_graph")
-                if storage_mode in ("rdf_only", "both"):
-                    export_nodes_to_rdf_stores(nodes, system.config, schema_manager=system.schema_manager)
-
-                if storage_mode == "rdf_only":
-                    system.graph_index = None
-                    graph_creation_duration = time.time() - graph_creation_start
-                    logger.info(f"rdf_only: skipped PropertyGraphIndex, {num_entities} entities -> RDF stores")
-                else:
-                    graph_kwargs = {
-                        "nodes": nodes,
-                        "llm": system.llm,
-                        "embed_model": system.embed_model,
-                        "kg_extractors": [],
-                        "property_graph_store": system.graph_store,
-                        "storage_context": graph_storage_context,
-                    }
-                    if hasattr(system.graph_store, '__class__') and 'NeptuneAnalytics' in str(system.graph_store.__class__):
-                        graph_kwargs["embed_kg_nodes"] = False
-                    logger.info("Creating PropertyGraphIndex with pre-extracted nodes")
-                    system.graph_index = PropertyGraphIndex(**graph_kwargs)
-                    graph_creation_duration = time.time() - graph_creation_start
-                    logger.info(f"PropertyGraphIndex created in {graph_creation_duration:.2f}s — {num_entities} entities, {num_relations} relations")
-
-                if graph_span:
-                    graph_span.set_attribute("graph.extraction_latency_ms", graph_creation_duration * 1000)
-                    graph_span.set_attribute("graph.num_entities", num_entities)
-                    graph_span.set_attribute("graph.num_relations", num_relations)
-                    graph_span.set_attribute("graph.status", "success")
-
-                if OBSERVABILITY_AVAILABLE and get_rag_metrics:
-                    try:
-                        get_rag_metrics().record_graph_extraction(
-                            latency_ms=graph_creation_duration * 1000,
-                            num_entities=num_entities,
-                            num_relations=num_relations,
-                        )
-                    except Exception as e:
-                        logger.warning(f"Failed to record graph metrics: {e}")
-
-            except Exception as e:
-                graph_creation_duration = time.time() - graph_creation_start
-                if graph_span:
-                    graph_span.set_attribute("graph.status", "error")
-                    graph_span.set_attribute("graph.error", str(e))
-                    try: graph_span.record_exception(e)
-                    except Exception: pass
-                raise
-            finally:
-                if graph_span:
-                    try: graph_span.end()
-                    except Exception: pass
-
-        else:
-            # Update existing graph index
-            graph_update_start = time.time()
-            logger.info("Adding new documents to existing graph index...")
-
-            graph_span = None
-            if OBSERVABILITY_AVAILABLE:
-                try:
-                    tracer = get_tracer(__name__)
-                    graph_span = tracer.start_span("rag.graph_extraction.update")
-                    graph_span.set_attribute("graph.num_documents", len(documents))
-                    graph_span.set_attribute("graph.database_type", graph_store_type)
-                except Exception:
-                    graph_span = None
-
-            try:
-                from process.kg_extractor import run_kg_extractors_on_nodes
-                nodes, num_entities, num_relations, _ = await run_kg_extractors_on_nodes(
-                    nodes, [kg_extractor], system.config, span_name="rag.graph_extraction.update"
-                )
-                logger.info(f"Inserting {len(nodes)} nodes with {num_entities} entities, {num_relations} relations")
-
-                storage_mode = getattr(system.config, "ingestion_storage_mode", "property_graph")
-                if storage_mode in ("rdf_only", "both"):
-                    export_nodes_to_rdf_stores(nodes, system.config, schema_manager=system.schema_manager)
-
-                if storage_mode != "rdf_only":
-                    _orig_extractors = system.graph_index._kg_extractors
-                    _orig_use_async = getattr(system.graph_index, '_use_async', False)
-                    system.graph_index._kg_extractors = []
-                    system.graph_index._use_async = False
-                    try:
-                        system.graph_index.insert_nodes(nodes)
-                    finally:
-                        system.graph_index._kg_extractors = _orig_extractors
-                        system.graph_index._use_async = _orig_use_async
-
-                graph_creation_duration = time.time() - graph_update_start
-                logger.info(f"Graph index update: {graph_creation_duration:.2f}s")
-
-                if graph_span:
-                    graph_span.set_attribute("graph.update_latency_ms", graph_creation_duration * 1000)
-                    graph_span.set_attribute("graph.num_entities", num_entities)
-                    graph_span.set_attribute("graph.num_relations", num_relations)
-                    graph_span.set_attribute("graph.status", "success")
-
-                if OBSERVABILITY_AVAILABLE and get_rag_metrics:
-                    try:
-                        get_rag_metrics().record_graph_extraction(
-                            latency_ms=graph_creation_duration * 1000,
-                            num_entities=num_entities,
-                            num_relations=num_relations,
-                        )
-                    except Exception as e:
-                        logger.warning(f"Failed to record graph metrics: {e}")
-
-            except Exception as e:
-                graph_creation_duration = time.time() - graph_update_start
-                if graph_span:
-                    graph_span.set_attribute("graph.status", "error")
-                    graph_span.set_attribute("graph.error", str(e))
-                    try: graph_span.record_exception(e)
-                    except Exception: pass
-                raise
-            finally:
-                if graph_span:
-                    try: graph_span.end()
-                    except Exception: pass
+    # Step 4b: RDF graph
+    rdf_kg_duration, rdf_store_duration = await update_rdf_graph(system, nodes, nodes_kg_extracted=nodes_kg_extracted, skip_graph=skip_graph)
 
     if _check_cancellation(processing_id):
         raise RuntimeError("Processing cancelled by user")
@@ -427,14 +197,16 @@ async def ingest_source_documents(
     total_duration = time.time() - start_time
     logger.info(
         f"Direct document processing completed in {total_duration:.2f}s — "
-        f"Pipeline: {pipeline_duration:.2f}s, Vector: {vector_duration:.2f}s, Graph: {graph_creation_duration:.2f}s"
+        f"Chunk: {chunk_duration:.2f}s, Vector: {vector_duration:.2f}s, "
+        f"Search: {search_duration:.2f}s, KG: {kg_duration + rdf_kg_duration:.2f}s, "
+        f"Graph: {graph_duration:.2f}s, RDF: {rdf_store_duration:.2f}s"
     )
 
     if OBSERVABILITY_AVAILABLE and get_rag_metrics:
         try:
             m = get_rag_metrics()
-            if pipeline_duration > 0:
-                m.record_document_processing(latency_ms=pipeline_duration * 1000, num_chunks=len(nodes))
+            if chunk_duration > 0:
+                m.record_document_processing(latency_ms=chunk_duration * 1000, num_chunks=len(nodes))
             if vector_duration > 0:
                 m.record_vector_indexing(latency_ms=vector_duration * 1000, num_vectors=len(nodes))
             try:

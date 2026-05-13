@@ -1,0 +1,45 @@
+# Apache AGE (PG18) + pgvector — graph + vector database on port 5434
+#
+# Purpose: Apache AGE property graph (Cypher) combined with pgvector for
+#          graph-native vector similarity search (AGEVector).
+#
+# Database: flexible_graphrag_age
+#   - AGE extension:    Cypher property graph (AGEGraph, AGEGraphCypherQAChain)
+#   - vector extension: pgvector similarity search (AGEVector, hybrid search)
+#
+# The incremental sync state and standalone pgvector store live separately on
+# postgres-pgvector at port 5433 (postgres-pgvector.yaml) — unchanged.
+#
+# Build: docker compose build apache-age
+# (first run installs postgresql-18-pgvector into the image layer; ~30 s)
+services:
+  apache-age:
+    build:
+      context: ../..
+      dockerfile: docker/Dockerfile.age-pgvector
+    image: flexible-graphrag/postgres-age:latest
+    container_name: flexible-graphrag-apache-age
+    ports:
+      - "5434:5432"
+    volumes:
+      # PG18 stores data at the major-version-specific PGDATA path.
+      # /var/lib/postgresql/data would trigger the "unused mount" warning.
+      - apache_age_data:/var/lib/postgresql/18/docker
+      - ../docker/age-init:/docker-entrypoint-initdb.d
+    environment:
+      POSTGRES_DB:       flexible_graphrag_age
+      POSTGRES_USER:     postgres
+      POSTGRES_PASSWORD: password
+    # AGE must be in shared_preload_libraries (default CMD in apache/age:latest).
+    command: postgres -c shared_preload_libraries=age
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d flexible_graphrag_age"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+volumes:
+  apache_age_data:
+    driver: local

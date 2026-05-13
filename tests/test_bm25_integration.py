@@ -3,7 +3,6 @@
 Integration tests for BM25 functionality in Flexible-GraphRAG
 """
 
-import asyncio
 import tempfile
 import os
 import sys
@@ -14,9 +13,20 @@ from unittest.mock import Mock, patch
 # Add the flexible-graphrag directory to the path
 sys.path.insert(0, str(Path(__file__).parent.parent / "flexible-graphrag"))
 
-from config import Settings, SearchDBType, VectorDBType, GraphDBType
+from llama_index.core.schema import TextNode
+from llama_index.core.storage.docstore import SimpleDocumentStore
+
+from config import Settings, SearchDBType
 from factories import DatabaseFactory
 from hybrid_system import HybridSearchSystem
+
+
+def _docstore_with_one_node() -> SimpleDocumentStore:
+    """Minimal real docstore so BM25Retriever.from_defaults sees iterable docs."""
+    ds = SimpleDocumentStore()
+    ds.add_documents([TextNode(text="bm25 test chunk", id_="bm25-test-node-1")])
+    return ds
+
 
 class TestBM25Configuration:
     """Test BM25 configuration and setup"""
@@ -53,22 +63,20 @@ class TestBM25Factory:
     
     def test_create_bm25_retriever(self):
         """Test BM25 retriever creation"""
-        mock_docstore = Mock()
+        docstore = _docstore_with_one_node()
         config = {"similarity_top_k": 15, "persist_dir": "/tmp/test"}
-        
-        with patch('os.makedirs') as mock_makedirs:
-            retriever = DatabaseFactory.create_bm25_retriever(mock_docstore, config)
-            
-            # Verify retriever was created
+
+        with patch("os.makedirs") as mock_makedirs:
+            retriever = DatabaseFactory.create_bm25_retriever(docstore, config)
+
             assert retriever is not None
-            # Verify directory creation was called
             mock_makedirs.assert_called_once_with("/tmp/test", exist_ok=True)
-    
+
     def test_create_bm25_retriever_default_config(self):
         """Test BM25 retriever creation with default config"""
-        mock_docstore = Mock()
-        retriever = DatabaseFactory.create_bm25_retriever(mock_docstore)
-        
+        docstore = _docstore_with_one_node()
+        retriever = DatabaseFactory.create_bm25_retriever(docstore)
+
         assert retriever is not None
 
 class TestBM25HybridSystem:
@@ -91,42 +99,35 @@ class TestBM25HybridSystem:
             yield config
     
     def test_hybrid_system_bm25_setup(self, temp_config):
-        """Test that hybrid system properly handles BM25 setup"""
-        with patch('factories.DatabaseFactory.create_vector_store') as mock_vector:
-            with patch('factories.DatabaseFactory.create_graph_store') as mock_graph:
-                with patch('factories.DatabaseFactory.create_search_store') as mock_search:
+        """BM25 uses no external search store — setup_databases skips create_search_store."""
+        with patch("factories.DatabaseFactory.create_vector_store") as mock_vector:
+            with patch("factories.DatabaseFactory.create_graph_store") as mock_graph:
+                with patch("factories.DatabaseFactory.create_search_store") as mock_search:
                     system = HybridSearchSystem(temp_config)
-                    
-                    # Verify search store creation was called with BM25
-                    mock_search.assert_called_once_with(SearchDBType.BM25, {})
-                    
-                    # Verify search_store is None for BM25
+
+                    mock_search.assert_not_called()
                     assert system.search_store is None
     
     def test_hybrid_retriever_bm25_integration(self, temp_config):
-        """Test that BM25 retriever is properly integrated in hybrid retriever"""
-        with patch('factories.DatabaseFactory.create_vector_store'):
-            with patch('factories.DatabaseFactory.create_graph_store'):
-                with patch('factories.DatabaseFactory.create_search_store'):
+        """BM25 retriever receives docstore + bm25_config from setup_hybrid_retriever."""
+        with patch("factories.DatabaseFactory.create_vector_store"):
+            with patch("factories.DatabaseFactory.create_graph_store"):
+                with patch("factories.DatabaseFactory.create_search_store"):
                     system = HybridSearchSystem(temp_config)
-                    
-                    # Mock the indexes
+
                     system.vector_index = Mock()
                     system.graph_index = Mock()
-                    
-                    # Mock the docstore
-                    system.vector_index.docstore = Mock()
-                    
-                    with patch('factories.DatabaseFactory.create_bm25_retriever') as mock_bm25:
+                    system.vector_index.docstore = _docstore_with_one_node()
+
+                    with patch("factories.DatabaseFactory.create_bm25_retriever") as mock_bm25:
                         mock_bm25.return_value = Mock()
                         system._setup_hybrid_retriever()
-                        
-                        # Verify BM25 retriever was created with correct config
+
                         mock_bm25.assert_called_once()
-                        call_args = mock_bm25.call_args
-                        assert call_args[0][0] == system.vector_index.docstore  # docstore
-                        assert call_args[0][1]["similarity_top_k"] == 15  # config
-                        assert call_args[0][1]["persist_dir"] == temp_config.bm25_persist_dir
+                        call_kw = mock_bm25.call_args
+                        assert call_kw.kwargs["docstore"] is system.vector_index.docstore
+                        assert call_kw.kwargs["config"]["similarity_top_k"] == 15
+                        assert call_kw.kwargs["config"]["persist_dir"] == temp_config.bm25_persist_dir
 
 class TestBM25Persistence:
     """Test BM25 persistence functionality"""

@@ -99,7 +99,10 @@ class SchemaManager:
         #   SchemaLLMPathExtractor returns 0 entities instantly even with valid credits — genuine
         #   tool-calling incompatibility (same pattern as openai_like/groq). Switch to Dynamic.
         switch_to_simple_providers = []
-        switch_to_dynamic_providers = ["bedrock", "fireworks", "groq", "openai_like", "openrouter"]
+        # vllm: OpenAI-compatible server strictly rejects tool_choice="required" when tools=[].
+        # SchemaLLMPathExtractor injects tool_choice="required" unconditionally -> HTTP 400.
+        # DynamicLLMPathExtractor avoids tool_choice, works fine with vLLM.
+        switch_to_dynamic_providers = ["bedrock", "fireworks", "groq", "openai_like", "openrouter", "vllm"]
 
         # LiteLLM routing to Ollama models: SchemaLLMPathExtractor returns 0 entities
         # (same tool_choice conflict as direct Ollama). Switch to Dynamic for ollama/* models.

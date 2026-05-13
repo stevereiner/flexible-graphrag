@@ -69,7 +69,18 @@ class UnifiedQueryEngine:
                 formatted_results=results
             )
         
-        # Otherwise, try property graph SPARQL wrapper
+        # No target specified — use the first available RDF store
+        if self.rdf_stores:
+            store_name, store = next(iter(self.rdf_stores.items()))
+            results = store.query_sparql(query)
+            return QueryResult(
+                query_type=QueryType.SPARQL,
+                backend=store_name,
+                raw_results=results,
+                formatted_results=results
+            )
+        
+        # Fall back to property graph SPARQL wrapper
         if self.property_graph_index:
             from .sparql_property_graph_wrapper import PropertyGraphSPARQLWrapper
             wrapper = PropertyGraphSPARQLWrapper(

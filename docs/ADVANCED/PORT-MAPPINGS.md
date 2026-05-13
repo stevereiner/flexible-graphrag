@@ -42,10 +42,17 @@ The following port conflicts were identified and resolved for new vector databas
 | Neo4j | 7474, 7687 | Graph database | http://localhost:7474 |
 | Ladybug Explorer | 7003 | Ladybug web UI (optional compose include) | http://localhost:7003 |
 | FalkorDB | 6379, 3001 | Graph database + browser | http://localhost:3001 |
-| ArcadeDB | 2480, 2424 | Graph database + studio | http://localhost:2480 |
+| ArcadeDB | 2480, 2424, **7689** | Graph database + studio + Bolt (LC adapter) | http://localhost:2480 |
 | MemGraph | 7688, 3002 | Graph database + lab | http://localhost:3002 |
 | **NebulaGraph** | **9669, 7001** | **Distributed graph database + studio** | **http://localhost:7001** |
 | **Neptune Graph Explorer** | **3007** | Neptune dashboard | http://localhost:3007 |
+| **ArangoDB** | **8529** | **LangChain-only PG; web UI at same port** | **http://localhost:8529** |
+| **Apache AGE** | **5434** | **LangChain-only PG (PostgreSQL+Cypher)** | psql / pgAdmin |
+| **HugeGraph** | **8082, 8085** | **LangChain-only PG + Hubble UI** | **http://localhost:8085** |
+| **SurrealDB** | **8010, 8011** | **LangChain-only multi-model PG + Surrealist UI** | http://localhost:8011 |
+| **TigerGraph** | **9002, 14240** | **LangChain-only analytics PG; RESTPP API + GraphStudio UI** | **http://localhost:14240** |
+| **Spanner Emulator** | **9010, 9020** | **LangChain-only; gRPC + HTTP** | REST at http://localhost:9020 |
+| **Gremlin Server** | **8182** | **TinkerPop Gremlin (Cosmos Gremlin local sub)** | ws://localhost:8182/gremlin |
 
 ### Vector Databases
 | **Service** | **Port(s)** | **Purpose** | **Dashboard URL** |
@@ -110,7 +117,7 @@ The following ports are currently available for future services:
 - **3009-3099**: Additional dashboards
 - **5051-5431**: Database services
 - **6000-6332, 6335-6378**: Specialized services
-- **7003-7473, 7475-7686, 7689-7999**: Graph services (7003 = Ladybug Explorer)
+- **7003-7473, 7475-7686, 7690-7999**: Graph services (7003 = Ladybug Explorer; 7689 = ArcadeDB Bolt)
 - **8003-8069, 8071-8079, 8082, 8084-8089, 8091-8159, 8162-8612, 8614-8615, 8617-8999**: Application services (8008 = Docs dev server)
 - **9002-9199, 9202-9300, 9302-9999**: Search and storage services
 

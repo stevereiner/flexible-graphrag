@@ -1,4 +1,5 @@
 import asyncio
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Union, Optional, Dict
 import logging
@@ -72,16 +73,75 @@ class DocumentProcessor:
                 device=accelerator_device
             )
             
+            # OCR configuration (env fallbacks align with config.py defaults)
+            do_ocr = bool(os.getenv('DOCLING_OCR', '').lower() in ('1', 'true', 'yes'))
+            ocr_engine_str = os.getenv('DOCLING_OCR_ENGINE', 'auto')
+            if self.config:
+                do_ocr = getattr(self.config, 'docling_ocr', False)
+                ocr_engine_str = getattr(self.config, 'docling_ocr_engine', 'auto')
+
+            ocr_options = None
+            if do_ocr:
+                from docling.datamodel.pipeline_options import (
+                    OcrAutoOptions, EasyOcrOptions, TesseractOcrOptions,
+                    TesseractCliOcrOptions, RapidOcrOptions,
+                )
+                engine = ocr_engine_str.lower()
+                if engine == 'auto':
+                    ocr_options = OcrAutoOptions()
+                elif engine == 'easyocr':
+                    ocr_options = EasyOcrOptions()
+                elif engine == 'tesserocr':
+                    ocr_options = TesseractOcrOptions()
+                elif engine == 'tesseract_cli':
+                    ocr_options = TesseractCliOcrOptions()
+                elif engine == 'rapidocr':
+                    ocr_options = RapidOcrOptions()
+                elif engine == 'ocrmac':
+                    try:
+                        from docling.datamodel.pipeline_options import OcrMacOptions
+                        ocr_options = OcrMacOptions()
+                    except ImportError:
+                        logger.warning("OcrMacOptions not available (macOS only), falling back to auto")
+                        ocr_options = OcrAutoOptions()
+                else:
+                    logger.warning(f"Unknown DOCLING_OCR_ENGINE '{ocr_engine_str}', falling back to auto")
+                    ocr_options = OcrAutoOptions()
+
+                resolved = type(ocr_options).__name__
+                logger.info(
+                    "Docling OCR config (app): enabled=true requested_engine=%r "
+                    "pipeline_ocr_options=%s",
+                    ocr_engine_str,
+                    resolved,
+                )
+                if str(ocr_engine_str).lower().strip() == "auto":
+                    logger.info(
+                        "Docling OCR: requested_engine=auto — Docling chooses an installed "
+                        "backend at conversion time; its log line "
+                        "\"Auto OCR model selected ...\" is the effective engine."
+                    )
+            else:
+                logger.info(
+                    "Docling OCR config (app): enabled=false "
+                    "(set DOCLING_OCR=true for scanned PDFs/images)"
+                )
+
             # Configure Docling for optimal PDF processing
-            pdf_options = PdfPipelineOptions(
+            pdf_pipeline_kwargs = dict(
                 do_table_structure=True,
                 do_picture_classification=True,
                 do_formula_enrichment=True,
+                do_ocr=do_ocr,
                 table_structure_options=TableStructureOptions(
                     do_cell_matching=True
                 ),
-                accelerator_options=accelerator_options  # Apply device configuration
+                accelerator_options=accelerator_options,
             )
+            if do_ocr and ocr_options is not None:
+                pdf_pipeline_kwargs['ocr_options'] = ocr_options
+
+            pdf_options = PdfPipelineOptions(**pdf_pipeline_kwargs)
             
             # Configure all supported Docling formats
             self.converter = DocumentConverter(
@@ -713,7 +773,9 @@ class DocumentProcessor:
                 "source": source_name,
                 "conversion_method": "direct_text",
                 "file_type": ".txt",
-                "file_name": source_name
+                "file_name": source_name,
+                "file_path": "",
+                "modified_at": datetime.now(timezone.utc).isoformat(),
             }
         )
     

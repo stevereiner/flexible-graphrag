@@ -28,6 +28,12 @@ except ImportError:
     OPENINFERENCE_AVAILABLE = False
 
 try:
+    from openinference.instrumentation.langchain import LangChainInstrumentor
+    OPENINFERENCE_LANGCHAIN_AVAILABLE = True
+except ImportError:
+    OPENINFERENCE_LANGCHAIN_AVAILABLE = False
+
+try:
     from .telemetry_openlit import setup_observability_openlit, OPENLIT_AVAILABLE
 except ImportError:
     OPENLIT_AVAILABLE = False
@@ -39,6 +45,7 @@ logger = logging.getLogger(__name__)
 _tracer_provider: Optional[TracerProvider] = None
 _meter_provider: Optional[MeterProvider] = None
 _instrumentor: Optional['LlamaIndexInstrumentor'] = None
+_lc_instrumentor: Optional['LangChainInstrumentor'] = None
 
 def setup_observability(
     service_name: str = "flexible-graphrag",
@@ -50,10 +57,10 @@ def setup_observability(
     backend: Optional[str] = None
 ) -> TracerProvider:
     """
-    Initialize OpenTelemetry instrumentation for LlamaIndex
-    
+    Initialize OpenTelemetry instrumentation for LlamaIndex and LangChain.
+
     Supports three modes:
-    1. OpenInference only (default) - Captures traces, requires spanmetrics for token metrics
+    1. OpenInference only (default) - Captures traces for LlamaIndex + LangChain
     2. OpenLIT only - Captures traces + metrics including tokens directly
     3. BOTH (recommended!) - OpenInference + OpenLIT as dual OTLP producers
     
@@ -157,11 +164,22 @@ def setup_observability(
         try:
             _instrumentor = LlamaIndexInstrumentor()
             _instrumentor.instrument(tracer_provider=_tracer_provider)
-            logger.info("OpenInference instrumentation enabled")
+            logger.info("OpenInference LlamaIndex instrumentation enabled")
         except Exception as e:
             logger.warning(f"Failed to instrument LlamaIndex: {e}")
     elif enable_instrumentation and not OPENINFERENCE_AVAILABLE:
-        logger.warning("OpenInference instrumentation not available. Install: pip install openinference-instrumentation-llama-index")
+        logger.warning("OpenInference LlamaIndex instrumentation not available. Install: uv pip install openinference-instrumentation-llama-index")
+
+    # Instrument LangChain - MUST be called before any LangChain operations
+    if enable_instrumentation and OPENINFERENCE_LANGCHAIN_AVAILABLE:
+        try:
+            _lc_instrumentor = LangChainInstrumentor()
+            _lc_instrumentor.instrument(tracer_provider=_tracer_provider)
+            logger.info("OpenInference LangChain instrumentation enabled")
+        except Exception as e:
+            logger.warning(f"Failed to instrument LangChain: {e}")
+    elif enable_instrumentation and not OPENINFERENCE_LANGCHAIN_AVAILABLE:
+        logger.warning("OpenInference LangChain instrumentation not available. Install: uv pip install openinference-instrumentation-langchain")
     
     # Initialize RAG metrics early to ensure they're ready before first use
     try:
@@ -196,15 +214,21 @@ def get_meter(name: str = __name__):
 
 def shutdown_observability():
     """Shutdown observability providers gracefully"""
-    global _tracer_provider, _meter_provider, _instrumentor
-    
+    global _tracer_provider, _meter_provider, _instrumentor, _lc_instrumentor
+
     logger.info("Shutting down observability...")
-    
+
     if _instrumentor is not None:
         try:
             _instrumentor.uninstrument()
         except Exception as e:
             logger.warning(f"Error uninstrumenting LlamaIndex: {e}")
+
+    if _lc_instrumentor is not None:
+        try:
+            _lc_instrumentor.uninstrument()
+        except Exception as e:
+            logger.warning(f"Error uninstrumenting LangChain: {e}")
     
     if _tracer_provider is not None:
         try:

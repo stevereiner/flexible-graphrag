@@ -1,45 +1,52 @@
 # Search Database Configuration
 
-**Configuration**: Set via `SEARCH_DB` and `SEARCH_DB_CONFIG` environment variables
+## Database Selection
+
+Set `SEARCH_DB` to select the search store:
+
+```env
+SEARCH_DB=elasticsearch    # bm25 | elasticsearch | opensearch | none
+```
+
+## Framework Selection
+
+Set `SEARCH_BACKEND` to choose the framework. All three stores are supported with both:
+
+```env
+SEARCH_BACKEND=llamaindex  # or langchain
+```
 
 ## BM25 (Built-in)
 
-Local file-based BM25 full-text search with TF-IDF ranking. No extra service required.
+Local in-memory BM25 full-text search with TF-IDF ranking. No external service required.
 
-- Dashboard: None (file-based)
-
-```bash
+```env
 SEARCH_DB=bm25
-SEARCH_DB_CONFIG={"persist_dir": "./bm25_index"}
 ```
 
 ## Elasticsearch
 
 Enterprise search engine with advanced analyzers, faceted search, and real-time analytics.
 
-- Dashboard: Kibana (http://localhost:5601) for search analytics, index management, and query debugging
+- Dashboard: Kibana (http://localhost:5601)
 
-```bash
+```env
 SEARCH_DB=elasticsearch
-SEARCH_DB_CONFIG={"hosts": ["http://localhost:9200"], "index_name": "hybrid_search"}
 ```
 
 ## OpenSearch
 
 AWS-led open-source fork with native hybrid scoring (vector + BM25) and k-NN algorithms.
 
-- Dashboard: OpenSearch Dashboards (http://localhost:5601) for cluster monitoring and search pipeline management
+- Dashboard: OpenSearch Dashboards (http://localhost:5601)
 
-```bash
+```env
 SEARCH_DB=opensearch
-SEARCH_DB_CONFIG={"hosts": ["http://localhost:9201"], "index_name": "hybrid_search"}
 ```
 
 ## Disable Full-Text Search
 
-To use vector search only:
-
-```bash
+```env
 SEARCH_DB=none
 ```
 

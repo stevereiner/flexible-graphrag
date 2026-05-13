@@ -27,40 +27,76 @@ logger = logging.getLogger(__name__)
 # Public entry points
 # ---------------------------------------------------------------------------
 
-def build_langchain_pg_retriever(config: "AppSettings"):
-    """Create a LangChain property-graph QA retriever for fusion.
+def build_langchain_pg_retriever(config: "AppSettings", source_files=None, lc_graph=None):
+    """Create a LangChain property-graph text-to-query retriever for fusion.
 
-    Activated when ``USE_LANGCHAIN_PG=true``.  The store type is set via
-    ``LANGCHAIN_PG_STORE_TYPE``.
+    Activated when ``USE_LANGCHAIN_PG=true`` OR ``USE_LC_TEXT_TO_GRAPH=true``.
+    The store type is resolved from ``LANGCHAIN_PG_STORE_TYPE`` or ``PG_GRAPH_DB``.
+
+    Args:
+        source_files: Optional list of ingested file names to attach to each
+            result node for source attribution in the UI.
+        lc_graph:     Optional already-opened LangChain graph object to reuse.
+            When provided, adapter creation is skipped entirely.  Useful for
+            embedded stores (Ladybug/Kùzu) where opening a second ``Database``
+            handle to the same path is unsafe.
 
     Returns:
         TextToGraphQueryRetriever or None if not configured / failed.
     """
     use_langchain_pg = getattr(config, "use_langchain_pg", False)
-    pg_store_type = getattr(config, "langchain_pg_store_type", None)
+    use_lc_text_to_graph = getattr(config, "use_lc_text_to_graph", False)
 
-    if not use_langchain_pg or not pg_store_type:
+    if not use_langchain_pg and not use_lc_text_to_graph:
+        logger.debug(
+            "build_langchain_pg_retriever: skip (use_langchain_pg=%s use_lc_text_to_graph=%s)",
+            use_langchain_pg,
+            use_lc_text_to_graph,
+        )
+        return None
+
+    pg_store_type = getattr(config, "langchain_pg_store_type", None)
+    if not pg_store_type:
+        # fall back to the LlamaIndex PG store type
+        _pg_db = getattr(config, "pg_graph_db", None)
+        if _pg_db is not None:
+            pg_store_type = str(_pg_db).lower().split(".")[-1]  # handle PropertyGraphType enum
+    if not pg_store_type or pg_store_type in ("none", ""):
+        logger.debug(
+            "build_langchain_pg_retriever: skip (no pg_store_type resolvable from config)"
+        )
         return None
 
     try:
-        from langchain.graph.langchain_retriever_wrapper import TextToGraphQueryRetriever
-        from langchain.graph.langchain_adapters.property_graph_adapters import create_property_graph_adapter
+        from langchain.graph.retrievers.li_graph_query_retriever import TextToGraphQueryRetriever
+        from langchain.graph.pg_store_adapters import create_property_graph_adapter
 
         pg_store_type = pg_store_type.lower()
 
         _FACTORY_STORES = {
             "arangodb", "neptune", "neptune_analytics",
-            "apache_age", "cosmos_gremlin", "spanner",
+            "apache_age", "cosmos_gremlin", "spanner", "surrealdb",
+            # Embedded stores — prefer the pre-opened lc_graph when passed in,
+            # but can also open a fresh connection from the factory.
+            "ladybug",
         }
         _COMMUNITY_STORES = {
             "neo4j", "memgraph", "falkordb",
             "hugegraph", "nebula", "tigergraph", "arcadedb",
         }
 
-        if pg_store_type in _FACTORY_STORES:
+        if lc_graph is not None:
+            # Reuse already-opened graph (avoids second DB connection for embedded stores).
+            logger.debug(
+                "build_langchain_pg_retriever: reusing existing lc_graph (%s) for store=%s",
+                type(lc_graph).__name__,
+                pg_store_type,
+            )
+        elif pg_store_type in _FACTORY_STORES:
             adapter = create_property_graph_adapter(
                 pg_store_type,
                 build_pg_adapter_config(config, pg_store_type),
+                app_config=config,
             )
             lc_graph = adapter.get_graph()
         elif pg_store_type in _COMMUNITY_STORES:
@@ -76,7 +112,8 @@ def build_langchain_pg_retriever(config: "AppSettings"):
             langchain_graph=lc_graph,
             llm=get_langchain_llm(config),
             top_k=getattr(config, "rdf_retrieval_top_k", 5),
-            include_intermediate_steps=True,
+            include_intermediate_steps=getattr(config, "langchain_pg_intermediate_steps", True),
+            source_files=source_files or [],
         )
         logger.info("Created LangChain PG retriever for store type: %s", pg_store_type)
         return retriever
@@ -114,7 +151,7 @@ def build_langchain_pg_vector_retriever(config: "AppSettings", embed_model: Any 
     pg_vector_search = getattr(config, "langchain_pg_vector_search", False)
     # Use LANGCHAIN_PG_STORE_TYPE if set; fall back to GRAPH_DB only when it's a
     # real graph store (not "none" — which means no ingestion, not a store type).
-    _graph_db = str(getattr(config, "graph_db", "") or "").lower()
+    _graph_db = str(getattr(config, "pg_graph_db", "") or "").lower()
     pg_store_type = (
         getattr(config, "langchain_pg_store_type", None) or (
             _graph_db if _graph_db not in ("", "none") else ""
@@ -139,14 +176,14 @@ def build_langchain_pg_vector_retriever(config: "AppSettings", embed_model: Any 
         return None
 
     try:
-        from langchain.graph.neo4j_vector_retriever import GraphEntityVectorRetriever
+        from langchain.graph.retrievers.li_neo4j_vector_retriever import GraphEntityVectorRetriever
 
         try:
             from langchain_neo4j import Neo4jVector
         except ImportError:
             from langchain_community.vectorstores import Neo4jVector
 
-        graph_config: Dict[str, Any] = getattr(config, "graph_config", {}) or {}
+        graph_config: Dict[str, Any] = getattr(config, "graph_db_config", {}) or {}
         url      = graph_config.get("url", "bolt://localhost:7687")
         username = graph_config.get("username", "neo4j")
         password = graph_config.get("password", "password")
@@ -203,9 +240,20 @@ def build_langchain_pg_vector_retriever(config: "AppSettings", embed_model: Any 
         logger.warning("LangChain Neo4j vector retriever not available: %s", e)
         return None
     except Exception as e:
-        logger.error(
-            "Failed to create LangChain Neo4j vector retriever: %s", e, exc_info=True
-        )
+        msg = str(e).lower()
+        if "vector index" in msg and ("does not exist" in msg or "not found" in msg or "spelled" in msg):
+            logger.warning(
+                "LangChain Neo4j vector retriever: index %r not found in Neo4j. "
+                "This is expected when GRAPH_BACKEND=langchain was used for ingestion "
+                "(LLMGraphTransformer does not create a vector index). "
+                "Set LANGCHAIN_PG_VECTOR_SEARCH=false to suppress this warning, "
+                "or re-ingest with GRAPH_BACKEND=llamaindex to populate the index.",
+                index_name,
+            )
+        else:
+            logger.error(
+                "Failed to create LangChain Neo4j vector retriever: %s", e, exc_info=True
+            )
         return None
 
 
@@ -244,12 +292,13 @@ def build_pg_adapter_config(config: "AppSettings", store_type: str) -> dict:
     """Build config dict for the property_graph_adapters factory."""
     cfg = config
     if store_type == "arangodb":
+        _gc = getattr(cfg, "graph_db_config", {}) or {}
         return {
-            "url": getattr(cfg, "arangodb_url", "http://localhost:8529"),
-            "database": getattr(cfg, "arangodb_database", "flexible-graphrag"),
-            "username": getattr(cfg, "arangodb_username", "root"),
-            "password": getattr(cfg, "arangodb_password", ""),
-            "graph_name": getattr(cfg, "arangodb_graph_name", "knowledge_graph"),
+            "url":        getattr(cfg, "arangodb_url",        None) or _gc.get("url",        "http://localhost:8529"),
+            "database":   getattr(cfg, "arangodb_database",   None) or _gc.get("database",   "flexible-graphrag"),
+            "username":   getattr(cfg, "arangodb_username",   None) or _gc.get("username",   "root"),
+            "password":   getattr(cfg, "arangodb_password",   None) or _gc.get("password",   ""),
+            "graph_name": getattr(cfg, "arangodb_graph_name", None) or _gc.get("graph_name", "knowledge_graph"),
         }
     if store_type in ("neptune", "neptune_analytics"):
         base = {
@@ -263,13 +312,15 @@ def build_pg_adapter_config(config: "AppSettings", store_type: str) -> dict:
             base["graph_identifier"] = getattr(cfg, "neptune_analytics_graph_id", None)
         return base
     if store_type == "apache_age":
+        _gc = getattr(cfg, "graph_db_config", {}) or {}
         return {
-            "host": getattr(cfg, "age_host", "localhost"),
-            "port": getattr(cfg, "age_port", 5432),
-            "database": getattr(cfg, "age_database", "postgres"),
-            "username": getattr(cfg, "age_username", "postgres"),
-            "password": getattr(cfg, "age_password", ""),
-            "graph_name": getattr(cfg, "age_graph_name", "knowledge_graph"),
+            "host":            _gc.get("host",            getattr(cfg, "age_host",              "localhost")),
+            "port":            _gc.get("port",            getattr(cfg, "age_port",              5434)),
+            "database":        _gc.get("database",        getattr(cfg, "age_database",          "flexible_graphrag_age")),
+            "username":        _gc.get("username",        getattr(cfg, "age_username",          "postgres")),
+            "password":        _gc.get("password",        getattr(cfg, "age_password",          "password")),
+            "graph_name":      _gc.get("graph_name",      getattr(cfg, "age_graph_name",        "knowledge_graph")),
+            "collection_name": _gc.get("collection_name", getattr(cfg, "age_vector_collection", "langchain_age_vectors")),
         }
     if store_type == "cosmos_gremlin":
         return {
@@ -285,87 +336,44 @@ def build_pg_adapter_config(config: "AppSettings", store_type: str) -> dict:
             "instance_id": getattr(cfg, "spanner_instance_id", None),
             "database_id": getattr(cfg, "spanner_database_id", None),
         }
+
+    if store_type == "surrealdb":
+        # Prefer graph_db_config (populated from SURREALDB_GRAPH_DB_CONFIG JSON blob)
+        # over the individual attribute fallbacks which default to port 8000.
+        gdc = getattr(cfg, "graph_db_config", None) or {}
+        return {
+            "url": gdc.get("url") or getattr(cfg, "surrealdb_url", "ws://localhost:8010/rpc"),
+            "namespace": gdc.get("namespace") or getattr(cfg, "surrealdb_namespace", "test"),
+            "database": gdc.get("database") or getattr(cfg, "surrealdb_database", "flexible_graphrag"),
+            "username": gdc.get("username") or getattr(cfg, "surrealdb_username", "root"),
+            "password": gdc.get("password") or getattr(cfg, "surrealdb_password", "root"),
+        }
+
     return {}
 
 
 def create_community_pg_graph(config: "AppSettings", store_type: str):
-    """Instantiate a LangChain graph store object for community-supported stores.
+    """Instantiate a LangChain graph store object for the given *store_type*.
 
-    Tries dedicated first-party packages first, falls back to langchain_community.
+    Delegates to :func:`create_property_graph_adapter` — the single source of
+    truth for all LangChain graph constructors (one file per store type).
     """
-    graph_config: Dict[str, Any] = getattr(config, "graph_config", {}) or {}
+    from langchain.graph.pg_store_adapters import (
+        create_property_graph_adapter,
+    )
 
-    if store_type == "neo4j":
-        try:
-            from langchain_neo4j import Neo4jGraph
-        except ImportError:
-            from langchain_community.graphs import Neo4jGraph
-        return Neo4jGraph(
-            url=graph_config.get("url", "bolt://localhost:7687"),
-            username=graph_config.get("username", "neo4j"),
-            password=graph_config.get("password", "password"),
-            database=graph_config.get("database", "neo4j"),
-        )
+    # graph_db_config is the AppSettings field populated from NEO4J_GRAPH_DB_CONFIG
+    # (or the equivalent per-store var).  "graph_config" does not exist on AppSettings.
+    graph_config: Dict[str, Any] = getattr(config, "graph_db_config", {}) or {}
 
-    if store_type == "memgraph":
-        try:
-            from langchain_memgraph import MemgraphGraph
-        except ImportError:
-            from langchain_community.graphs import MemgraphGraph
-        return MemgraphGraph(
-            url=graph_config.get("url", "bolt://localhost:7687"),
-            username=graph_config.get("username", ""),
-            password=graph_config.get("password", ""),
-        )
-
-    if store_type == "arcadedb":
-        from langchain_arcadedb import ArcadeDBGraph
-        return ArcadeDBGraph(
-            url=graph_config.get("url", "http://localhost:2480"),
-            username=graph_config.get("username", "root"),
-            password=graph_config.get("password", ""),
-            database=graph_config.get("database", "flexible-graphrag"),
-        )
-
-    if store_type == "falkordb":
-        from langchain_community.graphs import FalkorDBGraph
-        return FalkorDBGraph(
-            host=graph_config.get("host", "localhost"),
-            port=int(graph_config.get("port", 6379)),
-        )
-
-    if store_type == "hugegraph":
-        from langchain_community.graphs import HugeGraph
-        return HugeGraph(
-            username=graph_config.get("username", "admin"),
-            password=graph_config.get("password", "password"),
-            address=graph_config.get("host", "localhost"),
-            port=int(graph_config.get("port", 8080)),
-            graph=graph_config.get("database", "hugegraph"),
-        )
-
-    if store_type == "nebula":
-        from langchain_community.graphs import NebulaGraph
-        return NebulaGraph(
-            space=graph_config.get("database", "knowledge_graph"),
-            username=graph_config.get("username", "root"),
-            password=graph_config.get("password", "nebula"),
-            address=graph_config.get("host", "localhost"),
-            port=int(graph_config.get("port", 9669)),
-        )
-
-    if store_type == "tigergraph":
-        from langchain_community.graphs import TigerGraph
-        return TigerGraph(
-            conn={
-                "host": graph_config.get("host", "http://localhost"),
-                "graphname": graph_config.get("database", "MyGraph"),
-                "username": graph_config.get("username", "tigergraph"),
-                "password": graph_config.get("password", "tigergraph"),
-            }
-        )
-
-    raise ValueError(f"Unknown community PG store type: {store_type}")
+    try:
+        return create_property_graph_adapter(
+            store_type, graph_config, app_config=config
+        ).get_graph()
+    except ValueError as e:
+        if "Unknown" in str(e) or "not supported" in str(e).lower():
+            raise ValueError(f"Unknown community PG store type: {store_type!r}") from e
+        raise
 
 
 # ---------------------------------------------------------------------------
@@ -376,6 +384,7 @@ def build_pg_neighborhood_retriever(
     config: "AppSettings",
     embed_model: Any = None,
     neo4j_vector: Any = None,
+    use_neighborhood: Optional[bool] = None,
 ) -> "Optional[Any]":
     """Create a GraphNeighborhoodRetriever for the configured LangChain PG store.
 
@@ -400,15 +409,16 @@ def build_pg_neighborhood_retriever(
         GraphNeighborhoodRetriever or None.
     """
     use_langchain_pg = getattr(config, "use_langchain_pg", False)
-    use_neighborhood = getattr(config, "use_pg_neighborhood", False)
-    _graph_db = str(getattr(config, "graph_db", "") or "").lower()
+    # use_neighborhood param overrides config (used when auto-enabled by retriever_setup)
+    _use_neighborhood = use_neighborhood if use_neighborhood is not None else getattr(config, "use_pg_neighborhood", False)
+    _graph_db = str(getattr(config, "pg_graph_db", "") or "").lower()
     pg_store_type = (
         getattr(config, "langchain_pg_store_type", None) or (
             _graph_db if _graph_db not in ("", "none") else ""
         )
     ).lower()
 
-    if not use_neighborhood:
+    if not _use_neighborhood:
         return None
 
     if not pg_store_type:
@@ -421,7 +431,7 @@ def build_pg_neighborhood_retriever(
         return None
 
     try:
-        from langchain.graph.neighborhood_retriever import GraphNeighborhoodRetriever
+        from langchain.graph.retrievers.li_neighborhood_retriever import GraphNeighborhoodRetriever
 
         hop_depth = int(getattr(config, "pg_neighborhood_hops", 2))
         top_k_seeds = int(getattr(config, "pg_neighborhood_top_k_seeds", 10))
@@ -440,7 +450,7 @@ def build_pg_neighborhood_retriever(
             except ImportError:
                 from langchain_community.vectorstores import Neo4jVector
 
-            graph_config: Dict[str, Any] = getattr(config, "graph_config", {}) or {}
+            graph_config: Dict[str, Any] = getattr(config, "graph_db_config", {}) or {}
             neo4j_vector = Neo4jVector.from_existing_index(
                 embedding=_LlamaIndexEmbeddingAdapter(embed_model),
                 url=graph_config.get("url", "bolt://localhost:7687"),
@@ -458,13 +468,29 @@ def build_pg_neighborhood_retriever(
             )
 
         if neo4j_vector is not None:
+            # Pre-warm the similarity-search path so the first async retrieval
+            # call doesn't block the event loop on connection setup.
+            try:
+                neo4j_vector.similarity_search_with_score("warmup", k=1)
+                logger.debug("Neo4j neighborhood vector store: similarity-search warm-up complete")
+            except Exception as _we:
+                logger.debug("Neo4j neighborhood vector warm-up skipped: %s", _we)
+
             def _neo4j_seed_getter(query_bundle):
                 try:
                     hits = neo4j_vector.similarity_search_with_score(
                         query_bundle.query_str, k=top_k_seeds
                     )
                     for doc, _score in hits:
-                        nid = (doc.metadata or {}).get("node_id") or (doc.metadata or {}).get("id")
+                        # Neo4jVector may return the entity name in metadata["id"]
+                        # or metadata["node_id"], OR just as page_content (which IS
+                        # the id value when text_node_property="id").  Fall through
+                        # all options so the neighbor Cypher can match seed.id.
+                        nid = (
+                            (doc.metadata or {}).get("node_id")
+                            or (doc.metadata or {}).get("id")
+                            or doc.page_content  # page_content = id/name value
+                        )
                         if nid:
                             yield str(nid)
                 except Exception as exc:
@@ -480,7 +506,7 @@ def build_pg_neighborhood_retriever(
 
         # --- build neighbor_query_fn (store-specific traversal) --------------
         if pg_store_type == "neo4j":
-            graph_config = getattr(config, "graph_config", {}) or {}
+            graph_config = getattr(config, "graph_db_config", {}) or {}
             try:
                 from neo4j import GraphDatabase as _Neo4jDriver
             except ImportError:
@@ -494,26 +520,69 @@ def build_pg_neighborhood_retriever(
                     graph_config.get("password", "password"),
                 ),
             )
+            # Pre-warm the Bolt connection pool so the first retrieval call does
+            # not pay the TCP + handshake + auth cost and block the async event loop.
+            try:
+                with _driver.session() as _ws:
+                    _ws.run("RETURN 1").consume()
+                logger.debug("Neo4j neighborhood driver: Bolt connection warm-up complete")
+            except Exception as _we:
+                logger.debug("Neo4j neighborhood driver warm-up skipped: %s", _we)
 
             def _neo4j_neighbor_query(seed_ids: List[str], hops: int):
-                """Return (node_id, text, score) tuples for all neighbors within hops."""
+                """Return (node_id, text, score) tuples for all neighbors within hops.
+
+                Prioritises Document nodes — those WITHOUT the ``__Entity__`` label
+                that carry a ``text`` property written by
+                ``add_graph_documents(include_source=True)``.  Those nodes get
+                score=1.0 and entity-name stubs get score=0.6.
+
+                Scores are capped at 1.0 so that ``QueryFusionRetriever`` with
+                ``mode="relative_score"`` is not anchored to a 2.0 max, which
+                would squash all vector/search scores down to near-zero.
+                """
                 cypher = (
                     "MATCH (seed) WHERE seed.id IN $seed_ids OR seed.name IN $seed_ids "
                     f"CALL apoc.path.subgraphNodes(seed, {{maxLevel: {hops}}}) "
                     "YIELD node "
                     "WITH node, seed "
                     "WHERE node <> seed "
-                    "RETURN coalesce(node.id, elementId(node)) AS node_id, "
-                    "       coalesce(node.text, node.name, node.title, '') AS text, "
-                    "       1.0 AS score"
+                    "WITH node, "
+                    # Document nodes (add_graph_documents include_source=True) have no
+                    # __Entity__ label and store chunk text in the `text` property.
+                    # Entity nodes have __Entity__ label; use name/id as display text.
+                    "     CASE "
+                    "       WHEN NOT '__Entity__' IN labels(node) AND node.text IS NOT NULL "
+                    "         THEN node.text "
+                    "       ELSE coalesce(node.name, node.id, '') "
+                    "     END AS text, "
+                    "     CASE "
+                    "       WHEN NOT '__Entity__' IN labels(node) AND node.text IS NOT NULL "
+                    "         THEN 1.0 "
+                    "       ELSE 0.6 "
+                    "     END AS score "
+                    "RETURN coalesce(node.id, elementId(node)) AS node_id, text, score, "
+                    "       coalesce(node.file_name, '') AS file_name, "
+                    "       coalesce(node.file_type, '') AS file_type"
                 )
                 # Fallback Cypher without APOC (variable-length path)
                 cypher_no_apoc = (
                     "MATCH (seed)-[*1.." + str(hops) + "]-(neighbor) "
                     "WHERE seed.id IN $seed_ids OR seed.name IN $seed_ids "
-                    "RETURN coalesce(neighbor.id, elementId(neighbor)) AS node_id, "
-                    "       coalesce(neighbor.text, neighbor.name, neighbor.title, '') AS text, "
-                    "       1.0 AS score "
+                    "WITH neighbor, "
+                    "     CASE "
+                    "       WHEN NOT '__Entity__' IN labels(neighbor) AND neighbor.text IS NOT NULL "
+                    "         THEN neighbor.text "
+                    "       ELSE coalesce(neighbor.name, neighbor.id, '') "
+                    "     END AS text, "
+                    "     CASE "
+                    "       WHEN NOT '__Entity__' IN labels(neighbor) AND neighbor.text IS NOT NULL "
+                    "         THEN 1.0 "
+                    "       ELSE 0.6 "
+                    "     END AS score "
+                    "RETURN coalesce(neighbor.id, elementId(neighbor)) AS node_id, text, score, "
+                    "       coalesce(neighbor.file_name, '') AS file_name, "
+                    "       coalesce(neighbor.file_type, '') AS file_type "
                     "LIMIT 200"
                 )
                 with _driver.session() as session:
@@ -522,7 +591,12 @@ def build_pg_neighborhood_retriever(
                     except Exception:
                         rows = session.run(cypher_no_apoc, seed_ids=seed_ids).data()
                     for row in rows:
-                        yield row["node_id"], row["text"], float(row.get("score", 1.0))
+                        meta = {}
+                        if row.get("file_name"):
+                            meta["file_name"] = row["file_name"]
+                        if row.get("file_type"):
+                            meta["file_type"] = row["file_type"]
+                        yield row["node_id"], row["text"], float(row.get("score", 1.0)), meta
 
             neighbor_query_fn = _neo4j_neighbor_query
 

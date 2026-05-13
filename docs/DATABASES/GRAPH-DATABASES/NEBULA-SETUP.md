@@ -2,9 +2,23 @@
 
 This guide covers the complete setup process for integrating NebulaGraph with Flexible GraphRAG, including all the manual schema configuration steps required.
 
+> **Note**: As of the v3.8.0 upgrade, **all setup steps in this guide are automated** by the
+> `nebula-console` one-shot container (`ADD HOSTS`) and by `_ensure_space_and_schema()` in the
+> adapter code (space creation, `Props__` tag, `Relation__` edge, all named entity tags and
+> relationship edge types). You only need to run the steps below for manual verification or
+> if you want to use a custom schema.
+
+## Framework
+
+This guide covers the **LlamaIndex** backend (`GRAPH_BACKEND=llamaindex`, the default).
+
+For the **LangChain** backend (`GRAPH_BACKEND=langchain`), the Docker and host-registration steps
+below still apply, but the schema DDL is different — see
+[NEBULA-LANGCHAIN-SETUP.md](NEBULA-LANGCHAIN-SETUP.md).
+
 ## Prerequisites
 
-- NebulaGraph services running via Docker Compose
+- NebulaGraph services running via Docker Compose (all images now at **v3.8.0**)
 - NebulaGraph Studio accessible at http://localhost:7001
 - Basic understanding of nGQL (NebulaGraph Query Language)
 

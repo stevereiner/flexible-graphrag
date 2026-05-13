@@ -16,6 +16,8 @@
 
 # Include or comment out (if have externally or don't need) services
 include:
+   # Property graph databases
+   # LlamaIndex + LangChain supported
    - includes/neo4j.yaml          # Neo4j graph database
    #- includes/ladybug-explorer.yaml # Ladybug Explorer web interface (port 7003)
    #- includes/falkordb.yaml        # FalkorDB graph database with browser (ports 6379, 3001)
@@ -23,28 +25,39 @@ include:
    #- includes/memgraph.yaml        # MemGraph graph database
    #- includes/nebula.yaml          # NebulaGraph distributed graph database
    #- includes/neptune.yaml         # Amazon Neptune graph database
+   # LangChain-only 
+   #- includes/arangodb.yaml        # ArangoDB (port 8529)
+   #- includes/apache-age.yaml      # Apache AGE (PG18) + pgvector — graph+vector DB (port 5434)
+   #- includes/hugegraph.yaml       # HugeGraph server + Hubble UI (ports 8082, 8085)
+   #- includes/surrealdb.yaml       # SurrealDB (port 8010)
+   #- includes/gremlin-server.yaml  # TinkerPop Gremlin Server (port 8182; Cosmos Gremlin substitute)
+   #- includes/tigergraph.yaml     # TigerGraph analytics graph database (ports 9002, 14240)
+   # Vector databases
    - includes/qdrant.yaml          # Commented - using existing external container
    #- includes/chroma.yaml          # Chroma vector database
    #- includes/milvus.yaml          # Milvus vector database with Attu dashboard
    #- includes/weaviate.yaml        # Weaviate vector database
    #- includes/pinecone.yaml        # Pinecone managed vector database
-   - includes/postgres-pgvector.yaml  # PostgreSQL with pgvector extension
+   - includes/postgres-pgvector.yaml  # PostgreSQL + pgvector: inc sync state + standalone vector DB (port 5433)
    #- includes/lancedb.yaml         # LanceDB embedded vector database  
+   # Search databases
    - includes/elasticsearch-dev.yaml  # Elasticsearch with security disabled
    - includes/kibana-simple.yaml      # Kibana working configuration
    #- includes/opensearch.yaml      # Commented - using elasticsearch instead
+   # Alfresco repository
    #- includes/alfresco.yaml        # Alfresco content management system
+   # Observability
    #- includes/observability.yaml   # OpenTelemetry observability stack (Jaeger, Prometheus, Grafana)
    # commented out app-stack.yaml and proxy.yaml currently using external/standalone flexible-graphrag 
    # backend and ui clients, but using databases in docker
    #- includes/app-stack.yaml       # backend and ui clients
    #- includes/proxy.yaml           # proxy for backend and ui clients
-
+   # RDF graph databases
    #- includes/jena-fuseki.yaml      # Jena Fuseki server
    #- includes/ontotext-graphdb.yaml   # Ontotext GraphDB server
    #- includes/oxigraph.yaml   # Oxigraph server
-
-   #- includes/vllm.yaml              # vLLM inference server (OpenAI-compatible, port 8000) - requires NVIDIA GPU
+   # vLLM  LLM provider
+   #- includes/vllm.yaml            # vLLM inference server (OpenAI-compatible, port "8002:8000) - requires NVIDIA GPU
 
 # Volumes are defined in individual include files
 

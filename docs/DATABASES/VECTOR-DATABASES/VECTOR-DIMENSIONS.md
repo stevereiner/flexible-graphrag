@@ -354,7 +354,7 @@ curl "http://localhost:8000/api/status"
 
 ## 📚 Related Documentation
 
-- [Main README](README.md) - Full system setup
+- [Overview](../../index.md) - Full system setup
 - [Neo4j Cleanup](../GRAPH-DATABASES/README-neo4j.md) - Detailed Neo4j cleanup procedures
-- [Docker Setup](docker/README.md) - Container-based deployment
-- [Configuration Guide](flexible-graphrag/README.md) - Environment configuration
+- [Docker Setup](../../HOME/HOME-DOCKER.md) - Container-based deployment
+- [Configuration Guide](../../GETTING-STARTED/ENVIRONMENT-CONFIGURATION.md) - Environment configuration

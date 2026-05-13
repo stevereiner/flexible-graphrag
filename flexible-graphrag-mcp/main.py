@@ -195,25 +195,31 @@ async def query_documents(query: str, top_k: int = 10) -> Dict[str, Any]:
         return {"success": False, "error": str(e)}
 
 @mcp.tool()
-async def test_with_sample() -> Dict[str, Any]:
+async def test_with_sample(skip_graph: bool = False) -> Dict[str, Any]:
     """Test the system with sample text for quick verification"""
     try:
-        result = await make_api_call("POST", "/api/test-sample")
+        request_data = {}
+        if skip_graph:
+            request_data["skip_graph"] = skip_graph
+        result = await make_api_call("POST", "/api/test-sample", request_data or None)
         return {"success": True, "data": result}
     except Exception as e:
         return {"success": False, "error": str(e)}
 
 @mcp.tool()
-async def ingest_text(content: str, source_name: str = "mcp-input") -> Dict[str, Any]:
+async def ingest_text(content: str, source_name: str = "mcp-input", skip_graph: bool = False) -> Dict[str, Any]:
     """
     Ingest raw text content into the knowledge graph
     
     Args:
         content: Text content to ingest
         source_name: Name/identifier for this text source
+        skip_graph: Skip knowledge graph extraction (faster, vector+search only)
     """
     try:
         request_data = {"content": content, "source_name": source_name}
+        if skip_graph:
+            request_data["skip_graph"] = skip_graph
         result = await make_api_call("POST", "/api/ingest-text", request_data)
         return {"success": True, "data": result}
     except Exception as e:

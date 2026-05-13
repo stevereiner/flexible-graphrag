@@ -27,11 +27,31 @@ def build_ingestion_pipeline(config, embed_model) -> IngestionPipeline:
     Returns:
         Configured IngestionPipeline (not yet run)
     """
+    # tokenizer=list makes chunk_size/chunk_overlap count *characters* instead of
+    # tokens (default tiktoken). CHUNK_SIZE=2048 → 2048 chars, matching LangChain's
+    # RecursiveCharacterTextSplitter behaviour — no mental token arithmetic needed.
     transformations = [
         SentenceSplitter(
             chunk_size=config.chunk_size,
             chunk_overlap=config.chunk_overlap,
+            tokenizer=list,
         ),
         embed_model,
     ]
     return IngestionPipeline(transformations=transformations)
+
+
+def build_embed_only_pipeline(embed_model) -> IngestionPipeline:
+    """Build an IngestionPipeline that only embeds, without splitting.
+
+    Used when ``CHUNKER_BACKEND=langchain``: the LangChain splitter has
+    already produced ``TextNode`` objects, so we only need to run the
+    embedding transformation before downstream consumers receive the nodes.
+
+    Args:
+        embed_model: LlamaIndex embedding model
+
+    Returns:
+        Configured IngestionPipeline with embed_model as the sole transform
+    """
+    return IngestionPipeline(transformations=[embed_model])

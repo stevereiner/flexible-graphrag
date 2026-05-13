@@ -1,0 +1,38 @@
+# TigerGraph — distributed analytics & graph database (Community Edition)
+# LangChain: langchain-community -> TigerGraph
+# RESTPP / GSQL HTTP API: http://localhost:9002   (container port 9000)
+# GraphStudio UI:         http://localhost:14240
+# Default credentials:    tigergraph / tigergraph
+#
+# Community edition starts all services automatically — no gadmin commands needed.
+# The adapter will auto-create the graph (CREATE GRAPH MyGraph()) on first connect.
+#
+# NOTE: TigerGraph requires significant memory (8 GB+ recommended).
+#       Ensure Docker's VM memory limit is raised before starting this service.
+#       See docs/DOCKER-RESOURCE-CONFIGURATION.md for platform-specific guidance.
+services:
+  tigergraph:
+    image: tigergraph/community:4.2.2
+    container_name: flexible-graphrag-tigergraph
+    platform: linux/amd64          # required on Apple Silicon (M1/M2/M3)
+    ports:
+      - "9002:9000"                # RESTPP / GSQL HTTP API (9000 in container; 9000 conflicts with Milvus MinIO)
+      - "14240:14240"              # GraphStudio web UI
+    ulimits:
+      nofile:
+        soft: 1000000
+        hard: 1000000
+    volumes:
+      - tigergraph_data:/home/tigergraph
+    stdin_open: true
+    tty: true
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/echo"]
+      interval: 60s
+      timeout: 15s
+      retries: 5
+      start_period: 120s           # TigerGraph services take ~2 min to fully start
+
+volumes:
+  tigergraph_data:

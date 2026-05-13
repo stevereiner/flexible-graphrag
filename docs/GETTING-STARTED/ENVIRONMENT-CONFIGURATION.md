@@ -2,144 +2,122 @@
 
 This document explains how to configure Flexible GraphRAG using environment variables and configuration files.
 
-## 📁 **Configuration Files**
+## Configuration Files
 
-### **Primary Configuration**
-- **`.env`** - Your main configuration file (copy from `flexible-graphrag/env-sample.txt`)
-- **`flexible-graphrag/env-sample.txt`** - Template with all options and examples
+| File | Purpose |
+|---|---|
+| `.env` | Your main configuration file — copy from `flexible-graphrag/env-sample.txt` |
+| `flexible-graphrag/env-sample.txt` | Template with all options and inline examples |
 
-### **Frontend Configuration**
-- **Angular**: Uses `PROCESS_FOLDER_PATH` 
-- **React/Vue**: Uses `VITE_PROCESS_FOLDER_PATH`
-- See `docs/DATA-SOURCES/SOURCE-PATH-EXAMPLES.md` for details
+## env-sample.txt Structure
 
-## 🏗️ **5-Section Configuration Structure**
+The configuration file opens with **DB selection** and **framework config**, followed by per-service settings:
 
-The `env-sample.txt` follows a logical 5-section structure:
+### Section 1: DB Selection
 
-### **Section 1: Graph Database Configuration**
-- Graph database selection (`GRAPH_DB`)
-- Knowledge graph extraction settings (`ENABLE_KNOWLEDGE_GRAPH`)
-- Schema configuration (`SCHEMA_NAME`, `SCHEMAS`)
-- Graph database connection configs (`GRAPH_DB_CONFIG`)
-
-### **Section 2: Vector Database Configuration**  
-- Vector database selection (`VECTOR_DB`)
-- Vector database connection configs (`VECTOR_DB_CONFIG`)
-- Index/collection names for vector storage
-
-### **Section 3: Search Database Configuration**
-- Search database selection (`SEARCH_DB`)
-- Search database connection configs (`SEARCH_DB_CONFIG`) 
-- Index names for fulltext search
-
-### **Section 4: LLM Configuration**
-- LLM provider selection (`LLM_PROVIDER`)
-- Provider-specific settings (OpenAI, Ollama, Azure, etc.)
-- API keys and model configurations
-- Timeout settings
-
-### **Section 5: Content Sources Configuration**
-- CMIS and Alfresco settings for document sources
-- Authentication credentials
-
-## 🔧 **Database Configuration Patterns**
-
-### **Selection Variables**
-These control which backend to use:
-```bash
-VECTOR_DB=neo4j        # neo4j, qdrant, elasticsearch, opensearch, none
-SEARCH_DB=elasticsearch # elasticsearch, opensearch, bm25, none  
-GRAPH_DB=neo4j         # neo4j, ladybug, falkordb, arcadedb, memgraph, nebula, neptune, neptune_analytics, none
+```env
+PG_GRAPH_DB=neo4j               # Property graph: neo4j | arcadedb | falkordb | ladybug | memgraph |
+                                 #   nebula | neptune | neptune_analytics | arangodb | apache_age |
+                                 #   cosmos_gremlin | hugegraph | surrealdb | tigergraph | spanner | none
+RDF_GRAPH_DB=none               # RDF store: fuseki | oxigraph | graphdb | neptune_rdf | none
+VECTOR_DB=qdrant                # Vector: qdrant | elasticsearch | opensearch | chroma | milvus |
+                                 #   weaviate | pinecone | postgres | lancedb | neo4j | none
+SEARCH_DB=elasticsearch         # Search: bm25 | elasticsearch | opensearch | none
 ```
 
-### **Connection Configuration**
-Each database type has a `*_DB_CONFIG` JSON configuration:
-```bash
-# Vector database connections
-VECTOR_DB_CONFIG={"host": "localhost", "port": 6333, "collection_name": "hybrid_search_vector"}
+### Section 2: Framework Config
 
-# Search database connections  
-SEARCH_DB_CONFIG={"url": "http://localhost:9200", "index_name": "hybrid_search_fulltext"}
-
-# Graph database connections
-GRAPH_DB_CONFIG={"url": "bolt://localhost:7687", "username": "neo4j", "password": "password"}
+```env
+CHUNKER_BACKEND=llamaindex      # llamaindex | langchain
+GRAPH_BACKEND=llamaindex        # llamaindex | langchain (auto for LC-only stores)
+VECTOR_BACKEND=llamaindex       # llamaindex | langchain
+SEARCH_BACKEND=llamaindex       # llamaindex | langchain
+KG_EXTRACTOR_BACKEND=llamaindex # llamaindex | langchain
+RETRIEVAL_FUSION=llamaindex     # llamaindex | langchain (EnsembleRetriever/RRF)
 ```
 
-### **Individual Database Settings**
-Traditional environment variables for specific databases:
-```bash
-# Neo4j
+### Sections 3+: Service-specific settings (LLM, embeddings, graph DBs, vector DBs, etc.)
+
+---
+
+## Database Configuration Patterns
+
+### Per-Store Config (Recommended)
+
+Use `{TYPE}_*_DB_CONFIG` — takes precedence over generic fallbacks:
+
+```env
+# Property graph
+PG_GRAPH_DB=neo4j
+NEO4J_GRAPH_DB_CONFIG={"uri": "bolt://localhost:7687", "username": "neo4j", "password": "password"}
+
+# Vector
+VECTOR_DB=qdrant
+QDRANT_VECTOR_DB_CONFIG={"host": "localhost", "port": 6333}
+
+# Search
+SEARCH_DB=elasticsearch
+ELASTICSEARCH_SEARCH_DB_CONFIG={"hosts": ["http://localhost:9200"], "index_name": "hybrid_search"}
+
+# RDF
+RDF_GRAPH_DB=fuseki
+FUSEKI_BASE_URL=http://localhost:3030
+FUSEKI_DATASET=flexible-graphrag
+```
+
+### Individual Variables (Legacy)
+
+```env
 NEO4J_URI=bolt://localhost:7687
 NEO4J_USER=neo4j
 NEO4J_PASSWORD=password
-
-# Elasticsearch
 ELASTICSEARCH_URL=http://localhost:9200
-ELASTICSEARCH_USERNAME=
-ELASTICSEARCH_PASSWORD=
-
-# Qdrant
 QDRANT_HOST=localhost
 QDRANT_PORT=6333
-QDRANT_API_KEY=
 ```
 
-## 🎯 **Easy Database Switching**
+---
 
-The configuration is designed for easy switching:
+## Easy Database Switching
 
-```bash
-# Current setup: OpenAI + Qdrant + Elasticsearch + Neo4j
+```env
+# Current: OpenAI + Qdrant + Elasticsearch + Neo4j
 LLM_PROVIDER=openai
 VECTOR_DB=qdrant
-SEARCH_DB=elasticsearch  
-GRAPH_DB=neo4j
-
-# Switch to: Ollama + Neo4j (all-in-one)
-LLM_PROVIDER=ollama
-VECTOR_DB=neo4j
 SEARCH_DB=elasticsearch
-GRAPH_DB=neo4j
+PG_GRAPH_DB=neo4j
 
-# Switch to: OpenAI + Ladybug + OpenSearch
-LLM_PROVIDER=openai  
-VECTOR_DB=opensearch
+# Switch to: Ollama + Milvus (LC backend) + OpenSearch + ArangoDB (LC-only)
+LLM_PROVIDER=ollama
+VECTOR_DB=milvus
+VECTOR_BACKEND=langchain
 SEARCH_DB=opensearch
-GRAPH_DB=ladybug
+PG_GRAPH_DB=arangodb
+# GRAPH_BACKEND auto-set to langchain for arangodb
 ```
 
-## 📝 **Configuration Best Practices**
+---
 
-### **Development Setup**
-1. **Start simple**: Use Neo4j for both vector and graph storage
-2. **Use defaults**: Copy `env-sample.txt` to `.env` and adjust API keys
-3. **Test locally**: Use localhost connections before cloud deployment
+## Configuration Best Practices
 
-### **Production Setup**
-1. **Separate concerns**: Use specialized databases (Qdrant for vectors, Elasticsearch for search)
-2. **Secure connections**: Use proper authentication and HTTPS where supported
-3. **Performance tuning**: Adjust timeout values and batch sizes
+**Development:** Start with the defaults — Neo4j for graph, Qdrant for vector, Elasticsearch for search.
 
-### **Schema Configuration**
-1. **Start with default**: Use `SCHEMA_NAME=default` for comprehensive extraction
-2. **Customize gradually**: Create domain-specific schemas as needed
-3. **Test thoroughly**: Compare different schema approaches on your content
+**Vector-only RAG** (no KG extraction, faster ingest):
+```env
+PG_GRAPH_DB=none
+ENABLE_KNOWLEDGE_GRAPH=false
+VECTOR_DB=qdrant
+```
 
-## 🔗 **Related Documentation**
+---
 
-- **Source paths**: `docs/DATA-SOURCES/SOURCE-PATH-EXAMPLES.md`
-- **Schema examples**: `docs/CONFIGURATION/SCHEMA-EXAMPLES.md`
-- **Timeout configuration**: `docs/ADVANCED/TIMEOUT-CONFIGURATIONS.md`
-- **Neo4j URLs**: `docs/DATABASES/GRAPH-DATABASES/Neo4j-URLs.md`
-- **Vector dimensions**: `docs/DATABASES/VECTOR-DATABASES/VECTOR-DIMENSIONS.md`
+## Related Documentation
 
-## 🚀 **Quick Start**
-
-1. **Copy template**: `cp flexible-graphrag/env-sample.txt .env`
-2. **Set API key**: Add your OpenAI API key to `OPENAI_API_KEY`
-3. **Choose databases**: Uncomment your preferred database options
-4. **Update connections**: Modify database URLs/credentials as needed
-5. **Test configuration**: Run a small test to verify everything works
-
-The modular 5-section structure makes it easy to understand and modify any part of the configuration without affecting others.
+- [Property Graph Configuration](../CONFIGURATION/CONFIG-PROPERTY-GRAPH.md) — all 15 stores, LC-only stores, framework config
+- [Vector Configuration](../CONFIGURATION/CONFIG-VECTOR-DATABASES.md) — 10 stores, dimension compatibility
+- [Search Configuration](../CONFIGURATION/CONFIG-SEARCH-DATABASES.md) — BM25, ES, OpenSearch; LC backends
+- [LangChain Configuration](../CONFIGURATION/LANGCHAIN-CONFIGURATION.md) — full dual-framework config, scope tags, synonym expansion
+- [LLM & Embedding Config](../LLM/LLM-EMBEDDING-CONFIG.md) — all 13 LLM providers + embedding providers
+- [Schema Examples](../CONFIGURATION/SCHEMA-EXAMPLES.md) — ontology-guided extraction examples
+- [Source Paths](../DATA-SOURCES/SOURCE-PATH-EXAMPLES.md) — filesystem, cloud, repository path formats
+- [Port Mappings](../ADVANCED/PORT-MAPPINGS.md) — all service ports to avoid conflicts

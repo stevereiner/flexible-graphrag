@@ -12,6 +12,8 @@ There are three deployment scenarios:
 
 See [Docker Deployment](DOCKER-DEPLOYMENT.md) for Scenarios A and B.
 
+For Scenarios A and C see [Python Backend](PYTHON-BACKEND.md) and [Frontend Setup](FRONTEND-SETUP.md).
+
 ## Sub-sections
 
 - [Prerequisites](PREREQUISITES.md) — what you need before installing

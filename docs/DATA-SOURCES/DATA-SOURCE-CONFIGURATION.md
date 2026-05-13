@@ -53,7 +53,7 @@ Then create a client secret:
 3. Add these permissions:
    - `Files.Read.All` (to read OneDrive files)
    - `Sites.Read.All` (for SharePoint integration)
-4. Click **Grant admin consent for [Your Tenant]** ✅ (required!)
+4. Click **Grant admin consent for \[Your Tenant\]** ✅ (required!)
 
 After granting, all permissions should show green checkmarks.
 

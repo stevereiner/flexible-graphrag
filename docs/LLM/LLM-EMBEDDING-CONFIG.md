@@ -415,6 +415,7 @@ LLM_EXTRACTION_MODE=function      # default — tool/function calling mode
 - Gemini/Vertex AI: `pydantic_program_mode=FUNCTION` is forced in code regardless of this setting (required to disable AFC)
 - Ollama: does not use `pydantic_program_mode` — log line for resolved mode will not appear for Ollama (expected)
 - Groq/Fireworks/Bedrock/OpenAI-Like/OpenRouter: auto-switch to `DynamicLLMPathExtractor` which uses `apredict()` (plain text), so this setting has no effect for those providers
+- vLLM Docker server mode routes through `OpenAILike` internally — same auto-switch applies; in-process `vllm` Python package: set `KG_EXTRACTOR_TYPE=dynamic` manually if extraction returns 0 entities
 
 
 
@@ -483,14 +484,15 @@ BEDROCK_REGION=us-east-1
 # Default Bedrock embeddings (amazon.titan-embed-text-v2:0, 1024 dims)
 ```
 
-### 17. OpenAI-Like LLM (any OpenAI-compatible API — including vLLM Docker)
+### 17. OpenAI-Like LLM (any OpenAI-compatible API)
 
-Use for: Ollama `/v1` endpoint, vLLM Docker container, or any other OpenAI-compatible server.
+Use for: LM Studio, LocalAI, Llamafile, Jan, Ollama `/v1` endpoint, or any other OpenAI-compatible
+server that is **not** vLLM. For vLLM use `LLM_PROVIDER=vllm` (section 18).
 
 ```bash
 LLM_PROVIDER=openai_like
 OPENAI_LIKE_MODEL=local-model               # Model name as reported by your server
-OPENAI_LIKE_API_BASE=http://localhost:PORT/v1
+OPENAI_LIKE_API_BASE=http://localhost:1234/v1  # LM Studio=1234, LocalAI=8181 (NOT 8080—conflicts with Alfresco), Ollama=11434
 OPENAI_LIKE_API_KEY=local                   # Any string if auth not required
 OPENAI_LIKE_CONTEXT_WINDOW=4096
 OPENAI_LIKE_FUNCTION_CALLING=true           # Set false if model doesn't support tool calling
@@ -527,23 +529,29 @@ vLLM is a high-throughput inference engine with an OpenAI-compatible API. There 
 
 #### Option 1: Docker — all platforms (Windows, macOS, Linux) — recommended
 
-Start the container (requires NVIDIA GPU):
+The Docker image used is `vllm/vllm-openai` which exposes an OpenAI-compatible `/v1` API.
+With `VLLM_MODE=server` the backend connects via `OpenAILike` (same as `openai_like` provider
+but using dedicated `VLLM_*` env vars). No GPU or CUDA required on the machine running the backend.
+
+Start the container (NVIDIA GPU required in the Docker host):
 ```bash
 docker compose -p flexible-graphrag -f docker/includes/vllm.yaml up -d
 # or uncomment includes/vllm.yaml in docker/docker-compose.yaml
 ```
 
-Connect the backend using `LLM_PROVIDER=openai_like`:
+Connect the backend using `LLM_PROVIDER=vllm` with dedicated `VLLM_*` vars:
 ```bash
-LLM_PROVIDER=openai_like
-OPENAI_LIKE_MODEL=Qwen/Qwen2.5-7B-Instruct
-OPENAI_LIKE_API_BASE=http://localhost:8002/v1
-OPENAI_LIKE_API_KEY=fake
-OPENAI_LIKE_CONTEXT_WINDOW=8192
-OPENAI_LIKE_FUNCTION_CALLING=false
+LLM_PROVIDER=vllm
+VLLM_MODE=server                         # connects to the OpenAI-compatible /v1 API (default)
+VLLM_MODEL=Qwen/Qwen2.5-7B-Instruct
+VLLM_API_BASE=http://localhost:8002/v1   # standalone backend; docker.env sets http://vllm:8000/v1 when backend is also in Docker
+VLLM_API_KEY=local
+VLLM_CONTEXT_WINDOW=8192
+VLLM_FUNCTION_CALLING=false
+VLLM_TIMEOUT=120.0
 ```
 
-Optionally override container defaults (Docker Compose picks these up automatically from `.env`):
+Docker Compose also reads these vars to configure the container itself:
 ```bash
 VLLM_MODEL=Qwen/Qwen2.5-7B-Instruct   # HuggingFace model ID (default: Qwen2.5-7B-Instruct)
 VLLM_MAX_MODEL_LEN=8192               # max context length in tokens (default: 8192)
@@ -568,13 +576,18 @@ See `docs/ADVANCED/DOCKER-RESOURCE-CONFIGURATION.md` for WSL2/Docker memory sizi
 #### Option 2: vLLM Python package — Linux / macOS (UNTESTED)
 
 Not available on Windows. macOS support is experimental upstream.
-Requires: `pip install vllm`
+Requires: `pip install vllm` (CUDA required on the host).
+
+`VLLM_MODE=inprocess` uses LlamaIndex's `Vllm` class which loads the model directly in the
+backend process — no separate HTTP server needed. `VLLM_MAX_NEW_TOKENS` caps output length.
 
 ```bash
 LLM_PROVIDER=vllm
+VLLM_MODE=inprocess
 VLLM_MODEL=Qwen/Qwen2.5-7B-Instruct
 VLLM_MAX_MODEL_LEN=8192
 VLLM_GPU_UTIL=0.90
+VLLM_MAX_NEW_TOKENS=2048
 ```
 
 **With vLLM serving an embedding model** (uses `OpenAILikeEmbedding`):

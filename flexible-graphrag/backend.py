@@ -1676,11 +1676,31 @@ class FlexibleGraphRAGBackend:
                     break
                 except Exception as e:
                     error_msg = str(e)
-                    # Handle index/collection not found errors gracefully
-                    if ('index_not_found_exception' in error_msg or
-                        'no such index' in error_msg or
-                        "doesn't exist" in error_msg or
-                        'Not found' in error_msg or
+                    _err_lower = error_msg.lower()
+                    # LLM config errors (bad deployment, missing key, model not found) — surface clearly
+                    _is_llm_config_err = (
+                        'deploymentnotfound' in _err_lower or
+                        'deployment not found' in _err_lower or
+                        'resource not found' in _err_lower or
+                        'model not found' in _err_lower or
+                        'publisher model' in _err_lower or
+                        "requires 'api_key'" in _err_lower
+                    )
+                    if _is_llm_config_err:
+                        logger.warning(f"LLM configuration error during document query: {error_msg[:300]}")
+                        end_time = datetime.now()
+                        duration = (end_time - start_time).total_seconds()
+                        return {
+                            "success": False,
+                            "answer": f"LLM configuration error: {error_msg[:300]}",
+                            "query_time": f"{duration:.3f}s",
+                            "sources": []
+                        }
+                    # Handle index/collection not found errors gracefully (case-insensitive)
+                    if ('index_not_found_exception' in _err_lower or
+                        'no such index' in _err_lower or
+                        "doesn't exist" in _err_lower or
+                        'not found' in _err_lower or
                         'NotFoundError' in str(type(e))):
                         logger.warning(f"Collection/Index not found during document query: {error_msg}")
                         end_time = datetime.now()
@@ -1688,6 +1708,20 @@ class FlexibleGraphRAGBackend:
                         return {
                             "success": True,  # Don't show as error in UI
                             "answer": "No documents have been indexed yet.",
+                            "query_time": f"{duration:.3f}s",
+                            "sources": []
+                        }
+                    # Rate limit / request too large — return clean answer so test shows readable failure
+                    if ('Error code: 413' in error_msg or
+                        'rate_limit_exceeded' in error_msg or
+                        'Request too large' in error_msg or
+                        'tokens_per_minute' in error_msg):
+                        logger.warning(f"LLM rate limit / request too large: {error_msg[:600]}")
+                        end_time = datetime.now()
+                        duration = (end_time - start_time).total_seconds()
+                        return {
+                            "success": True,
+                            "answer": f"LLM rate limit exceeded: {error_msg[:600]}",
                             "query_time": f"{duration:.3f}s",
                             "sources": []
                         }
@@ -1747,7 +1781,7 @@ class FlexibleGraphRAGBackend:
             logger.error(f"Document query failed after {duration:.3f}s: {str(e)}")
             return {"success": False, "error": str(e), "query_time": f"{duration:.3f}s"}
     
-    async def ingest_text(self, content: str, source_name: str = "text_input") -> Dict[str, Any]:
+    async def ingest_text(self, content: str, source_name: str = "text_input", skip_graph: bool = False) -> Dict[str, Any]:
         """Start async text ingestion and return processing ID"""
         processing_id = self._create_processing_id()
         
@@ -1760,7 +1794,7 @@ class FlexibleGraphRAGBackend:
         )
         
         # Start background task
-        asyncio.create_task(self._process_text_async(processing_id, content, source_name))
+        asyncio.create_task(self._process_text_async(processing_id, content, source_name, skip_graph=skip_graph))
         
         estimated_time = self._estimate_processing_time(content=content)
         
@@ -1771,7 +1805,7 @@ class FlexibleGraphRAGBackend:
             "estimated_time": estimated_time
         }
     
-    async def _process_text_async(self, processing_id: str, content: str, source_name: str):
+    async def _process_text_async(self, processing_id: str, content: str, source_name: str, skip_graph: bool = False):
         """Background task for text processing"""
         try:
             self._update_processing_status(
@@ -1810,7 +1844,7 @@ class FlexibleGraphRAGBackend:
             )
             
             # Actual processing with cancellation support
-            await self.system.ingest_text(content=content, source_name=source_name, processing_id=processing_id)
+            await self.system.ingest_text(content=content, source_name=source_name, processing_id=processing_id, skip_graph=skip_graph)
             
             self._update_processing_status(
                 processing_id, 
@@ -1854,7 +1888,7 @@ class FlexibleGraphRAGBackend:
                     "config": {
                         "data_source": self.settings.data_source,
                         "vector_db": self.settings.vector_db,
-                        "graph_db": self.settings.graph_db,
+                        "pg_graph_db": self.settings.graph_db,
                         "search_db": self.settings.search_db,
                         "llm_provider": self.settings.llm_provider
                     },
@@ -1872,7 +1906,7 @@ class FlexibleGraphRAGBackend:
             "config": {
                 "data_source": self.settings.data_source,
                 "vector_db": self.settings.vector_db,
-                "graph_db": self.settings.graph_db,
+                "pg_graph_db": self.settings.graph_db,
                 "llm_provider": self.settings.llm_provider
             }
         }

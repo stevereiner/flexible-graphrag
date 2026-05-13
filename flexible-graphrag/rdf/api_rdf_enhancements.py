@@ -19,10 +19,7 @@ class OntologyUploadRequest(BaseModel):
 
 class SPARQLQueryRequest(BaseModel):
     query: str
-    target_backend: Optional[str] = None  # "neo4j", "fuseki", "graphdb", etc.
-
-class CypherQueryRequest(BaseModel):
-    query: str
+    target_backend: Optional[str] = None  # "fuseki", "graphdb", "oxigraph", "neptune_rdf"
 
 class RDFExportRequest(BaseModel):
     format: str = "turtle"  # turtle, rdfxml, ntriples, nquads
@@ -30,13 +27,8 @@ class RDFExportRequest(BaseModel):
 
 class RDFStoreConnectRequest(BaseModel):
     name: str
-    store_type: str  # fuseki, graphdb, oxigraph
+    store_type: str  # fuseki, graphdb, oxigraph, neptune_rdf
     config: Dict[str, Any]
-
-class NaturalLanguageQueryRequest(BaseModel):
-    query: str
-    target_backend: Optional[str] = None
-    routing_mode: Optional[str] = "hybrid"  # property_graph, sparql, hybrid
 
 @router.post("/ontology/upload")
 async def upload_ontology(file: UploadFile):
@@ -137,71 +129,15 @@ async def execute_sparql_query(request: SPARQLQueryRequest):
         logger.error(f"SPARQL query failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.post("/query/cypher")
-async def execute_cypher_query(request: CypherQueryRequest):
-    """Execute Cypher query against property graph"""
-    global unified_query_engine
-    
-    if unified_query_engine is None:
-        raise HTTPException(status_code=503, detail="Query engine not initialized")
-    
-    try:
-        from .unified_query_engine import QueryType
-        
-        result = unified_query_engine.query(
-            query_text=request.query,
-            query_type=QueryType.CYPHER
-        )
-        
-        return {
-            "status": "success",
-            "backend": result.backend,
-            "query_type": result.query_type.value,
-            "results": result.formatted_results
-        }
-    except Exception as e:
-        logger.error(f"Cypher query failed: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-@router.post("/query/natural-language")
-async def execute_natural_language_query(request: NaturalLanguageQueryRequest):
-    """Execute natural language query using LLM-based routing"""
-    global unified_query_engine
-    
-    if unified_query_engine is None:
-        raise HTTPException(status_code=503, detail="Query engine not initialized")
-    
-    try:
-        from .unified_query_engine import QueryType
-        
-        result = unified_query_engine.query(
-            query_text=request.query,
-            query_type=QueryType.NATURAL_LANGUAGE,
-            target_backend=request.target_backend
-        )
-        
-        return {
-            "status": "success",
-            "backend": result.backend,
-            "query_type": result.query_type.value,
-            "results": result.formatted_results
-        }
-    except Exception as e:
-        logger.error(f"Natural language query failed: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+# NOTE: Cypher and natural-language queries live at POST /api/graph/query
+# (main.py) — they are not RDF/SPARQL operations and do not belong under
+# the /api/rdf prefix.  The endpoints that were previously here
+# (/api/rdf/query/cypher, /api/rdf/query/natural-language) have been removed.
 
 @router.post("/export/rdf")
 async def export_property_graph_as_rdf(request: RDFExportRequest):
-    """Export property graph as RDF"""
-    try:
-        from .sparql_property_graph_wrapper import PropertyGraphSPARQLWrapper
-        
-        # This would need access to the property graph store
-        # Implementation requires backend instance
-        raise HTTPException(status_code=501, detail="RDF export not yet implemented - requires backend integration")
-    except Exception as e:
-        logger.error(f"RDF export failed: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    """Export property graph as RDF (not yet implemented)"""
+    raise HTTPException(status_code=501, detail="RDF export not yet implemented - requires backend integration")
 
 @router.post("/rdf-store/connect")
 async def connect_rdf_store(request: RDFStoreConnectRequest):
@@ -302,26 +238,24 @@ def initialize_rdf_system(settings, property_graph_index=None):
         except Exception as e:
             logger.error(f"Failed to load ontology: {e}")
     
-    # Initialize RDF stores using get_rdf_store_configs() method
-    # This automatically handles standalone env vars overriding JSON config
-    rdf_store_configs = settings.get_rdf_store_configs()
-    
-    if rdf_store_configs:
+    # Initialize RDF store using rdf_graph_db field (single store)
+    store_cfg = settings.get_rdf_store_config()
+
+    if store_cfg:
         from .store.rdf_store_factory import RDFStoreFactory
-        
-        for store_config in rdf_store_configs:
-            store_name = store_config.get("name")
-            try:
-                store_type = store_config.get("type")
-                config = store_config.get("config", {})
-                
-                adapter = RDFStoreFactory.create(store_type, config)
-                adapter.connect()
-                rdf_stores[store_name] = adapter
-                
-                logger.info(f"Connected to RDF store '{store_name}' (type: {store_type})")
-            except Exception as e:
-                logger.error(f"Failed to connect to RDF store '{store_name}': {e}")
+
+        store_name = store_cfg.get("name")
+        try:
+            store_type = store_cfg.get("type")
+            cfg = store_cfg.get("config", {})
+
+            adapter = RDFStoreFactory.create(store_type, cfg)
+            adapter.connect()
+            rdf_stores[store_name] = adapter
+
+            logger.info(f"Connected to RDF store '{store_name}' (type: {store_type})")
+        except Exception as e:
+            logger.error(f"Failed to connect to RDF store '{store_name}': {e}")
     
     # Initialize unified query engine
     if property_graph_index or rdf_stores:

@@ -336,6 +336,125 @@ class KGToRDFConverter:
         )
         return g, turtle_out
 
+    def convert_lc_docs(
+        self,
+        graph_docs: List,
+        annotation_syntax: str = "rdf_1.2",
+        source_nodes: Optional[List] = None,
+    ) -> Tuple[Graph, str]:
+        """Convert LangChain ``GraphDocument`` list directly to RDF.
+
+        Reads LC ``Node`` (id, type, properties) and ``Relationship``
+        (source.id, target.id, type, properties) fields natively — no conversion
+        to LlamaIndex ``EntityNode`` / ``Relation`` objects.
+
+        source_nodes:
+            Optional parallel list of LlamaIndex nodes (same order as graph_docs).
+            Used to extract ``ref_doc_id`` provenance metadata.
+
+        Returns ``(rdf_graph, turtle_str)`` — same shape as :meth:`convert`.
+        """
+        import types as _types
+
+        g = Graph()
+        g.bind("kg", self.BASE)
+        g.bind("onto", self.ONTO)
+        g.bind("rdf", RDF)
+        g.bind("rdfs", RDFS)
+        g.bind("xsd", XSD)
+        g.bind("owl", OWL)
+        for prefix, ns_uri in self._ns_bindings.items():
+            g.bind(prefix, Namespace(ns_uri))
+
+        annotation_lines: List[str] = []
+        all_entities: Dict[str, Any] = {}          # node.id -> LC Node
+        all_relations: List[Tuple[Any, Optional[str]]] = []  # (LC Relationship, ref_doc_id)
+
+        for i, graph_doc in enumerate(graph_docs):
+            # Resolve ref_doc_id from parallel LI source node or LC source document.
+            ref_doc_id: Optional[str] = None
+            if source_nodes and i < len(source_nodes):
+                li_node = source_nodes[i]
+                ref_doc_id = (
+                    getattr(li_node, "ref_doc_id", None)
+                    or (getattr(li_node, "metadata", None) or {}).get("ref_doc_id")
+                    or (getattr(li_node, "metadata", None) or {}).get("doc_id")
+                )
+            if ref_doc_id is None:
+                src = getattr(graph_doc, "source", None)
+                if src is not None:
+                    src_meta = getattr(src, "metadata", {}) or {}
+                    ref_doc_id = src_meta.get("ref_doc_id") or src_meta.get("doc_id")
+
+            for lc_node in getattr(graph_doc, "nodes", []):
+                if lc_node.id not in all_entities:
+                    all_entities[lc_node.id] = lc_node
+            for lc_rel in getattr(graph_doc, "relationships", []):
+                all_relations.append((lc_rel, ref_doc_id))
+
+        # Build entity URIs and add entity triples.
+        entity_uris: Dict[str, URIRef] = {}
+        for eid, lc_node in all_entities.items():
+            uri = self.BASE[_slugify(lc_node.id)]
+            entity_uris[eid] = uri
+            self._add_lc_node_triples(g, lc_node, uri)
+
+        # Add relation triples using a lightweight field-name adapter so
+        # _add_relation_triples can be reused without creating LI Relation objects.
+        seen_relations: Dict[tuple, str] = {}
+        for lc_rel, ref_doc_id in all_relations:
+            rel_key = (lc_rel.source.id, lc_rel.type, lc_rel.target.id)
+            if rel_key in seen_relations:
+                continue
+            seen_relations[rel_key] = ref_doc_id or ""
+
+            subject_uri = entity_uris.get(lc_rel.source.id)
+            object_uri = entity_uris.get(lc_rel.target.id)
+            if subject_uri is None or object_uri is None:
+                logger.debug(
+                    "Skipping LC relation %s: missing entity URI for source=%s or target=%s",
+                    lc_rel.type, lc_rel.source.id, lc_rel.target.id,
+                )
+                continue
+
+            _rel = _types.SimpleNamespace(
+                label=lc_rel.type or "RELATED_TO",
+                properties=getattr(lc_rel, "properties", {}) or {},
+            )
+            self._add_relation_triples(
+                g, _rel, subject_uri, object_uri, annotation_lines, annotation_syntax,
+                ref_doc_id=ref_doc_id,
+            )
+
+        # Serialize — identical logic to convert().
+        base_turtle = g.serialize(format="turtle")
+        if annotation_lines:
+            all_bindings: Dict[str, str] = {str(p): str(n) for p, n in g.namespaces()}
+            for prefix, ns_uri in self._ns_bindings.items():
+                all_bindings.setdefault(str(prefix), str(ns_uri))
+            prefix_block = (
+                "\n".join(
+                    f"@prefix {p}: <{n}> ."
+                    for p, n in sorted(all_bindings.items())
+                    if p
+                ) + "\n\n"
+            )
+            body_lines = [
+                line for line in base_turtle.splitlines()
+                if not line.startswith("@prefix") and not line.startswith("@base")
+            ]
+            body = "\n".join(body_lines).lstrip("\n")
+            turtle_out = prefix_block + body + "\n\n" + "\n".join(annotation_lines) + "\n"
+        else:
+            turtle_out = base_turtle
+
+        logger.info(
+            "KGToRDFConverter (LC): %d entities, %d relations -> %d RDF triples, "
+            "%d annotation lines (syntax=%s)",
+            len(all_entities), len(seen_relations), len(g), len(annotation_lines), annotation_syntax,
+        )
+        return g, turtle_out
+
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
@@ -372,6 +491,21 @@ class KGToRDFConverter:
         g.add((uri, RDF.type, type_uri))
         g.add((uri, RDFS.label, Literal(entity.name)))
         for prop_name, prop_value in (entity.properties or {}).items():
+            if prop_value is None:
+                continue
+            pred = self._predicate_uri(prop_name)
+            g.add((uri, pred, _make_literal(prop_value, pred_key=prop_name, xsd_type_map=self._xsd_type_map)))
+
+    def _add_lc_node_triples(self, g: Graph, lc_node, uri: URIRef) -> None:
+        """Add rdf:type, rdfs:label, and datatype property triples for an LC Node.
+
+        Reads LC ``Node.type`` (label) and ``Node.id`` (name) directly —
+        no LlamaIndex EntityNode creation.
+        """
+        type_uri = self._type_uri(lc_node.type or "Entity")
+        g.add((uri, RDF.type, type_uri))
+        g.add((uri, RDFS.label, Literal(lc_node.id)))
+        for prop_name, prop_value in (getattr(lc_node, "properties", {}) or {}).items():
             if prop_value is None:
                 continue
             pred = self._predicate_uri(prop_name)

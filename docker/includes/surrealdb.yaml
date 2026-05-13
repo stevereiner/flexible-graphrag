@@ -1,0 +1,45 @@
+# SurrealDB — multi-model database with graph, document, and vector support
+# LangChain: langchain-community -> SurrealDBStore (uses SurrealDB Python SDK)
+# HTTP endpoint: http://localhost:8010
+# Default namespace/database: flexible_graphrag / graphrag
+services:
+  surrealdb:
+    image: surrealdb/surrealdb:v3.0.5
+    container_name: flexible-graphrag-surrealdb
+    user: root   # newer images default to non-root; root needed to write the RocksDB volume
+    command:
+      - start
+      - --log=warn
+      - --user=${SURREALDB_USER:-root}
+      - --pass=${SURREALDB_PASSWORD:-root}
+      - rocksdb:/data/surrealdb.db
+    ports:
+      - "8010:8000"    # HTTP (offset from backend 8000; 8001=Chroma, 8002=vLLM, 8003-8009 available)
+    volumes:
+      - surrealdb_data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "/surreal", "isready", "--conn", "http://localhost:8000"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 15s
+
+  surrealist:
+    image: surrealdb/surrealist:3.8.3
+    container_name: flexible-graphrag-surrealist
+    depends_on:
+      - surrealdb          # service_started (not service_healthy) — avoids empty-response if
+                           # SurrealDB healthcheck is slow; Surrealist connects from browser, not container
+    ports:
+      - "8011:8080"  # Surrealist web UI — http://localhost:8011 (nginx inside listens on 8080)
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  surrealdb_data:

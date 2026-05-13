@@ -207,37 +207,24 @@ async def run_kg_extractors_on_nodes(
     start_time = time.time()
 
     try:
-        loop = asyncio.get_running_loop()
-    except RuntimeError:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-
-    try:
-        # CRITICAL: For Gemini/Vertex AI providers ONLY — run synchronously.
-        # Reason: Gemini SDK is async and must use the MAIN event loop.
-        # Running in executor causes Futures from worker threads to be
-        # "attached to a different loop" on the next search call.
-        # Reference: https://github.com/run-llama/llama_index/issues/14211
-        if config.llm_provider in ['gemini', 'vertexai']:
-            logger.info("Running extractor synchronously (Gemini/Vertex AI) to avoid event loop conflicts")
-            logger.info(f"Processing {len(nodes)} nodes — extraction typically takes 15-30s per document")
-            nodes = extractor(nodes, show_progress=True)
-            logger.info("Knowledge graph extraction completed")
-        else:
-            logger.info(f"Running extractor asynchronously ({config.llm_provider}) in executor")
-            # Capture stdout to catch DynamicLLMPathExtractor's bare print() error messages
-            _stdout_capture = io.StringIO()
-            _orig_stdout = sys.stdout
-            sys.stdout = _stdout_capture
-            try:
-                extractor_with_progress = functools.partial(extractor, show_progress=True)
-                nodes = await loop.run_in_executor(None, extractor_with_progress, nodes)
-            finally:
-                sys.stdout = _orig_stdout
-                captured = _stdout_capture.getvalue().strip()
-                if captured:
-                    logger.warning(f"Extractor stdout output (hidden errors): {captured}")
-            logger.info("Knowledge graph extraction completed")
+        # All providers use run_in_executor (worker thread) for KG extraction.
+        # Worker threads have no running event loop, so any internal asyncio.run() calls
+        # inside LLM SDK sync paths (e.g. Gemini/Vertex AI) work without conflict.
+        logger.info(f"Running extractor asynchronously ({config.llm_provider}) in executor")
+        _loop = asyncio.get_running_loop()
+        # Capture stdout to catch DynamicLLMPathExtractor's bare print() error messages
+        _stdout_capture = io.StringIO()
+        _orig_stdout = sys.stdout
+        sys.stdout = _stdout_capture
+        try:
+            extractor_with_progress = functools.partial(extractor, show_progress=True)
+            nodes = await _loop.run_in_executor(None, extractor_with_progress, nodes)
+        finally:
+            sys.stdout = _orig_stdout
+            captured = _stdout_capture.getvalue().strip()
+            if captured:
+                logger.warning(f"Extractor stdout output (hidden errors): {captured}")
+        logger.info("Knowledge graph extraction completed")
 
         duration = time.time() - start_time
         num_entities, num_relations = count_extracted_entities_and_relations(nodes)

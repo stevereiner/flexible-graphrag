@@ -689,7 +689,7 @@ docker-compose -f docker/docker-compose.yaml -p flexible-graphrag logs -f [servi
 
 ## 📚 Additional Resources
 
-- [Docker Compose Configuration](../../docker/README.md)
+- [Docker Compose Configuration](../HOME/HOME-DOCKER.md)
 - [Environment Configuration](../GETTING-STARTED/ENVIRONMENT-CONFIGURATION.md)
 - [Vector Database Integration](../DATABASES/VECTOR-DATABASES/VECTOR-DATABASE-INTEGRATION.md)
 - [Port Mappings](PORT-MAPPINGS.md)

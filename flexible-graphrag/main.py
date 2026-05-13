@@ -18,7 +18,7 @@ from fastapi import FastAPI, HTTPException, Depends, status, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
-from typing import List, Optional, Dict
+from typing import Any, Dict, List, Optional
 import asyncio
 from pathlib import Path
 import uvicorn
@@ -100,6 +100,61 @@ except RuntimeError:
 # TimerContext raise RuntimeError("Timeout ... should be used inside a task").
 # Patch both to be no-ops when there is no current task.
 # ---------------------------------------------------------------------------
+def _apply_aiohttp_task_patches() -> None:
+    """Patch aiohttp TimerContext / ceil_timeout for Python >= 3.12.
+
+    aiohttp's TimerContext.__enter__ calls ``asyncio.current_task()`` and
+    raises RuntimeError if it returns None.  On Python 3.12+ this can happen
+    when an aiohttp-backed async client (e.g. Elasticsearch AsyncElasticsearch)
+    was initialised in a sync context (e.g. during HybridSearchSystem.__init__)
+    and its internal aiohttp session stores a stale loop reference.  The patches
+    make the timeout a safe no-op when there is no current asyncio task.
+    """
+    from contextlib import asynccontextmanager
+
+    try:
+        import aiohttp.helpers as _aiohttp_helpers
+
+        def _safe_timer_enter(self):
+            # asyncio.current_task(loop=self._loop) in the stock __enter__ returns
+            # None when self._loop is a stale loop (e.g. created in run_in_executor
+            # or at startup before uvicorn's event loop).  In Python 3.13+,
+            # current_task(loop=other_loop) always returns None even inside a task.
+            # We call current_task() without the broken loop= arg and fully replace
+            # the __enter__ logic so the original method is never invoked.
+            task = asyncio.current_task()
+            if task is None:
+                return self  # no-op timeout when not inside a task
+            if self._cancelled:
+                raise asyncio.TimeoutError from None
+            if sys.version_info >= (3, 11):
+                self._cancelling = task.cancelling()
+            self._tasks.append(task)
+            return self
+
+        _aiohttp_helpers.TimerContext.__enter__ = _safe_timer_enter
+
+        _orig_ceil_timeout = _aiohttp_helpers.ceil_timeout
+
+        @asynccontextmanager
+        async def _safe_ceil_timeout(delay, ceil_threshold=5):
+            if delay is None or delay <= 0 or asyncio.current_task() is None:
+                yield
+            else:
+                async with _orig_ceil_timeout(delay, ceil_threshold):
+                    yield
+
+        _aiohttp_helpers.ceil_timeout = _safe_ceil_timeout
+
+        try:
+            import aiohttp.connector as _aiohttp_connector
+            _aiohttp_connector.ceil_timeout = _safe_ceil_timeout
+        except Exception:
+            pass
+    except Exception:
+        pass
+
+
 def _apply_python314_patches() -> None:
     if sys.version_info < (3, 14):
         return
@@ -219,42 +274,9 @@ def _apply_python314_patches() -> None:
     except Exception:
         pass
 
-    # Patch aiohttp.helpers.TimerContext and ceil_timeout (used by aiohttp HTTP client)
-    try:
-        import aiohttp.helpers as _aiohttp_helpers
-
-        # Patch TimerContext.__enter__ (low-res timeout)
-        _orig_timer_enter = _aiohttp_helpers.TimerContext.__enter__
-
-        def _safe_timer_enter(self):
-            if asyncio.current_task() is None:
-                return self
-            return _orig_timer_enter(self)
-
-        _aiohttp_helpers.TimerContext.__enter__ = _safe_timer_enter
-
-        # Patch ceil_timeout (high-res timeout used in connector.connect)
-        _orig_ceil_timeout = _aiohttp_helpers.ceil_timeout
-
-        @asynccontextmanager
-        async def _safe_ceil_timeout(delay, ceil_threshold=5):
-            if delay is None or delay <= 0 or asyncio.current_task() is None:
-                yield
-            else:
-                async with _orig_ceil_timeout(delay, ceil_threshold):
-                    yield
-
-        _aiohttp_helpers.ceil_timeout = _safe_ceil_timeout
-
-        # Also patch in connector module which imports ceil_timeout directly
-        try:
-            import aiohttp.connector as _aiohttp_connector
-            _aiohttp_connector.ceil_timeout = _safe_ceil_timeout
-        except Exception:
-            pass
-
-    except Exception:
-        pass
+    # aiohttp TimerContext / ceil_timeout patching is handled by
+    # _apply_aiohttp_task_patches() which runs for Python >= 3.12.
+    # No need to duplicate it here.
 
     # Neutralise nest_asyncio.apply() on Python 3.14 — LlamaIndex's async_utils and
     # the elasticsearch vector store both call nest_asyncio.apply() unconditionally at
@@ -300,6 +322,28 @@ def _apply_python314_patches() -> None:
 
 
 _apply_python314_patches()
+if sys.version_info >= (3, 12):
+    _apply_aiohttp_task_patches()
+
+
+# ---------------------------------------------------------------------------
+# Weaviate / llama-index-vector-stores-weaviate compatibility patch
+#
+# weaviate-client >= 4.9 renamed _ContextManagerWrapper to _ContextManagerSync.
+# llama-index-vector-stores-weaviate <= 1.6.0 still imports the old name, so
+# ``import llama_index.vector_stores.weaviate`` fails at module load time.
+# Inject the alias into the weaviate batch_wrapper module before the first
+# import so the llama-index weaviate module finds it.
+# ---------------------------------------------------------------------------
+try:
+    import weaviate.collections.batch.batch_wrapper as _wv_bw
+    if not hasattr(_wv_bw, "_ContextManagerWrapper"):
+        if hasattr(_wv_bw, "_ContextManagerSync"):
+            _wv_bw._ContextManagerWrapper = _wv_bw._ContextManagerSync
+        elif hasattr(_wv_bw, "_ContextManagerAsync"):
+            _wv_bw._ContextManagerWrapper = _wv_bw._ContextManagerAsync
+except Exception:
+    pass
 
 # On Python 3.14, asyncio.Runner propagates CancelledError out of run() after
 # Ctrl-C even though the shutdown completed cleanly, producing an ugly traceback.
@@ -346,6 +390,11 @@ root_logger.addHandler(console_handler)
 logging.getLogger("azure.core.pipeline.policies.http_logging_policy").setLevel(logging.WARNING)
 logging.getLogger("azure.storage.blob").setLevel(logging.WARNING)
 logging.getLogger("azure.storage.blob.changefeed").setLevel(logging.WARNING)
+
+# Suppress Neo4j driver connection-pool and I/O noise at DEBUG level
+logging.getLogger("neo4j").setLevel(logging.WARNING)
+logging.getLogger("neo4j.io").setLevel(logging.WARNING)
+logging.getLogger("neo4j.pool").setLevel(logging.WARNING)
 
 # Suppress aiohttp connector cleanup noise — "close.failed Event loop is closed" appears
 # when the TCPConnector is GC'd after the event loop ends. The OpenAI client retries
@@ -500,7 +549,7 @@ app.add_middleware(
 try:
     from rdf.api_rdf_enhancements import router as rdf_router
     app.include_router(rdf_router)
-    logger.info("RDF store API endpoints registered (/api/rdf/query, /api/rdf/export, /api/rdf/ontology)")
+    logger.info("RDF store API endpoints registered (/api/rdf/query/sparql, /api/rdf/export, /api/rdf/ontology)")
 except Exception as e:
     logger.warning(f"RDF/Ontology module not available: {e}")
 
@@ -629,6 +678,7 @@ class QueryRequest(BaseModel):
 class TextIngestRequest(BaseModel):
     content: str
     source_name: Optional[str] = "sample-test"
+    skip_graph: Optional[bool] = False
 
 class Document(BaseModel):
     id: str
@@ -651,12 +701,6 @@ try:
         logger.info("RDF/Ontology system initialized")
 except Exception as e:
     logger.warning(f"Failed to initialize RDF/Ontology system: {e}")
-
-# Lifecycle events for proper resource cleanup
-@app.on_event("shutdown")
-async def shutdown_event():
-    """Clean up resources when the application shuts down."""
-    logger.info("Application shutdown: cleaning up resources")
 
 # API Endpoints
 @app.get("/api/health")
@@ -1036,14 +1080,15 @@ async def get_status():
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/test-sample")
-async def test_sample_default():
+async def test_sample_default(request: TextIngestRequest = None):
     """Test endpoint with configurable sample text using async processing."""
     try:
         content = settings.sample_text
         source_name = "sample-test"
+        skip_graph = request.skip_graph if request else False
         
         logger.info("Starting async sample text processing")
-        result = await backend_instance.ingest_text(content=content, source_name=source_name)
+        result = await backend_instance.ingest_text(content=content, source_name=source_name, skip_graph=skip_graph)
         
         # Return the async processing response (same format as ingest-text)
         logger.info(f"Sample text processing started with ID: {result['processing_id']}")
@@ -1057,7 +1102,7 @@ async def ingest_custom_text(request: TextIngestRequest):
     """Start async text ingestion and return processing ID."""
     try:
         logger.info(f"Starting async text ingestion: source='{request.source_name}'")
-        result = await backend_instance.ingest_text(content=request.content, source_name=request.source_name)
+        result = await backend_instance.ingest_text(content=request.content, source_name=request.source_name, skip_graph=request.skip_graph)
         
         logger.info(f"Text ingestion started with ID: {result['processing_id']}")
         return result
@@ -1169,41 +1214,272 @@ async def get_api_info():
 
 @app.get("/api/graph")
 async def get_graph_data(limit: int = 50):
-    """Get graph data for visualization (nodes and relationships)"""
+    """Return graph database status and node/relationship counts where supported.
+
+    Node + relationship counts are currently implemented for Neo4j (via Cypher)
+    and for LC-backed graph stores that expose a ``query()`` method.  Other stores
+    return a status/dashboard URL without counts.
+    """
     try:
-        # Check if system is initialized and has graph store
         if not hasattr(backend_instance, '_system') or backend_instance._system is None:
             return {"error": "System not initialized - please ingest documents first"}
-        
-        if not hasattr(backend_instance.system, 'graph_store') or backend_instance.system.graph_store is None:
-            return {"error": "Graph database not configured"}
-        
-        graph_store = backend_instance.system.graph_store
-        graph_store_type = type(graph_store).__name__
 
+        system = backend_instance.system
+        if not hasattr(system, 'graph_store') or system.graph_store is None:
+            # LC-only path: pg_adapter may hold the graph store
+            if hasattr(system, 'pg_adapter') and system.pg_adapter is not None:
+                graph_store = None
+                lc_graph = getattr(system.pg_adapter, 'lc_graph', None)
+            else:
+                return {"error": "Graph database not configured"}
+        else:
+            graph_store = system.graph_store
+            lc_graph = None
+
+        graph_store_type = type(graph_store).__name__ if graph_store else "LC"
+        pg_adapter = getattr(system, 'pg_adapter', None)
+
+        # ── Neo4j LI store: run count Cypher directly via the driver ─────────
         if graph_store_type == "Neo4jPropertyGraphStore":
+            counts: dict = {}
+            try:
+                driver = getattr(graph_store, '_driver', None)
+                if driver is None:
+                    # some versions expose it differently
+                    driver = getattr(graph_store, 'driver', None)
+                if driver:
+                    with driver.session() as s:
+                        node_res = s.run("MATCH (n) WHERE NOT n:__Entity__ OR n.text IS NOT NULL RETURN count(n) AS n").single()
+                        entity_res = s.run("MATCH (n:__Entity__) RETURN count(n) AS n").single()
+                        rel_res = s.run("MATCH ()-[r]->() RETURN count(r) AS n").single()
+                        counts = {
+                            "nodes": int(node_res["n"]) if node_res else None,
+                            "entities": int(entity_res["n"]) if entity_res else None,
+                            "relationships": int(rel_res["n"]) if rel_res else None,
+                        }
+            except Exception as count_err:
+                counts = {"count_error": str(count_err)}
             return {
                 "database": "neo4j",
                 "store_type": graph_store_type,
                 "status": "configured",
-                "message": "Use Neo4j Browser at http://localhost:7474 for graph visualization and Cypher.",
+                "dashboard_url": "http://localhost:7474",
+                **counts,
             }
+
+        # ── LC pg_adapter: use lc_graph.query() if available ─────────────────
+        if pg_adapter is not None:
+            try:
+                lc_g = lc_graph or (pg_adapter.get_lc_graph() if hasattr(pg_adapter, 'get_lc_graph') else None)
+                if lc_g is not None and hasattr(lc_g, 'query'):
+                    db_type = str(settings.pg_graph_db).lower()
+                    counts = {}
+                    if db_type == "neo4j":
+                        r_n = lc_g.query("MATCH (n) RETURN count(n) AS n")
+                        r_r = lc_g.query("MATCH ()-[r]->() RETURN count(r) AS n")
+                        counts = {
+                            "nodes": r_n[0]["n"] if r_n else None,
+                            "relationships": r_r[0]["n"] if r_r else None,
+                        }
+                    return {
+                        "database": db_type,
+                        "store_type": graph_store_type,
+                        "status": "configured",
+                        **counts,
+                    }
+            except Exception as lc_err:
+                logger.debug("get_graph_data: LC query failed: %s", lc_err)
+
         if "Ladybug" in graph_store_type:
             return {
                 "database": "ladybug",
                 "store_type": graph_store_type,
                 "status": "configured",
-                "message": "Use Ladybug Explorer at http://localhost:7003 when docker/includes/ladybug-explorer.yaml is enabled.",
+                "dashboard_url": "http://localhost:7003",
+                "message": "Use Ladybug Explorer for graph visualization.",
             }
+
         return {
-            "database": "other",
+            "database": str(settings.pg_graph_db),
             "store_type": graph_store_type,
             "status": "configured",
-            "message": f"No inline graph summary for {graph_store_type}; use that database's dashboard or tooling.",
+            "message": f"Count queries not yet implemented for {graph_store_type}; use that database's dashboard.",
         }
-            
+
     except Exception as e:
         return {"error": f"Error fetching graph data: {str(e)}"}
+
+
+class GraphQueryRequest(BaseModel):
+    query: str
+    language: Optional[str] = None  # cypher | sparql | aql | surql | gremlin | gsql | opencypher
+    params: Optional[Dict[str, Any]] = None
+
+
+@app.post("/api/graph/query")
+async def graph_query(request: GraphQueryRequest):
+    """Execute a native graph query against the configured store.
+
+    Routes through the LC adapter's ``lc_graph.query()`` so the correct query
+    language is used for every store:
+      - Neo4j / Memgraph / FalkorDB / ArcadeDB / Nebula / Apache AGE → Cypher
+      - ArangoDB → AQL
+      - SurrealDB → SurrealQL
+      - HugeGraph → openCypher (via Cypher endpoint)
+      - TigerGraph → GSQL
+      - Cosmos Gremlin → Gremlin
+      - Neptune / Neptune Analytics → openCypher
+      - Google Spanner → Spanner Graph Query Language (GQL)
+      - Ladybug → Cypher
+
+    When no LC adapter is available but an LI PropertyGraphStore is configured,
+    falls back to ``structured_query()`` on that store.
+
+    For RDF-only deployments, falls back to the SPARQL path via UnifiedQueryEngine
+    (same backend as ``/api/rdf/query/sparql``).
+
+    Returns:
+        ``{"results": [...], "backend": "<db>", "language": "<lang>", "row_count": N}``
+    """
+    try:
+        system = backend_instance.system if hasattr(backend_instance, 'system') else None
+        if system is None:
+            return {"error": "System not initialized"}
+
+        pg_db = str(settings.pg_graph_db).lower()
+        rdf_db = str(settings.rdf_graph_db).lower() if hasattr(settings, 'rdf_graph_db') else "none"
+        lang = (request.language or "").lower()
+        params = request.params or {}
+
+        # ── SPARQL short-circuit: when caller explicitly requests SPARQL and an
+        # RDF store is configured, route straight to the SPARQL engine.
+        # Without this, the PG-store paths below would try to run SPARQL against
+        # Neo4j / Cypher stores and raise a CypherSyntaxError.
+        if lang == "sparql" and rdf_db not in ("none", ""):
+            from rdf.api_rdf_enhancements import unified_query_engine
+            from rdf.unified_query_engine import QueryType
+            if unified_query_engine is not None:
+                result = unified_query_engine.query(
+                    query_text=request.query,
+                    query_type=QueryType.SPARQL,
+                )
+                return {
+                    "results": result.formatted_results,
+                    "row_count": len(result.formatted_results),
+                    "backend": rdf_db,
+                    "language": "sparql",
+                }
+
+        # ── LC adapter path: covers all 15 PG stores ──────────────────────────
+        pg_adapter = getattr(system, 'pg_adapter', None)
+        if pg_adapter is not None:
+            lc_graph = None
+            if hasattr(pg_adapter, 'get_lc_graph'):
+                try:
+                    lc_graph = pg_adapter.get_lc_graph()
+                except Exception:
+                    pass
+            if lc_graph is None:
+                lc_graph = getattr(pg_adapter, 'lc_graph', None)
+
+            if lc_graph is not None and hasattr(lc_graph, 'query'):
+                import inspect as _inspect, functools as _functools
+                _q_method = lc_graph.query
+                if _inspect.iscoroutinefunction(_q_method):
+                    # Async query method (e.g. SurrealDB) — await directly
+                    try:
+                        raw = await _q_method(request.query, **({"params": params} if params else {}))
+                    except TypeError:
+                        raw = await _q_method(request.query)
+                    except ValueError as _ve:
+                        # SurrealDB raises ValueError for non-list results (e.g. INFO FOR DB)
+                        raw = [{"result": str(_ve)}]
+                else:
+                    # Sync query method — run in a thread to avoid blocking the event loop.
+                    # Many sync graph clients (gremlinpython, pyTigerGraph, etc.) use
+                    # blocking I/O or call asyncio.run() internally, which raises
+                    # "Cannot run the event loop while another loop is running" when called
+                    # directly from an async FastAPI handler.
+                    _qfn = _functools.partial(_q_method, request.query, **({"params": params} if params else {}))
+                    try:
+                        raw = await asyncio.to_thread(_qfn)
+                    except TypeError:
+                        raw = await asyncio.to_thread(_q_method, request.query)
+                    except ValueError as _ve:
+                        # SurrealDB (sync) raises ValueError for non-list results
+                        raw = [{"result": str(_ve)}]
+                # Normalise: some stores return list, some return dict, some None
+                if raw is None:
+                    raw = []
+                elif isinstance(raw, dict):
+                    raw = [raw]
+                elif not isinstance(raw, list):
+                    raw = [{"result": str(raw)}]
+                return {
+                    "results": raw,
+                    "row_count": len(raw),
+                    "backend": pg_db,
+                    "language": lang or _infer_language(pg_db),
+                }
+
+        # ── LI PropertyGraphStore fallback (Neo4j LI, ArcadeDB LI, Spanner LI, etc.) ─────
+        graph_store = getattr(system, 'graph_store', None)
+        if graph_store is not None and hasattr(graph_store, 'structured_query'):
+            import functools as _functools
+            _sq_fn = _functools.partial(
+                graph_store.structured_query, request.query, param_map=params
+            )
+            raw = await asyncio.to_thread(_sq_fn)
+            if raw is None:
+                raw = []
+            return {
+                "results": raw if isinstance(raw, list) else [raw],
+                "row_count": len(raw) if isinstance(raw, list) else 1,
+                "backend": pg_db,
+                "language": lang or _infer_language(pg_db),
+                "note": "LI structured_query path",
+            }
+
+        # ── RDF SPARQL fallback ────────────────────────────────────────────────
+        if rdf_db not in ("none", ""):
+            # Forward to /api/rdf/query/sparql logic (reuse unified_query_engine)
+            from rdf.api_rdf_enhancements import unified_query_engine
+            from rdf.unified_query_engine import QueryType
+            if unified_query_engine is not None:
+                result = unified_query_engine.query(
+                    query_text=request.query,
+                    query_type=QueryType.SPARQL,
+                )
+                return {
+                    "results": result.formatted_results,
+                    "row_count": len(result.formatted_results),
+                    "backend": rdf_db,
+                    "language": "sparql",
+                }
+
+        return {"error": "No graph store configured (PG_GRAPH_DB=none and RDF_GRAPH_DB=none)"}
+
+    except Exception as e:
+        logger.exception("graph_query error")
+        return {"error": str(e)}
+
+
+def _infer_language(db_type: str) -> str:
+    """Map DB type to its native query language name."""
+    _MAP = {
+        "neo4j": "cypher", "memgraph": "cypher", "falkordb": "cypher",
+        "arcadedb": "opencypher", "nebula": "cypher", "apache_age": "cypher",
+        "ladybug": "cypher", "hugegraph": "cypher",
+        "arangodb": "aql",
+        "surrealdb": "surql",
+        "cosmos_gremlin": "gremlin",
+        "tigergraph": "gsql",
+        "neptune": "opencypher", "neptune_analytics": "opencypher",
+        "spanner": "gql",
+        "fuseki": "sparql", "graphdb": "sparql", "oxigraph": "sparql", "neptune_rdf": "sparql",
+    }
+    return _MAP.get(db_type, "unknown")
+
 
 @app.get("/api/python-info")
 async def python_info():
@@ -1348,6 +1624,12 @@ async def sync_now_single(config_id: str):
     
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
+    except asyncio.CancelledError:
+        # Raised when the server is shutting down mid-request (e.g. SIGTERM during KG extraction).
+        # Returning 503 keeps uvicorn alive for any remaining in-flight requests instead of
+        # letting the CancelledError propagate to the ASGI lifespan and crash the process.
+        logger.warning("sync-now/%s: request cancelled (server shutting down)", config_id)
+        raise HTTPException(status_code=503, detail="Server is shutting down")
     except Exception as e:
         logger.error(f"Error triggering sync-now: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -1617,6 +1899,10 @@ async def sync_now_all():
                 })
                 synced_count += 1
                 logger.info(f"API: Completed sync for {config_id}")
+            except asyncio.CancelledError:
+                # Re-raise so the outer handler can return a graceful 503 instead of
+                # crashing uvicorn's ASGI lifespan.
+                raise
             except Exception as e:
                 logger.error(f"Failed to sync {config_id}: {e}")
                 results.append({
@@ -1637,6 +1923,13 @@ async def sync_now_all():
             "note": "Datasources synced sequentially to avoid system overload"
         }
     
+    except asyncio.CancelledError:
+        # Server is shutting down mid-sync (SIGTERM during slow cloud graph write).
+        # Return 503 instead of letting the CancelledError propagate to uvicorn's
+        # ASGI lifespan, which would crash the process and make subsequent test
+        # requests get "connection refused".
+        logger.warning("sync-now (all): request cancelled (server shutting down)")
+        raise HTTPException(status_code=503, detail="Server is shutting down")
     except Exception as e:
         logger.error(f"Error triggering sync-now: {e}")
         raise HTTPException(status_code=500, detail=str(e))

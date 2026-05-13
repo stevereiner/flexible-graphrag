@@ -1,27 +1,12 @@
 # Installation Guide - Observability Options
 
----
-
-!!! warning "OpenLIT compatibility issue (as of openlit py-1.40.3)"
-    Installing OpenLIT **downgrades `openai` from 2.30.0 to 1.109.1**, which may impact OpenAI functionality.
-    
-    **If you use OpenLIT or DUAL mode:**
-    
-    - Start with a **fresh virtual environment**, or deactivate and clear the existing one with `uv venv`
-    - Run `uv pip install -e .` again after you are finished using OpenLIT
-    - Do not mix OpenLIT and normal development in the same venv
-    
-    OpenLIT is useful for its **automatic LLM token metrics and cost tracking** — capabilities that OpenInference does not provide. For normal development, use **OpenInference only** (the default).
-
----
-
 ## Install Options
 
 ### Option 1: DUAL Mode (OpenLIT + OpenInference)
 
 ```bash
-# Install with both OpenInference + OpenLIT
-pip install -e ".[observability-dual]"
+# Install with both OpenInference (LlamaIndex + LangChain) + OpenLIT
+uv pip install -e ".[observability-dual]"
 
 # Enable DUAL mode
 export OBSERVABILITY_BACKEND=both
@@ -31,11 +16,11 @@ python -m flexible-graphrag.main
 ```
 
 **What you get:**
-- ✅ Token metrics (from OpenLIT)
-- ✅ Rich traces (from OpenInference)  
-- ✅ Cost tracking (from OpenLIT)
-- ✅ VectorDB metrics (from OpenLIT)
-- ✅ Custom RAG metrics (graph extraction, etc.)
+- Token metrics (from OpenLIT)
+- Rich traces for LlamaIndex + LangChain (from OpenInference)
+- Cost tracking (from OpenLIT)
+- VectorDB metrics (from OpenLIT)
+- Custom RAG metrics (graph extraction, etc.)
 
 ---
 
@@ -44,23 +29,23 @@ python -m flexible-graphrag.main
 ### Option 2: OpenInference Only (Default — recommended for normal development)
 
 ```bash
-# Install with OpenInference
-pip install -e ".[observability]"
+# Install with OpenInference (covers both LlamaIndex and LangChain)
+uv pip install -e ".[observability]"
 
 # No env var needed (default mode)
 python -m flexible-graphrag.main
 ```
 
 **What you get:**
-- ✅ Rich traces
-- ✅ Custom RAG metrics
-- ⚠️ Token metrics via spanmetrics (uncertain)
+- Rich traces for LlamaIndex and LangChain
+- Custom RAG metrics
+- Token metrics via spanmetrics
 
 ### Option 3: OpenLIT Only
 
 ```bash
 # Install with OpenLIT
-pip install -e ".[observability-openlit]"
+uv pip install -e ".[observability-openlit]"
 
 # Set OpenLIT mode
 export OBSERVABILITY_BACKEND=openlit
@@ -70,17 +55,17 @@ python -m flexible-graphrag.main
 ```
 
 **What you get:**
-- ✅ Token metrics (guaranteed!)
-- ✅ Cost tracking
-- ✅ VectorDB metrics
-- ✅ Basic traces
-- ✅ Custom RAG metrics
+- Token metrics (guaranteed)
+- Cost tracking
+- VectorDB metrics
+- Basic traces
+- Custom RAG metrics
 
 ### Option 4: All Observability (Development)
 
 ```bash
 # Install everything
-pip install -e ".[observability-all]"
+uv pip install -e ".[observability-all]"
 
 # Same as observability-dual
 ```
@@ -93,10 +78,10 @@ pip install -e ".[observability-all]"
 
 | Command | What Gets Installed | Mode | Use Case |
 |---------|-------------------|------|----------|
-| `pip install -e ".[observability]"` | OpenInference | Default | Minimal, traces-focused |
-| `pip install -e ".[observability-openlit]"` | OpenLIT | OpenLIT only | Metrics-focused |
-| `pip install -e ".[observability-dual]"` | Both | DUAL (see warning above) | Token metrics + rich traces |
-| `pip install -e ".[observability-all]"` | Both | All options | Development/testing |
+| `uv pip install -e ".[observability]"` | OpenInference (LlamaIndex + LangChain) | Default | Traces-focused |
+| `uv pip install -e ".[observability-openlit]"` | OpenLIT | OpenLIT only | Metrics-focused |
+| `uv pip install -e ".[observability-dual]"` | Both | DUAL | Token metrics + rich traces |
+| `uv pip install -e ".[observability-all]"` | Both | All options | Development/testing |
 
 ---
 
@@ -106,15 +91,15 @@ pip install -e ".[observability-all]"
 
 ```bash
 # For OpenInference
-pip list | grep openinference
-# Should show: openinference-instrumentation-llama-index
+uv pip show openinference-instrumentation-llama-index openinference-instrumentation-langchain
+# Should show both packages
 
 # For OpenLIT
-pip list | grep openlit
+uv pip show openlit
 # Should show: openlit
 
 # For OTEL
-pip list | grep opentelemetry
+uv pip list | grep opentelemetry
 # Should show: opentelemetry-exporter-otlp, opentelemetry-sdk, opentelemetry-api
 ```
 
@@ -124,30 +109,31 @@ After starting your app, look for:
 
 **OpenInference only:**
 ```
-🚀 Setting up observability with backend: openinference
-📡 Initializing OpenInference as OTLP producer...
-✅ OpenInference instrumentation enabled
+Setting up observability with backend: openinference
+Initializing OpenInference as OTLP producer...
+OpenInference LlamaIndex instrumentation enabled
+OpenInference LangChain instrumentation enabled
 ```
 
 **OpenLIT only:**
 ```
-🚀 Setting up observability with backend: openlit
-📡 Initializing OpenLIT as OTLP producer...
-✅ OpenLIT active - token metrics enabled!
+Setting up observability with backend: openlit
+Initializing OpenLIT as OTLP producer...
+OpenLIT active - token metrics enabled!
 ```
 
 **DUAL mode:**
 ```
-🚀 Setting up observability with backend: both
-📡 Initializing OpenLIT as OTLP producer...
-✅ OpenLIT active - token metrics enabled!
-📡 Initializing OpenInference as additional OTLP producer...
-✅ OpenInference instrumentation enabled
-🎉 Observability setup complete - DUAL MODE
-   📊 OpenLIT → Token metrics, costs, VectorDB metrics
-   📊 OpenInference → Detailed traces
-   📊 Custom metrics → Graph extraction, retrieval, etc.
-   🎯 Best of both worlds!
+Setting up observability with backend: both
+Initializing OpenLIT as OTLP producer...
+OpenLIT active - token metrics enabled!
+Initializing OpenInference as additional OTLP producer...
+OpenInference LlamaIndex instrumentation enabled
+OpenInference LangChain instrumentation enabled
+Observability setup complete - DUAL MODE
+   OpenLIT -> Token metrics, costs, VectorDB metrics
+   OpenInference -> Detailed traces (LlamaIndex + LangChain)
+   Custom metrics -> Graph extraction, retrieval, etc.
 ```
 
 ---
@@ -221,11 +207,11 @@ CMD ["python", "-m", "flexible-graphrag.main"]
 If you already have OpenInference installed:
 
 ```bash
-# Just add OpenLIT
-pip install openlit
+# Just add OpenLIT (>=1.41.2 no longer downgrades openai)
+uv pip install "openlit>=1.41.2"
 
 # Or reinstall with dual extras
-pip install -e ".[observability-dual]"
+uv pip install -e ".[observability-dual]"
 
 # Enable DUAL mode
 export OBSERVABILITY_BACKEND=both
@@ -234,7 +220,7 @@ export OBSERVABILITY_BACKEND=both
 # Token metrics will work immediately!
 ```
 
-No uninstall needed — they coexist at the package level, but **note the OpenLIT openai downgrade warning** above before mixing in a production venv.
+No uninstall needed — they coexist at the package level.
 
 ---
 
@@ -246,9 +232,9 @@ No uninstall needed — they coexist at the package level, but **note the OpenLI
 
 **Solution:**
 ```bash
-pip install openlit
+uv pip install "openlit>=1.41.2"
 # Or
-pip install -e ".[observability-dual]"
+uv pip install -e ".[observability-dual]"
 ```
 
 ### Import Error: No module named 'openinference'
@@ -257,9 +243,9 @@ pip install -e ".[observability-dual]"
 
 **Solution:**
 ```bash
-pip install openinference-instrumentation-llama-index
+uv pip install openinference-instrumentation-llama-index openinference-instrumentation-langchain
 # Or
-pip install -e ".[observability-dual]"
+uv pip install -e ".[observability-dual]"
 ```
 
 ### Observability not starting
@@ -299,58 +285,13 @@ export OBSERVABILITY_BACKEND=both
 
 ---
 
-## Requirements File Alternative
-
-If you prefer `requirements.txt` over extras:
-
-```bash
-# For DUAL mode, add to requirements.txt:
-openinference-instrumentation-llama-index
-openlit
-opentelemetry-exporter-otlp
-opentelemetry-sdk
-opentelemetry-api
-
-# Then install:
-pip install -r requirements.txt
-```
-
----
-
-## Poetry Alternative
-
-If using Poetry:
-
-```bash
-# Add to pyproject.toml [tool.poetry.dependencies]:
-openinference-instrumentation-llama-index = { version = "*", optional = true }
-openlit = { version = "*", optional = true }
-opentelemetry-exporter-otlp = { version = "*", optional = true }
-opentelemetry-sdk = { version = "*", optional = true }
-opentelemetry-api = { version = "*", optional = true }
-
-# [tool.poetry.extras]
-observability-dual = [
-    "openinference-instrumentation-llama-index",
-    "openlit",
-    "opentelemetry-exporter-otlp",
-    "opentelemetry-sdk",
-    "opentelemetry-api",
-]
-
-# Install:
-poetry install --extras observability-dual
-```
-
----
-
 ## Summary
 
 ### Quick Start — OpenInference (default, recommended for normal development)
 
 ```bash
-# 1. Install with OpenInference
-pip install -e ".[observability]"
+# 1. Install with OpenInference (LlamaIndex + LangChain)
+uv pip install -e ".[observability]"
 
 # 2. Start app (no env var needed — OpenInference is the default)
 python -m flexible-graphrag.main
@@ -361,12 +302,9 @@ python -m flexible-graphrag.main
 
 ### DUAL Mode — if you need token metrics and cost tracking
 
-!!! warning
-    OpenLIT downgrades `openai` to 1.109.1. Use a fresh or separate virtual environment.
-
 ```bash
-# 1. Install with DUAL mode (fresh venv recommended)
-pip install -e ".[observability-dual]"
+# 1. Install with DUAL mode
+uv pip install -e ".[observability-dual]"
 
 # 2. Enable DUAL mode
 export OBSERVABILITY_BACKEND=both
@@ -382,6 +320,6 @@ python -m flexible-graphrag.main
 
 ---
 
-**Status:** Installation options fully documented and ready to use! 📦
+**Status:** Installation options fully documented and ready to use.
 
 

@@ -6,20 +6,14 @@
 #
 # Usage:
 #   1. Stop the flexible-graphrag backend.
-#   2. Start Explorer:  docker compose -p flexible-graphrag up ladybug-explorer -d
-#   3. Browse at http://localhost:7003
-#   4. Stop Explorer before restarting the backend: with stop button in docker desktop or
+#   2. Pull image (one-time):  docker pull ghcr.io/ladybugdb/explorer:0.15.3
+#   3. Start Explorer:  docker compose -p flexible-graphrag up ladybug-explorer -d
+#   4. Browse at http://localhost:7003
+#   5. Stop Explorer before restarting the backend: with stop button in docker desktop or
 #      docker compose -p flexible-graphrag stop ladybug-explorer
-#
-# NOTE: lbugdb/explorer is NOT yet published to Docker Hub.
-# To use this, build the image locally first:
-#   git clone https://github.com/LadybugDB/explorer
-#   cd explorer
-#   docker build -t lbugdb/explorer:latest .
-# Then uncomment this file in docker-compose.yaml.
 services:
   ladybug-explorer:
-    image: lbugdb/explorer:latest
+    image: ghcr.io/ladybugdb/explorer:0.15.3
     container_name: flexible-graphrag-ladybug-explorer
     ports:
       - "7003:8000"    # Map external 7003 to internal 8000 (Ladybug Explorer default port)

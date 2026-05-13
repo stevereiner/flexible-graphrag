@@ -15,6 +15,23 @@ The search fuses **vector similarity** + **BM25 full-text** + **graph traversal*
 
 ![Hybrid Search results](screen-shots/react/react-search-hybrid-search.png)
 
+## Source Labels in Results
+
+Every search result shows which database it came from. The label appears after the filename:
+
+```
+cmispress.txt | Neo4j property graph
+cmispress.txt | Elasticsearch search
+company-ontology.txt | Qdrant vector
+company-ontology.txt | Ontotext GraphDB rdf graph
+```
+
+When multiple databases return the same passage, duplicate filtering keeps only the highest-scoring copy — so not all configured databases will always appear in the results. This is expected behavior.
+
+> **Note:** The screenshot above predates the source label feature. Current builds show the `filename | database` label on every result card.
+
+---
+
 ## AI Query
 
 AI-generated answers to natural language questions.

@@ -1,4 +1,6 @@
 
+**New 5/6/26** — 15 property graph databases total: 8 supported on both LlamaIndex and LangChain, 1 LI-only (Google Cloud Spanner Graph), 6 LC-only (ArangoDB, Apache AGE, Azure Cosmos DB for Gremlin, Apache HugeGraph, SurrealDB, TigerGraph). AWS Neptune RDF/SPARQL added. All 10 vector databases, all 3 search engines, and all LLM/embedding providers work with both LlamaIndex and LangChain. Every pipeline stage — chunking, KG extraction, graph write, vector write, search write, and retrieval fusion — can be configured independently. (Data source reading is LlamaIndex only; RDF stores use framework-independent adapters with LangChain Text-to-SPARQL retrieval.)
+
 **New** Flexible GraphRAG now supports RDF-based ontologies for both property graph databases and RDF triple store databases (Graphwise Ontotext GraphDB, Fuseki, and Oxigraph). Document ingestion with KG extraction, auto incremental data source change detection, and UI search (hybrid search, AI query, and AI chat) are all supported with both database types.
 
 **New** Flexible GraphRAG supports **automatic incremental updates** (Optional) from most data sources, keeping your Vector, Search and Graph databases synchronized in real-time or near real-time.
@@ -34,7 +36,7 @@
 - **Knowledge Graph GraphRAG**: Extracts entities and relationships from documents to auto create graphs in property graph databases for GraphRAG. Configuration for schemas to use or use
 as a starting point for LLM to expand on is supported.
 - **RDF/Ontology Support**: Load OWL/RDFS ontologies to guide KG extraction into any property graph or RDF store; SPARQL 1.1 queries; RDF 1.2 triple annotations; full UI pipeline (ingest, hybrid search, AI query/chat, incremental auto-sync). See [Ontology and RDF Support](#ontology-and-rdf-support) below.
-- **8 Property Graph Databases**: Neo4j, ArcadeDB, FalkorDB, Ladybug, MemGraph, NebulaGraph, Amazon Neptune, and Amazon Neptune Analytics — with KG extraction, hybrid search, and AI query/chat
+- **15 Property Graph Databases**: 8 on both LI+LC (Neo4j, ArcadeDB, FalkorDB, Ladybug, Memgraph, NebulaGraph, Amazon Neptune, Neptune Analytics), 1 LI-only (Google Cloud Spanner), 6 LC-only (ArangoDB, Apache AGE, Cosmos Gremlin, HugeGraph, SurrealDB, TigerGraph) — with KG extraction, hybrid search, and AI query/chat
 - **3 RDF Triple Stores**: Apache Jena Fuseki, Ontotext GraphDB, Oxigraph
 - **10 Vector Databases**: Qdrant, Elasticsearch, OpenSearch, Neo4j, Chroma, Milvus, Weaviate, Pinecone, PostgreSQL pgvector, LanceDB — for semantic similarity search
 - **3 Search Databases**: Elasticsearch, OpenSearch, BM25 (built-in) — for full-text search and hybrid ranking
@@ -228,13 +230,13 @@ All data sources support two document parser options:
 - Open-source, local processing
 - Free with no API costs
 - **GPU acceleration** supported (CUDA/Apple Silicon) for 5-10x faster processing
-- Built-in OCR for images and scanned documents
+- Built-in OCR for scanned documents and images — `DOCLING_OCR=true` + `DOCLING_OCR_ENGINE=auto|rapidocr|easyocr|tesseract_cli|tesserocr|ocrmac`
 - Multi-language support (English, German, French, Spanish, Czech, Russian, Chinese, Japanese, etc.)
 - Configured via: `DOCUMENT_PARSER=docling`
-- **New**: `DOCLING_DEVICE=auto|cpu|cuda|mps` - Control GPU vs CPU processing
-- **New**: `SAVE_PARSING_OUTPUT=true` - Save intermediate parsing results for inspection (works for both parsers)
-- **New**: `PARSER_FORMAT_FOR_EXTRACTION=auto|markdown|plaintext` - Control format used for knowledge graph extraction
-- See [Docling GPU Configuration Guide](docs/DATA-SOURCES/DOC-PROCESSING/DOCLING-GPU-CONFIGURATION.md) for setup details | [Quick Reference](docs/DATA-SOURCES/DOC-PROCESSING/DOCLING-GPU-CONFIGURATION.md#quick-reference-installation-commands)
+- `DOCLING_DEVICE=auto|cpu|cuda|mps` — control GPU vs CPU processing
+- `SAVE_PARSING_OUTPUT=true` — save intermediate parsing results for inspection (works for both parsers)
+- `PARSER_FORMAT_FOR_EXTRACTION=auto|markdown|plaintext` — control format used for knowledge graph extraction
+- See [Docling GPU + OCR Configuration Guide](docs/DATA-SOURCES/DOC-PROCESSING/DOCLING-GPU-CONFIGURATION.md) for setup details | [Quick Reference](docs/DATA-SOURCES/DOC-PROCESSING/DOCLING-GPU-CONFIGURATION.md#quick-reference-installation-commands)
 
 **LlamaParse**:
 - Cloud-based API service with advanced AI
@@ -293,30 +295,30 @@ Flexible GraphRAG uses three types of databases for its hybrid search capabiliti
 
 ### Search Databases (Full-Text Search)
 
-**Configuration**: Set via `SEARCH_DB` and `SEARCH_DB_CONFIG` environment variables
+Set `SEARCH_DB` to select the store and `SEARCH_BACKEND=llamaindex` or `langchain` for the framework.
 
-- **BM25 (Built-in)**: Local file-based BM25 full-text search with TF-IDF ranking
+- **BM25 (Built-in)**: Local in-memory BM25 full-text search with TF-IDF ranking
   - Dashboard: None (file-based)
   - Configuration:
     ```bash
     SEARCH_DB=bm25
-    SEARCH_DB_CONFIG={"persist_dir": "./bm25_index"}
+    BM25_SEARCH_DB_CONFIG={"persist_dir": "./bm25_index"}
     ```
 
 - **Elasticsearch**: Enterprise search engine with advanced analyzers, faceted search, and real-time analytics
-  - Dashboard: Kibana (http://localhost:5601) for search analytics, index management, and query debugging
+  - Dashboard: Kibana (http://localhost:5601)
   - Configuration:
     ```bash
     SEARCH_DB=elasticsearch
-    SEARCH_DB_CONFIG={"hosts": ["http://localhost:9200"], "index_name": "hybrid_search"}
+    ELASTICSEARCH_SEARCH_DB_CONFIG={"hosts": ["http://localhost:9200"], "index_name": "hybrid_search"}
     ```
 
 - **OpenSearch**: AWS-led open-source fork with native hybrid scoring (vector + BM25) and k-NN algorithms
-  - Dashboard: OpenSearch Dashboards (http://localhost:5601) for cluster monitoring and search pipeline management
+  - Dashboard: OpenSearch Dashboards (http://localhost:5601)
   - Configuration:
     ```bash
     SEARCH_DB=opensearch
-    SEARCH_DB_CONFIG={"hosts": ["http://localhost:9201"], "index_name": "hybrid_search"}
+    OPENSEARCH_SEARCH_DB_CONFIG={"hosts": ["http://localhost:9201"], "index_name": "hybrid_search"}
     ```
 
 - **None**: Disable full-text search (vector search only)
@@ -327,221 +329,248 @@ Flexible GraphRAG uses three types of databases for its hybrid search capabiliti
 
 ### Vector Databases (Semantic Search)
 
-**Configuration**: Set via `VECTOR_DB` and `VECTOR_DB_CONFIG` environment variables
+Set `VECTOR_DB` to select the store and `VECTOR_BACKEND=llamaindex` or `langchain` for the framework.
 
-#### ⚠️ Vector Dimension Compatibility
-
-**CRITICAL**: When switching between different embedding models (e.g., OpenAI ↔ Ollama), you **MUST delete existing vector indexes** due to dimension incompatibility:
-
-- **OpenAI**: 1536 dimensions (text-embedding-3-small) or 3072 dimensions (text-embedding-3-large)
-- **Ollama**: 384 dimensions (all-minilm, default), 768 dimensions (nomic-embed-text), or 1024 dimensions (mxbai-embed-large)
-- **Azure OpenAI**: Same as OpenAI (1536 or 3072 dimensions)
-
-**See [docs/DATABASES/VECTOR-DATABASES/VECTOR-DIMENSIONS.md](docs/DATABASES/VECTOR-DATABASES/VECTOR-DIMENSIONS.md) for detailed cleanup instructions for each database.**
+When switching embedding models, delete existing vector indexes — dimensions differ by provider. See [docs/DATABASES/VECTOR-DATABASES/VECTOR-DIMENSIONS.md](docs/DATABASES/VECTOR-DATABASES/VECTOR-DIMENSIONS.md) for cleanup instructions.
 
 #### Supported Vector Databases
 
 - **Neo4j**: Can be used as vector database with separate vector configuration
-  - Dashboard: Neo4j Browser (http://localhost:7474) for Cypher queries and graph visualization
+  - Dashboard: Neo4j Browser (http://localhost:7474)
   - Configuration:
     ```bash
     VECTOR_DB=neo4j
-    VECTOR_DB_CONFIG={"uri": "bolt://localhost:7687", "username": "neo4j", "password": "your_password", "index_name": "hybrid_search_vector"}
+    NEO4J_VECTOR_DB_CONFIG={"uri": "bolt://localhost:7687", "username": "neo4j", "password": "your_password", "index_name": "hybrid_search_vector"}
     ```
 
 - **Qdrant**: Dedicated vector database with advanced filtering
-  - Dashboard: Qdrant Web UI (http://localhost:6333/dashboard) for collection management
+  - Dashboard: Qdrant Web UI (http://localhost:6333/dashboard)
   - Configuration:
     ```bash
     VECTOR_DB=qdrant
-    VECTOR_DB_CONFIG={"host": "localhost", "port": 6333, "collection_name": "hybrid_search"}
+    QDRANT_VECTOR_DB_CONFIG={"host": "localhost", "port": 6333, "collection_name": "hybrid_search"}
     ```
 
 - **Elasticsearch**: Can be used as vector database with separate vector configuration
-  - Dashboard: Kibana (http://localhost:5601) for index management and data visualization
+  - Dashboard: Kibana (http://localhost:5601)
   - Configuration:
     ```bash
     VECTOR_DB=elasticsearch
-    VECTOR_DB_CONFIG={"hosts": ["http://localhost:9200"], "index_name": "hybrid_search_vectors"}
+    ELASTICSEARCH_VECTOR_DB_CONFIG={"hosts": ["http://localhost:9200"], "index_name": "hybrid_search_vectors"}
     ```
 
 - **OpenSearch**: Can be used as vector database with separate vector configuration
-  - Dashboard: OpenSearch Dashboards (http://localhost:5601) for cluster and index management
+  - Dashboard: OpenSearch Dashboards (http://localhost:5601)
   - Configuration:
     ```bash
     VECTOR_DB=opensearch
-    VECTOR_DB_CONFIG={"hosts": ["http://localhost:9201"], "index_name": "hybrid_search_vectors"}
+    OPENSEARCH_VECTOR_DB_CONFIG={"hosts": ["http://localhost:9201"], "index_name": "hybrid_search_vectors"}
     ```
 
 - **Chroma**: Open-source vector database with dual deployment modes
-  - Dashboard: Swagger UI (http://localhost:8001/docs/) for API testing and management (HTTP mode)
+  - Dashboard: Swagger UI (http://localhost:8001/docs/) (HTTP mode)
   - Configuration (Local Mode):
     ```bash
     VECTOR_DB=chroma
-    VECTOR_DB_CONFIG={"persist_directory": "./chroma_db", "collection_name": "hybrid_search"}
+    CHROMA_VECTOR_DB_CONFIG={"persist_directory": "./chroma_db", "collection_name": "hybrid_search"}
     ```
   - Configuration (HTTP Mode):
     ```bash
     VECTOR_DB=chroma
-    VECTOR_DB_CONFIG={"host": "localhost", "port": 8001, "collection_name": "hybrid_search"}
+    CHROMA_VECTOR_DB_CONFIG={"host": "localhost", "port": 8001, "collection_name": "hybrid_search"}
     ```
 
 - **Milvus**: Cloud-native, scalable vector database for similarity search
-  - Dashboard: Attu (http://localhost:3003) for cluster and collection management
+  - Dashboard: Attu (http://localhost:3003)
   - Configuration:
     ```bash
     VECTOR_DB=milvus
-    VECTOR_DB_CONFIG={"uri": "http://localhost:19530", "collection_name": "hybrid_search"}
+    MILVUS_VECTOR_DB_CONFIG={"host": "localhost", "port": 19530, "collection_name": "hybrid_search"}
     ```
 
 - **Weaviate**: Vector search engine with semantic capabilities and data enrichment
-  - Dashboard: Weaviate Console (http://localhost:8081/console) for schema and data management
+  - Dashboard: Weaviate Console (http://localhost:8081/console)
   - Configuration:
     ```bash
     VECTOR_DB=weaviate
-    VECTOR_DB_CONFIG={"url": "http://localhost:8081", "index_name": "HybridSearch"}
+    WEAVIATE_VECTOR_DB_CONFIG={"url": "http://localhost:8081", "index_name": "HybridSearch"}
     ```
 
 - **Pinecone**: Managed vector database service optimized for real-time applications
-  - Dashboard: Pinecone Console (web-based) for index and namespace management
-  - Local Info Dashboard: http://localhost:3004 (when using Docker)
+  - Dashboard: Pinecone Console (web-based)
   - Configuration:
     ```bash
     VECTOR_DB=pinecone
-    VECTOR_DB_CONFIG={"api_key": "your_api_key", "region": "us-east-1", "cloud": "aws", "index_name": "hybrid-search"}
+    PINECONE_VECTOR_DB_CONFIG={"api_key": "your_api_key", "region": "us-east-1", "cloud": "aws", "index_name": "hybrid-search"}
     ```
 
 - **PostgreSQL**: Traditional database with pgvector extension for vector similarity search
-  - Dashboard: pgAdmin (http://localhost:5050) for database management, vector queries, and similarity searches
+  - Dashboard: pgAdmin (http://localhost:5050)
   - Configuration:
     ```bash
     VECTOR_DB=postgres
-    VECTOR_DB_CONFIG={"host": "localhost", "port": 5433, "database": "postgres", "username": "postgres", "password": "your_password"}
+    POSTGRES_VECTOR_DB_CONFIG={"host": "localhost", "port": 5433, "database": "postgres", "username": "postgres", "password": "your_password"}
     ```
 
 - **LanceDB**: Modern, lightweight vector database designed for high-performance ML applications
-  - Dashboard: LanceDB Viewer (http://localhost:3005) for CRUD operations and data management
+  - Dashboard: LanceDB Viewer (http://localhost:3005)
   - Configuration:
     ```bash
     VECTOR_DB=lancedb
-    VECTOR_DB_CONFIG={"uri": "./lancedb", "table_name": "hybrid_search"}
+    LANCEDB_VECTOR_DB_CONFIG={"uri": "./lancedb", "table_name": "hybrid_search"}
     ```
 
 #### RAG without GraphRAG
 
 For faster document ingest processing (no graph extraction), and hybrid search with only full text + vector, configure:
 ```bash
-VECTOR_DB=qdrant  # Any vector store
+VECTOR_DB=qdrant       # Any vector store
 SEARCH_DB=elasticsearch  # Any search engine
-GRAPH_DB=none
-ENABLE_KNOWLEDGE_GRAPH=false
+PG_GRAPH_DB=none
 ```
 
 
 ### Property Graph Databases (Knowledge Graph / GraphRAG)
 
-**Configuration**: Set via `GRAPH_DB` and `GRAPH_DB_CONFIG` environment variables
+Set `PG_GRAPH_DB` to select the store and `GRAPH_BACKEND=llamaindex` or `langchain` for the framework. LC-only stores (ArangoDB, Apache AGE, HugeGraph, SurrealDB, TigerGraph, Cosmos Gremlin) auto-select `langchain`. Spanner (`PG_GRAPH_DB=spanner`) uses LlamaIndex only.
 
 - **Neo4j Property Graph**: Primary knowledge graph storage with Cypher querying
-  - Dashboard: Neo4j Browser (http://localhost:7474) for graph exploration and query execution
+  - Dashboard: Neo4j Browser (http://localhost:7474)
   - Configuration:
     ```bash
-    GRAPH_DB=neo4j
-    GRAPH_DB_CONFIG={"uri": "bolt://localhost:7687", "username": "neo4j", "password": "your_password"}
+    PG_GRAPH_DB=neo4j
+    NEO4J_GRAPH_DB_CONFIG={"uri": "bolt://localhost:7687", "username": "neo4j", "password": "your_password"}
     ```
 
-- **ArcadeDB**: Multi-model database supporting graph, document, key-value, and search capabilities with SQL and Cypher query support
-  - Dashboard: ArcadeDB Studio (http://localhost:2480) for graph visualization, SQL/Cypher queries, and database management
+- **ArcadeDB**: Multi-model database supporting graph, document, key-value, and search with SQL and Cypher
+  - Dashboard: ArcadeDB Studio (http://localhost:2480)
   - Configuration:
     ```bash
-    GRAPH_DB=arcadedb
-    GRAPH_DB_CONFIG={"host": "localhost", "port": 2480, "username": "root", "password": "password", "database": "flexible_graphrag", "query_language": "sql"}
+    PG_GRAPH_DB=arcadedb
+    ARCADEDB_GRAPH_DB_CONFIG={"host": "localhost", "port": 2480, "username": "root", "password": "password", "database": "flexible_graphrag", "query_language": "sql"}
     ```
 
-- **FalkorDB**: "A super fast Graph Database uses GraphBLAS under the hood for its sparse adjacency matrix graph representation. Our goal is to provide the best Knowledge Graph for LLM (GraphRAG)."
-  - Dashboard: FalkorDB Browser (http://localhost:3001) (Was moved from 3000 used by the flexible-graphrag Vue frontend)
+- **FalkorDB**: High-performance graph database using GraphBLAS; purpose-built for LLM / GraphRAG
+  - Dashboard: FalkorDB Browser (http://localhost:3001)
   - Configuration:
     ```bash
-    GRAPH_DB=falkordb
-    GRAPH_DB_CONFIG={"url": "falkor://localhost:6379", "database": "falkor"}
+    PG_GRAPH_DB=falkordb
+    FALKORDB_GRAPH_DB_CONFIG={"url": "falkor://localhost:6379", "database": "falkor"}
     ```
 
-- **Ladybug**: Embedded property graph database (Cypher, single `.lbug` file) with optional structured schema and HNSW vector index on chunks; Explorer UI available via Docker (port 7003). See `docker/includes/ladybug-explorer.yaml`.
+- **Ladybug**: Embedded property graph database (Cypher, single `.lbug` file) with optional structured schema and HNSW vector index on chunks; Explorer UI via Docker (port 7003)
   - Configuration:
     ```bash
-    GRAPH_DB=ladybug
-    GRAPH_DB_CONFIG={"db_dir": "./ladybug", "db_file": "database.lbug", "use_vector_index": true, "has_structured_schema": false, "strict_schema": false}
+    PG_GRAPH_DB=ladybug
+    LADYBUG_GRAPH_DB_CONFIG={"db_dir": "./ladybug", "db_file": "database.lbug", "use_vector_index": true, "has_structured_schema": false, "strict_schema": false}
     ```
-  - Or use `LADYBUG_DB_DIR`, `LADYBUG_DB_FILE`, `LADYBUG_USE_VECTOR_INDEX`, `LADYBUG_STRUCTURED_SCHEMA`, `LADYBUG_STRICT_SCHEMA` (see `env-sample.txt`).
 
-- **MemGraph**: Real-time graph database with native support for streaming data and advanced graph algorithms
-  - Dashboard: MemGraph Lab (http://localhost:3002) for graph visualization and Cypher queries
+- **MemGraph**: Real-time graph database with streaming support and advanced graph algorithms
+  - Dashboard: MemGraph Lab (http://localhost:3002)
   - Configuration:
     ```bash
-    GRAPH_DB=memgraph
-    GRAPH_DB_CONFIG={"url": "bolt://localhost:7687", "username": "", "password": ""}
+    PG_GRAPH_DB=memgraph
+    MEMGRAPH_GRAPH_DB_CONFIG={"url": "bolt://localhost:7687", "username": "", "password": ""}
     ```
 
-- **NebulaGraph**: Distributed graph database designed for large-scale data with horizontal scalability
-  - Dashboard: NebulaGraph Studio (http://localhost:7001) for graph exploration and nGQL queries
+- **NebulaGraph**: Distributed graph database for large-scale data with horizontal scalability
+  - Dashboard: NebulaGraph Studio (http://localhost:7001)
   - Configuration:
     ```bash
-    GRAPH_DB=nebula
-    GRAPH_DB_CONFIG={"space": "flexible_graphrag", "host": "localhost", "port": 9669, "username": "root", "password": "nebula"}
+    PG_GRAPH_DB=nebula
+    NEBULA_GRAPH_DB_CONFIG={"space": "flexible_graphrag", "host": "localhost", "port": 9669, "username": "root", "password": "nebula"}
     ```
 
-- **Amazon Neptune**: Fully managed graph database service supporting both property graph and RDF models
-  - Dashboard: Graph-Explorer (http://localhost:3007) for visual graph exploration, or Neptune Workbench (AWS Console) for Jupyter-based queries
-  - Configuration:
-    ```bash
-    GRAPH_DB=neptune
-    GRAPH_DB_CONFIG={"host": "your-cluster.region.neptune.amazonaws.com", "port": 8182}
-    ```
-
-- **Amazon Neptune Analytics**: Serverless graph analytics engine for large-scale graph analysis with openCypher support
+- **Amazon Neptune**: Fully managed graph database service supporting property graph and RDF models
   - Dashboard: Graph-Explorer (http://localhost:3007) or Neptune Workbench (AWS Console)
   - Configuration:
     ```bash
-    GRAPH_DB=neptune_analytics
-    GRAPH_DB_CONFIG={"graph_identifier": "g-xxxxx", "region": "us-east-1"}
+    PG_GRAPH_DB=neptune
+    NEPTUNE_GRAPH_DB_CONFIG={"host": "your-cluster.region.neptune.amazonaws.com", "port": 8182}
+    ```
+
+- **Amazon Neptune Analytics**: Serverless graph analytics with openCypher support
+  - Dashboard: Graph-Explorer (http://localhost:3007) or Neptune Workbench (AWS Console)
+  - Configuration:
+    ```bash
+    PG_GRAPH_DB=neptune_analytics
+    NEPTUNE_ANALYTICS_GRAPH_DB_CONFIG={"graph_identifier": "g-xxxxx", "region": "us-east-1"}
+    ```
+
+- **ArangoDB** *(LangChain only)*: Multi-model database with AQL graph queries
+  - Dashboard: ArangoDB Web UI (http://localhost:8529)
+  - Configuration:
+    ```bash
+    PG_GRAPH_DB=arangodb
+    ARANGODB_GRAPH_DB_CONFIG={"url": "http://localhost:8529", "database": "flexible_graphrag", "username": "root", "password": "password"}
+    ```
+
+- **Apache AGE** *(LangChain only)*: PostgreSQL extension for graph data via Cypher
+  - Dashboard: pgAdmin (http://localhost:5050)
+  - Configuration:
+    ```bash
+    PG_GRAPH_DB=apache_age
+    APACHE_AGE_GRAPH_DB_CONFIG={"host": "localhost", "port": 5434, "database": "flexible_graphrag_age", "username": "postgres", "password": "password", "graph_name": "knowledge_graph"}
+    ```
+
+- **HugeGraph** *(LangChain only)*: Distributed graph database with Gremlin and openCypher
+  - Dashboard: HugeGraph Hubble (http://localhost:8085)
+  - Configuration:
+    ```bash
+    PG_GRAPH_DB=hugegraph
+    HUGEGRAPH_GRAPH_DB_CONFIG={"host": "localhost", "port": 8082, "database": "hugegraph"}
+    ```
+
+- **SurrealDB** *(LangChain only)*: Multi-model database with SurrealQL graph queries
+  - Dashboard: Surrealist (http://localhost:8011)
+  - Configuration:
+    ```bash
+    PG_GRAPH_DB=surrealdb
+    SURREALDB_GRAPH_DB_CONFIG={"url": "ws://localhost:8010/rpc", "namespace": "test", "database": "flexible_graphrag", "username": "root", "password": "root"}
+    ```
+
+- **TigerGraph** *(LangChain only)*: Distributed graph database with GSQL
+  - Dashboard: GraphStudio (http://localhost:14240)
+  - Configuration:
+    ```bash
+    PG_GRAPH_DB=tigergraph
+    TIGERGRAPH_GRAPH_DB_CONFIG={"host": "http://localhost", "port": 14240, "restpp_port": 9002, "database": "MyGraph", "username": "tigergraph", "password": "tigergraph"}
+    ```
+
+- **Cosmos Gremlin** *(LangChain only)*: Azure Cosmos DB for Gremlin API
+  - Configuration:
+    ```bash
+    PG_GRAPH_DB=cosmos_gremlin
+    COSMOS_GREMLIN_GRAPH_DB_CONFIG={"url": "ws://localhost:8182/gremlin"}
     ```
 
 - **None**: Disable knowledge graph extraction for RAG-only mode
   - Configuration:
     ```bash
-    GRAPH_DB=none
-    ENABLE_KNOWLEDGE_GRAPH=false
+    PG_GRAPH_DB=none
     ```
-  - Use when you want vector + full-text search without graph traversal
 
 ## Ontology and RDF Support
 
-Flexible GraphRAG supports RDF/RDFS/OWL ontologies to guide knowledge graph extraction, with optional RDF triple store backends. Ontology-guided extraction works with **any** configured store — property graph, RDF store, or both.
+Flexible GraphRAG supports RDF/RDFS/OWL ontologies to guide knowledge graph extraction, with optional RDF graph store backends. Ontology-guided extraction works with **any** configured store — property graph, RDF graph store, or both.
 
 - Load OWL/RDFS ontologies (`owl:Class`, `owl:ObjectProperty`, `owl:DatatypeProperty`, `rdfs:domain`, `rdfs:range`) to constrain entity/relation extraction; OWL is supported but not required
-- Works with all 8 property graph databases (Neo4j, ArcadeDB, FalkorDB, Ladybug, etc.) — no RDF store required to use ontology-guided extraction
-- Full pipeline for all 3 RDF triple stores: UI document ingest → KG extraction → RDF storage; auto incremental data source change updates via the auto-sync checkbox; Hybrid Search and AI Query/Chat tabs fuse RDF store results alongside vector, BM25, and graph results
+- Works with all 15 property graph databases — no RDF store required to use ontology-guided extraction
+- Full pipeline for all 3 RDF graph stores: UI document ingest → KG extraction → RDF storage; auto incremental sync; Hybrid Search and AI Query/Chat fuse RDF store results alongside vector, BM25, and property graph results
 - SPARQL 1.1 queries; RDF 1.2 triple terms and relation annotations (`{| |}` syntax); XSD-typed literals from OWL `DatatypeProperty` ranges
 
-**Storage Modes** (set via `INGESTION_STORAGE_MODE`):
-- **`property_graph`** — entities and relations go to the configured property graph (Neo4j, ArcadeDB, FalkorDB, Ladybug, etc.); no RDF store needed
-- **`rdf_only`** — triples written directly to enabled RDF store(s); native SPARQL 1.1 queries, RDF 1.2 annotations
-- **`both`** — written to property graph and RDF store(s) simultaneously; all retrievers active in hybrid search and AI query/chat
-
-In all modes, the UI **Hybrid Search** and **AI Query/Chat** tabs work with whichever stores are configured. RDF store results are fused into the same retrieval pipeline as vector, BM25, and property graph results when `USE_LANGCHAIN_RDF=true`.
-
-**RDF Store Configuration** (all three support RDF 1.2 triple terms):
+**RDF Graph Store Configuration** — set `RDF_GRAPH_DB` to select the store (all three support RDF 1.2 triple terms):
 
 - **Apache Jena Fuseki** — SPARQL 1.1 server; dashboard: http://localhost:3030
   ```bash
-  FUSEKI_ENABLED=true
+  RDF_GRAPH_DB=fuseki
   FUSEKI_BASE_URL=http://localhost:3030
   FUSEKI_DATASET=flexible-graphrag
   ```
 
 - **Ontotext GraphDB** — enterprise RDF store with OWL reasoning; dashboard: http://localhost:7200
   ```bash
-  GRAPHDB_ENABLED=true
+  RDF_GRAPH_DB=graphdb
   GRAPHDB_BASE_URL=http://localhost:7200
   GRAPHDB_REPOSITORY=flexible-graphrag
   GRAPHDB_USERNAME=admin
@@ -550,8 +579,13 @@ In all modes, the UI **Hybrid Search** and **AI Query/Chat** tabs work with whic
 
 - **Oxigraph** — lightweight local store, native RDF 1.2; dashboard: http://localhost:7878
   ```bash
-  OXIGRAPH_ENABLED=true
+  RDF_GRAPH_DB=oxigraph
   OXIGRAPH_URL=http://localhost:7878
+  ```
+
+- **None** — disable RDF graph store:
+  ```bash
+  RDF_GRAPH_DB=none
   ```
 
 **Docker Setup:** Uncomment RDF store includes in `docker-compose.yaml`:
@@ -564,11 +598,26 @@ includes:
 
 **Complete Documentation:** [docs/DATABASES/RDF/RDF-ONTOLOGY-SUPPORT.md](docs/DATABASES/RDF/RDF-ONTOLOGY-SUPPORT.md) | [docs/DATABASES/RDF/RDF-STORE-USER-GUIDE.md](docs/DATABASES/RDF/RDF-STORE-USER-GUIDE.md)
 
-**LangChain RDF retrieval** (`USE_LANGCHAIN_RDF=true`) fuses SPARQL-based results from the configured RDF store directly into hybrid search and AI query alongside vector and graph results. Supports `SynonymExpander` for query keyword expansion, `GraphEntityVectorRetriever` for Neo4j entity vector search, and `GraphNeighborhoodRetriever` for k-hop graph expansion. See [docs/DATABASES/RDF/RDF-STORE-USER-GUIDE.md](docs/DATABASES/RDF/RDF-STORE-USER-GUIDE.md#langchain-rdf-retrieval).
+## Framework Configuration
 
-## LLM Configuration
+Every pipeline stage can independently run on LlamaIndex or LangChain via env var pickers:
 
-**Configuration**: Set via `LLM_PROVIDER` and provider-specific environment variables. See [docs/LLM/LLM-EMBEDDING-CONFIG.md](docs/LLM/LLM-EMBEDDING-CONFIG.md) for detailed examples and all options.
+| Variable | Options | Description |
+|---|---|---|
+| `GRAPH_BACKEND` | `llamaindex` \| `langchain` | Property graph store and KG retrieval |
+| `VECTOR_BACKEND` | `llamaindex` \| `langchain` | Vector store adapter |
+| `SEARCH_BACKEND` | `llamaindex` \| `langchain` | Full-text search adapter |
+| `CHUNKER_BACKEND` | `llamaindex` \| `langchain` | Document chunking / splitting |
+| `KG_EXTRACTOR_BACKEND` | `llamaindex` \| `langchain` | KG extraction from chunks |
+| `RETRIEVAL_FUSION` | `llamaindex` \| `langchain` | Result fusion across retrievers |
+
+LangChain-only graph stores (ArangoDB, Apache AGE, HugeGraph, SurrealDB, TigerGraph, Cosmos Gremlin, Spanner) auto-select `GRAPH_BACKEND=langchain`. Search results display the source database (e.g. *"company-ontology.txt | Qdrant vector"*, *"cmispress.txt | Ontotext GraphDB rdf graph"*).
+
+**Complete Documentation:** [docs/ADVANCED/LANGCHAIN/LANGCHAIN-GRAPH-INTEGRATION.md](docs/ADVANCED/LANGCHAIN/LANGCHAIN-GRAPH-INTEGRATION.md)
+
+## LLM and Embedding Configuration
+
+Set via `LLM_PROVIDER` and provider-specific environment variables.
 
 ### Supported LLM Providers
 
@@ -586,7 +635,9 @@ includes:
 12. **LiteLLM Proxy** - 100+ providers via LiteLLM proxy; sample config in `scripts/litellm_config.yaml`
 13. **vLLM** - High-performance local inference server (Linux/macOS; use `openai_like` on Windows)
 
-### Quick Start Examples
+### LLM Provider Configuration
+
+See [docs/LLM/LLM-EMBEDDING-CONFIG.md](docs/LLM/LLM-EMBEDDING-CONFIG.md) for all 13 providers with detailed configuration examples.
 
 **OpenAI** (recommended):
 ```bash
@@ -612,28 +663,38 @@ AZURE_OPENAI_ENGINE=gpt-4o-mini
 
 ### Embedding Configuration
 
-Embeddings can be configured independently of the LLM provider:
+Set `EMBEDDING_KIND` to choose the embedding provider — independent of the LLM provider. All 13 LLM providers are also supported as embedding providers. See [docs/LLM/LLM-EMBEDDING-CONFIG.md](docs/LLM/LLM-EMBEDDING-CONFIG.md) for all providers and options.
 
 **OpenAI**:
 ```bash
 EMBEDDING_KIND=openai
-EMBEDDING_MODEL=text-embedding-3-small
-EMBEDDING_DIMENSION=1536  # Auto-detected if not specified
+OPENAI_EMBEDDING_MODEL=text-embedding-3-small
+OPENAI_API_KEY=your_api_key
 ```
 
-**Ollama**:
+**Ollama** (local):
 ```bash
 EMBEDDING_KIND=ollama
-EMBEDDING_MODEL=all-minilm
-EMBEDDING_DIMENSION=384  # Auto-detected if not specified
+OLLAMA_EMBEDDING_MODEL=nomic-embed-text
+OLLAMA_BASE_URL=http://localhost:11434
+```
+
+**Azure OpenAI**:
+```bash
+EMBEDDING_KIND=azure_openai
+AZURE_EMBEDDING_MODEL=text-embedding-3-small
+AZURE_EMBEDDING_DEPLOYMENT=your_deployment_name
+AZURE_OPENAI_API_KEY=your_key
+AZURE_OPENAI_ENDPOINT=https://your-resource.openai.azure.com/
 ```
 
 **Common embedding dimensions:**
 - OpenAI: 1536 (text-embedding-3-small), 3072 (text-embedding-3-large)
-- Ollama: 384 (all-minilm, default), 768 (nomic-embed-text), 1024 (mxbai-embed-large)
-- Google: 768 (text-embedding-004, configurable with output_dimensionality parameter)
+- Ollama: 384 (all-minilm), 768 (nomic-embed-text), 1024 (mxbai-embed-large)
+- Google: 768 (gemini-embedding-2-preview)
+- Bedrock: 1024 (amazon.titan-embed-text-v2:0)
 
-**Note**: When switching embedding models, you must delete existing vector indexes due to dimension incompatibility. See [docs/DATABASES/VECTOR-DATABASES/VECTOR-DIMENSIONS.md](docs/DATABASES/VECTOR-DATABASES/VECTOR-DIMENSIONS.md) for cleanup instructions.
+When switching embedding models, delete existing vector indexes. See [docs/DATABASES/VECTOR-DATABASES/VECTOR-DIMENSIONS.md](docs/DATABASES/VECTOR-DATABASES/VECTOR-DIMENSIONS.md) for cleanup instructions.
 
 ### Ollama Configuration
 
@@ -662,8 +723,24 @@ See [docs/LLM/OLLAMA-CONFIGURATION.md](docs/LLM/OLLAMA-CONFIGURATION.md) for com
 
 **Note**: The `docker/docker-compose.yaml` file can provide all these databases via Docker containers.
 
-### Optional (depending on data source)
-- **LangChain integration** (`uv pip install -e ".[langchain]"`) — RDF QA fusion retriever and property graph retrievers; installs `langchain`, `langchain-community`, `langchain-openai`, `langchain-anthropic`, `langchain-aws`, `langchain-ollama`, `langchain-google-genai`, `langchain-google-vertexai`, `langchain-groq`, `langchain-fireworks`, `langchain-neo4j`; extended graph backends (ArangoDB, Spanner, AGE, Gremlin) via `.[langchain,langchain-extras]`; see `flexible-graphrag/langchain/langchain-requirements.txt` for the full list
+### Install
+
+```bash
+cd flexible-graphrag
+uv pip install -e .
+```
+
+### Optional
+- **LangChain integration** — LangChain is a first-class peer framework alongside LlamaIndex for graph, vector, search, chunking, KG extraction, and hybrid retrieval:
+  - `uv pip install -e ".[langchain]"` — adds `[langchain]`: some property graph stores via `langchain-community`, 10 vector stores, 3 search stores, RDF SPARQL retrieval, LLM and embedding support for all 13 providers as native LC clients, and retrieval fusion support
+  - `uv pip install --override extras-overrides.txt -e ".[langchain,langchain-extras]"` — adds LC-only graph stores: ArangoDB, Apache AGE, HugeGraph, TigerGraph, Cosmos Gremlin
+  - `uv pip install -e ".[spanner-extras]"` — adds LI-only Spanner support via `llama-index-spanner`. **Note:** `llama-index-spanner` declares `llama-index` (the meta-package) as a dependency, which `uv` will install. Uninstall it immediately after: `uv pip uninstall llama-index` — having both `llama-index` and `llama-index-core` installed simultaneously can cause version conflicts, as the meta-package pins versions of `llama-index-*` component packages that can clash with the versions already required by this project
+  - SurrealDB — two-step install required (resolver conflict):
+    ```bash
+    uv pip install -e ".[surrealdb-extras]"
+    uv pip install "surrealdb>=2.0" "langchain-core>=1.3"
+    ```
+  - See `flexible-graphrag/langchain/langchain-requirements.txt` and [LANGCHAIN-GRAPH-INTEGRATION.md](docs/ADVANCED/LANGCHAIN/LANGCHAIN-GRAPH-INTEGRATION.md)
 - **ArcadeDB embedded mode** (`uv pip install arcadedb>=26.3.2`) — runs ArcadeDB in-process; includes a bundled JVM, no separate Java install needed; latest release: 26.3.2
 - **Enterprise Repositories**:
   - Alfresco repository - only if using Alfresco data source
@@ -1000,7 +1077,7 @@ The Vue frontend will be available at `http://localhost:3000`.
 
 ## UI Usage
 
-The system provides a tabbed interface for document processing and querying. Follow these steps in order:
+The system provides a tabbed interface for document processing and querying. Follow these steps in order. See [docs/UI-GUIDE/UI-GUIDE.md](docs/UI-GUIDE/UI-GUIDE.md) for full details.
 
 ### 1. Sources Tab
 
@@ -1143,45 +1220,71 @@ The FastAPI backend provides the following REST API endpoints:
 
 **Base URL**: `http://localhost:8000/api/`
 
+**System**
+
 | Endpoint | Method | Purpose |
-|----------|--------|---------|
-| `/api/health` | GET | Health check - verify backend is running |
-| `/api/ingest` | POST | Ingest documents from configured data sources |
-| `/api/upload` | POST | Upload files for processing |
-| `/api/search` | POST | Hybrid search for relevant document excerpts |
-| `/api/query` | POST | AI-powered Q&A from document corpus |
-| `/api/status` | GET | Get system status and configuration |
-| `/api/processing-status/{id}` | GET | Check processing status for async operations |
-| `/api/processing-events/{id}` | GET | Server-sent events stream for real-time progress |
-| `/api/cancel-processing/{id}` | POST | Cancel ongoing processing operation |
-| `/api/ingest-text` | POST | Ingest custom text content |
-| `/api/test-sample` | POST | Test system with sample content |
-| `/api/cleanup-uploads` | POST | Clean up uploaded files |
-| `/api/info` | GET | Get system information and versions |
-| `/api/graph` | GET | Get graph data for visualization (nodes and relationships) |
-| `/api/python-info` | GET | Get Python environment diagnostics |
-| `/` | GET | Root endpoint (basic API info) |
+|---|---|---|
+| `/api/health` | GET | Health check — verify backend is running |
+| `/api/status` | GET | System status and configuration (databases, LLM, feature flags) |
+| `/api/info` | GET | System information and package versions |
+| `/api/python-info` | GET | Python environment diagnostics |
 
-**Swagger / ReDoc Interactive REST API Documentation**:
-- **Swagger UI**: http://localhost:8000/docs
-- **ReDoc**: http://localhost:8000/redoc
+**Ingestion**
 
-See [docs/ADVANCED/ARCHITECTURE.md](docs/ADVANCED/ARCHITECTURE.md) for detailed API workflow and examples.
+| Endpoint | Method | Purpose |
+|---|---|---|
+| `/api/ingest` | POST | Ingest documents from a data source (`filesystem`, `s3`, `web`, `cmis`, ...) |
+| `/api/upload` | POST | Upload files directly for processing |
+| `/api/ingest-text` | POST | Ingest raw text content |
+| `/api/test-sample` | POST | Test the system with built-in sample content |
+| `/api/cleanup-uploads` | POST | Remove temporarily uploaded files |
+
+**Async Processing**
+
+| Endpoint | Method | Purpose |
+|---|---|---|
+| `/api/processing-status/{id}` | GET | Poll status of an async ingestion operation |
+| `/api/processing-events/{id}` | GET | Server-Sent Events stream for real-time progress |
+| `/api/cancel-processing/{id}` | POST | Cancel an ongoing processing operation |
+
+**Search & Query**
+
+| Endpoint | Method | Purpose |
+|---|---|---|
+| `/api/search` | POST | Hybrid search — returns ranked document excerpts |
+| `/api/query` | POST | AI-powered Q&A — generates an answer from the document corpus |
+
+**Graph**
+
+| Endpoint | Method | Purpose |
+|---|---|---|
+| `/api/graph` | GET | Graph database status and node/relationship counts (Neo4j: live Cypher counts; other LC-backed stores: counts via `lc_graph.query()` where supported; remaining stores: status + dashboard URL) |
+| `/api/graph/query` | POST | Execute a native graph query against the configured store — Cypher (Neo4j, Memgraph, FalkorDB, ArcadeDB, Ladybug, Apache AGE), AQL (ArangoDB), SurrealQL (SurrealDB), Gremlin (Cosmos), GSQL (TigerGraph), openCypher (Neptune/Analytics), GQL (Spanner), SPARQL fallback for RDF-only |
+
+**RDF / Ontology** *(when `RDF_GRAPH_DB` is configured)*
+
+| Endpoint | Method | Purpose |
+|---|---|---|
+| `/api/rdf/query/sparql` | POST | Execute a SPARQL query against the configured RDF store |
+| `/api/rdf/ontology/info` | GET | Return loaded ontology entity and relation type lists |
+| `/api/rdf/ontology/upload` | POST | Upload a new ontology file at runtime |
+| `/api/rdf/rdf-store/list` | GET | List registered RDF stores |
+| `/api/rdf/rdf-store/connect` | POST | Register an additional RDF store at runtime |
+| `/api/rdf/rdf-store/{name}` | DELETE | Deregister an RDF store |
+| `/api/rdf/export/rdf` | POST | Export knowledge graph as RDF *(501 stub — not yet implemented)* |
+
+**Interactive API Documentation** (requires running backend):
+
+| UI | URL | Notes |
+|---|---|---|
+| **Swagger UI** | http://localhost:8000/docs | Try endpoints, inspect schemas, submit requests |
+| **ReDoc** | http://localhost:8000/redoc | Cleaner read-only reference view |
+
+See [docs/DEVELOPER/REST-API.md](docs/DEVELOPER/REST-API.md) for the full endpoint reference with request/response examples.
 
 ## Full-Stack Debugging (Standalone Mode)
 
-**Note**: This debugging setup is for standalone backend and frontends (Scenario A or C), not for Full Stack in Docker (Scenario B).
-
-The project includes a `sample-launch.json` file with VS Code debugging configurations for all three frontend options and the backend. Copy this file to `.vscode/launch.json` to use these configurations.
-
-Key debugging configurations include:
-
-1. **Full Stack with React and Python**: Debug both the React frontend and Python backend simultaneously
-2. **Full Stack with Angular and Python**: Debug both the Angular frontend and Python backend simultaneously
-3. **Full Stack with Vue and Python**: Debug both the Vue frontend and Python backend simultaneously
-4. Note when ending debugging, you will need to stop the Python backend and the frontend separately.
-
-Each configuration sets up the appropriate ports, source maps, and debugging tools for a seamless development experience. You may need to adjust the ports and paths in the `launch.json` file to match your specific setup.
+VS Code launch configurations, backend/frontend debugging, log levels, and MCP Inspector setup — see [docs/DEVELOPER/DEVELOPER-FULL-STACK-DEBUGGING.md](docs/DEVELOPER/DEVELOPER-FULL-STACK-DEBUGGING.md).
 
 ## Observability and Monitoring
 
@@ -1199,11 +1302,9 @@ Flexible GraphRAG includes comprehensive observability features for production m
 1. Install observability dependencies (optional):
    ```bash
    cd flexible-graphrag
-   uv pip install -e ".[observability-dual]"  # OpenInference + OpenLIT (recommended for complete metrics)
+   uv pip install -e ".[observability-dual]"  # OpenInference (LlamaIndex + LangChain) + OpenLIT (recommended)
    # Or combine with dev tools: uv pip install -e ".[observability-dual,dev]"
    ```
-   
-   **Note:** OpenLIT currently requires OpenAI 1.x and will downgrade from 2.x ([support for OpenAI 2.x in progress](https://github.com/openlit/openlit/issues/934)). Flexible GraphRAG works correctly with OpenAI 1.x and has been tested.
 
 2. Enable in `.env`:
    ```bash
@@ -1234,23 +1335,44 @@ See [docs/DEVELOPER/OBSERVABILITY/OBSERVABILITY.md](docs/DEVELOPER/OBSERVABILITY
 
 ## Project Structure
 
-- `/flexible-graphrag`: Python FastAPI backend with LlamaIndex
-  - `main.py`: FastAPI REST API server (clean, no MCP)
-  - `backend.py`: Shared business logic core used by both API and MCP
+- `/flexible-graphrag`: Python FastAPI backend
+  - `main.py`: FastAPI REST API server
+  - `backend.py`: Shared business logic used by both API and MCP
   - `config.py`: Configurable settings for data sources, databases, and LLM providers
-  - `hybrid_system.py`: Main hybrid search system using LlamaIndex
-  - `document_processor.py`: Document processing with Docling integration
   - `factories.py`: Factory classes for LLM and database creation
+  - `hybrid_system.py`: Main hybrid search and ingestion system
   - `post_ingestion_state.py`: Post-ingestion document state tracking
-  - `sources/`: Data source connectors (filesystem, CMIS, Alfresco, Azure Blob, S3, GCS, OneDrive, SharePoint, Google Drive, Box, web, etc.)
-  - `ingest/`: Ingestion management and orchestration
+  - `query_engine.py`: Query engine with result deduplication and re-scoring
+  - `retriever_setup.py`: Retriever assembly — vector, search, graph, RDF, synonym expansion
+  - `schema_manager.py`: Database schema management
+  - `adapters/`: Framework-neutral ABCs and factories for all subsystems
+    - `adapters/graph/`: Property graph and RDF store adapter ABCs
+    - `adapters/llm/`: LLM and embedding adapter ABCs (`BothLLMAdapter`, `BothEmbeddingAdapter`)
+    - `adapters/process/`: Chunker and KG extractor ABCs and `build_*` factories
+    - `adapters/search/`: Search store adapter ABC
+    - `adapters/vector/`: Vector store adapter ABC
   - `incremental_updates/`: Auto-sync engine — detectors, orchestrator, state manager for real-time/near-real-time source sync
+  - `ingest/`: Modular ingestion steps — `ingest_from_files`, `ingest_from_text`, `ingest_from_source`, `run_chunk_pipeline`, `update_pg_graph`, `update_rdf_graph`, `update_vector`, `update_search`
+  - `langchain/`: LangChain peer framework — graph, vector, search, chunking, KG extraction, retrieval
+    - `langchain/graph/pg_store_adapters/`: 15 property graph store adapters (one file per store)
+    - `langchain/graph/rdf_store_adapters/`: 4 RDF/SPARQL store adapters (Fuseki, GraphDB, Oxigraph, Neptune)
+    - `langchain/graph/retrievers/`: `li_`/`lc_` two-layer retriever classes — text-to-query, neighborhood, vector, logging, synonym
+    - `langchain/llm/`: LangChain LLM + embedding factories for all 13 providers
+    - `langchain/process/`: `LangChainChunkerAdapter` (6 splitter types), `LangChainKGExtractorAdapter`
+    - `langchain/search/adapters/`: BM25, Elasticsearch, OpenSearch search adapters
+    - `langchain/vector/adapters/`: 10 vector store adapters
+  - `llamaindex/`: LlamaIndex peer framework — graph, vector, search, chunking, KG extraction
+    - `llamaindex/graph/adapters/`: LlamaIndex property graph store adapters (Neo4j, ArcadeDB, FalkorDB, Memgraph, Nebula, Neptune, etc.)
+    - `llamaindex/llm/`: LlamaIndex LLM + embedding factories for all 13 providers
+    - `llamaindex/process/`: `LlamaIndexChunkerAdapter`, `LlamaIndexKGExtractorAdapter`
+    - `llamaindex/search/adapters/`: Elasticsearch, OpenSearch search adapters
+    - `llamaindex/vector/adapters/`: Qdrant, Elasticsearch, OpenSearch, pgvector, Chroma, and others
   - `observability/`: OpenTelemetry instrumentation, Prometheus metrics, tracing setup
-  - `rdf/`: RDF/ontology support — ontology manager, KG-to-RDF converter, SPARQL tools, bundled schemas (`rdf/schemas/`), unified query engine
+  - `process/`: Core document processing — `document_processor.py` (Docling/LlamaParse), `kg_extractor.py`, `node_pipeline.py`
+  - `rdf/`: RDF/ontology support — ontology manager, KG-to-RDF converter, SPARQL tools, bundled schemas (`rdf/schemas/`)
     - `rdf/store/`: RDF store adapters — Fuseki, GraphDB, Oxigraph, store factory
-  - `langchain/`: LangChain integration — LLM factory (all providers), graph retrievers, RDF QA adapters
-    - `langchain/llm/`: LangChain LLM factory supporting all 13 configured providers
-    - `langchain/graph/`: Graph retrievers — RDF QA fusion, synonym expander, Neo4j entity vector, k-hop neighborhood, store adapters (Fuseki, GraphDB, Oxigraph, Neptune)
+  - `sources/`: Data source connectors — filesystem, CMIS/Alfresco, Azure Blob, S3, GCS, OneDrive, SharePoint, Google Drive, Box, web, Wikipedia, YouTube, etc.
+  - `stores/`: Index managers — `index_manager.py`, `rdf_manager.py`
   - `pyproject.toml`: Modern Python package definition (PEP 517/518)
   - `uv.toml`: UV package manager configuration
   - `start.py`: Startup script (`flexible-graphrag` console entry point)

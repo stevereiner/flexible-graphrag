@@ -1,0 +1,26 @@
+# ArangoDB Graph Database (LangChain-only property graph)
+# LangChain: langchain-arangodb -> ArangoGraph
+# Web UI: http://localhost:8529
+# Default login: root / (ARANGODB_ROOT_PASSWORD)
+services:
+  arangodb:
+    image: arangodb:3.12
+    container_name: flexible-graphrag-arangodb
+    environment:
+      - ARANGO_ROOT_PASSWORD=${ARANGODB_PASSWORD:-testpass}
+    ports:
+      - "8529:8529"    # HTTP / Web UI
+    volumes:
+      - arangodb_data:/var/lib/arangodb3
+      - arangodb_apps:/var/lib/arangodb3-apps
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8529/_api/version"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 20s
+
+volumes:
+  arangodb_data:
+  arangodb_apps:
