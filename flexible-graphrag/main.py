@@ -680,6 +680,13 @@ class TextIngestRequest(BaseModel):
     source_name: Optional[str] = "sample-test"
     skip_graph: Optional[bool] = False
 
+
+class SampleTestRequest(BaseModel):
+    """Body for POST /api/test-sample (sample text comes from settings.sample_text)."""
+
+    skip_graph: bool = False
+
+
 class Document(BaseModel):
     id: str
     name: str
@@ -1080,13 +1087,13 @@ async def get_status():
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/test-sample")
-async def test_sample_default(request: TextIngestRequest = None):
+async def test_sample_default(request: SampleTestRequest):
     """Test endpoint with configurable sample text using async processing."""
     try:
         content = settings.sample_text
         source_name = "sample-test"
-        skip_graph = request.skip_graph if request else False
-        
+        skip_graph = request.skip_graph
+
         logger.info("Starting async sample text processing")
         result = await backend_instance.ingest_text(content=content, source_name=source_name, skip_graph=skip_graph)
         
@@ -1481,6 +1488,47 @@ def _infer_language(db_type: str) -> str:
     return _MAP.get(db_type, "unknown")
 
 
+def _load_declared_requirement_lines() -> List[str]:
+    """Lines from requirements.txt if present and non-empty, else [project].dependencies in pyproject.toml."""
+    pkg_dir = os.path.dirname(__file__)
+    req_path = os.path.join(pkg_dir, "requirements.txt")
+    lines: List[str] = []
+    if os.path.isfile(req_path):
+        with open(req_path, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith("#"):
+                    lines.append(line)
+    if lines:
+        return lines
+    pyproject_path = os.path.join(pkg_dir, "pyproject.toml")
+    if not os.path.isfile(pyproject_path):
+        return []
+    import tomllib
+
+    with open(pyproject_path, "rb") as f:
+        data = tomllib.load(f)
+    deps = data.get("project", {}).get("dependencies") or []
+    return [d.strip() for d in deps if isinstance(d, str) and d.strip()]
+
+
+def _requirement_install_name(req_line: str) -> str:
+    """Normalized distribution name for lookup in importlib.metadata (handles PEP 508 specs)."""
+    try:
+        from packaging.requirements import Requirement
+
+        return Requirement(req_line).name.lower()
+    except Exception:
+        base = req_line.strip().lower()
+        if "[" in base:
+            base = base.split("[", 1)[0].strip()
+        for sep in ("===", "==", ">=", "<=", "!=", "~=", "<", ">", "@"):
+            if sep in base:
+                base = base.split(sep, 1)[0].strip()
+                break
+        return base
+
+
 @app.get("/api/python-info")
 async def python_info():
     """Return information about the Python interpreter being used."""
@@ -1501,15 +1549,7 @@ async def python_info():
         elif "/bin/" in venv_path:
             venv_path = venv_path.split("/bin/")[0]
     
-    # Read requirements.txt
-    requirements = []
-    req_file_path = os.path.join(os.path.dirname(__file__), "requirements.txt")
-    if os.path.exists(req_file_path):
-        with open(req_file_path, "r") as f:
-            for line in f:
-                line = line.strip()
-                if line and not line.startswith("#"):
-                    requirements.append(line)
+    requirements = _load_declared_requirement_lines()
     
     # Get installed packages
     installed_packages: Dict[str, str] = {}
@@ -1530,25 +1570,10 @@ async def python_info():
     req_status = []
     for req in requirements:
         original_req = req
-        # Handle requirements with version specifiers
-        if "==" in req:
-            pkg_name, version_spec = req.split("==", 1)
-            pkg_name = pkg_name.strip().lower()
-        elif ">=" in req:
-            pkg_name, version_spec = req.split(">=", 1)
-            pkg_name = pkg_name.strip().lower()
-        elif "[" in req:
-            # Handle packages with extras like 'package[extra]'
-            pkg_name = req.split("[", 1)[0].strip().lower()
-        else:
-            pkg_name = req.strip().lower()
-        
-        # For packages with extras, we need to check the base package name
-        base_pkg_name = pkg_name.split("[")[0] if "[" in pkg_name else pkg_name
-        
-        installed_version = installed_packages.get(base_pkg_name)
+        install_name = _requirement_install_name(req)
+        installed_version = installed_packages.get(install_name)
         req_status.append({
-            "name": pkg_name,
+            "name": install_name,
             "required": original_req,
             "installed": installed_version if installed_version else "Not installed"
         })

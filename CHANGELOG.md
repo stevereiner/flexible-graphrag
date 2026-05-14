@@ -2,7 +2,28 @@
 
 All notable changes to this project will be documented in this file.
 
-## [2026-05-08] - Incremental Delete Fixes, Docling OCR, Dependency Compatibility
+## [2026-05-13] (v0.6.0) - Status API config, README/package metadata, ontology env docs, LangChain install story
+
+### Added
+
+- **`backend.py`** — `get_system_status()` builds `status.config` with **`rdf_graph_db`**, **`enable_knowledge_graph`**, and **`graph_backend`**, **`vector_backend`**, **`search_backend`**, **`chunker_backend`**, **`kg_extractor_backend`**, **`retrieval_fusion`** (returned by **`GET /api/status`** and MCP **`get_system_status`**). **`get_config()`** returns the same keys as that `config` object, plus **`search_db`**.
+
+### Removed
+
+- **`flexible-graphrag/langchain/langchain-requirements.txt`** — Obsolete flat dependency list; use **`pyproject.toml`** **`[project.optional-dependencies]`** (e.g. `.[langchain]`, `.[langchain,langchain-extras]`, `age-extras`, `surrealdb-extras`, `spanner-extras`).
+
+### Updated
+
+- **Repository `README.md`** — Broader doc refresh (dual framework intro, RDF/Neptune, optional-install cheat sheet, Framework/Optional/Prerequisites); not repeated line-by-line here.
+- **`flexible-graphrag/README.md`** (PyPI short readme) — Peer-framework blurb, repo / full README / docs links, note that optional extras are **only** in **`pyproject.toml`**.
+- **`flexible-graphrag-mcp/README.md`** — Intro + **duplicate** repo / full README / docs link block under the MCP Server heading for quick copy-paste.
+- **`pyproject.toml`** (**`flexible-graphrag`** and **`flexible-graphrag-mcp`**) — **`keywords`** expanded for PyPI/search alignment (graph, RDF, hybrid search, MCP, etc.).
+- **`env-sample.txt`** — **Ontology** section: **comments only** (paths and `ONTOLOGY_PATHS` defaults unchanged): documents repo **`schemas/`** layout and sample **`.ttl`** file names.
+- **`extras-overrides.txt`** — Dropped redundant llama-cloud / llama-parse **commentary**; version pins for those stay in **`pyproject.toml`** only.
+
+---
+
+## [2026-05-08] (v0.6.0) - Incremental Delete Fixes, Docling OCR, Dependency Compatibility
 
 ### Added
 
@@ -305,7 +326,7 @@ Full matrix test runner covering 44 backend profiles across both frameworks:
 - **`GraphNeighborhoodRetriever`** — k-hop graph expansion from seed nodes (APOC or variable-length path fallback)
 - **`TextToGraphQueryRetriever`** (renamed from `TextToCypherRetriever`) — handles both SPARQL and Cypher backends
 - **Native LangChain 1.x provider packages** — `langchain-anthropic`, `langchain-google-genai`, `langchain-google-vertexai`, `langchain-ollama`, `langchain-groq`, `langchain-fireworks`; all 13 providers use native classes; `openai_like`/`litellm`/`vllm`/`openrouter` use `ChatOpenAI` + `base_url` (correct for OpenAI-compatible endpoints)
-- **`langchain` optional dependency group** (`pyproject.toml`) — `uv pip install -e ".[langchain]"` installs `langchain`, `langchain-community`, `langchain-openai`, `langchain-anthropic`, `langchain-aws`, `langchain-ollama`, `langchain-google-genai`, `langchain-google-vertexai`, `langchain-groq`, `langchain-fireworks`, `langchain-neo4j`; `.[langchain,langchain-extras]` adds ArangoDB, Spanner, AGE, Gremlin; `langchain/langchain-requirements.txt` for direct pip/uv installs
+- **`langchain` optional dependency group** (`pyproject.toml`) — `uv pip install -e ".[langchain]"` for the core LangChain 1.x stack; combine with **`langchain-extras`**, **`age-extras`**, etc. per **`pyproject.toml`** (see current README Optional / Install). *Later: flat `langchain/langchain-requirements.txt` was removed (2026-05-13) in favor of extras only.*
 
 ---
 

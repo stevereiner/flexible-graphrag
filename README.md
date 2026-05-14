@@ -1,11 +1,11 @@
 
-**New 5/6/26** — 15 property graph databases total: 8 supported on both LlamaIndex and LangChain, 1 LI-only (Google Cloud Spanner Graph), 6 LC-only (ArangoDB, Apache AGE, Azure Cosmos DB for Gremlin, Apache HugeGraph, SurrealDB, TigerGraph). AWS Neptune RDF/SPARQL added. All 10 vector databases, all 3 search engines, and all LLM/embedding providers work with both LlamaIndex and LangChain. Every pipeline stage — chunking, KG extraction, graph write, vector write, search write, and retrieval fusion — can be configured independently. (Data source reading is LlamaIndex only; RDF stores use framework-independent adapters with LangChain Text-to-SPARQL retrieval.)
+**New 5/6/26:** 15 property graph databases total: 8 supported on both LlamaIndex and LangChain, 1 LI-only (Google Cloud Spanner Graph), 6 LC-only (ArangoDB, Apache AGE, Azure Cosmos DB for Gremlin, Apache HugeGraph, SurrealDB, TigerGraph). AWS Neptune RDF/SPARQL added. All 10 vector databases, all 3 search engines, and all LLM/embedding providers work with both LlamaIndex and LangChain. Every pipeline stage (chunking, KG extraction, graph write, vector write, search write, and retrieval fusion) can be configured independently. (Data source reading is LlamaIndex only; RDF stores use framework-independent adapters with LangChain Text-to-SPARQL retrieval.)
 
-**New** Flexible GraphRAG now supports RDF-based ontologies for both property graph databases and RDF triple store databases (Graphwise Ontotext GraphDB, Fuseki, and Oxigraph). Document ingestion with KG extraction, auto incremental data source change detection, and UI search (hybrid search, AI query, and AI chat) are all supported with both database types.
+**New:** Flexible GraphRAG now supports RDF-based ontologies for both property graph databases and RDF triple store databases (Graphwise Ontotext GraphDB, Fuseki, and Oxigraph). Document ingestion with KG extraction, auto incremental data source change detection, and UI search (hybrid search, AI query, and AI chat) are all supported with both database types.
 
-**New** Flexible GraphRAG supports **automatic incremental updates** (Optional) from most data sources, keeping your Vector, Search and Graph databases synchronized in real-time or near real-time.
+**New:** Flexible GraphRAG supports **automatic incremental updates** (Optional) from most data sources, keeping your Vector, Search and Graph databases synchronized in real-time or near real-time.
 
-**New** - [KG Spaces Integration of Flexible GraphRAG in Alfresco ACA Client](https://github.com/stevereiner/kg-spaces-aca)
+**New:** [KG Spaces Integration of Flexible GraphRAG in Alfresco ACA Client](https://github.com/stevereiner/kg-spaces-aca)
 
 # Flexible GraphRAG
 
@@ -19,7 +19,7 @@
 [![Angular](https://img.shields.io/badge/Angular-19-DD0031?logo=angular&logoColor=white)](https://angular.dev/)
 [![Vue](https://img.shields.io/badge/Vue-3-4FC08D?logo=vue.js&logoColor=white)](https://vuejs.org/)
 
-**Flexible GraphRAG** is an open source platform supporting document processing (Docling or LlamaParse), knowledge graph auto-building, schemas, LlamaIndex LLMs, RAG and GraphRAG setup, hybrid search (fulltext, vector, graph), AI query, and AI chat capabilities. The backend uses Python, LlamaIndex, and FastAPI. Has Angular, React, and Vue TypeScript frontends. A MCP Server is also available. Currently supports 13 data sources, 10 vector databases, OpenSearch / Elasticsearch / BM25 search, 8 property graph databases, 3 RDF triple stores (Fuseki, GraphDB, Oxigraph), and Alfresco.  These servers and their dashboards can be configured in a provided docker compose.
+**Flexible GraphRAG** is an open source AI context platform supporting a document processing pipeline (Docling or LlamaParse), knowledge graph auto-building, ontologies, schemas, many LLM providers, GraphRAG and RAG, hybrid semantic search (fulltext, vector, property graph, RDF/SPARQL), AI query, and AI chat. The backend is **Python** with **LlamaIndex** and **LangChain** as peer frameworks. **LlamaIndex** is the default for each pipeline stage; **LangChain** can be selected per stage in environment configuration. The API is a REST **FastAPI** service. **Angular**, **React**, and **Vue** TypeScript frontends and an **MCP** server are included. The stack supports 13 data sources (9 with incremental auto-sync), 15 property graph databases, 4 RDF triple stores (Apache Jena Fuseki, Ontotext GraphDB, Oxigraph, Amazon Neptune RDF), 10 vector databases, OpenSearch / Elasticsearch / BM25 search, and Alfresco. Services and dashboards can be enabled with the provided Docker Compose layout.
 
 <p align="center">
   <a href="./screen-shots/auto-sync/auto-sync.png">
@@ -29,24 +29,26 @@
 
 <p align="center"><em>Flexible GraphRAG data sources, processing tab, auto-sync document states in Postgres, Neo4j</em></p>
 
+## v0.6.0 in brief
+
+Version **0.6.0** broadens framework and database choice: **LangChain** is a full peer to **LlamaIndex** (per-stage env pickers for chunking, vector, search, property graph, KG extraction, fusion). **15** property graph backends: **8** on both frameworks, **Google Cloud Spanner** (LlamaIndex-only), **6** LangChain-only (ArangoDB, Apache AGE, Azure Cosmos DB for Gremlin, HugeGraph, SurrealDB, TigerGraph). **RDF** includes **Apache Jena Fuseki**, **Ontotext GraphDB**, **Oxigraph**, and **Amazon Neptune RDF**. Incremental delete, LangChain adapters, and cleanup paths were extended across stores (see [CHANGELOG.md](CHANGELOG.md)).
 
 ## Features
 
-- **Hybrid Search**: A configurable hybrid search system that combines vector search, full-text search, and graph GraphRAG
-- **Knowledge Graph GraphRAG**: Extracts entities and relationships from documents to auto create graphs in property graph databases for GraphRAG. Configuration for schemas to use or use
-as a starting point for LLM to expand on is supported.
+- **Hybrid Search**: Configurable hybrid search combining vector search, full-text search, property-graph GraphRAG, and SPARQL against RDF stores.
+- **Knowledge Graph GraphRAG**: Extracts entities and relationships from documents to build graphs in property graph databases and RDF stores. Optional schemas and ontologies guide extraction or act as a starting point for the LLM to extend.
 - **RDF/Ontology Support**: Load OWL/RDFS ontologies to guide KG extraction into any property graph or RDF store; SPARQL 1.1 queries; RDF 1.2 triple annotations; full UI pipeline (ingest, hybrid search, AI query/chat, incremental auto-sync). See [Ontology and RDF Support](#ontology-and-rdf-support) below.
 - **15 Property Graph Databases**: 8 on both LI+LC (Neo4j, ArcadeDB, FalkorDB, Ladybug, Memgraph, NebulaGraph, Amazon Neptune, Neptune Analytics), 1 LI-only (Google Cloud Spanner), 6 LC-only (ArangoDB, Apache AGE, Cosmos Gremlin, HugeGraph, SurrealDB, TigerGraph) — with KG extraction, hybrid search, and AI query/chat
-- **3 RDF Triple Stores**: Apache Jena Fuseki, Ontotext GraphDB, Oxigraph
+- **4 RDF Triple Stores**: Apache Jena Fuseki, Ontotext GraphDB, Oxigraph, Amazon Neptune RDF.
 - **10 Vector Databases**: Qdrant, Elasticsearch, OpenSearch, Neo4j, Chroma, Milvus, Weaviate, Pinecone, PostgreSQL pgvector, LanceDB — for semantic similarity search
 - **3 Search Databases**: Elasticsearch, OpenSearch, BM25 (built-in) — for full-text search and hybrid ranking
 - **LLM providers (KG extraction & chat)**: Ollama, OpenAI, Azure OpenAI, Google Gemini, Anthropic Claude, Google Vertex AI, Amazon Bedrock, Groq, Fireworks AI, OpenAI-compatible endpoints (`openai_like`), OpenRouter, LiteLLM proxy, and vLLM — configurable via `LLM_PROVIDER`; see [Supported LLM Providers](#supported-llm-providers)
 - **Embedding providers**: OpenAI, Ollama, Azure OpenAI, Google GenAI, Vertex AI, Bedrock, Fireworks, OpenAI-like (`EMBEDDING_KIND=openai_like`), and LiteLLM — see [LLM Configuration](#llm-configuration)
-- **Configurable Architecture**: LlamaIndex provides abstractions for allowing multiple vector databases, property graph databases, RDF triple stores, search engines, and LLM providers to be supported
-- **Multi-Source Ingestion**: Processes documents from 13 data sources (file upload, cloud storage, enterprise repositories, web sources) with Docling (default) or LlamaParse (cloud API) document parsing.
+- **Dual-framework pipeline**: **LlamaIndex** and **LangChain** are first-class choices for chunking, vector and search adapters, property graphs, KG extraction, RDF text-to-SPARQL retrieval, and hybrid fusion—each stage can be set independently (**LlamaIndex** defaults). See [Framework Configuration](#framework-configuration).
+- **Multi-Source Ingestion**: Processes documents from 13 data sources (9 with incremental auto sync): (file upload, cloud storage, enterprise repositories, web sources) with Docling (default) or LlamaParse (cloud API) document parsing.
 - **Observability**: Built-in OpenTelemetry instrumentation with automatic LlamaIndex tracing, Prometheus metrics, Jaeger traces, and Grafana dashboards for production monitoring
 - **FastAPI Server with REST API**: Python based FastAPI server with REST APIs for document ingesting, hybrid search, AI query, and AI chat.
-- **MCP Server**: MCP server providing Claude Desktop and other MCP clients with tools for document/text ingesting (all 13 data sources), hybrid search, and AI query. Uses FastAPI backend REST APIs. 
+- **MCP Server**: MCP server providing Claude Desktop and other MCP clients with tools for document/text ingesting (all 13 data sources with 9 supporting incremental auto sync), hybrid search, and AI query. Uses FastAPI backend REST APIs. 
 - **UI Clients**: Angular, React, and Vue UI clients support choosing the data source (filesystem, Alfresco, CMIS, etc.), ingesting documents, performing hybrid searches, AI queries, and AI chat. The UI clients use the REST APIs of the FastAPI backend.
 - **Docker Deployment Flexibility**: Supports both standalone and Docker deployment modes. Docker infrastructure provides modular database selection via docker-compose includes - vector, graph, search engines, and Alfresco can be included or excluded with a single comment. Choose between hybrid deployment (databases in Docker, backend and UIs standalone) or full containerization.
 
@@ -432,7 +434,7 @@ PG_GRAPH_DB=none
 
 ### Property Graph Databases (Knowledge Graph / GraphRAG)
 
-Set `PG_GRAPH_DB` to select the store and `GRAPH_BACKEND=llamaindex` or `langchain` for the framework. LC-only stores (ArangoDB, Apache AGE, HugeGraph, SurrealDB, TigerGraph, Cosmos Gremlin) auto-select `langchain`. Spanner (`PG_GRAPH_DB=spanner`) uses LlamaIndex only.
+Set `PG_GRAPH_DB` to select the store and `GRAPH_BACKEND=llamaindex` or `langchain` for the framework where both are supported. **LangChain-only** stores (ArangoDB, Apache AGE, HugeGraph, SurrealDB, TigerGraph, Cosmos Gremlin) route property-graph ingestion and retrieval through LangChain adapters regardless of other env defaults. **LlamaIndex-only** stores (Spanner): when `PG_GRAPH_DB=spanner`, startup forces `GRAPH_BACKEND=llamaindex` and ignores `GRAPH_BACKEND=langchain`.
 
 - **Neo4j Property Graph**: Primary knowledge graph storage with Cypher querying
   - Dashboard: Neo4j Browser (http://localhost:7474)
@@ -497,6 +499,15 @@ Set `PG_GRAPH_DB` to select the store and `GRAPH_BACKEND=llamaindex` or `langcha
     NEPTUNE_ANALYTICS_GRAPH_DB_CONFIG={"graph_identifier": "g-xxxxx", "region": "us-east-1"}
     ```
 
+- **Google Cloud Spanner Graph** *(LlamaIndex only)*: Managed relational + property graph (GQL). Uses `llama-index-spanner` — install with `uv pip install -e ".[spanner-extras]"` then `uv pip uninstall llama-index` (see [Optional](#optional) under Prerequisites). LangChain is not supported for this store (`langchain-google-spanner` pins incompatible `langchain-core`).
+  - Setup: [docs/DATABASES/GRAPH-DATABASES/SPANNER-SETUP.md](docs/DATABASES/GRAPH-DATABASES/SPANNER-SETUP.md)
+  - Configuration:
+    ```bash
+    PG_GRAPH_DB=spanner
+    # GRAPH_BACKEND=llamaindex is forced for Spanner (LlamaIndex-only); langchain is ignored
+    SPANNER_GRAPH_DB_CONFIG={"project_id": "my-gcp-project", "instance_id": "my-spanner-instance", "database_id": "my-database", "graph_name": "knowledge_graph", "credentials_file": "./gcs.json"}
+    ```
+
 - **ArangoDB** *(LangChain only)*: Multi-model database with AQL graph queries
   - Dashboard: ArangoDB Web UI (http://localhost:8529)
   - Configuration:
@@ -556,10 +567,10 @@ Flexible GraphRAG supports RDF/RDFS/OWL ontologies to guide knowledge graph extr
 
 - Load OWL/RDFS ontologies (`owl:Class`, `owl:ObjectProperty`, `owl:DatatypeProperty`, `rdfs:domain`, `rdfs:range`) to constrain entity/relation extraction; OWL is supported but not required
 - Works with all 15 property graph databases — no RDF store required to use ontology-guided extraction
-- Full pipeline for all 3 RDF graph stores: UI document ingest → KG extraction → RDF storage; auto incremental sync; Hybrid Search and AI Query/Chat fuse RDF store results alongside vector, BM25, and property graph results
+- Full pipeline for all 4 RDF graph stores: UI document ingest → KG extraction → RDF storage; auto incremental sync; Hybrid Search and AI Query/Chat fuse RDF store results alongside vector, BM25, and property graph results
 - SPARQL 1.1 queries; RDF 1.2 triple terms and relation annotations (`{| |}` syntax); XSD-typed literals from OWL `DatatypeProperty` ranges
 
-**RDF Graph Store Configuration** — set `RDF_GRAPH_DB` to select the store (all three support RDF 1.2 triple terms):
+**RDF Graph Store Configuration** — set `RDF_GRAPH_DB` to select the store (all four support RDF 1.2 triple terms; Neptune is AWS-managed—no local compose include):
 
 - **Apache Jena Fuseki** — SPARQL 1.1 server; dashboard: http://localhost:3030
   ```bash
@@ -583,12 +594,25 @@ Flexible GraphRAG supports RDF/RDFS/OWL ontologies to guide knowledge graph extr
   OXIGRAPH_URL=http://localhost:7878
   ```
 
+- **Amazon Neptune RDF** — managed SPARQL 1.1 on Neptune (same cluster can host property graph and RDF; IAM SigV4 auth). See [Neptune RDF setup](docs/DATABASES/GRAPH-DATABASES/NEPTUNE-SETUP.md).
+  ```bash
+  RDF_GRAPH_DB=neptune_rdf
+  NEPTUNE_RDF_HOST=db-neptune-1.cluster-xxxxxxxxxxxx.us-east-1.neptune.amazonaws.com
+  NEPTUNE_RDF_PORT=8182
+  NEPTUNE_RDF_REGION=us-east-1
+  NEPTUNE_RDF_USE_IAM_AUTH=true
+  NEPTUNE_RDF_USE_HTTPS=true
+  # Optional explicit keys (else default AWS credential chain):
+  # NEPTUNE_RDF_AWS_ACCESS_KEY_ID=
+  # NEPTUNE_RDF_AWS_SECRET_ACCESS_KEY=
+  ```
+
 - **None** — disable RDF graph store:
   ```bash
   RDF_GRAPH_DB=none
   ```
 
-**Docker Setup:** Uncomment RDF store includes in `docker-compose.yaml`:
+**Docker Setup:** Uncomment local RDF store includes in `docker-compose.yaml` (Fuseki, GraphDB, Oxigraph):
 ```yaml
 includes:
   # - includes/jena-fuseki.yaml
@@ -611,7 +635,7 @@ Every pipeline stage can independently run on LlamaIndex or LangChain via env va
 | `KG_EXTRACTOR_BACKEND` | `llamaindex` \| `langchain` | KG extraction from chunks |
 | `RETRIEVAL_FUSION` | `llamaindex` \| `langchain` | Result fusion across retrievers |
 
-LangChain-only graph stores (ArangoDB, Apache AGE, HugeGraph, SurrealDB, TigerGraph, Cosmos Gremlin, Spanner) auto-select `GRAPH_BACKEND=langchain`. Search results display the source database (e.g. *"company-ontology.txt | Qdrant vector"*, *"cmispress.txt | Ontotext GraphDB rdf graph"*).
+LangChain-only graph stores (ArangoDB, Apache AGE, HugeGraph, SurrealDB, TigerGraph, Cosmos Gremlin) auto-select `GRAPH_BACKEND=langchain`. LlamaIndex-only Spanner (`PG_GRAPH_DB=spanner`) forces `GRAPH_BACKEND=llamaindex` at startup and ignores `GRAPH_BACKEND=langchain` (no LangChain adapter).
 
 **Complete Documentation:** [docs/ADVANCED/LANGCHAIN/LANGCHAIN-GRAPH-INTEGRATION.md](docs/ADVANCED/LANGCHAIN/LANGCHAIN-GRAPH-INTEGRATION.md)
 
@@ -731,16 +755,21 @@ uv pip install -e .
 ```
 
 ### Optional
-- **LangChain integration** — LangChain is a first-class peer framework alongside LlamaIndex for graph, vector, search, chunking, KG extraction, and hybrid retrieval:
-  - `uv pip install -e ".[langchain]"` — adds `[langchain]`: some property graph stores via `langchain-community`, 10 vector stores, 3 search stores, RDF SPARQL retrieval, LLM and embedding support for all 13 providers as native LC clients, and retrieval fusion support
-  - `uv pip install --override extras-overrides.txt -e ".[langchain,langchain-extras]"` — adds LC-only graph stores: ArangoDB, Apache AGE, HugeGraph, TigerGraph, Cosmos Gremlin
+- **LangChain 1.x integration** — Optional peer stack alongside LlamaIndex (extras pin **`langchain>=1.0`** and the LangChain **1.x** line, not legacy 0.3):
+  - `uv pip install -e ".[langchain]"` — core LC extras: property graph stores via `langchain-community` where supported, 10 vector stores, 3 search stores, RDF SPARQL retrieval, native LC LLM/embedding clients for all 13 providers, KG extraction via `langchain-experimental`, retrieval fusion
+  - `uv pip install --override extras-overrides.txt -e ".[langchain,langchain-extras]"` — adds Neo4j (LC), PostgreSQL pgvector, ArcadeDB, ArangoDB, Cosmos Gremlin, HugeGraph, TigerGraph, and related dependencies (see `pyproject.toml` group `langchain-extras`)
+  - **Apache AGE** — property graph via LangChain needs the separate **`age-extras`** group (BAEM1N `langchain-age` driver):
+    ```bash
+    uv pip install --override extras-overrides.txt -e ".[langchain,langchain-extras,age-extras]"
+    python scripts/patch_langchain_age.py
+    ```
+    Run `patch_langchain_age.py` on **Python 3.14+** (required); on 3.12/3.13 it is harmless.
   - `uv pip install -e ".[spanner-extras]"` — adds LI-only Spanner support via `llama-index-spanner`. **Note:** `llama-index-spanner` declares `llama-index` (the meta-package) as a dependency, which `uv` will install. Uninstall it immediately after: `uv pip uninstall llama-index` — having both `llama-index` and `llama-index-core` installed simultaneously can cause version conflicts, as the meta-package pins versions of `llama-index-*` component packages that can clash with the versions already required by this project
   - SurrealDB — two-step install required (resolver conflict):
     ```bash
     uv pip install -e ".[surrealdb-extras]"
     uv pip install "surrealdb>=2.0" "langchain-core>=1.3"
     ```
-  - See `flexible-graphrag/langchain/langchain-requirements.txt` and [LANGCHAIN-GRAPH-INTEGRATION.md](docs/ADVANCED/LANGCHAIN/LANGCHAIN-GRAPH-INTEGRATION.md)
 - **ArcadeDB embedded mode** (`uv pip install arcadedb>=26.3.2`) — runs ArcadeDB in-process; includes a bundled JVM, no separate Java install needed; latest release: 26.3.2
 - **Enterprise Repositories**:
   - Alfresco repository - only if using Alfresco data source
@@ -947,8 +976,9 @@ uv pip install flexible-graphrag
 # 3. Optionally install ArcadeDB embedded mode support (includes bundled JVM, no Java install needed)
 uv pip install arcadedb>=26.3.2
 
-# 3a. Optionally install LangChain support (multiple packages — RDF QA fusion and property graph retrievers)
+# 3a. Optional dependency groups, for example:
 uv pip install "flexible-graphrag[langchain]"
+# Other extras ([langchain-extras], [age-extras], overrides): see source README, Prerequisites > Optional.
 
 # 4. Create .env from the sample (copy from the source repo or download env-sample.txt)
 copy env-sample.txt .env   # Windows
@@ -976,17 +1006,42 @@ flexible-graphrag
    venv-3.13\Scripts\Activate   # Windows
    source venv-3.13/bin/activate  # Linux/macOS
    uv pip install -e .
-   # Optional: LangChain support — installs langchain, langchain-community, langchain-openai,
-   #   langchain-anthropic, langchain-aws, langchain-ollama, langchain-google-genai,
-   #   langchain-google-vertexai, langchain-groq, langchain-fireworks, langchain-neo4j
+
+   # --- Optional: dependency groups from pyproject.toml [project.optional-dependencies] ---
+   # LangChain (peer framework; use overrides when combining with langchain-extras)
    uv pip install -e ".[langchain]"
-   # Optional: extended graph backends (ArangoDB, Spanner, AGE, Gremlin)
-   uv pip install -e ".[langchain,langchain-extras]"
-   # Optional: ArcadeDB embedded mode (includes bundled JVM)
+   uv pip install --override extras-overrides.txt -e ".[langchain,langchain-extras]"
+   uv pip install --override extras-overrides.txt -e ".[langchain,langchain-extras,age-extras]"
+   python scripts/patch_langchain_age.py
+   uv pip install --override extras-overrides.txt -e ".[surrealdb-extras]"
+   uv pip install "surrealdb>=2.0" "langchain-core>=1.3"
+   uv pip install --override extras-overrides.txt -e ".[spanner-extras]"
+   uv pip uninstall llama-index
+
+   # RDF extras (base install already includes rdflib/pyoxigraph; use these if you need the named groups)
+   uv pip install -e ".[rdf]"
+   uv pip install -e ".[rdf-full]"
+
+   # Observability
+   uv pip install -e ".[observability]"
+   uv pip install -e ".[observability-openlit]"
+   uv pip install -e ".[observability-dual]"
+
+   # Development tests / tooling
+   uv pip install -e ".[dev]"
+
+   # Docling OCR backends (see DOCLING_OCR in env-sample)
+   uv pip install -e ".[docling-ocr-easyocr]"
+   uv pip install -e ".[docling-ocr-tesserocr]"
+   uv pip install -e ".[docling-ocr-ocrmac]"   # macOS only
+
+   # Embedded ArcadeDB (not a bracket extra; bundled JVM)
    uv pip install arcadedb>=26.3.2
    ```
 
    **uv-managed venv** (alternative): change `managed = false` to `managed = true` in `pyproject.toml` `[tool.uv]` section, then just run `uv pip install -e .`.
+
+   Notes: run only the optional lines you need. For **`age-extras`**, run **`patch_langchain_age.py`** on **Python 3.14+** (safe on 3.12/3.13). For **`surrealdb-extras`**, keep the follow-up **`surrealdb` / `langchain-core`** upgrades. For **`spanner-extras`**, **`uv pip uninstall llama-index`** removes the meta-package pulled in by **`llama-index-spanner`**. See **### Optional** under **Prerequisites** for context.
 
    **Windows Note**: If installation fails with "Microsoft Visual C++ 14.0 or greater is required" error, install [Microsoft C++ Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/) (required for compiling Docling dependencies). Select "Desktop development with C++" during installation.
 

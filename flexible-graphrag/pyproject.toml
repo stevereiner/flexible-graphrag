@@ -3,17 +3,61 @@ name = "flexible-graphrag"
 version = "0.6.0"
 description = "Flexible GraphRAG system supporting multiple LLM providers, graph databases, vector stores, and data sources"
 readme = "README.md"
-requires-python = ">=3.12,<3.14"
+requires-python = ">=3.12,<3.15"
 license = "Apache-2.0"
 authors = [
     {name = "Steve Reiner"}
 ]
-keywords = ["graphrag", "rag", "llm", "knowledge-graph", "neo4j", "vector-database"]
+keywords = [
+    "graphrag",
+    "rag",
+    "ai-context-platform",
+    "ai-agents",
+    "llm",
+    "knowledge-graph",
+    "property-graph",
+    "neo4j",
+    "arcadedb",
+    "falkordb",
+    "ladybugdb",
+    "llamaindex",
+    "langchain",
+    "fastapi",
+    "sparql",
+    "rdf",
+    "ontology",
+    "owl",
+    "fuseki",
+    "graphdb",
+    "oxigraph",
+    "neptune",
+    "semantic-search",
+    "vector-database",
+    "qdrant",
+    "search-database",
+    "hybrid-search",
+    "elasticsearch",
+    "opensearch",
+    "incremental-sync",
+    "mcp",
+    "mcp-server",
+    "document-processing",
+    "docling",
+    "llamaparse",
+    "alfresco",
+]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
+    "Intended Audience :: Information Technology",
+    "Intended Audience :: System Administrators",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Database",
+    "Topic :: Internet :: WWW/HTTP :: Dynamic Content",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Software Development :: Libraries :: Python Modules",
 ]
 
 dependencies = [
@@ -316,8 +360,10 @@ spanner-extras = [
 
 [project.urls]
 Homepage = "https://github.com/stevereiner/flexible-graphrag"
+Documentation = "https://stevereiner.github.io/flexible-graphrag/"
 Repository = "https://github.com/stevereiner/flexible-graphrag"
-Documentation = "https://github.com/stevereiner/flexible-graphrag/blob/main/README.md"
+Changelog = "https://github.com/stevereiner/flexible-graphrag/blob/main/CHANGELOG.md"
+Issues = "https://github.com/stevereiner/flexible-graphrag/issues"
 
 [project.scripts]
 flexible-graphrag = "start:main"
@@ -354,6 +400,7 @@ include = ["ingest*", "process*", "sources*", "observability*", "incremental_upd
     "Dockerfile",
     "env-sample.txt",
     "uv.toml",
+    "extras-overrides.txt",
 ]
 
 [tool.pytest.ini_options]

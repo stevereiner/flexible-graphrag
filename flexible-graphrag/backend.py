@@ -1880,7 +1880,7 @@ class FlexibleGraphRAGBackend:
         try:
             # Return status without initializing databases to avoid APOC calls
             return {
-                "success": True, 
+                "success": True,
                 "status": {
                     "has_vector_index": self._system is not None and self._system.vector_index is not None,
                     "has_graph_index": self._system is not None and self._system.graph_index is not None,
@@ -1888,9 +1888,17 @@ class FlexibleGraphRAGBackend:
                     "config": {
                         "data_source": self.settings.data_source,
                         "vector_db": self.settings.vector_db,
-                        "pg_graph_db": self.settings.graph_db,
+                        "pg_graph_db": self.settings.pg_graph_db,
+                        "rdf_graph_db": self.settings.rdf_graph_db,
                         "search_db": self.settings.search_db,
-                        "llm_provider": self.settings.llm_provider
+                        "llm_provider": self.settings.llm_provider,
+                        "enable_knowledge_graph": self.settings.enable_knowledge_graph,
+                        "graph_backend": self.settings.graph_backend,
+                        "vector_backend": self.settings.vector_backend,
+                        "search_backend": self.settings.search_backend,
+                        "chunker_backend": self.settings.chunker_backend,
+                        "kg_extractor_backend": self.settings.kg_extractor_backend,
+                        "retrieval_fusion": self.settings.retrieval_fusion,
                     },
                     "system_initialized": self._system is not None
                 }
@@ -1906,8 +1914,17 @@ class FlexibleGraphRAGBackend:
             "config": {
                 "data_source": self.settings.data_source,
                 "vector_db": self.settings.vector_db,
-                "pg_graph_db": self.settings.graph_db,
-                "llm_provider": self.settings.llm_provider
+                "pg_graph_db": self.settings.pg_graph_db,
+                "rdf_graph_db": self.settings.rdf_graph_db,
+                "search_db": self.settings.search_db,
+                "llm_provider": self.settings.llm_provider,
+                "enable_knowledge_graph": self.settings.enable_knowledge_graph,
+                "graph_backend": self.settings.graph_backend,
+                "vector_backend": self.settings.vector_backend,
+                "search_backend": self.settings.search_backend,
+                "chunker_backend": self.settings.chunker_backend,
+                "kg_extractor_backend": self.settings.kg_extractor_backend,
+                "retrieval_fusion": self.settings.retrieval_fusion,
             }
         }
     
@@ -1919,7 +1936,7 @@ class FlexibleGraphRAGBackend:
         """Generate dynamic completion message based on enabled features"""
         # Check what's actually enabled
         has_vector = str(self.settings.vector_db) != "none"
-        has_graph = str(self.settings.graph_db) != "none" and self.settings.enable_knowledge_graph
+        has_graph = str(self.settings.pg_graph_db) != "none" and self.settings.enable_knowledge_graph
         has_search = str(self.settings.search_db) != "none"
         
         # Map database names to proper capitalization

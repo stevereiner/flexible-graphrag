@@ -1234,13 +1234,21 @@ RDF_RETRIEVAL_TOP_K=5
 # ===========================
 # Ontology Configuration
 # ===========================
-# Relative ONTOLOGY_* paths resolve against the process current working directory (cwd)
-# when ontology files load -- same idea as shell-relative paths. Start the backend from
-# flexible-graphrag/flexible-graphrag/ so ../schemas/ points at the repo-level schemas/
-# folder. Keeps paths out of site-packages when installed as a wheel; use absolute paths
-# if your cwd is not fixed.
-# Absolute paths are supported as-is (Windows: C:\...\file.ttl; Linux/macOS: /path/...).
-# Tilde expands to your home directory on any OS (e.g. ~/my-ontologies/foo.ttl).
+# Ontology Turtle files are not shipped with the pip wheel. Clone the repository or copy
+# the sample .ttl files, then point ONTOLOGY_PATH, ONTOLOGY_PATHS, or ONTOLOGY_DIR at them.
+# Prefer absolute paths in production.
+#
+# Repository layout (monorepo root): sample ontologies are in schemas/ next to the inner
+# flexible-graphrag/ package folder. If your working directory is flexible-graphrag/flexible-graphrag/
+# (the directory that contains this env-sample and main.py), use ../schemas/ as below.
+#
+# Sample files in schemas/ (names may evolve; check the repo):
+#   company_classes.ttl        - OWL classes + object properties (company domain)
+#   company_properties.ttl    - datatype properties
+#   common_ontology.ttl       - shared upper-ish classes (Person, Place, ...)
+#   foaf_ontology.ttl         - optional FOAF include; add to ONTOLOGY_PATHS if desired
+#   company_ontology.ttl      - optional monolithic bundle (all-in-one alternative to split files)
+#
 # Enable ontology-based knowledge graph extraction
 # When enabled, uses RDF/RDFS/OWL ontology schemas for entity/relation extraction (OWL is optional)
 USE_ONTOLOGY=false

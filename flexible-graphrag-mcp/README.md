@@ -1,6 +1,20 @@
+# Flexible GraphRAG
+
+MCP server for [Flexible GraphRAG](https://github.com/stevereiner/flexible-graphrag): talks to the FastAPI backend (`GET /api/status`, ingest, search, Q&A). Main project: **LlamaIndex** and **LangChain** as peer frameworks (**LlamaIndex** defaults per stage), hybrid search, 13 data sources, 15 property graph databases, 4 RDF stores (including Amazon Neptune RDF), vector and search backends.
+
+- **Repository**: [github.com/stevereiner/flexible-graphrag](https://github.com/stevereiner/flexible-graphrag)
+- **Full README**: [README.md on GitHub](https://github.com/stevereiner/flexible-graphrag/blob/main/README.md)
+- **Documentation**: [stevereiner.github.io/flexible-graphrag](https://stevereiner.github.io/flexible-graphrag/)
+
+---
+
 # Flexible GraphRAG MCP Server
 
-Model Context Protocol (MCP) server for Flexible GraphRAG system with optimized configurations for Claude Desktop and MCP Inspector.
+Model Context Protocol (MCP) server for Flexible GraphRAG: HTTP client to the FastAPI backend (`GET /api/status`, ingest, hybrid search, AI Q&A). Same project scope as the main stack — **LlamaIndex** / **LangChain** peer frameworks, 13 data sources, 15 property graph databases, 4 RDF stores (including Amazon Neptune RDF).
+
+- **Repository**: [github.com/stevereiner/flexible-graphrag](https://github.com/stevereiner/flexible-graphrag)
+- **Full README**: [README.md on GitHub](https://github.com/stevereiner/flexible-graphrag/blob/main/README.md)
+- **Documentation**: [stevereiner.github.io/flexible-graphrag](https://stevereiner.github.io/flexible-graphrag/)
 
 ## Quick Start
 

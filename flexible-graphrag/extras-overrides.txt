@@ -74,8 +74,6 @@ typer>=0.21.0
 # Prevents the llama-index meta-package (pulled by llama-index-spanner) and
 # langchain-surrealdb from downgrading these packages on a fresh install.
 # Floors are set to the CURRENTLY INSTALLED version (not the downgraded version).
-llama-cloud>=2.4.1
-llama-parse>=0.6.94
 llama-index-embeddings-openai>=0.6.0
 llama-index-embeddings-azure-openai>=0.5.2
 llama-index-embeddings-fireworks>=0.5.2
