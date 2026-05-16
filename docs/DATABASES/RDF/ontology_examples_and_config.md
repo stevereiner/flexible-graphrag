@@ -2,6 +2,8 @@
 
 This page covers how to enable ontology-guided KG extraction and provides example ontology files in Turtle format.
 
+When ontologies are enabled, they guide KG extraction for **both property graph databases and RDF triple stores** — ontologies are not specific to RDF stores.
+
 ---
 
 ## Enabling ontologies
@@ -15,16 +17,24 @@ USE_ONTOLOGY=true
 # Choose one of the three path options below:
 
 # Single ontology file
-ONTOLOGY_PATH=./rdf/schemas/my_ontology.ttl
+ONTOLOGY_PATH=../schemas/my_ontology.ttl
 
 # Multiple ontology files (comma-separated)
-ONTOLOGY_PATHS=./rdf/schemas/company_classes.ttl,./rdf/schemas/company_properties.ttl,./rdf/schemas/common_ontology.ttl
+ONTOLOGY_PATHS=../schemas/company_classes.ttl,../schemas/company_properties.ttl,../schemas/common_ontology.ttl
 
 # Directory of ontology files (loads all .ttl files in the directory)
-ONTOLOGY_DIR=./rdf/schemas/
+ONTOLOGY_DIR=../schemas/
 ```
 
 `ONTOLOGY_PATHS` takes precedence over `ONTOLOGY_PATH`; `ONTOLOGY_DIR` is used when neither is set.
+
+!!! note "Schema file locations by install type"
+    **Source checkout** — `schemas/` lives at the monorepo root, one level above the `flexible-graphrag/`
+    subdirectory where `.env` and `main.py` live. Use `../schemas/...` as shown above (matches `env-sample.txt`).
+
+    **PyPI install** — copy the `schemas/` directory from the repository to the parent of the directory
+    where your `.env` lives, so the same `../schemas/...` paths work without changing your `.env`. Alternatively,
+    place `schemas/` alongside `.env` and change the paths to `./schemas/...`.
 
 ```env
 # Ontology format (auto-detected from extension; set explicitly if needed)
@@ -34,14 +44,6 @@ ONTOLOGY_FORMAT=turtle          # turtle | rdfxml | ntriples | nquads
 STRICT_SCHEMA_VALIDATION=false  # false (default) = ontology guides but LLM can go beyond it
                                  # true = only extract types explicitly defined in the ontology
 ```
-
-Set `RDF_GRAPH_DB` to also write extracted triples to an RDF triple store alongside the property graph:
-
-```env
-RDF_GRAPH_DB=fuseki     # fuseki | graphdb | oxigraph | none (default)
-```
-
-See [Configure RDF Graph Databases](../../CONFIGURATION/CONFIG-RDF-STORES.md) for full RDF store connection settings.
 
 ---
 
@@ -102,7 +104,7 @@ foaf:member a owl:ObjectProperty ;
 
 ```env
 USE_ONTOLOGY=true
-ONTOLOGY_PATH=./rdf/schemas/foaf_ontology.ttl
+ONTOLOGY_PATH=../schemas/foaf_ontology.ttl
 ```
 
 ---
@@ -111,7 +113,7 @@ ONTOLOGY_PATH=./rdf/schemas/foaf_ontology.ttl
 
 The built-in company ontology included with Flexible GraphRAG splits classes and properties into separate files.
 
-**Classes file** — `rdf/schemas/company_classes.ttl`:
+**Classes file** — `schemas/company_classes.ttl` (at repo root):
 
 ```turtle
 @prefix company: <http://example.org/company/> .
@@ -147,7 +149,7 @@ company:part_of a owl:ObjectProperty ;
 
 ```env
 USE_ONTOLOGY=true
-ONTOLOGY_PATHS=./rdf/schemas/company_classes.ttl,./rdf/schemas/company_properties.ttl,./rdf/schemas/common_ontology.ttl
+ONTOLOGY_PATHS=../schemas/company_classes.ttl,../schemas/company_properties.ttl,../schemas/common_ontology.ttl
 ```
 
 ---
@@ -204,7 +206,7 @@ my:unit_price a owl:DatatypeProperty ;
 
 ```env
 USE_ONTOLOGY=true
-ONTOLOGY_PATH=./rdf/schemas/my_domain.ttl
+ONTOLOGY_PATH=../schemas/my_domain.ttl
 STRICT_SCHEMA_VALIDATION=false
 ```
 

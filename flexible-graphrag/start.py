@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """
 Startup script for flexible-graphrag using uvicorn
-Usage: flexible-graphrag            (after uv pip install flexible-graphrag)
-       uv run start.py              (with source)
+Usage:
+  flexible-graphrag        # console entry point (any install: PyPI or source)
+  python -m start          # equivalent — works when the package env is active
+  uv run start.py          # source checkout only (run from this directory)
 """
 
 import sys

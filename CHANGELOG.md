@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2026-05-15] (v0.6.1) - Packaging fix, README and description improvements
+
+### Fixed
+
+- **`flexible-graphrag/pyproject.toml`** — `adapters*` was missing from `[tool.setuptools.packages.find] include`, causing `ModuleNotFoundError: No module named 'adapters'` after a PyPI install. Added `adapters*` to the explicit include list. 
+
+### Updated
+
+- **`flexible-graphrag/pyproject.toml`** — Version bumped to `0.6.1`. `description` rewritten to be keyword-rich (AI context platform, document processing, KG auto-building, GraphRAG/RAG, hybrid search types, LLM/DB counts, both frameworks).
+- **`flexible-graphrag/README.md`** (PyPI short readme) — First paragraph replaced with the canonical project intro from the root README. Install paragraph rewritten as a proper quick-start (code block, LLM key note, `rdf/schemas/` copy hint, LlamaIndex-only caveat with link to [Framework Configuration](https://stevereiner.github.io/flexible-graphrag/CONFIGURATION/LANGCHAIN-CONFIGURATION/) docs, pointer to full README for Docker/frontend/extras).
+- **`flexible-graphrag/start.py`** — Docstring usage comment corrected: `uv run python -m start` replaced with `python -m start` (the former only works from a source checkout directory, not a PyPI install).
+- **`flexible-graphrag-mcp/pyproject.toml`** — Version bumped to `0.6.1`. `description` updated, "HTTP bridge" replaced with "connects to" (neutral re stdio/HTTP transport), DB / data source counts added to description.
+- **`flexible-graphrag-mcp/README.md`** — Top paragraph replaced with the canonical project intro. Second sentence clarifies this package is the MCP server. "HTTP bridge/client" and raw `GET /api/status` references removed.
+
+---
+
 ## [2026-05-13] (v0.6.0) - Status API config, README/package metadata, ontology env docs, LangChain install story
 
 ### Added
@@ -17,6 +33,7 @@ All notable changes to this project will be documented in this file.
 - **Repository `README.md`** — Broader doc refresh (dual framework intro, RDF/Neptune, optional-install cheat sheet, Framework/Optional/Prerequisites); not repeated line-by-line here.
 - **`flexible-graphrag/README.md`** (PyPI short readme) — Peer-framework blurb, repo / full README / docs links, note that optional extras are **only** in **`pyproject.toml`**.
 - **`flexible-graphrag-mcp/README.md`** — Intro + **duplicate** repo / full README / docs link block under the MCP Server heading for quick copy-paste.
+- **`docs/DATABASES/RDF/ontology_examples_and_config.md`** — Clarified that ontologies guide KG extraction for both property graph databases and RDF triple stores (not RDF-only). Removed the `RDF_GRAPH_DB` config block and link that implied otherwise. All schema paths corrected to `../schemas/...` (repo root, matching `env-sample.txt`). Added install-type note explaining source checkout vs PyPI schema placement. Per-example `.env` snippets updated to consistent `../schemas/` paths.
 - **`pyproject.toml`** (**`flexible-graphrag`** and **`flexible-graphrag-mcp`**) — **`keywords`** expanded for PyPI/search alignment (graph, RDF, hybrid search, MCP, etc.).
 - **`env-sample.txt`** — **Ontology** section: **comments only** (paths and `ONTOLOGY_PATHS` defaults unchanged): documents repo **`schemas/`** layout and sample **`.ttl`** file names.
 - **`extras-overrides.txt`** — Dropped redundant llama-cloud / llama-parse **commentary**; version pins for those stay in **`pyproject.toml`** only.
