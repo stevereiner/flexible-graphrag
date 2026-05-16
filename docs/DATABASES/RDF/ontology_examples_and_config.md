@@ -51,7 +51,7 @@ STRICT_SCHEMA_VALIDATION=false  # false (default) = ontology guides but LLM can 
 
 A standard vocabulary for people and organizations.
 
-**File**: `rdf/schemas/foaf_ontology.ttl`
+**File**: `schemas/foaf_ontology.ttl`
 
 ```turtle
 @prefix foaf: <http://xmlns.com/foaf/0.1/> .
@@ -158,7 +158,7 @@ ONTOLOGY_PATHS=../schemas/company_classes.ttl,../schemas/company_properties.ttl,
 
 A minimal template for any domain.
 
-**File**: `rdf/schemas/my_domain.ttl`
+**File**: `schemas/my_domain.ttl`
 
 ```turtle
 @prefix my:   <https://example.org/my-domain/> .
