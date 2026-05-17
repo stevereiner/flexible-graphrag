@@ -155,28 +155,33 @@ DOCUMENT_PARSER=docling
 
 # =============================================================================
 # LlamaParse Config
-# Note: uses llama-parse 0.6.x (1.0 API) pinned in pyproject.toml with llama-cloud<2.0.
-# The 2.0 unified SDK (llama-cloud-py) requires a separate migration — not yet implemented.
+# Uses llama-cloud >= 2.1 (v2 API) — included in base dependencies (uv pip install -e .)
 
 # LlamaParse API Key (only needed if DOCUMENT_PARSER=llamaparse)
-# Get your API key from https://cloud.llamaindex.ai/  bottom left "API Keys", then "Generate New Key"
-# LlamaParse offers high-quality document parsing of complex documents
-#LLAMAPARSE_API_KEY=llx-your-api-key-here
+# Get your API key from https://cloud.llamaindex.ai/ -> "API Keys" -> "Generate New Key"
+# Both env var names are accepted; LLAMA_CLOUD_API_KEY is the v2 canonical name
+#LLAMA_CLOUD_API_KEY=llx-your-api-key-here
+#LLAMAPARSE_API_KEY=llx-your-api-key-here  # backward-compat alias
 
-# LlamaParse Mode Configuration (only used if DOCUMENT_PARSER=llamaparse)
-# Options:
-#   "parse_page_without_llm" - 1 credit/page (cheapest, simple, text-only output, no markdown)
-#   "parse_page_with_llm" - 3 credits/page (good balance, uses LLM, markdown output) - DEFAULT
-#   "parse_page_with_agent" - 10-90 credits/page (best quality, markdown output, requires LLAMAPARSE_AGENT_MODEL)
-#LLAMAPARSE_MODE=parse_page_without_llm
-LLAMAPARSE_MODE=parse_page_with_llm
-#LLAMAPARSE_MODE=parse_page_with_agent
+# LlamaParse v2 Tier (replaces LLAMAPARSE_MODE from v1)
+# v1 name -> v2 tier mapping (old names still work via backward-compat mapping):
+#   "parse_page_without_llm"  -> "fast"           (text only, no markdown, cheapest)
+#   "parse_page_with_llm"     -> "cost_effective"  (balanced, markdown output)     DEFAULT
+#   "parse_page_with_agent"   -> "agentic"         (best quality, markdown output)
+# You may also use v2 tier names directly:
+#   "fast", "cost_effective", "agentic", "agentic_plus"
+#LLAMAPARSE_MODE=fast
+LLAMAPARSE_MODE=cost_effective
+#LLAMAPARSE_MODE=agentic
+#LLAMAPARSE_MODE=agentic_plus
 
-# LlamaParse Agent Model (only used if LLAMAPARSE_MODE=parse_page_with_agent)
-# Available models from LlamaCloud (costs vary by model):
-#   "openai-gpt-4-1-mini" - 10 credits/page (recommended balance)
-#   Other models available - check LlamaCloud for full list / credit cost
-#LLAMAPARSE_AGENT_MODEL=openai-gpt-4-1-mini
+# LlamaParse OCR language (ISO 639-1 code, default: en)
+# Maps to v2 processing_options.ocr_parameters.languages
+#LLAMAPARSE_LANGUAGE=en
+
+# LlamaParse Custom Prompt (agentic / agentic_plus / cost_effective tiers only)
+# Maps to v2 agentic_options.custom_prompt; replaces v1 parsing_instruction / system_prompt
+#LLAMAPARSE_CUSTOM_PROMPT=Extract all tables and headings as structured markdown.
 
 
 # =============================================================================

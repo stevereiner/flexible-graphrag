@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2026-05-17] - LlamaParse 1.x to 2.x migration
+
+### Changed
+
+- **`flexible-graphrag/pyproject.toml`** — Replaced `llama-parse<1.0` + `llama-cloud<2.0` with `llama-cloud>=2.1` (the unified v2 SDK). The old `llama-parse` package is no longer a dependency.
+- **`flexible-graphrag/process/document_processor.py`** — Migrated LlamaParse integration from v1 API (`llama_parse.LlamaParse`, `aget_json()`, flat kwargs) to v2 API (`llama_cloud.AsyncLlamaCloud`, two-step `files.create()` + `parsing.parse()`, structured `processing_options`/`output_options`/`agentic_options`). Old v1 `parse_mode` names (`parse_page_with_llm`, `parse_page_with_agent`, `parse_page_without_llm`) are mapped to v2 tiers via `_TIER_MAP` for backward compatibility. `job_id` now correctly reads from `result.job.id`.
+- **`flexible-graphrag/env-sample.txt`** — LlamaParse config block updated for v2: `LLAMA_CLOUD_API_KEY` added as canonical env var name (old `LLAMAPARSE_API_KEY` still accepted); `LLAMAPARSE_MODE` documented with both v1 legacy names and v2 tier names (`fast`, `cost_effective`, `agentic`, `agentic_plus`); `LLAMAPARSE_AGENT_MODEL` removed (model is auto-selected by tier in v2); `LLAMAPARSE_LANGUAGE` and `LLAMAPARSE_CUSTOM_PROMPT` added (map to `processing_options.ocr_parameters.languages` and `agentic_options.custom_prompt` respectively).
+
+---
+
 ## [2026-05-15] (v0.6.1) - Packaging fix, README and description improvements
 
 ### Fixed

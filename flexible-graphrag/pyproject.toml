@@ -73,8 +73,7 @@ dependencies = [
     "cmislib",
     "python-alfresco-api>=1.1.5",
     "docling-slim[standard]",
-    "llama-parse<1.0",       # 1.0 API (0.6.x); llama-cloud must stay <2.0 — see below
-    "llama-cloud<2.0",       # 0.1.x required by llama-cloud-services 0.6.x; 2.x is new unified SDK (TODO: migrate later)
+    "llama-cloud>=2.1",      # v2 unified SDK — LlamaParse now uses AsyncLlamaCloud from this package
     "neo4j",
     "numpy",
     "rapidfuzz",
