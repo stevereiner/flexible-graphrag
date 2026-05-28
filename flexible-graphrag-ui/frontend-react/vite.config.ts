@@ -8,7 +8,7 @@ const ALFRESCO_BASE_URL = process.env.VITE_ALFRESCO_BASE_URL || 'http://localhos
 export default defineConfig({
   plugins: [react()],
   server: {
-    port: 5174, // Explicitly set port for frontend-react
+    port: 5174,
     proxy: {
       '/api': {
         target: 'http://localhost:8000',

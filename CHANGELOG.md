@@ -2,6 +2,23 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2026-05-28] - Frontend package name cleanup
+
+### Fixed
+
+- **`flexible-graphrag-ui/frontend-react/package.json`** — Renamed package from `cmis-graphrag-react` to `flexible-graphrag-react`; removed hardcoded `--port 5174` from the `dev` script (port now read from `vite.config.ts`).
+- **`flexible-graphrag-ui/frontend-vue/package.json`** — Renamed package from `cmis-graphrag-vue` to `flexible-graphrag-vue`.
+
+---
+
+## [2026-05-26] - Fix default Neo4j port (Bug #14)
+
+### Fixed
+
+- **`flexible-graphrag/config.py`** — Default Neo4j Bolt URI for the property graph store corrected from `bolt://localhost:7689` to `bolt://localhost:7687` (standard Neo4j port). The 7689 value and caused connection failures when NEO4J_GRAPH_DB_CONFIG url was not set in `.env` and neo4j uses the default port.
+
+---
+
 ## [2026-05-17] - LlamaParse 1.x to 2.x migration
 
 ### Changed
