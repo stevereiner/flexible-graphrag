@@ -13,6 +13,7 @@ services:
       - "8000:8000"
     volumes:
       - ../../sample-docs:/app/sample_docs:ro
+      - ../../schemas:/app/schemas:ro
       - upload_data:/app/uploads
     restart: unless-stopped
     healthcheck:
