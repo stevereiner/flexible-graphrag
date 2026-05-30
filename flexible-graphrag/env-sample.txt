@@ -153,6 +153,11 @@ DOCUMENT_PARSER=docling
 #DOCLING_OCR=false
 #DOCLING_OCR_ENGINE=auto
 
+# DOCLING_TIMEOUT=600  # Docling conversion timeout per document (seconds, default: 10 minutes)
+# DOCLING_CANCEL_CHECK_INTERVAL=0.5  # How often to check for cancellation (seconds)
+#   - We wrap Docling in background executor with periodic polling for cancellation
+#   - Lower = more responsive, higher = less CPU overhead
+
 # =============================================================================
 # LlamaParse Config
 # Uses llama-cloud >= 2.1 (v2 API) — included in base dependencies (uv pip install -e .)
@@ -267,6 +272,11 @@ KG_EXTRACTOR_TYPE=schema
 
 # Neo4j (active when PG_GRAPH_DB=neo4j)
 NEO4J_GRAPH_DB_CONFIG={"url": "bolt://localhost:7687", "username": "neo4j", "password": "password"}
+# With explicit database name (neo4j_database, default: "neo4j"):
+#NEO4J_GRAPH_DB_CONFIG={"url": "bolt://localhost:7687", "username": "neo4j", "password": "password", "neo4j_database": "neo4j"}
+# Neo4j AuraDB (cloud — neo4j+s:// scheme enables TLS):
+#NEO4J_GRAPH_DB_CONFIG={"url": "neo4j+s://<dbid>.databases.neo4j.io", "username": "neo4j", "password": "<aura-generated-password>", "neo4j_database": "neo4j"}
+# Console URL: https://console.neo4j.io
 
 # Ladybug — embedded property graph (active when PG_GRAPH_DB=ladybug)
 # use_vector_index: true (default) - use Ladybug's built-in vector index for similarity search
@@ -476,6 +486,8 @@ DISABLE_PROPERTIES=false
 
 # Qdrant (active when VECTOR_DB=qdrant)
 QDRANT_VECTOR_DB_CONFIG={"host": "localhost", "port": 6333, "collection_name": "hybrid_search_vector", "https": false}
+# Qdrant Cloud or remote HTTPS instance:
+#QDRANT_VECTOR_DB_CONFIG={"host": "your-cluster.qdrant.io", "port": 6333, "collection_name": "hybrid_search_vector", "https": true, "api_key": "your-qdrant-api-key"}
 
 # Elasticsearch (active when VECTOR_DB=elasticsearch)
 ELASTICSEARCH_VECTOR_DB_CONFIG={"url": "http://localhost:9200", "index_name": "hybrid_search_vector"}
@@ -500,6 +512,10 @@ MILVUS_VECTOR_DB_CONFIG={"host": "localhost", "port": 19530, "collection_name": 
 WEAVIATE_VECTOR_DB_CONFIG={"url": "http://localhost:8081", "index_name": "HybridSearch"}
 # For authenticated instance (with API key):
 #WEAVIATE_VECTOR_DB_CONFIG={"url": "http://localhost:8081", "index_name": "HybridSearch", "api_key": "your_weaviate_api_key"}
+# With additional options (text_key, grpc_port, timeout):
+#WEAVIATE_VECTOR_DB_CONFIG={"url": "http://localhost:8081", "index_name": "HybridSearch", "text_key": "content", "grpc_port": 50051, "timeout": 30}
+# Weaviate Cloud (WCS):
+#WEAVIATE_VECTOR_DB_CONFIG={"url": "https://your-cluster.weaviate.network", "index_name": "HybridSearch", "api_key": "your_weaviate_api_key", "text_key": "content"}
 
 # Pinecone (active when VECTOR_DB=pinecone)
 # Sign up at https://app.pinecone.io (free starter plan available)
@@ -641,15 +657,16 @@ FIREWORKS_MODEL=accounts/fireworks/models/gpt-oss-120b
 #FIREWORKS_MODEL=accounts/fireworks/models/qwen3-vl-30b-a3b-thinking
 
 # OpenAI-Like Configuration (any OpenAI-compatible API — LM Studio, LocalAI, Llamafile, Jan, etc.)
-# Use for third-party OpenAI-compatible servers that are NOT vLLM.
-# For vLLM use LLM_PROVIDER=vllm and the VLLM_* vars below.
-# Examples: localhost:1234/v1 (LM Studio), localhost:8181/v1 (LocalAI — note: 8080 conflicts with Alfresco), localhost:11434/v1 (Ollama /v1)
-OPENAI_LIKE_MODEL=local-model
-OPENAI_LIKE_API_BASE=http://localhost:1234/v1
-# OPENAI_LIKE_API_KEY=local                   # Any string if not required
-# OPENAI_LIKE_CONTEXT_WINDOW=4096
-# OPENAI_LIKE_FUNCTION_CALLING=true           # Set false if model doesn't support tool calling
-# OPENAI_LIKE_TIMEOUT=120.0
+# LM Studio example
+# In LM Studio set default model context window to 16384 before model load
+#OPENAI_LIKE_CONTEXT_WINDOW=16000
+#OPENAI_LIKE_FUNCTION_CALLING=false          # Set false if model doesn't support tool calling
+#OPENAI_LIKE_TIMEOUT=120.0
+#OPENAI_LIKE_TEMPERATURE=0.1
+# gpt-oss works bettern than qwen models
+#OPENAI_LIKE_MODEL=openai/gpt-oss-20b
+#OPENAI_LIKE_API_BASE=http://localhost:1234/v1
+#OPENAI_LIKE_API_KEY=lm-studio
 
 # vLLM Configuration — high-performance local inference (Docker or in-process)
 # See docs/LLM/LLM-EMBEDDING-CONFIG.md section 18 for full setup guide.
@@ -775,12 +792,12 @@ BEDROCK_EMBEDDING_MODEL=amazon.titan-embed-text-v2:0 # 1024 dims
 FIREWORKS_EMBEDDING_MODEL=nomic-ai/nomic-embed-text-v1.5  # 768 dims
 
 # OpenAI-Like Embeddings (active when EMBEDDING_KIND=openai_like)
-# Any server with a /v1/embeddings endpoint: Ollama, LM Studio, LocalAI, vLLM, Llamafile, etc.
-# Confirmed working: nomic-embed-text via Ollama (localhost:11434/v1) with OpenAI gpt-4.1-mini (2026-03-20)
-OPENAI_LIKE_EMBEDDING_MODEL=nomic-embed-text
-OPENAI_LIKE_EMBEDDING_API_BASE=http://localhost:11434/v1  # Ollama default — or your server's /v1 URL
-# OPENAI_LIKE_API_KEY=local
+# Any server with a /v1/embeddings endpoint: LM Studio, LocalAI, Llamafile, etc.
+# LM Studio example
 # Use EMBEDDING_DIMENSION above (e.g. 768 for nomic-embed-text) — required, no auto-detection for openai_like
+#EMBEDDING_DIMENSION=768 
+#OPENAI_LIKE_EMBEDDING_MODEL=text-embedding-nomic-embed-text-v1.5@q4_k_m
+#OPENAI_LIKE_EMBEDDING_API_BASE=http://localhost:1234/v1
 
 # LiteLLM Embeddings (active when EMBEDDING_KIND=litellm)
 # Route embeddings through a LiteLLM proxy to any backend (OpenAI, Ollama, Bedrock, etc.)
@@ -833,46 +850,8 @@ ALFRESCO_STOMP_PORT=8613
 # S3_SECRET_KEY=mysecretaccesskey    # AWS secret access key (used if not specified in S3_CONFIG)
 
 # ====================================================================
-# DATABASE CONNECTION DETAILS (Individual Configs)
+# CHUNK SIZE AND KG EXTRACTION CONFIGURATION
 # ====================================================================
-
-# Neo4j Configuration (for both vector and graph storage)
-# Browser URL: http://localhost:7474/browser (for database management and queries)
-NEO4J_URI=bolt://localhost:7687
-NEO4J_USER=neo4j
-NEO4J_PASSWORD=password
-# NEO4J_DATABASE=neo4j  # Optional: specify database name (default: neo4j)
-
-# Neo4j AuraDB (cloud) example:
-# NEO4J_URI=neo4j+s://<dbid>.databases.neo4j.io
-# NEO4J_USER=neo4j
-# NEO4J_PASSWORD=<aura-generated-password>
-# Console URL: https://console.neo4j.io
-
-# Elasticsearch Configuration
-ELASTICSEARCH_URL=http://localhost:9200
-ELASTICSEARCH_USERNAME=
-ELASTICSEARCH_PASSWORD=
-
-# Qdrant Configuration
-QDRANT_HOST=localhost
-QDRANT_PORT=6333
-QDRANT_API_KEY=
-# QDRANT_COLLECTION=hybrid_search  # Optional: collection name
-# QDRANT_HTTPS=false  # Use HTTPS for remote Qdrant instances
-
-# Weaviate Configuration
-WEAVIATE_URL=http://localhost:8081
-WEAVIATE_INDEX_NAME=HybridSearch
-# WEAVIATE_API_KEY=your_weaviate_api_key  # Optional: for authenticated instances
-# WEAVIATE_TEXT_KEY=content  # Optional: field name for text content
-
-# OpenSearch Configuration
-OPENSEARCH_URL=http://localhost:9201
-OPENSEARCH_USERNAME=
-OPENSEARCH_PASSWORD=
-
-# Processing Configuration
 
 # CHUNK_SIZE and CHUNK_OVERLAP are in CHARACTERS for both llamaindex and langchain backends.
 CHUNK_SIZE=2048
@@ -900,17 +879,8 @@ CHUNK_OVERLAP=128
 MAX_TRIPLETS_PER_CHUNK=20
 MAX_PATHS_PER_CHUNK=20
 
-# Timeout configurations moved to docs/TIMEOUT-CONFIGURATIONS.md
-# Uncomment and adjust these if you need custom timeout values:
-# 
-# DOCLING_TIMEOUT=600  # Docling conversion timeout per document (seconds, default: 10 minutes)
-# DOCLING_CANCEL_CHECK_INTERVAL=0.5  # How often to check for cancellation (seconds)
-#   - We wrap Docling in background executor with periodic polling for cancellation
-#   - Lower = more responsive, higher = less CPU overhead
-# 
 # KG_EXTRACTION_TIMEOUT=3600  # Knowledge graph extraction timeout per document
 # KG_CANCEL_CHECK_INTERVAL=2.0  # How often to check for cancellation during KG extraction
-# 
 
 
 # ====================================================================

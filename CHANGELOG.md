@@ -2,6 +2,33 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2026-05-30] - .env/.env-sample cleanup: remove legacy individual DB vars, add cloud examples
+
+### Changed
+
+- **`flexible-graphrag/.env`** and **`flexible-graphrag/env-sample.txt`** — Removed the "DATABASE CONNECTION DETAILS (Individual Configs)" section and all legacy individual DB vars (`NEO4J_URI`, `NEO4J_USER`, `NEO4J_PASSWORD`, `QDRANT_HOST`, `QDRANT_PORT`, `ELASTICSEARCH_URL`, `WEAVIATE_URL`, `OPENSEARCH_URL`, etc.); replaced with a renamed **"CHUNK Size and KG Extraction Configuration"** section containing only chunk size and KG extraction settings. Per-store config vars (`{TYPE}_*_DB_CONFIG`) in their own sections above are the sole connection config path.
+- **Neo4j graph config section** — Added `neo4j_database` example and a commented Neo4j AuraDB cloud example using the `neo4j+s://` TLS scheme.
+- **Qdrant vector config section** — Added commented Qdrant Cloud / remote HTTPS example with `https: true` and `api_key`.
+- **Weaviate vector config section** — Added examples with `text_key`, `grpc_port`, `timeout` options and a Weaviate Cloud (WCS) example.
+- **Docling Config section** — Moved `DOCLING_TIMEOUT` and `DOCLING_CANCEL_CHECK_INTERVAL` comments here from the chunk/KG section; KG timeout vars (`KG_EXTRACTION_TIMEOUT`, `KG_CANCEL_CHECK_INTERVAL`) remain in the chunk/KG section.
+- **OpenAI-Like LLM and Embedding sections** — Added LM Studio example info and connection details.
+
+---
+
+## [2026-05-29] - Docker env config style, ontology paths in Docker, ArcadeDB embedded naming
+
+### Changed
+
+- **`docker/docker.env`** — Removed all legacy unprefixed `GRAPH_DB_CONFIG`, `VECTOR_DB_CONFIG`, `SEARCH_DB_CONFIG`, `NEO4J_URI`, `QDRANT_HOST`, `ELASTICSEARCH_URL` vars; replaced with per-store prefixed equivalents (`NEO4J_GRAPH_DB_CONFIG`, `QDRANT_VECTOR_DB_CONFIG`, `ELASTICSEARCH_SEARCH_DB_CONFIG`, etc.) matching the precedence order already used by `config.py`. All PG, vector, search, and RDF store overrides now appear as prefixed vars with Scenario A / Scenario B commented options.
+- **`docker/docker-env-sample.txt`** — Same overhaul as `docker.env`: all config vars switched to the per-store prefixed style; Scenario A (`host.docker.internal`) and Scenario B (Docker service name) variants documented inline for every supported store.
+- **`docker/includes/app-stack.yaml`** — Added `../../schemas:/app/schemas:ro` volume mount so ontology `.ttl` files from the repo root `schemas/` directory are available inside the backend container at `/app/schemas/`. Fixes `USE_ONTOLOGY=true` failures ("file not found") when running the backend in Docker.
+- **`docker/docker.env`** — Added `ONTOLOGY_DIR=schemas/` override (resolves against container `/app` cwd) so `USE_ONTOLOGY=true` works in full-stack Docker without changing `.env`. Added `POSTGRES_INCREMENTAL_URL=postgresql://postgres:password@postgres-pgvector:5432/flexible_graphrag_incremental` override (Docker service name + internal port 5432) so `ENABLE_INCREMENTAL_UPDATES=true` works; `.env` default uses `localhost:5433` which is unreachable from inside the backend container.
+- **`docker/DOCKER-ENV-SETUP.md`** — Updated examples to use per-store prefixed config vars throughout; added troubleshooting entries for ontology path failures and incremental Postgres connection refused.
+- **`README.md`** — ArcadeDB embedded pip package corrected from `arcadedb` to `arcadedb-embedded` in the Optional prerequisites section and the full source-install quickstart block; added comment pointing to `flexible-graphrag/pyproject.toml` for all available extra options.
+- **`docs/GETTING-STARTED/PYTHON-BACKEND.md`** — PyPI install step for ArcadeDB embedded corrected from `arcadedb` to `arcadedb-embedded`; added `--override extras-overrides.txt` to the `langchain-extras` install command; added comment pointing to `pyproject.toml` for all extra options.
+
+---
+
 ## [2026-05-28] - Frontend package name cleanup
 
 ### Fixed

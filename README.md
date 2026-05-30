@@ -754,7 +754,7 @@ cd flexible-graphrag
 uv pip install -e .
 ```
 
-### Optional
+### Optional (see flexible-graphrag/pyproject.toml for all options)
 - **LangChain 1.x integration** — Optional peer stack alongside LlamaIndex (extras pin **`langchain>=1.0`** and the LangChain **1.x** line, not legacy 0.3):
   - `uv pip install -e ".[langchain]"` — core LC extras: property graph stores via `langchain-community` where supported, 10 vector stores, 3 search stores, RDF SPARQL retrieval, native LC LLM/embedding clients for all 13 providers, KG extraction via `langchain-experimental`, retrieval fusion
   - `uv pip install --override extras-overrides.txt -e ".[langchain,langchain-extras]"` — adds Neo4j (LC), PostgreSQL pgvector, ArcadeDB, ArangoDB, Cosmos Gremlin, HugeGraph, TigerGraph, and related dependencies (see `pyproject.toml` group `langchain-extras`)
@@ -770,7 +770,7 @@ uv pip install -e .
     uv pip install -e ".[surrealdb-extras]"
     uv pip install "surrealdb>=2.0" "langchain-core>=1.3"
     ```
-- **ArcadeDB embedded mode** (`uv pip install arcadedb>=26.3.2`) — runs ArcadeDB in-process; includes a bundled JVM, no separate Java install needed; latest release: 26.3.2
+- **ArcadeDB embedded mode** (`uv pip install arcadedb-embedded>=26.3.2`) — runs ArcadeDB in-process; includes a bundled JVM, no separate Java install needed; latest release: 26.3.2
 - **Enterprise Repositories**:
   - Alfresco repository - only if using Alfresco data source
   - SharePoint - requires SharePoint access
@@ -974,7 +974,7 @@ source venv-3.13/bin/activate  # Linux/macOS
 uv pip install flexible-graphrag
 
 # 3. Optionally install ArcadeDB embedded mode support (includes bundled JVM, no Java install needed)
-uv pip install arcadedb>=26.3.2
+uv pip install arcadedb-embedded>=26.3.2
 
 # 3a. Optional dependency groups, for example:
 uv pip install "flexible-graphrag[langchain]"
@@ -1007,6 +1007,7 @@ flexible-graphrag
    source venv-3.13/bin/activate  # Linux/macOS
    uv pip install -e .
 
+   # see flexible-graphrag/pyproject.toml for all options
    # --- Optional: dependency groups from pyproject.toml [project.optional-dependencies] ---
    # LangChain (peer framework; use overrides when combining with langchain-extras)
    uv pip install -e ".[langchain]"
@@ -1036,7 +1037,7 @@ flexible-graphrag
    uv pip install -e ".[docling-ocr-ocrmac]"   # macOS only
 
    # Embedded ArcadeDB (not a bracket extra; bundled JVM)
-   uv pip install arcadedb>=26.3.2
+   uv pip install arcadedb-embedded>=26.3.2
    ```
 
    **uv-managed venv** (alternative): change `managed = false` to `managed = true` in `pyproject.toml` `[tool.uv]` section, then just run `uv pip install -e .`.

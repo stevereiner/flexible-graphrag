@@ -40,8 +40,11 @@ uv pip install -e .
 
 # Optional extras
 uv pip install -e ".[langchain]"
-uv pip install -e ".[langchain,langchain-extras]"
-uv pip install arcadedb>=26.3.2
+uv pip install --override extras-overrides.txt -e ".[langchain,langchain-extras]"
+# see flexible-graphrag/pyproject.toml for all options
+
+# arcadedb embedded
+uv pip install arcadedb-embedded>=26.3.2
 
 cp env-sample.txt .env   # Linux/macOS
 copy env-sample.txt .env  # Windows
