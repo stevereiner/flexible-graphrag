@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2026-06-02] v0.6.2 — version updated
+
+### Changed
+
+- **`flexible-graphrag/pyproject.toml`** — version updated from `0.6.1` to `0.6.2`.
+- **`flexible-graphrag-mcp/pyproject.toml`** — version updated from `0.6.1` to `0.6.2`.
+
+---
+
 ## [2026-05-30] - .env/.env-sample cleanup: remove legacy individual DB vars, add cloud examples
 
 ### Changed
