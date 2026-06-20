@@ -185,6 +185,19 @@ OLLAMA_BASE_URL=http://host.docker.internal:11434
 #VLLM_API_BASE=http://localhost:8002/v1
 
 # ====================================================================
+# Observability (OpenTelemetry)
+# ====================================================================
+
+# Disable observability when no OTLP collector is running in Docker.
+# Remove or set to true if you have docker/includes/observability.yaml running.
+ENABLE_OBSERVABILITY=false
+
+# If observability is enabled, point the exporter to the host collector:
+# SCENARIO A (collector on host):  OTEL_EXPORTER_OTLP_ENDPOINT=http://host.docker.internal:4318
+# SCENARIO B (collector in Docker, see observability.yaml): OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
+#OTEL_EXPORTER_OTLP_ENDPOINT=http://host.docker.internal:4318
+
+# ====================================================================
 # Service name reference (docker-compose include files)
 # ====================================================================
 # neo4j, qdrant, elasticsearch, opensearch, falkordb, arcadedb, memgraph,

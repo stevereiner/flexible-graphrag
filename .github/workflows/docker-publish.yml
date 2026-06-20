@@ -1,0 +1,107 @@
+name: Build and Push Docker Images
+
+# Triggers on version tags (e.g. v0.6.3) or manual dispatch for testing
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Image tag override (defaults to "dev")'
+        required: false
+        default: 'dev'
+      backend_extras:
+        description: 'Backend optional extras (comma-separated, e.g. "langchain,langchain-extras,rdf,observability")'
+        required: false
+        default: 'langchain,langchain-extras,rdf,observability'
+
+env:
+  DOCKERHUB_ORG: integratedsemantics
+
+jobs:
+  build-and-push:
+    name: ${{ matrix.name }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write   # required for ghcr.io push via GITHUB_TOKEN
+
+    strategy:
+      fail-fast: false  # build all images even if one fails
+      matrix:
+        include:
+          - name: backend
+            context: flexible-graphrag
+            dockerfile: flexible-graphrag/Dockerfile
+            image: flexible-graphrag-backend
+
+          - name: ui-react
+            context: flexible-graphrag-ui/frontend-react
+            dockerfile: flexible-graphrag-ui/frontend-react/Dockerfile
+            image: flexible-graphrag-ui-react
+
+          - name: ui-vue
+            context: flexible-graphrag-ui/frontend-vue
+            dockerfile: flexible-graphrag-ui/frontend-vue/Dockerfile
+            image: flexible-graphrag-ui-vue
+
+          - name: ui-angular
+            context: flexible-graphrag-ui/frontend-angular
+            dockerfile: flexible-graphrag-ui/frontend-angular/Dockerfile
+            image: flexible-graphrag-ui-angular
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Derives tags automatically from the git tag:
+      #   v0.6.3  →  0.6.3, 0.6, latest
+      # On manual dispatch with no version tag: uses the input tag (default "dev")
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: |
+            ${{ env.DOCKERHUB_ORG }}/${{ matrix.image }}
+            ghcr.io/${{ github.repository_owner }}/${{ matrix.image }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
+            type=raw,value=${{ inputs.tag }},enable=${{ github.event_name == 'workflow_dispatch' }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          # Pass EXTRAS only for the backend image (frontend images don't use it)
+          build-args: |
+            ${{ matrix.name == 'backend' && format('EXTRAS={0}', inputs.backend_extras || 'langchain,langchain-extras,rdf,observability') || '' }}
+          # Layer cache per image name — speeds up re-runs significantly
+          cache-from: type=gha,scope=${{ matrix.name }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.name }}

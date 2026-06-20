@@ -2,6 +2,57 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2026-06-19] v0.6.3 — Frontend package cleanup and icons
+
+### Fixed
+
+- **`frontend-react/package.json` + `package-lock.json`** — version bumped to `0.6.3`; added `public/react.svg` (React atom icon); `index.html` favicon updated from generic Vite logo to React icon; title updated to `Flexible GraphRAG (React)`.
+- **`frontend-vue/package.json` + `package-lock.json`** — name corrected from `cmis-graphrag-vue` to `flexible-graphrag-vue`; version bumped to `0.6.3`; added `public/vue.svg` (Vue V-logo); `index.html` favicon updated.
+- **`frontend-angular/package.json` + `package-lock.json`** — name corrected from `cmis-graphrag-ui` to `flexible-graphrag-ui`; version bumped to `0.6.3`.
+
+---
+
+## [2026-06-19] v0.6.3 — Python 3.14 patches, Docker env fixes
+
+### Fixed
+
+- **`flexible-graphrag/main.py`** — `CancelScope` patch rewritten to use `id()`-based set; `anyio 4.14+` uses `__slots__` which prevented the old attribute assignment and crashed httpcore connections.
+- **`flexible-graphrag/main.py`** — `AsyncShieldCancellation` replacement now also patches cached references in `httpcore._async.*` modules (imported before our patch runs).
+- **`flexible-graphrag/main.py`** — Added `_patch_ssl_context()`: clears `ssl.VERIFY_X509_STRICT` and loads Windows OS cert store via `load_default_certs()` to fix `APIConnectionError` when antivirus/proxy installs a local root CA.
+
+### Changed
+
+- **`docker/docker-env-sample.txt`** — added `ENABLE_OBSERVABILITY=false` override (prevents OTLP export errors when no collector is running) and commented `OTEL_EXPORTER_OTLP_ENDPOINT=http://host.docker.internal:4318` option for when observability stack is active.
+
+---
+
+
+## [2026-06-18] v0.6.3 — Docker production builds and image publish pipeline
+
+### Added
+
+- **`flexible-graphrag/.dockerignore`** — excludes `.env`, virtual environments, local DBs (`ladybug/`, `arcadedb_data/`), uploads, and logs from the backend image.
+- **`flexible-graphrag-ui/frontend-react/Dockerfile`** — rewritten as multi-stage build: Node 24 Alpine builder (`npm run build`) + `nginx:stable-alpine` serve; static files placed at `/ui/react/` with SPA fallback and gzip.
+- **`flexible-graphrag-ui/frontend-react/nginx.conf`** — nginx config serving React at `/ui/react/` with 1-year immutable cache on hashed assets.
+- **`flexible-graphrag-ui/frontend-react/.dockerignore`**
+- **`flexible-graphrag-ui/frontend-vue/Dockerfile`** — same multi-stage pattern as React; serves at `/ui/vue/`.
+- **`flexible-graphrag-ui/frontend-vue/nginx.conf`** — nginx config serving Vue at `/ui/vue/`.
+- **`flexible-graphrag-ui/frontend-vue/.dockerignore`**
+- **`flexible-graphrag-ui/frontend-angular/Dockerfile`** — multi-stage build: runs `generate-env-config.ts` with `DOCKER_MODE=true`, then `ng build --configuration=production --base-href /ui/angular/`; serves static files at `/ui/angular/` via nginx.
+- **`flexible-graphrag-ui/frontend-angular/nginx.conf`** — nginx config serving Angular at `/ui/angular/` with SPA fallback.
+- **`flexible-graphrag-ui/frontend-angular/.dockerignore`**
+- **`.github/workflows/docker-publish.yml`** — builds all 4 images in parallel on `v*` tag push; pushes to `docker.io/integratedsemantics/` and `ghcr.io/stevereiner/` with semver, `major.minor`, and `latest` tags; multi-platform (`linux/amd64`, `linux/arm64`).
+
+### Changed
+
+- **`flexible-graphrag/Dockerfile`** — rewritten to install optional extras via `ARG EXTRAS` build argument (default `langchain,langchain-extras,rdf,observability`); uses `--override extras-overrides.txt` to suppress advisory-only transitive downgrades; `extras-overrides.txt` now copied before the install step so it is available at build time.
+- **`docker/includes/app-stack.yaml`** — added `image: integratedsemantics/<name>:${FLEXIBLE_GRAPHRAG_VERSION:-latest}` to all four services alongside existing `build:` contexts.
+- **`docker/nginx/nginx.conf`** — Angular `location /ui/angular/` simplified to direct `proxy_pass http://angular/ui/angular/` (removed rewrite + `sub_filter`); all three UIs now use the same proxy pattern.
+- **`flexible-graphrag/pyproject.toml`** — version bumped to `0.6.3`.
+- **`flexible-graphrag-mcp/pyproject.toml`** — version bumped to `0.6.3`.
+
+---
+
 ## [2026-06-02] v0.6.2 — version updated
 
 ### Changed

@@ -1,0 +1,37 @@
+# Secrets and local config — never bake into image
+.env
+*.env
+
+# Python virtual environments
+venv*/
+.venv/
+env/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Local database directories
+ladybug/
+arcadedb_data/
+
+# Runtime data
+uploads/
+logs/
+*.log
+
+# Dev / test artifacts
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+htmlcov/
+.coverage
+
+# Editor / OS
+.git/
+.gitignore
+.DS_Store
+Thumbs.db

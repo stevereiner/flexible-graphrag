@@ -2,6 +2,7 @@
 services:
   # Backend FastAPI service
   flexible-graphrag-backend:
+    image: integratedsemantics/flexible-graphrag-backend:${FLEXIBLE_GRAPHRAG_VERSION:-latest}
     build: 
       context: ../../flexible-graphrag
       dockerfile: Dockerfile
@@ -24,6 +25,7 @@ services:
 
   # Angular UI
   flexible-graphrag-ui-angular:
+    image: integratedsemantics/flexible-graphrag-ui-angular:${FLEXIBLE_GRAPHRAG_VERSION:-latest}
     build:
       context: ../../flexible-graphrag-ui/frontend-angular
       dockerfile: Dockerfile
@@ -36,8 +38,9 @@ services:
       - flexible-graphrag-backend
     restart: unless-stopped
 
-  # React UI  
+  # React UI
   flexible-graphrag-ui-react:
+    image: integratedsemantics/flexible-graphrag-ui-react:${FLEXIBLE_GRAPHRAG_VERSION:-latest}
     build:
       context: ../../flexible-graphrag-ui/frontend-react
       dockerfile: Dockerfile
@@ -52,6 +55,7 @@ services:
 
   # Vue UI
   flexible-graphrag-ui-vue:
+    image: integratedsemantics/flexible-graphrag-ui-vue:${FLEXIBLE_GRAPHRAG_VERSION:-latest}
     build:
       context: ../../flexible-graphrag-ui/frontend-vue
       dockerfile: Dockerfile

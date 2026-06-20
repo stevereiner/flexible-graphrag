@@ -59,18 +59,33 @@ RUN apt-get update && apt-get install -y \
 # Install uv for faster package installation
 RUN pip install uv
 
-# Copy pyproject.toml and uv.toml first for better caching
-COPY pyproject.toml uv.toml ./
+# Copy dependency files first for better layer caching.
+# extras-overrides.txt must be present before install so --override can reference it.
+COPY pyproject.toml uv.toml extras-overrides.txt ./
 
-# Method 1: Install using pyproject.toml (CURRENT - modern approach)
-# This installs the package in editable mode with all dependencies
-RUN uv pip install --system -e .
+# Optional extras to install alongside base dependencies.
+# extras-overrides.txt suppresses advisory-only transitive downgrades from langchain-extras
+# (fsspec<2025, pgvector<0.4, requests/urllib3/rich pins from hugegraph-python, etc.)
+# so langchain-extras is safe to include by default.
+#
+# Note: rapidocr is bundled with docling-slim[standard] (a base dependency), so basic
+# OCR for scanned PDFs works out of the box without any docling-ocr-* extra.
+#
+# Override at build time:
+#   docker build --build-arg EXTRAS="langchain,langchain-extras,rdf,observability" .
+#   docker build --build-arg EXTRAS="" .   (base dependencies only)
+#
+# Excluded from default:
+#   docling-ocr-easyocr/tesserocr  — alternative OCR engines needing extra system libs
+#   docling-ocr-ocrmac              — macOS only
+#   surrealdb-extras, age-extras, spanner-extras — niche integrations
+ARG EXTRAS="langchain,langchain-extras,rdf,observability"
 
-# Method 2: Install using requirements.txt (OLD - commented out)
-# Uncomment the lines below and comment out the pyproject.toml method above
-# if you want to use the legacy requirements.txt approach
-# COPY requirements.txt .
-# RUN uv pip install --system -r requirements.txt
+RUN if [ -n "$EXTRAS" ]; then \
+        uv pip install --override extras-overrides.txt --system -e ".[$EXTRAS]"; \
+    else \
+        uv pip install --system -e .; \
+    fi
 
 # Copy application code
 COPY . .

@@ -1,6 +1,6 @@
 {
   "name": "flexible-graphrag-ui",
-  "version": "0.0.0",
+  "version": "0.6.3",
   "type": "module",
   "scripts": {
     "ng": "ng",

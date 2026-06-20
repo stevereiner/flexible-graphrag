@@ -182,24 +182,30 @@ def _apply_python314_patches() -> None:
     # during HTTP connection cleanup. anyio uses current_task() to track which task owns the scope;
     # when current_task() is None (executor threads), it tries to look up None in a
     # WeakValueDictionary and raises TypeError: cannot create weak reference to 'NoneType'.
-    # Fix: make CancelScope.__enter__/__exit__ no-ops when there is no current task.
+    #
+    # anyio 4.14+ uses __slots__ on CancelScope, so we cannot set arbitrary instance attributes.
+    # Fix: track no-op scopes by id() in a module-level set instead of instance attributes.
     try:
         from anyio._backends._asyncio import CancelScope as _AnyioCancelScope
         _orig_cancel_scope_enter = _AnyioCancelScope.__enter__
         _orig_cancel_scope_exit = _AnyioCancelScope.__exit__
 
+        # Scopes entered while there is no current task — stored by id() to avoid
+        # needing to set attributes on __slots__-restricted objects.
+        _noop_cancel_scope_ids: set = set()
+
         def _safe_cancel_scope_enter(self):
             if asyncio.current_task() is None:
                 self._active = True
-                self._no_task_noop = True
+                _noop_cancel_scope_ids.add(id(self))
                 return self
-            self._no_task_noop = False
             return _orig_cancel_scope_enter(self)
 
         def _safe_cancel_scope_exit(self, exc_type, exc_val, exc_tb):
-            if getattr(self, '_no_task_noop', False):
+            scope_id = id(self)
+            if scope_id in _noop_cancel_scope_ids:
                 self._active = False
-                self._no_task_noop = False
+                _noop_cancel_scope_ids.discard(scope_id)
                 return False
             return _orig_cancel_scope_exit(self, exc_type, exc_val, exc_tb)
 
@@ -213,8 +219,15 @@ def _apply_python314_patches() -> None:
     # When current_task() is None (executor threads, lifespan), anyio tries to look up
     # None in a WeakValueDictionary and raises TypeError.
     # Fix: make AsyncShieldCancellation a no-op context manager when there is no current task.
+    #
+    # IMPORTANT: httpcore._async.{connection_pool,http11,http2} all do
+    #   from .._synchronization import AsyncShieldCancellation
+    # at module-load time, caching the class in their own namespace.  We must
+    # patch those cached references too, not just the _synchronization module.
     try:
         import httpcore._synchronization as _httpcore_sync
+        import httpcore._async.connection_pool as _hc_pool
+        import httpcore._async.http11 as _hc_http11
 
         class _SafeAsyncShieldCancellation:
             def __init__(self) -> None:
@@ -235,6 +248,14 @@ def _apply_python314_patches() -> None:
         # Save original so the wrapper above can instantiate it
         _httpcore_sync._orig_AsyncShieldCancellation = _httpcore_sync.AsyncShieldCancellation
         _httpcore_sync.AsyncShieldCancellation = _SafeAsyncShieldCancellation
+        # Also update the references already cached by the async sub-modules
+        _hc_pool.AsyncShieldCancellation = _SafeAsyncShieldCancellation
+        _hc_http11.AsyncShieldCancellation = _SafeAsyncShieldCancellation
+        try:
+            import httpcore._async.http2 as _hc_http2
+            _hc_http2.AsyncShieldCancellation = _SafeAsyncShieldCancellation
+        except Exception:
+            pass
     except Exception:
         pass
 
@@ -320,8 +341,50 @@ def _apply_python314_patches() -> None:
     except Exception:
         pass
 
-
 _apply_python314_patches()
+
+
+def _patch_ssl_context() -> None:
+    """Patch ssl.create_default_context so all Python versions work on Windows.
+
+    Two issues affect HTTPS connections (OpenAI, Anthropic, etc.) on Windows:
+
+    1. ssl.VERIFY_X509_STRICT is enabled by default from Python 3.12+ when the
+       Windows certificate store is loaded.  It rejects CA certs that lack the
+       Basic Constraints extension — a common trait of SSL-inspection roots
+       installed by antivirus or corporate proxy software.
+
+    2. httpx always passes cafile=certifi.where() to create_default_context,
+       loading only certifi's ~118 root CAs.  Any locally-installed CA (e.g.
+       a corporate root added to the Windows store) is therefore invisible and
+       the TLS handshake fails with "unable to get local issuer certificate".
+
+    Fix: wrap create_default_context to clear VERIFY_X509_STRICT and also
+    call load_default_certs() so the Windows cert store supplements certifi.
+    """
+    try:
+        import ssl as _ssl
+        _orig_create_default_context = _ssl.create_default_context
+
+        def _patched_create_default_context(*args, **kwargs):
+            ctx = _orig_create_default_context(*args, **kwargs)
+            if hasattr(_ssl, "VERIFY_X509_STRICT"):
+                ctx.verify_flags &= ~_ssl.VERIFY_X509_STRICT
+            try:
+                ctx.load_default_certs(_ssl.Purpose.SERVER_AUTH)
+            except Exception:
+                pass
+            return ctx
+
+        _ssl.create_default_context = _patched_create_default_context
+        logger.info(
+            "SSL patch applied: cleared VERIFY_X509_STRICT, added OS cert store"
+        )
+    except Exception:
+        pass
+
+
+_patch_ssl_context()
 if sys.version_info >= (3, 12):
     _apply_aiohttp_task_patches()
 
