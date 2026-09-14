@@ -19,19 +19,33 @@ copy env-sample.txt .env
 Edit `.env` with your LLM API keys, database credentials, and feature flags.
 See [Environment Configuration](ENVIRONMENT-CONFIGURATION.md) for all options.
 
-### Docker `docker.env`
+### Docker `docker/.env`
 
 ```bash
 cd docker
 
 # Linux/macOS
-cp docker-env-sample.txt docker.env
+cp docker-env-sample.txt .env
 
 # Windows
-copy docker-env-sample.txt docker.env
+copy docker-env-sample.txt .env
 ```
 
-Edit `docker.env` for Docker-specific network overrides (service hostnames, ports).
+Edit `docker/.env` for Docker-specific network overrides (service hostnames, ports).
+
+### Why it is named `.env` and not `docker.env`
+
+Docker Compose auto-loads any file literally named `.env` sitting next to
+`docker-compose.yaml`. So `docker/.env` does double duty: the container overrides above, **and**
+the `${...}` placeholders Compose resolves inside `docker/includes/*.yaml` —
+`ALFRESCO_SEARCH_HOST`, `VLLM_MODEL`, `FLEXIBLE_GRAPHRAG_VERSION`. That is why every include is
+a plain one-liner with no extra syntax.
+
+`flexible-graphrag/.env` is **not** consulted for those placeholders — only `docker/.env` and
+the shell. A handful of variables are read by both Compose and the backend app; if the backend
+runs on the host (Scenario A) set those in both files. See
+[docker/DOCKER-ENV-SETUP.md](https://github.com/stevereiner/flexible-graphrag/blob/main/docker/DOCKER-ENV-SETUP.md)
+for the full list and the precedence rules.
 
 ---
 
@@ -115,7 +129,7 @@ Comment or uncomment includes in `docker-compose.yaml` to choose your stack:
 |---|---|---|
 | `includes/qdrant.yaml` | Qdrant | http://localhost:6333/dashboard |
 | `includes/elasticsearch-dev.yaml` | Elasticsearch (also as vector) | — (Kibana: http://localhost:5601) |
-| `includes/opensearch.yaml` | OpenSearch (also as vector) | http://localhost:9201 |
+| `includes/opensearch.yaml` | OpenSearch (also as vector) | `includes/opensearch-dashboards.yaml` → http://localhost:5602 |
 | `includes/milvus.yaml` | Milvus | http://localhost:9091 |
 | `includes/weaviate.yaml` | Weaviate | http://localhost:8080 |
 | `includes/chroma.yaml` | Chroma | — |
@@ -157,7 +171,22 @@ Amazon Neptune and Neptune Analytics are cloud services — no Docker include re
 |---|---|---|
 | `includes/elasticsearch-dev.yaml` | Elasticsearch | — |
 | `includes/kibana-simple.yaml` | Kibana | http://localhost:5601 |
-| `includes/opensearch.yaml` | OpenSearch | http://localhost:9201 |
+| `includes/opensearch.yaml` | OpenSearch | `includes/opensearch-dashboards.yaml` → http://localhost:5602 |
+
+### Content Management
+
+| Include File | Service | Dashboard |
+|---|---|---|
+| `includes/alfresco.yaml` | Alfresco Community 26.2 (repo, Share, ACA, Control Center, ActiveMQ, transform) | http://localhost:8080 |
+| `includes/alfresco-elasticsearch.yaml` | Elasticsearch for Alfresco (9202) — the default | `includes/alfresco-kibana.yaml` → http://localhost:5603 |
+| `includes/alfresco-opensearch.yaml` | OpenSearch for Alfresco (9203) — alternative; also set `ALFRESCO_SEARCH_HOST=alfresco-opensearch` | `includes/alfresco-opensearch-dashboards.yaml` → http://localhost:5604 |
+| `includes/keycloak.yaml` | Keycloak OIDC IdP for Alfresco OAuth2 | http://localhost:8091 |
+
+ACS 26.2 dropped Solr; the repository indexes into Elasticsearch or OpenSearch via a
+`batch-indexing` service. Enable ONE of the two includes above to run an engine dedicated to
+Alfresco, or neither and set
+`ALFRESCO_SEARCH_HOST=elasticsearch` (or `=opensearch`) in `.env` to index into the engine this
+project already runs, sharing its Kibana / OpenSearch Dashboards as well.
 
 ### RDF Triple Stores
 

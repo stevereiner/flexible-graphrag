@@ -1,0 +1,74 @@
+# Elasticsearch dedicated to Alfresco (ACS 26.2+ replaced Solr with a search engine).
+#
+# Enable this OR includes/alfresco-opensearch.yaml, not both — they are alternatives.
+# Elasticsearch is the default, so it needs no setting in docker/.env; the repository's
+# ${ALFRESCO_SEARCH_HOST:-alfresco-elasticsearch} default already points here.
+#
+# Include it right after includes/alfresco.yaml:
+#   - includes/alfresco.yaml
+#   - includes/alfresco-elasticsearch.yaml
+#   #- includes/alfresco-kibana.yaml     # optional dashboard over this index, port 5603
+#
+# The four values ALFRESCO_SEARCH_HOST accepts (set it in docker/.env):
+#   alfresco-elasticsearch   this file            host 9202   (default, no setting needed)
+#   alfresco-opensearch      alfresco-opensearch.yaml  host 9203
+#   elasticsearch            this project's elasticsearch-dev.yaml, host 9200  — shared
+#   opensearch               this project's opensearch.yaml, host 9201         — shared
+#
+# SHARING instead of running this file: drop this include and set
+# ALFRESCO_SEARCH_HOST=elasticsearch in docker/.env. Alfresco then writes its own `alfresco`
+# index into the cluster the rest of Flexible GraphRAG uses, so it coexists with this
+# project's indices, and the Kibana you already run on 5601 covers the Alfresco index too —
+# saving ~2GB and a second dashboard. includes/elasticsearch-dev.yaml is pinned to the same
+# 8.17.10 used here, the version ACS 26.2 is tested against, so sharing needs no change.
+services:
+  alfresco-elasticsearch:
+    image: elasticsearch:8.17.10
+    mem_limit: 2g
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - cluster.name=alfresco-search
+      - node.name=alfresco-es-node
+      # Stops the index flipping to read-only when the host disk gets full, which otherwise
+      # shows up as batch-indexing failing with cryptic cluster_block_exception errors.
+      - cluster.routing.allocation.disk.threshold_enabled=false
+      - "ES_JAVA_OPTS=-Xms1g -Xmx1g"
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      nofile:
+        soft: 65536
+        hard: 65536
+    cap_add:
+      - IPC_LOCK
+    volumes:
+      - alfresco_elasticsearch_data:/usr/share/elasticsearch/data
+    ports:
+      - "9202:9200"    # 9200 is this project's elasticsearch, 9201 its opensearch,
+                       # 9203 the Alfresco OpenSearch alternative
+      # 9300 (inter-node transport) intentionally NOT exposed: single-node has no peers, and
+      # on Windows 9300 falls in a WinNAT-reserved range (9248-9347) so the bind is forbidden
+      # ("access permissions"). The container still binds it internally.
+    healthcheck:
+      test: ["CMD-SHELL", "curl -s -X GET http://localhost:9200/_cluster/health?pretty | grep status | grep -q '\\(green\\|yellow\\)'"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  # Wait for the engine before starting the services that talk to it. These overlay onto the
+  # services in includes/alfresco.yaml, which carries no search dependency of its own so that
+  # a shared or external engine works too.
+  alfresco:
+    depends_on:
+      alfresco-elasticsearch:
+        condition: service_healthy
+  batch-indexing:
+    depends_on:
+      alfresco-elasticsearch:
+        condition: service_healthy
+
+volumes:
+  alfresco_elasticsearch_data:

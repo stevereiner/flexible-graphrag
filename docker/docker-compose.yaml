@@ -1,8 +1,9 @@
 # Flexible GraphRAG - Main Docker Compose
-
-# This is the primary compose file for both running servers and databases in docker for use
-# by external flexible-graphrag for development and 
-# for deployment of flexible-graphrag along with databases in docker
+#
+# The primary compose file for the whole stack, used two ways:
+#   - databases in Docker while the backend and UIs run from source (development), or
+#   - everything in Docker, app included, by enabling app-stack.yaml + proxy.yaml below.
+# Pick your services by commenting include lines in or out.
 
 # IMPORTANT: Before starting, ensure Docker has adequate memory allocated.
 # The full stack requires 16GB+ in the Docker VM; with vLLM add ~8GB on top of model VRAM needs.
@@ -10,7 +11,18 @@
 #   Windows:              create C:\Users\<you>\.wslconfig with memory= (see doc for sizing guide)
 #   macOS:                Docker Desktop -> Settings -> Resources -> Memory
 #   Linux Docker Desktop: Docker Desktop -> Settings -> Resources -> Memory
-#   Linux Docker Engine:  native, no VM limits — see doc for cgroup, swap, vm.max_map_count, NVIDIA toolkit
+#   Linux Docker Engine:  native, no VM limits - see doc for cgroup, swap, vm.max_map_count, NVIDIA toolkit
+
+# ENVIRONMENT FILES - both git-ignored, both created during setup:
+#   flexible-graphrag/.env   the app's own configuration (LLM keys, DB configs, feature flags)
+#   docker/.env              Docker address overrides, AND the file Compose reads for the ${...}
+#                            placeholders in the includes below (ALFRESCO_SEARCH_HOST, VLLM_MODEL,
+#                            FLEXIBLE_GRAPHRAG_VERSION). Compose auto-loads any `.env` sitting next
+#                            to this file, which is why the includes need no extra syntax.
+#                            Copy it from docker-env-sample.txt.
+# Precedence, the full variable list, and why flexible-graphrag/.env is NOT consulted for ${...}:
+#   docker/DOCKER-ENV-SETUP.md
+# Edits apply on `docker compose up --force-recreate`; a running container keeps its values.
 
 # Docker Compose v2 doesn't require version field
 
@@ -44,8 +56,16 @@ include:
    - includes/elasticsearch-dev.yaml  # Elasticsearch with security disabled
    - includes/kibana-simple.yaml      # Kibana working configuration
    #- includes/opensearch.yaml      # Commented - using elasticsearch instead
+   #- includes/opensearch-dashboards.yaml # OpenSearch web UI (5602); needs the include above
    # Alfresco repository
-   #- includes/alfresco.yaml        # Alfresco content management system
+   #- includes/alfresco.yaml        # Alfresco content management system (26.2 indexes into Elasticsearch/OpenSearch, not Solr)
+   # Alfresco's search engine (26.2 dropped Solr). Enable ONE of the two, or NEITHER and set
+   # ALFRESCO_SEARCH_HOST=elasticsearch (or =opensearch) in docker/.env to share the engine
+   # and dashboard already configured above. See the table in includes/alfresco.yaml.
+   #- includes/alfresco-elasticsearch.yaml  # Elasticsearch for Alfresco (9202) - the default
+   #- includes/alfresco-kibana.yaml         # optional dashboard over it (5603)
+   #- includes/alfresco-opensearch.yaml     # OpenSearch for Alfresco (9203) - also set ALFRESCO_SEARCH_HOST=alfresco-opensearch
+   #- includes/alfresco-opensearch-dashboards.yaml # optional dashboard over it (5604)
    #- includes/keycloak.yaml        # Keycloak OIDC IdP for Alfresco OAuth2 (identity-service subsystem, port 8091)
    # Observability
    #- includes/observability.yaml   # OpenTelemetry observability stack (Jaeger, Prometheus, Grafana)

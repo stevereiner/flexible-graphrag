@@ -6,5 +6,8 @@ server.name: "flexible-graphrag-kibana"
 # Elasticsearch configuration
 elasticsearch.hosts: ["http://elasticsearch:9200"]
 
-# Disable security to match Elasticsearch dev setup
-xpack.security.enabled: false
+# NOTE: do NOT set `xpack.security.enabled` here. It is an ELASTICSEARCH setting, not a
+# Kibana one. Kibana 8.12 tolerated it; 8.17 rejects it outright and refuses to boot with
+#   FATAL [config validation of [xpack.security].enabled]: definition for this key is missing
+# Security is already off on the Elasticsearch side (xpack.security.enabled=false in
+# includes/elasticsearch-dev.yaml), and Kibana connects anonymously with no setting needed.

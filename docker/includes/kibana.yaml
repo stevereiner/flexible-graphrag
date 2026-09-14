@@ -1,13 +1,14 @@
 # Kibana Dashboard for Elasticsearch
 services:
   kibana:
-    image: docker.elastic.co/kibana/kibana:7.17.0
+    image: docker.elastic.co/kibana/kibana:8.17.10
     container_name: flexible-graphrag-kibana
     environment:
       - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
       - SERVER_NAME=kibana
       - SERVER_HOST=0.0.0.0
-      - XPACK_SECURITY_ENABLED=false
+      # XPACK_SECURITY_ENABLED is deliberately absent: it maps to xpack.security.enabled,
+      # which is an Elasticsearch setting. Kibana 8.17 refuses to start if it is set.
       - XPACK_ENCRYPTEDSAVEDOBJECTS_ENCRYPTIONKEY=a7a6311933d3503b89bc2dbc36572c33a6c10925682e591bffcab6911c06786d
     ports:
       - "5601:5601"

@@ -13,7 +13,7 @@ site/
 .env.*
 
 # Docker environment files
-docker/docker.env
+docker/.env   # Compose also auto-loads this for ${...} substitution
 docker/neptune.env
 
 # GraphDB license directory — contains private license file, never commit

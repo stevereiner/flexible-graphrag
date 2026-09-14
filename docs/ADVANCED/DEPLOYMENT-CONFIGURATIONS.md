@@ -358,7 +358,7 @@ http://localhost:5602
 |  |  Backend Container                                       |   |
 |  |  Internal Port: 8000                                     |   |
 |  |  • FastAPI application                                   |   |
-|  |  • Environment variables from docker.env                 |   |
+|  |  • Environment variables from docker/.env                 |   |
 |  |  • Connects to databases via Docker network              |   |
 |  +--------------+-------------------------------------------+   |
 |                 | Docker Network                                |
@@ -385,9 +385,9 @@ http://localhost:5602
 
 ```bash
 cd flexible-graphrag/docker
-cp docker.env.sample docker.env
+cp docker-env-sample.txt .env
 
-# Edit docker.env
+# Edit .env  (this is docker/.env)
 LLM_PROVIDER=ollama
 OLLAMA_BASE_URL=http://host.docker.internal:11434
 
@@ -466,7 +466,7 @@ http://localhost:9200/          # Elasticsearch
 **Two-Layer Configuration**:
 
 1. **flexible-graphrag/.env** - Main configuration (for standalone)
-2. **docker/docker.env** - Docker-specific overrides
+2. **docker/.env** - Docker-specific overrides
 
 **Key Differences**:
 
@@ -650,10 +650,10 @@ docker-compose -f docker-compose.yaml -p flexible-graphrag up -d \
 ```bash
 # 1. Commit any code changes
 
-# 2. Configure docker.env
+# 2. Configure docker/.env
 cd flexible-graphrag/docker
-cp docker.env.sample docker.env
-# Edit docker.env with host.docker.internal
+cp docker-env-sample.txt .env
+# Edit .env (docker/.env) with host.docker.internal
 
 # 3. Enable app-stack and proxy in docker-compose.yaml
 

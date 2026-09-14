@@ -72,7 +72,7 @@ The following port conflicts were identified and resolved for new vector databas
 | OpenSearch | 9201 (9301 internal) | Search engine | - |
 | OpenSearch Dashboards | 5602 | OpenSearch dashboard | http://localhost:5602 |
 
-**Transport ports (9300/9301) note**: The inter-node transport ports are **not exposed to the host** — these are single-node deployments with no peer nodes, and the app connects only over HTTP (9200/9201). On Windows this also **avoids a hard failure**: 9300 and 9301 fall inside a Hyper-V/WinNAT-reserved range (commonly `9248-9347`), so binding them yields `bind: An attempt was made to access a socket in a way forbidden by its access permissions`. The container still binds 9300/9301 internally for Elasticsearch/OpenSearch's own use. Check current reservations with `netsh interface ipv4 show excludedportrange protocol=tcp`.
+**Transport ports (9300/9301) note**: The inter-node transport ports are **not exposed to the host** — these are single-node deployments with no peer nodes, and the app connects only over HTTP (9200/9201). On Windows this also **avoids a hard failure**: 9300 and 9301 fall inside a Hyper-V/WinNAT-reserved range (commonly `9248-9347`), so binding them yields `bind: An attempt was made to access a socket in a way forbidden by its access permissions`. The container still binds 9300/9301 internally for Elasticsearch/OpenSearch's own use. Alfresco's own search engine (9202/9203, see below) follows the same rule. Check current reservations with `netsh interface ipv4 show excludedportrange protocol=tcp`.
 
 ### Content Management (Alfresco Community)
 | **Service** | **Port(s)** | **Purpose** | **Dashboard URL** |
@@ -80,7 +80,12 @@ The following port conflicts were identified and resolved for new vector databas
 | **Alfresco Proxy (Traefik)** | **8080, 8888** | **Main proxy + dashboard** | **http://localhost:8080** |
 | Transform Core AIO | 8090 | Document transformation | http://localhost:8090/ready |
 | Alfresco PostgreSQL | 5432 | Alfresco database | - |
-| Alfresco Solr | 8083 | Search index (port 8983→8083) | http://localhost:8083 |
+| Alfresco Elasticsearch | 9202 | Search index — replaced Solr in ACS 26.2 (`includes/alfresco-elasticsearch.yaml`, the default) | - |
+| Alfresco Kibana *(optional, off by default)* | 5603 | Dashboard over that index | http://localhost:5603 |
+| Alfresco OpenSearch | 9203 | Search index — alternative to the above (`includes/alfresco-opensearch.yaml`) | - |
+| Alfresco OpenSearch Dashboards *(optional, off by default)* | 5604 | Dashboard over that index | http://localhost:5604 |
+
+**Sharing the search engine**: 9202/9203 and 5603/5604 only apply when one of the `alfresco-*search` includes gives Alfresco its own engine. Leave both out and set `ALFRESCO_SEARCH_HOST=elasticsearch` (9200) or `=opensearch` (9201) in `docker/.env`, and Alfresco indexes into the engine the rest of Flexible GraphRAG uses — no extra ports, and the existing Kibana (5601) / OpenSearch Dashboards (5602) covers the Alfresco index too.
 | **Alfresco ActiveMQ Web Console** | **8161** | Message queue web console | http://localhost:8161 |
 | **Alfresco ActiveMQ STOMP** | **8613** (or 61613) | Real-time event monitoring | - |
 | **Alfresco ActiveMQ OpenWire** | **8616** (or 61616) | Internal messaging protocol | - |
@@ -143,10 +148,10 @@ The following ports are currently available for future services:
 - **5051-5431**: Database services
 - **6000-6332, 6335-6378**: Specialized services
 - **7003-7473, 7475-7686, 7690-7999**: Graph services (7003 = Ladybug Explorer; 7689 = ArcadeDB Bolt)
-- **8003-8069, 8071-8079, 8082, 8084, 8087-8089, 8091-8159, 8162-8612, 8614-8615, 8617-8999**: Application services (8008 = Docs dev server)
-- **9002-9199, 9202-9300, 9302-9999**: Search and storage services
+- **8003-8069, 8071-8079, 8082-8084, 8087-8089, 8091-8159, 8162-8612, 8614-8615, 8617-8999**: Application services (8008 = Docs dev server)
+- **9002-9199, 9203-9300, 9302-9999**: Search and storage services
 
-**Note**: Ports 8613 and 8616 are now reserved for Alfresco ActiveMQ on Windows systems.
+**Note**: Ports 8613 and 8616 are now reserved for Alfresco ActiveMQ on Windows systems. Port 8083 was freed when ACS 26.2 dropped Solr; Alfresco's search index now uses 9202 (Elasticsearch) or 9203 (OpenSearch), or a shared engine on 9200/9201.
 
 ## Configuration Updates
 
@@ -210,7 +215,7 @@ lsof -i :61616  # ActiveMQ OpenWire (standard port)
 4. **Port 5432**: If Alfresco PostgreSQL conflicts with pgvector PostgreSQL, both use different ports
 5. **Port 7001**: NebulaGraph Studio uses this port
 6. **Port 8090**: Transform Core AIO uses this port for document transformation services
-7. **Service name conflicts**: Both Alfresco and pgvector define `postgres` service - pgvector renamed to `postgres-pgvector`
+7. **Service name conflicts**: Alfresco's services are all `alfresco-`prefixed — `alfresco-postgres` (vs this project's `postgres-pgvector`), `alfresco-proxy` (Traefik, vs this project's NGINX `proxy`) and `alfresco-elasticsearch` / `alfresco-opensearch` (vs this project's `elasticsearch`/`opensearch`)
 8. **Windows dynamic port range (49152-65535)**: Ports 61613 and 61616 may conflict on Windows - see below
 
 ### Windows Dynamic Port Conflicts

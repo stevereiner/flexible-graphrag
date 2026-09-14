@@ -1,7 +1,11 @@
 # Qdrant Vector Database
 services:
   qdrant:
-    image: qdrant/qdrant:latest
+    # Pinned, like every other include. Running `latest` is how the server drifted to 1.15.1
+    # while the Python client moved on, which trips qdrant-client's compatibility check
+    # ("minor version difference must not exceed 1"). Keep this within one minor of the
+    # qdrant-client floor in flexible-graphrag/pyproject.toml. Tags carry a `v` prefix.
+    image: qdrant/qdrant:v1.19.1
     container_name: flexible-graphrag-qdrant
     ports:
       - "6333:6333"    # REST API
@@ -13,10 +17,21 @@ services:
       - QDRANT__SERVICE__GRPC_PORT=6334
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:6333/health"]
+      # The Qdrant image is minimal: it ships bash but NO curl, wget, sh or nc, so the usual
+      # `CMD curl -f ...` probe can never run — it fails with
+      #   OCI runtime exec failed: exec: "curl": executable file not found in $PATH
+      # and the container sits permanently (unhealthy) while serving traffic perfectly well.
+      # This does a real HTTP request using only bash's /dev/tcp. Note the endpoint is
+      # /healthz — plain /health returns 404 (Qdrant exposes /healthz, /livez, /readyz).
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/6333 && printf 'GET /healthz HTTP/1.1
+Host: localhost
+Connection: close
+
+' >&3 && grep -q '200 OK' <&3"]
       interval: 30s
       timeout: 10s
       retries: 3
+      start_period: 10s
 
 volumes:
   qdrant_data:

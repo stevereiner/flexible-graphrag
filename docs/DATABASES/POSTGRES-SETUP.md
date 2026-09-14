@@ -46,8 +46,8 @@ Flexible GraphRAG Docker setup includes **two separate PostgreSQL containers**:
 
 ### 2. Alfresco PostgreSQL (Port 5432)
 
-**Container**: `flexible-graphrag-postgres-1`  
-**Image**: `postgres:16.5`  
+**Container**: `flexible-graphrag-alfresco-postgres-1`  
+**Image**: `postgres:17.9`  
 **Port**: `5432` (standard PostgreSQL port)
 
 **Purpose**: Alfresco content management system only
@@ -606,8 +606,8 @@ Expected output:
   - Vector DB: `flexible_graphraf`
   - Incremental DB: `flexible_graphrag_incremental`
 
-- **Alfresco PostgreSQL**: Port `5432`, Image `postgres:16.5`
-  - Container: `flexible-graphrag-postgres-1`
+- **Alfresco PostgreSQL**: Port `5432`, Image `postgres:17.9`
+  - Container: `flexible-graphrag-alfresco-postgres-1`
   - Alfresco DB: `alfresco`
 
 Don't mix them up! They are completely separate instances.

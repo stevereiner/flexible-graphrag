@@ -1,7 +1,7 @@
 # Kibana Dashboard for Elasticsearch (Simple Version without Security)
 services:
   kibana:
-    image: docker.elastic.co/kibana/kibana:8.12.0
+    image: docker.elastic.co/kibana/kibana:8.17.10
     container_name: flexible-graphrag-kibana
     volumes:
       - ../config/kibana.yml:/usr/share/kibana/config/kibana.yml:ro

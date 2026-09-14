@@ -1,11 +1,16 @@
 # Docker-specific environment overrides for Flexible GraphRAG
 # This file overrides localhost addresses with Docker service names
-# Copy this to docker/docker.env and customize as needed:
-#   Windows: copy docker\docker-env-sample.txt docker\docker.env
-#   macOS/Linux: cp docker/docker-env-sample.txt docker/docker.env
+# Copy this to docker/.env and customize as needed:
+#   Windows: copy docker\docker-env-sample.txt docker\.env
+#   macOS/Linux: cp docker/docker-env-sample.txt docker/.env
 #
-# The main flexible-graphrag/.env file is loaded first, then docker.env
+# The main flexible-graphrag/.env file is loaded first, then docker/.env
 # overrides only the Docker networking configuration.
+#
+# The name matters: Docker Compose auto-loads a file called `.env` sitting next to
+# docker-compose.yaml, so this file ALSO supplies the ${...} placeholders inside
+# docker/includes/*.yaml (ALFRESCO_SEARCH_HOST, VLLM_MODEL, FLEXIBLE_GRAPHRAG_VERSION).
+# flexible-graphrag/.env is NOT consulted for those - only this file and the shell.
 #
 # Use per-store config vars only ({TYPE}_GRAPH_DB_CONFIG, {TYPE}_VECTOR_DB_CONFIG,
 # {TYPE}_SEARCH_DB_CONFIG). These match PG_GRAPH_DB / VECTOR_DB / SEARCH_DB in .env.
@@ -170,6 +175,15 @@ POSTGRES_INCREMENTAL_URL=postgresql://postgres:password@host.docker.internal:543
 # SCENARIO B: #ALFRESCO_CONFIG={"base_url": "http://alfresco:8080/alfresco", "username": "admin", "password": "admin"}
 # SCENARIO A: #CMIS_CONFIG={"url": "http://host.docker.internal:8080/alfresco/api/-default-/public/cmis/versions/1.1/atom", "username": "admin", "password": "admin", "repository_id": "-default-"}
 # SCENARIO B: #CMIS_CONFIG={"url": "http://alfresco:8080/alfresco/api/-default-/public/cmis/versions/1.1/atom", "username": "admin", "password": "admin", "repository_id": "-default-"}
+
+# Alfresco search engine (ACS 26.2+) — read by DOCKER COMPOSE, not by the app.
+# THIS is the file to set it in. Four accepted values:
+#ALFRESCO_SEARCH_HOST=alfresco-elasticsearch  # includes/alfresco-elasticsearch.yaml, 9202 (DEFAULT)
+#ALFRESCO_SEARCH_HOST=alfresco-opensearch     # includes/alfresco-opensearch.yaml, 9203
+#ALFRESCO_SEARCH_HOST=elasticsearch           # SHARE includes/elasticsearch-dev.yaml, 9200
+#ALFRESCO_SEARCH_HOST=opensearch              # SHARE includes/opensearch.yaml, 9201
+# The two dedicated values need their include enabled in docker-compose.yaml; the two
+# shared values need both alfresco-*search includes left out.
 
 # ====================================================================
 # LLM providers (host vs container networking)

@@ -1,0 +1,85 @@
+# OpenSearch dedicated to Alfresco (ACS 26.2+ replaced Solr with a search engine).
+#
+# Enable this OR includes/alfresco-elasticsearch.yaml, not both — they are alternatives.
+# The repository and batch-indexing speak the same REST API to either engine: their
+# -Delasticsearch.* properties and SPRING_ELASTICSEARCH_REST_URIS name the search
+# *subsystem*, not the product, so nothing but the hostname changes.
+#
+# UNLIKE the Elasticsearch file, this one needs a setting, because the default points at
+# Elasticsearch. In docker/.env:
+#   ALFRESCO_SEARCH_HOST=alfresco-opensearch
+#
+# Include it right after includes/alfresco.yaml:
+#   - includes/alfresco.yaml
+#   - includes/alfresco-opensearch.yaml
+#   #- includes/alfresco-opensearch-dashboards.yaml   # optional dashboard, port 5604
+#
+# The four values ALFRESCO_SEARCH_HOST accepts:
+#   alfresco-elasticsearch   alfresco-elasticsearch.yaml, host 9202  (default)
+#   alfresco-opensearch      this file                    host 9203
+#   elasticsearch            this project's elasticsearch-dev.yaml, host 9200  — shared
+#   opensearch               this project's opensearch.yaml, host 9201         — shared
+#
+# SHARING instead of running this file: drop this include and set
+# ALFRESCO_SEARCH_HOST=opensearch in docker/.env. Alfresco then writes its own `alfresco`
+# index into the cluster the rest of Flexible GraphRAG uses, and the OpenSearch Dashboards
+# you already run on 5602 covers the Alfresco index too.
+#
+# Version 2.19.6 matches the Alfresco Content Lake / alfresco-search-community-deployments
+# reference stacks, and this project's own includes/opensearch.yaml.
+services:
+  alfresco-opensearch:
+    image: opensearchproject/opensearch:2.19.6
+    mem_limit: 2g
+    environment:
+      - discovery.type=single-node
+      # DISABLE_INSTALL_DEMO_CONFIG skips the demo security installer entirely, which is why
+      # no OPENSEARCH_INITIAL_ADMIN_PASSWORD is needed here (stacks that let the installer
+      # run must set one even when the security plugin is then disabled).
+      - DISABLE_INSTALL_DEMO_CONFIG=true
+      - DISABLE_SECURITY_PLUGIN=true
+      - cluster.name=alfresco-search
+      - node.name=alfresco-os-node
+      # Stops the index flipping to read-only when the host disk gets full, which otherwise
+      # shows up as batch-indexing failing with cryptic cluster_block_exception errors.
+      - cluster.routing.allocation.disk.threshold_enabled=false
+      - "OPENSEARCH_JAVA_OPTS=-Xms1g -Xmx1g"
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      nofile:
+        soft: 65536
+        hard: 65536
+    cap_add:
+      - IPC_LOCK
+    volumes:
+      - alfresco_opensearch_data:/usr/share/opensearch/data
+    ports:
+      - "9203:9200"    # 9200 is this project's elasticsearch, 9201 its opensearch,
+                       # 9202 the Alfresco Elasticsearch alternative
+      # 9300 (inter-node transport) intentionally NOT exposed: single-node has no peers, and
+      # on Windows 9300 falls in a WinNAT-reserved range (9248-9347) so the bind is forbidden
+      # ("access permissions"). The container still binds it internally.
+    healthcheck:
+      # Same endpoint as Elasticsearch
+      test: ["CMD-SHELL", "curl -s -X GET http://localhost:9200/_cluster/health?pretty | grep status | grep -q '\\(green\\|yellow\\)'"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  # Wait for the engine before starting the services that talk to it. These overlay onto the
+  # services in includes/alfresco.yaml, which carries no search dependency of its own so that
+  # a shared or external engine works too.
+  alfresco:
+    depends_on:
+      alfresco-opensearch:
+        condition: service_healthy
+  batch-indexing:
+    depends_on:
+      alfresco-opensearch:
+        condition: service_healthy
+
+volumes:
+  alfresco_opensearch_data:

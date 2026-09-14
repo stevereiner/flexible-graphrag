@@ -2,6 +2,30 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2026-09-09] — Alfresco Docker stack upgraded to Community 26.2
+
+### Changed
+
+- **`docker/includes/alfresco.yaml` upgraded to Alfresco Community 26.2.0** (from acs-deployment `master`): repository 26.2.0, Share 26.2.2, transform-core-aio 5.4.4, ActiveMQ 6.2.9, content-app 8.0.0, control-center 11.0.0.
+- **Solr is gone.** ACS 26.2 deprecates it, so `solr6` is replaced by `alfresco-elasticsearch-batch-indexing` writing into **Elasticsearch or OpenSearch**. `solr.secureComms`/`solr.sharedSecret` stay — in 26.2 they only secure content transformation. Drop the stale volume with `docker volume rm flexible-graphrag_solr6_data`; existing repository volumes carry over and batch-indexing does a full reindex on first start.
+
+- **Alfresco's `postgres` and `proxy` services renamed to `alfresco-postgres` and `alfresco-proxy`**, so they are no longer easy to confuse with this project's `postgres-pgvector` and NGINX `proxy` in `docker ps` output. The Alfresco DB container is now `flexible-graphrag-alfresco-postgres-1`; the `alfresco_db_data` volume is unchanged, so the data carries over.
+
+### Fixed
+
+- **Qdrant container always reported `(unhealthy)`** — `includes/qdrant.yaml` probed with `CMD curl -f http://localhost:6333/health`, but the Qdrant image ships **no** `curl`, `sh`, `wget` or `nc` (only `bash`), so every probe died with `exec: "curl": executable file not found in $PATH` (failing streak 98) while Qdrant served traffic normally. The path was wrong too: `/health` 404s — Qdrant exposes `/healthz`, `/livez`, `/readyz`. Replaced with a real HTTP request over bash's `/dev/tcp`, plus a `start_period`.
+- **`qdrant/qdrant` pinned to `v1.19.1`** in `includes/qdrant.yaml`, replacing `:latest` — an unpinned `latest` is how the server silently sat at 1.15.1 while the Python client moved on, opening the version gap that trips qdrant-client's compatibility check. Every other include already pins.
+- **`qdrant-client` `<1.19` cap removed** — it existed because `llama-index-vector-stores-qdrant` 0.10.2 imported `IDF_EMBEDDING_MODELS` from `qdrant_fastembed`, which 1.19.0 relocated. 0.10.3 dropped that import, so the floor is now `llama-index-vector-stores-qdrant>=0.10.3` and `qdrant-client>=1.16` is uncapped. Verified on qdrant-client 1.19.0 + 0.10.3 against a Qdrant 1.19.1 server, driving the project's own `LlamaIndexQdrantAdapter` through a full ingest and retrieve. Matching client and server minors also silences qdrant-client's "minor version difference must not exceed 1" warning.
+
+- **Kibana refused to start after the 8.17.10 bump** — `docker/config/kibana.yml` (bind-mounted into the `kibana` service) carried `xpack.security.enabled: false`, and `includes/kibana.yaml` set the same key as `XPACK_SECURITY_ENABLED=false`. That is an *Elasticsearch* setting, not a Kibana one; 8.12.0 tolerated it but 8.17.10 rejects it outright with `FATAL [config validation of [xpack.security].enabled]: definition for this key is missing`. Both are removed — security is already disabled on the Elasticsearch side and Kibana connects anonymously with no setting needed.
+
+### Added
+
+- **`docker/includes/opensearch-dashboards.yaml`** — OpenSearch Dashboards split out of `opensearch.yaml`, so the engine and its UI toggle independently. Brings OpenSearch in line with how `elasticsearch-dev.yaml` / `kibana-simple.yaml` and the four `alfresco-*` search includes are already organised; enable both includes to get the 5602 dashboard.
+
+- **`docker/docker.env` renamed to `docker/.env`** — Compose auto-loads any file named `.env` next to `docker-compose.yaml`, so the Docker override file now also supplies the `${...}` placeholders in `docker/includes/*.yaml` (`ALFRESCO_SEARCH_HOST`, `VLLM_MODEL`, `FLEXIBLE_GRAPHRAG_VERSION`). Previously nothing fed those but the shell, so documented settings like `VLLM_MODEL` in `.env` reached the backend app but never the vLLM container. Every include stays a plain one-liner — no `include:` long syntax needed. **Migration: `mv docker/docker.env docker/.env`**; the `app-stack.yaml` / `langflow.yaml` service-level `env_file:` paths change `../docker.env` → `../.env`. Note `flexible-graphrag/.env` is *not* consulted for substitution, so a variable both Compose and the app read (`VLLM_MODEL`, `LANCEDB_URI`, `LADYBUG_DB_FILE`, `ARANGODB_PASSWORD`) needs an entry in both files when the backend runs on the host.
+- **Four new includes for Alfresco's search engine**, one service each so nothing is a commented-out block: `alfresco-elasticsearch.yaml` (8.17.10, port 9202, the default) with optional `alfresco-kibana.yaml` (5603), and `alfresco-opensearch.yaml` (2.19.6, port 9203) with optional `alfresco-opensearch-dashboards.yaml` (5604). `ALFRESCO_SEARCH_HOST` now takes four values — `alfresco-elasticsearch`, `alfresco-opensearch`, or `elasticsearch`/`opensearch` to share this project's engine and dashboard instead of running a dedicated one. OpenSearch 2.19.6 and the repo/batch-indexing wiring match the `alfresco-search-community-deployments` reference stack.
+
 ## [2026-08-23] — Security: path traversal in the file upload endpoint
 
 ### Security

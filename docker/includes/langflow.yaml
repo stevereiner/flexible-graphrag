@@ -3,7 +3,7 @@
 # Decoupled from app-stack on purpose: this include only defines the Langflow SERVICE. It works with ANY
 # backend — the app-stack backend, a standalone backend container, or a backend on the host — you just
 # point that backend at LANGFLOW_URL and give it the flow JSONs. Nothing here (or in app-stack.yaml /
-# docker.env) is changed on the backend side; the backend-side requirements are documented below so you
+# docker/.env) is changed on the backend side; the backend-side requirements are documented below so you
 # can apply them to whichever backend you run.
 #
 # Enable: uncomment `- includes/langflow.yaml` in docker/docker-compose.yaml, then configure the backend
@@ -42,15 +42,15 @@ services:
     # Linux Docker Engine doesn't auto-inject host.docker.internal — map it to the host gateway
     extra_hosts:
       - "host.docker.internal:host-gateway"
-    # Config is layered the SAME way as the backend: base .env, then docker.env overrides (container
+    # Config is layered the SAME way as the backend: base .env, then docker/.env overrides (container
     # DB addresses / host.docker.internal). This works because .env is NOT baked into the image
     # (.dockerignore) and /app/.env is NOT mounted, so _fg_shared.build_settings() finds no /app/.env,
-    # skips load_dotenv, and Settings() reads these CONTAINER ENV VARS — with docker.env winning. (If a
-    # /app/.env DID exist it would `load_dotenv(override=True)` and clobber the docker.env overrides.)
+    # skips load_dotenv, and Settings() reads these CONTAINER ENV VARS — with docker/.env winning. (If a
+    # /app/.env DID exist it would `load_dotenv(override=True)` and clobber the docker/.env overrides.)
     # Config changes take effect on `docker compose up --force-recreate`, not a live .env edit.
     env_file:
       - ../../flexible-graphrag/.env     # base configuration
-      - ../docker.env                    # override with container-reachable addresses (WINS)
+      - ../.env                          # override with container-reachable addresses (WINS)
     # AUTH: single-user, no auth — flow mode works with no LANGFLOW_API_KEY (bind via auto-login; /run via
     # the skip flag below, required since Langflow v1.5). Fine for local/trusted networks. Set here rather
     # than as an image ENV to avoid Docker's SecretsUsedInArgOrEnv lint on the AUTH-named var. To require

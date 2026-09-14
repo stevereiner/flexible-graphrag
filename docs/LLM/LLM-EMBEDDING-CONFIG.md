@@ -544,14 +544,17 @@ Connect the backend using `LLM_PROVIDER=vllm` with dedicated `VLLM_*` vars:
 LLM_PROVIDER=vllm
 VLLM_MODE=server                         # connects to the OpenAI-compatible /v1 API (default)
 VLLM_MODEL=Qwen/Qwen2.5-7B-Instruct
-VLLM_API_BASE=http://localhost:8002/v1   # standalone backend; docker.env sets http://vllm:8000/v1 when backend is also in Docker
+VLLM_API_BASE=http://localhost:8002/v1   # standalone backend; docker/.env sets http://vllm:8000/v1 when backend is also in Docker
 VLLM_API_KEY=local
 VLLM_CONTEXT_WINDOW=8192
 VLLM_FUNCTION_CALLING=false
 VLLM_TIMEOUT=120.0
 ```
 
-Docker Compose also reads these vars to configure the container itself:
+Docker Compose also reads these vars to configure the container itself — but from
+`docker/.env`, which Compose auto-loads; `flexible-graphrag/.env` is not consulted for YAML
+substitution. Set `VLLM_MODEL` in both files when the backend runs on the host and vLLM in
+Docker, so the model the app requests matches the one the container serves:
 ```bash
 VLLM_MODEL=Qwen/Qwen2.5-7B-Instruct   # HuggingFace model ID (default: Qwen2.5-7B-Instruct)
 VLLM_MAX_MODEL_LEN=8192               # max context length in tokens (default: 8192)

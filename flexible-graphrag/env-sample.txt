@@ -983,7 +983,9 @@ FIREWORKS_MODEL=accounts/fireworks/models/gpt-oss-120b
 # VLLM_TIMEOUT=120.0
 # VLLM_TEMPERATURE=0.1
 #
-# Docker Compose also substitutes these VLLM_* vars into the container startup command:
+# Docker Compose also substitutes these VLLM_* vars into the vLLM container's startup command
+# - but it reads them from **docker/.env**, not from this file. If the backend runs on the host
+# while vLLM runs in Docker, set the ones you change in BOTH files so the two agree:
 # VLLM_MODEL=Qwen/Qwen2.5-7B-Instruct   # HuggingFace model ID (default: Qwen2.5-7B-Instruct)
 # VLLM_MAX_MODEL_LEN=8192               # max context length in tokens (default: 8192)
 # VLLM_GPU_UTIL=0.90                    # fraction of GPU VRAM to use, 0.0-1.0 (default: 0.90)
@@ -1221,6 +1223,16 @@ ALFRESCO_PASSWORD=admin
 # ALFRESCO_STOMP_PORT: ActiveMQ STOMP port for real-time events (default: 61613)
 # Note: If you've changed the ActiveMQ STOMP port in docker-compose (e.g., to 8613), set it here
 ALFRESCO_STOMP_PORT=8613
+# ALFRESCO SEARCH ENGINE (ACS 26.2+): set ALFRESCO_SEARCH_HOST in **docker/.env**, not here.
+# It is read by Docker Compose (which only consults docker/.env and the shell), never by the app.
+# ACS 26.2 dropped Solr and indexes into Elasticsearch or OpenSearch instead. Four accepted values:
+#   alfresco-elasticsearch  docker/includes/alfresco-elasticsearch.yaml, host 9202  (DEFAULT)
+#   alfresco-opensearch     docker/includes/alfresco-opensearch.yaml,    host 9203
+#   elasticsearch           SHARE docker/includes/elasticsearch-dev.yaml, host 9200
+#   opensearch              SHARE docker/includes/opensearch.yaml,        host 9201
+# The two dedicated values need their include enabled in docker/docker-compose.yaml; the two
+# shared values need both alfresco-*search includes left out, and let Alfresco index into the
+# same cluster this project uses (its own `alfresco` index) with one shared dashboard.
 
 # Nuxeo Configuration (if using Nuxeo)
 # Requires the `nuxeo` client -- installed with flexible-graphrag, no extra step.

@@ -6,8 +6,8 @@ Get Flexible GraphRAG running in 5 minutes with Docker and a PyPI install.
 
 ```bash
 cd docker
-cp docker-env-sample.txt docker.env   # Linux/macOS
-copy docker-env-sample.txt docker.env  # Windows
+cp docker-env-sample.txt .env   # Linux/macOS
+copy docker-env-sample.txt .env  # Windows
 
 # Start Neo4j + Qdrant + Elasticsearch (default minimal set)
 docker-compose -f docker-compose.yaml -p flexible-graphrag up -d

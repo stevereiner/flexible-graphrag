@@ -9,7 +9,7 @@ services:
     container_name: flexible-graphrag-backend
     env_file:
       - ../../flexible-graphrag/.env     # Load main configuration first
-      - ../docker.env                    # Override with host.docker.internal addresses
+      - ../.env                          # Override with host.docker.internal addresses
     # Flow mode (Langflow) — OPT-IN, OFF by default (base config is direct mode). To route
     # ingest/search/AI-query through the Langflow container, flip the flag below to "true" AND uncomment
     # `- includes/langflow.yaml` in docker-compose.yaml. LANGFLOW_URL is the compose SERVICE NAME (not

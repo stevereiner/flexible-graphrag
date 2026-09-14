@@ -35,8 +35,9 @@ ELASTICSEARCH_SEARCH_DB_CONFIG={"hosts": ["http://localhost:9200"], "index_name"
 
 AWS-led open-source fork with native hybrid scoring (vector + BM25) and k-NN algorithms.
 
-- **Dashboard**: OpenSearch Dashboards at http://localhost:5601
-- **Docker**: Uncomment `includes/opensearch.yaml` in `docker-compose.yaml`
+- **Dashboard**: OpenSearch Dashboards at http://localhost:5602
+- **Docker**: Uncomment `includes/opensearch.yaml` in `docker-compose.yaml` (and
+  `includes/opensearch-dashboards.yaml` for the web UI — it is a separate include)
 
 ```env
 SEARCH_DB=opensearch
@@ -50,6 +51,17 @@ python scripts/create_opensearch_pipeline.py
 ```
 
 ---
+
+## Sharing the engine with Alfresco
+
+Alfresco Community 26.2 dropped Solr and indexes into Elasticsearch or OpenSearch too. By default
+`includes/alfresco-elasticsearch.yaml` gives it a dedicated engine on port 9202 (or
+`includes/alfresco-opensearch.yaml` on 9203), but you can point it at the one configured above
+instead: drop both includes and set `ALFRESCO_SEARCH_HOST=elasticsearch` (or `=opensearch`) in
+`docker/.env`. Alfresco writes its own `alfresco` index, so it
+coexists with `hybrid_search`, and your existing Kibana / OpenSearch Dashboards covers both.
+The `includes/elasticsearch-dev.yaml` (8.17.10) and `includes/opensearch.yaml` (2.19.6) pins match
+the versions ACS 26.2 is tested against, so no version change is needed.
 
 ## Disabling Full-Text Search
 

@@ -820,18 +820,18 @@ Docker deployment offers multiple scenarios. Before deploying any scenario, set 
    cd ..
    ```
 
-2. **Docker Configuration** (`docker.env`):
+2. **Docker Configuration** (`docker/.env`):
    ```bash
    # Navigate to docker directory
    cd docker
    
    # Linux/macOS
-   cp docker-env-sample.txt docker.env
+   cp docker-env-sample.txt .env
    
    # Windows Command Prompt
-   copy docker-env-sample.txt docker.env
+   copy docker-env-sample.txt .env
    
-   # Edit docker.env for Docker-specific overrides (network addresses, service names)
+   # Edit docker/.env for Docker-specific overrides (network addresses, service names)
    # Stay in docker directory for next steps
    ```
 
@@ -907,7 +907,7 @@ docker-compose -f docker-compose.yaml -p flexible-graphrag up -d
 **Scenario D: Backend/UIs in Docker, Databases External**
 - Using docker-compose for backend and UIs (app-stack + proxy)
 - Some or all databases running separately (same docker-compose, other local Docker, cloud/remote servers)
-- Configure database connections in `docker/docker.env`: Backend in Docker reads this file
+- Configure database connections in `docker/.env`: Backend in Docker reads this file
   - For databases in same docker-compose: Use service names (e.g., `neo4j:7687`, `qdrant:6333`)
   - For databases in other local Docker containers: Use `host.docker.internal:PORT`
   - For remote/cloud databases: Use actual hostnames/IPs
@@ -942,13 +942,13 @@ docker-compose -f docker-compose.yaml -p flexible-graphrag logs -f
 
 # Restart after configuration changes
 docker-compose -f docker-compose.yaml -p flexible-graphrag down
-# Edit docker-compose.yaml, docker.env, or includes/app-stack.yaml as needed
+# Edit docker-compose.yaml, docker/.env, or includes/app-stack.yaml as needed
 docker-compose -f docker-compose.yaml -p flexible-graphrag up -d
 ```
 
 **Configuration:**
 - **Modular deployment**: Comment/uncomment services in `docker/docker-compose.yaml`
-- **Backend configuration** (Scenario B): Backend uses `flexible-graphrag/.env` with `docker/docker.env` for Docker-specific overrides (like using service names instead of localhost). No configuration needed in `app-stack.yaml`
+- **Backend configuration** (Scenario B): Backend uses `flexible-graphrag/.env` with `docker/.env` for Docker-specific overrides (like using service names instead of localhost). No configuration needed in `app-stack.yaml`
 
 See [docker/README.md](./docker/README.md) for detailed Docker configuration.
 

@@ -8,8 +8,8 @@ This is a quick reference for Docker deployment. For detailed information, see:
 
 - **[../README.md](../README.md)** - Main documentation with deployment scenarios (A, B, C, D, E) and complete setup instructions
 - **[DOCKER-ENV-SETUP.md](DOCKER-ENV-SETUP.md)** - Environment configuration guide explaining the two-layer `.env` system
-- **[docker.env](docker.env)** - Docker networking overrides with SCENARIO A and SCENARIO B configurations
-- **[docker-env-sample.txt](docker-env-sample.txt)** - Template for docker.env with all database options
+- **`.env`** - Docker networking overrides (SCENARIO A / SCENARIO B) **and** the file Compose auto-loads for the `${...}` placeholders in the include files; git-ignored, created from the template below
+- **[docker-env-sample.txt](docker-env-sample.txt)** - Template for docker/.env with all database options
 - **[../docs/PORT-MAPPINGS.md](../docs/PORT-MAPPINGS.md)** - Complete port reference for all services
 - **[../docs/DEFAULT-USERNAMES-PASSWORDS.md](../docs/DEFAULT-USERNAMES-PASSWORDS.md)** - Database credentials and dashboard access
 
@@ -18,8 +18,8 @@ This is a quick reference for Docker deployment. For detailed information, see:
 ```
 docker/
 ├── docker-compose.yaml         # Main compose file with modular includes
-├── docker.env                  # Docker networking overrides (SCENARIO A/B)
-├── docker-env-sample.txt       # Template for docker.env
+├── .env                        # Docker overrides (SCENARIO A/B) + Compose ${...} vars
+├── docker-env-sample.txt       # Template for docker/.env
 ├── neptune.env                 # Neptune Graph Explorer credentials (optional)
 ├── neptune-env-sample.txt      # Template for Neptune credentials
 ├── DOCKER-ENV-SETUP.md         # Environment configuration guide
@@ -53,8 +53,13 @@ docker/
     ├── lancedb.yaml            # LanceDB embedded vector database
     ├── elasticsearch-dev.yaml  # Elasticsearch (security disabled)
     ├── kibana-simple.yaml      # Kibana dashboard
-    ├── opensearch.yaml         # OpenSearch search engine + dashboards
+    ├── opensearch.yaml         # OpenSearch search engine
+    ├── opensearch-dashboards.yaml # OpenSearch web UI (5602)
     ├── alfresco.yaml           # Alfresco Community (full stack)
+    ├── alfresco-elasticsearch.yaml # Elasticsearch for Alfresco (9202, default)
+    ├── alfresco-kibana.yaml    # optional dashboard over it (5603)
+    ├── alfresco-opensearch.yaml # OpenSearch for Alfresco (9203) — alternative to the above
+    ├── alfresco-opensearch-dashboards.yaml # optional dashboard over it (5604)
     ├── app-stack.yaml          # Flexible GraphRAG backend + UIs
     └── proxy.yaml              # NGINX reverse proxy
 ```
@@ -85,10 +90,10 @@ cd ..
 cd docker
 
 # Windows
-copy docker-env-sample.txt docker.env
+copy docker-env-sample.txt .env
 
 # macOS/Linux
-cp docker-env-sample.txt docker.env
+cp docker-env-sample.txt .env
 
 # See DOCKER-ENV-SETUP.md for details on the two-layer configuration system
 ```
@@ -126,11 +131,11 @@ The main deployment scenarios (covered in detail in [../README.md](../README.md)
 **SCENARIO A (Default)**: Databases in Docker, app standalone - for development
 - Uncomment: neo4j, qdrant, elasticsearch-dev, kibana-simple
 - Comment out: app-stack, proxy
-- Use `host.docker.internal` in docker.env
+- Use `host.docker.internal` in docker/.env
 
 **SCENARIO B**: Full stack in Docker - for production
 - Uncomment: neo4j, qdrant, elasticsearch-dev, kibana-simple, app-stack, proxy
-- Use service names in docker.env
+- Use service names in docker/.env
 
 **General principle**: Comment/uncomment services in `docker-compose.yaml` based on your needs. Only include:
 - The graph, vector, and search databases you're actually using
@@ -177,7 +182,7 @@ For external Ollama access from Docker containers:
 # Make sure Ollama is running on host
 ollama serve
 
-# Configure in docker.env (already configured by default)
+# Configure in docker/.env (already configured by default)
 OLLAMA_BASE_URL=http://host.docker.internal:11434
 ```
 
@@ -240,7 +245,7 @@ docker-compose -f docker-compose.yaml -p flexible-graphrag down --rmi all
 2. **Memory issues**: Increase Docker memory limits (Settings → Resources) or reduce the number of services
 3. **Permission errors**: Check volume mount permissions, especially on Linux
 4. **Network connectivity**: Services use the default network `flexible-graphrag_default`
-5. **Connection refused**: Ensure `docker/docker.env` exists and uses correct addresses for your scenario
+5. **Connection refused**: Ensure `docker/.env` exists and uses correct addresses for your scenario
 
 ### Resource Requirements
 

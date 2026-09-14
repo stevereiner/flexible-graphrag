@@ -676,8 +676,8 @@ includes:
 ```bash
 # Configure Docker environment
 cd flexible-graphrag/docker
-cp docker.env.sample docker.env
-# Edit docker.env with host.docker.internal for database hosts
+cp docker-env-sample.txt .env
+# Edit .env (docker/.env) with host.docker.internal for database hosts
 
 # Start everything
 docker-compose -f docker-compose.yaml -p flexible-graphrag up -d

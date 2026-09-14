@@ -1,0 +1,27 @@
+# Kibana over the Alfresco Elasticsearch index — optional, for seeing what actually got
+# indexed by batch-indexing.
+#
+# Requires includes/alfresco-elasticsearch.yaml. Off by default: this project already runs a
+# Kibana on 5601 (includes/kibana-simple.yaml) wired to its own elasticsearch, and if you
+# share that engine (ALFRESCO_SEARCH_HOST=elasticsearch) it shows the Alfresco index too,
+# making this container unnecessary.
+#
+# For the OpenSearch equivalent see includes/alfresco-opensearch-dashboards.yaml.
+services:
+  alfresco-kibana:
+    image: kibana:8.17.10
+    mem_limit: 1g
+    environment:
+      - ELASTICSEARCH_HOSTS=http://alfresco-elasticsearch:9200
+    ports:
+      - "5603:5601"   # 5601 = this project's Kibana, 5602 = its OpenSearch Dashboards,
+                      # 5604 = the Alfresco OpenSearch Dashboards alternative
+    depends_on:
+      alfresco-elasticsearch:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "-o", "/dev/null", "http://localhost:5601/status"]
+      interval: 10s
+      timeout: 2s
+      retries: 5
+      start_period: 30s

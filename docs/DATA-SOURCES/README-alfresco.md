@@ -21,7 +21,13 @@ MCP server also exists — **[`python-alfresco-mcp-server`](https://github.com/s
 ## Requirements
 
 - A running Alfresco repository. The bundled Docker stack (`docker/includes/alfresco.yaml`) is
-  **Alfresco Community 26.1.0**. **OAuth2 requires Community 23.2+** (the built-in `identity-service`
+  **Alfresco Community 26.2.0**. ACS 26.2 deprecates Solr and indexes into **Elasticsearch or OpenSearch**
+  instead; `docker/includes/alfresco-elasticsearch.yaml` (9202, the default) or
+  `docker/includes/alfresco-opensearch.yaml` (9203) runs one for Alfresco alone, or you can drop both and
+  set `ALFRESCO_SEARCH_HOST=elasticsearch`/`=opensearch` in `docker/.env`
+  to share the engine and dashboard the rest of Flexible GraphRAG already uses. The app's own Alfresco
+  settings are unaffected either way — it reaches Alfresco over the REST API on 8080 and never touches the
+  Alfresco database or search index directly. **OAuth2 requires Community 23.2+** (the built-in `identity-service`
   subsystem; no Acosix/enterprise add-on needed — it's config-only).
 - **`python-alfresco-api >= 1.2.1`** — already declared in `pyproject.toml`, so a normal install pulls
   it in. To add to an existing venv:
@@ -141,7 +147,7 @@ venv-3.14/Scripts/python scripts/alfresco/get-user-token.py
 With auto-sync enabled, Alfresco create/update/delete events flow into the graph in real time via
 **Apache ActiveMQ** (STOMP). The detector is auth-aware (basic/ticket/oauth2). Note the STOMP
 connection authenticates to the **ActiveMQ broker** (default `admin`/`admin`), which is separate from
-the Alfresco repository credentials; ACS 26.1's ActiveMQ 6.x enforces broker auth. Configure the STOMP
+the Alfresco repository credentials; ACS 26.1+'s ActiveMQ 6.x enforces broker auth. Configure the STOMP
 port with `ALFRESCO_STOMP_PORT` (bundled stack: `8613`).
 
 ## REST API / MCP config

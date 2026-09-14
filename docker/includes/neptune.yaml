@@ -70,7 +70,7 @@ services:
   # 
   # Requirements:
   # 1. Network connectivity to your Neptune services
-  # 2. Proper AWS credentials in docker/.env file
+  # 2. Proper AWS credentials in docker/neptune.env (the env_file above)
   # 3. Security group rules allowing connections from this container
     
 # Neptune Notebooks  (Jupyter-based, requires AWS setup)

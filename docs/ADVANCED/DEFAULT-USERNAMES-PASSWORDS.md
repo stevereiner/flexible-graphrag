@@ -243,7 +243,7 @@ Several databases can serve **multiple roles** in your Flexible GraphRAG setup:
 - **Repository**: http://localhost:8080/alfresco/
 - **Username**: `admin` | **Password**: `admin`
 - **Features**: Enterprise content management
-- **Containers**: Multiple (alfresco, share, postgres, solr6, etc.)
+- **Containers**: Multiple (alfresco, share, alfresco-postgres, alfresco-elasticsearch (or alfresco-opensearch), batch-indexing, alfresco-proxy, etc.)
 
 ## 🚀 **Quick Start Guide**
 
@@ -599,7 +599,7 @@ CMIS_PASSWORD=admin
 - **Username**: `admin`
 - **Password**: `admin`
 - **Features**: Enterprise content management
-- **Containers**: Multiple (alfresco, share, postgres, solr6, etc.)
+- **Containers**: Multiple (alfresco, share, alfresco-postgres, alfresco-elasticsearch (or alfresco-opensearch), batch-indexing, alfresco-proxy, etc.)
 
 ## 🛠️ Supporting Services
 

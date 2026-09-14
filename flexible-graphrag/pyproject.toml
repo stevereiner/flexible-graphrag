@@ -141,7 +141,10 @@ dependencies = [
     # resolves on 3.14 with litellm-rust absent from the resolution entirely.
     "litellm>=1.81",
     "llama-index-vector-stores-neo4jvector",
-    "llama-index-vector-stores-qdrant",
+    # >=0.10.3: 0.10.2 imported IDF_EMBEDDING_MODELS from qdrant_fastembed, which
+    # qdrant-client 1.19.0 moved — 0.10.3 dropped that import, which is what let the
+    # qdrant-client <1.19 cap below be removed. Keep this floor and that cap-free.
+    "llama-index-vector-stores-qdrant>=0.10.3",
     "llama-index-vector-stores-elasticsearch",
     "llama-index-vector-stores-opensearch",
     "llama-index-vector-stores-chroma",
@@ -168,9 +171,14 @@ dependencies = [
     "elasticsearch",
     "opensearch-py",
     # Vector database client libraries
-    # Pin <1.19: qdrant-client 1.19.0 moved IDF_EMBEDDING_MODELS out of qdrant_fastembed,
-    # which llama-index-vector-stores-qdrant 0.10.2 still imports from there (ImportError).
-    "qdrant-client>=1.16,<1.19",
+    # The old <1.19 cap is gone: 1.19.0 moved IDF_EMBEDDING_MODELS out of qdrant_fastembed and
+    # llama-index-vector-stores-qdrant 0.10.2 still imported it from there (ImportError). 0.10.3
+    # removed that import, and the floor above now requires it. Verified 2026-09-13 on
+    # qdrant-client 1.19.0 + 0.10.3 against a Qdrant 1.19.1 server: the project's own
+    # LlamaIndexQdrantAdapter ingests and retrieves, and the named-vector pre-create still works.
+    # Keeping the client within one minor of the server also silences qdrant-client's
+    # "minor version difference must not exceed 1" warning.
+    "qdrant-client>=1.16",
     "chromadb",
     "pymilvus",
     "weaviate-client",

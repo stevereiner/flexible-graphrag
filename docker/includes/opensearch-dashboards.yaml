@@ -1,0 +1,33 @@
+# OpenSearch Dashboards — the web UI for includes/opensearch.yaml (port 5602).
+#
+# Requires includes/opensearch.yaml; enable both:
+#   - includes/opensearch.yaml
+#   - includes/opensearch-dashboards.yaml
+#
+# Split out of opensearch.yaml so the engine and its dashboard toggle independently, the same
+# way elasticsearch-dev.yaml / kibana-simple.yaml and the alfresco-* pairs do.
+#
+# If Alfresco is sharing this engine (ALFRESCO_SEARCH_HOST=opensearch in docker/.env), the
+# `alfresco` index shows up here too, alongside this project's own indices — no second
+# dashboard needed.
+services:
+  opensearch-dashboards:
+    image: opensearchproject/opensearch-dashboards:2.19.6
+    container_name: flexible-graphrag-opensearch-dashboards
+    mem_limit: 1g
+    environment:
+      - 'OPENSEARCH_HOSTS=["http://opensearch:9200"]'
+      - server.host=0.0.0.0
+      - DISABLE_SECURITY_DASHBOARDS_PLUGIN=true
+    ports:
+      - "5602:5601"    # 5601 = Kibana, 5603/5604 = the Alfresco-dedicated dashboards
+    depends_on:
+      opensearch:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "-o", "/dev/null", "http://localhost:5601/api/status"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s

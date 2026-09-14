@@ -1,21 +1,69 @@
 # This Docker Compose file will spin up an ACS community installation on a local host.
-# It requires at least 6GB of memory available to distribute among containers.
+# It requires at least 8GB of memory available to distribute among containers
+# (a search engine + batch-indexing replaced the single Solr container of 26.1).
 #
-# For performance tuning, increase each container mem_limit and give a percentage of
-# it to the JVM. Use either the -Xms,-Xmx flags or the newly added flags in
-# java 10+: -XX:MaxRAMPercentage and -XX:MinRAMPercentage.
-# More details here:
-# https://www.oracle.com/technetwork/java/javase/10-relnote-issues-4108729.html
+# For performance tuning, adjust the mem_limit for each container based on available
+# system resources, then use -XX:MinRAMPercentage and -XX:MaxRAMPercentage to control
+# the JVM heap allocation. For example, setting mem_limit: 2000m and
+# -XX:MinRAMPercentage=50 -XX:MaxRAMPercentage=80 will allocate between 1000m and 1600m
+# of heap to the JVM.
 #
-# Based on Alfresco Community 26.1.0 (acs-deployment tag v10.3.0, still Solr-based).
+# Based on Alfresco Community 26.2.0 (acs-deployment master community-compose.yaml).
+#
+# SEARCH CHANGED IN 26.2: Solr is deprecated. Indexing is now done by the
+# alfresco-elasticsearch-batch-indexing service writing into Elasticsearch — or into
+# OpenSearch, which speaks the same REST API and is equally supported. The Solr
+# *endpoint* properties are still required, but only for content transformation:
+# solr.secureComms/solr.sharedSecret on the repository must match
+# ALFRESCO_CONTENT_TRANSFORM_SHAREDSECRET on batch-indexing. There is no solr6
+# container any more.
+#
+# WHICH SEARCH ENGINE THIS STACK TALKS TO is set by two variables, so Alfresco can run its
+# own engine or share this project's:
+#
+#   ALFRESCO_SEARCH_HOST   (default: alfresco-elasticsearch)
+#   ALFRESCO_SEARCH_PORT   (default: 9200 - the *container* port; 9200 for every engine here)
+#
+# Set them in docker/.env, the file Compose auto-loads and uses for ${...} substitution
+# (flexible-graphrag/.env is NOT consulted for these). Four accepted values:
+#
+#   ALFRESCO_SEARCH_HOST     include to enable                        host port  notes
+#   ----------------------   --------------------------------------  ---------  -------------
+#   alfresco-elasticsearch   includes/alfresco-elasticsearch.yaml     9202       DEFAULT
+#   alfresco-opensearch      includes/alfresco-opensearch.yaml        9203       must set the var
+#   elasticsearch            includes/elasticsearch-dev.yaml          9200       SHARED
+#   opensearch               includes/opensearch.yaml                 9201       SHARED
+#
+#   Dedicated (the first two): Alfresco gets its own engine, and an optional dashboard from
+#   includes/alfresco-kibana.yaml (5603) or includes/alfresco-opensearch-dashboards.yaml (5604).
+#
+#   Shared (the last two): leave both alfresco-*search includes out. Alfresco indexes into the
+#   cluster the rest of Flexible GraphRAG uses - into its own `alfresco` index, so nothing
+#   collides - and the dashboard you already run (Kibana 5601 / OpenSearch Dashboards 5602)
+#   covers Alfresco too. Saves ~2GB and a second dashboard. Both project includes are pinned to
+#   the versions ACS 26.2 is tested against (Elasticsearch 8.17.10 / OpenSearch 2.19.6), so
+#   sharing needs no version change.
+#
 # Local customizations vs the stock community-compose.yaml:
 #   - Keycloak identity-service (OIDC/OAuth2) JAVA_OPTS + extra_hosts host.docker.internal
 #   - repo.event2 + messaging.subsystem.autoStart (Alfresco real-time event sync)
-#   - Windows-safe host port remaps for ActiveMQ (8616:61616, 8613:61613) and Solr (8083:8983)
-#   - Named volumes for data persistence (alfresco_data / alfresco_db_data / solr6_data)
+#   - Windows-safe host port remaps for ActiveMQ (8616:61616, 8613:61613)
+#   - `postgres` and `proxy` renamed to `alfresco-postgres` / `alfresco-proxy`, to tell them
+#     apart from this project's postgres-pgvector.yaml and proxy.yaml services
+#   - The search engine is a separate include - alfresco-elasticsearch.yaml or
+#     alfresco-opensearch.yaml (see above); the stock file hard-wires an `elasticsearch`
+#     service, which would collide with this project's own elasticsearch (9200) /
+#     opensearch (9201) includes
+#   - Named volumes for data persistence (alfresco_data / alfresco_db_data)
+#
+# UPGRADING FROM THE 26.1 (Solr) STACK: the solr6 container and its solr6_data volume are
+# gone. Remove the stale volume with:
+#   docker volume rm flexible-graphrag_solr6_data
+# Existing alfresco_data / alfresco_db_data volumes are reused; batch-indexing performs an
+# initial full reindex into the new search index on first start.
 services:
   alfresco:
-    image: docker.io/alfresco/alfresco-content-repository-community:26.1.0
+    image: docker.io/alfresco/alfresco-content-repository-community:26.2.0
     mem_limit: 1900m
     environment:
       JAVA_TOOL_OPTIONS: >-
@@ -27,18 +75,19 @@ services:
         -Dmetadata-keystore.aliases=metadata
         -Dmetadata-keystore.metadata.password=oKIWzVdEdA
         -Dmetadata-keystore.metadata.algorithm=DESede
+      # The elasticsearch.* properties name the search subsystem, not the product: they are
+      # what you set for OpenSearch too.
       JAVA_OPTS: >-
         -Ddb.driver=org.postgresql.Driver
         -Ddb.username=alfresco
         -Ddb.password=alfresco
-        -Ddb.url=jdbc:postgresql://postgres:5432/alfresco
-        -Dsolr.host=solr6
-        -Dsolr.port=8983
-        -Dsolr.http.connection.timeout=1000
+        -Ddb.url=jdbc:postgresql://alfresco-postgres:5432/alfresco
         -Dsolr.secureComms=secret
         -Dsolr.sharedSecret=secret
-        -Dsolr.base.url=/solr
-        -Dindex.subsystem.name=solr6
+        -Dindex.subsystem.name=elasticsearch
+        -Delasticsearch.createIndexIfNotExists=true
+        -Delasticsearch.host=${ALFRESCO_SEARCH_HOST:-alfresco-elasticsearch}
+        -Delasticsearch.port=${ALFRESCO_SEARCH_PORT:-9200}
         -Dshare.host=localhost
         -Dshare.port=8080
         -Dalfresco.host=localhost
@@ -77,7 +126,7 @@ services:
       file: commons/base.yaml
       service: alfresco
   transform-core-aio:
-    image: alfresco/alfresco-transform-core-aio:5.4.0
+    image: alfresco/alfresco-transform-core-aio:5.4.4
     mem_limit: 1536m
     environment:
       JAVA_OPTS: >-
@@ -95,7 +144,7 @@ services:
       activemq:
         condition: service_healthy
   share:
-    image: docker.io/alfresco/alfresco-share:26.1.0
+    image: docker.io/alfresco/alfresco-share:26.2.2
     mem_limit: 1g
     environment:
       CSRF_FILTER_ORIGIN: http://localhost:8080
@@ -121,7 +170,9 @@ services:
     extends:
       file: commons/base.yaml
       service: share
-  postgres:
+  # Renamed from the stock `postgres` so it is not mistaken for this project's own
+  # postgres-pgvector (5433) in `docker ps` / `docker compose` output.
+  alfresco-postgres:
     image: postgres:17.9
     mem_limit: 512m
     environment:
@@ -139,29 +190,44 @@ services:
       timeout: 3s
       retries: 3
       start_period: 5s
-  solr6:
-    image: docker.io/alfresco/alfresco-search-services:2.0.18
-    mem_limit: 2g
+  batch-indexing:
+    # Reads the repository database + content and writes the search index (Elasticsearch or
+    # OpenSearch — same REST API, same settings).
+    # ALFRESCO_CONTENT_TRANSFORM_SHAREDSECRET must match -Dsolr.sharedSecret on alfresco.
+    # No depends_on for the search engine here: it may be the dedicated one, this project's
+    # shared engine, or something outside compose entirely. alfresco-elasticsearch.yaml /
+    # alfresco-opensearch.yaml overlay the health dependency when they provide the engine.
+    image: docker.io/alfresco/alfresco-elasticsearch-batch-indexing:5.8.0
+    mem_limit: 1g
+    depends_on:
+      alfresco:
+        condition: service_healthy
+      transform-core-aio:
+        condition: service_healthy
     environment:
-      # Solr needs to know how to register itself with Alfresco
-      SOLR_ALFRESCO_HOST: "alfresco"
-      SOLR_ALFRESCO_PORT: "8080"
-      # Alfresco needs to know how to call solr
-      SOLR_SOLR_HOST: "solr6"
-      SOLR_SOLR_PORT: "8983"
-      # Create the default alfresco and archive cores
-      SOLR_CREATE_ALFRESCO_DEFAULTS: "alfresco,archive"
-      # HTTPS or SECRET
-      ALFRESCO_SECURE_COMMS: "secret"
-      # SHARED SECRET VALUE
-      JAVA_TOOL_OPTIONS: >-
-        -Dalfresco.secureComms.secret=secret
-    volumes:
-      - solr6_data:/opt/alfresco-search-services/data
-    ports:
-      - "8083:8983" # Browser port
+      JAVA_OPTS: "-Xms256m -Xmx768m"
+      SPRING_DATASOURCE_URL: jdbc:postgresql://alfresco-postgres:5432/alfresco
+      SPRING_DATASOURCE_USERNAME: alfresco
+      SPRING_DATASOURCE_PASSWORD: alfresco
+      SPRING_ELASTICSEARCH_REST_URIS: http://${ALFRESCO_SEARCH_HOST:-alfresco-elasticsearch}:${ALFRESCO_SEARCH_PORT:-9200}
+      ALFRESCO_ACCEPTEDCONTENTMEDIATYPESCACHE_BASEURL: http://transform-core-aio:8090/transform/config
+      ALFRESCO_ACS_URL: http://alfresco:8080
+      ALFRESCO_CONTENT_TRANSFORM_SHAREDSECRET: secret
+      ALFRESCO_REINDEX_CONTINUOUS_POLLINGINTERVAL: 15s
+      ALFRESCO_REINDEX_CONTINUOUS_CATCHUPPOLLINGINTERVAL: 1s
+      ALFRESCO_REINDEX_CONTINUOUS_MAXWINDOW: 30m
+      ALFRESCO_REINDEX_CONTINUOUS_OVERLAP: 10m
+      # SWITCHING SEARCH ENGINES? Read this.
+      # The reindex checkpoint is NOT in the database - it lives in the engine itself, in a
+      # hidden `alfresco-reindex-state` index. Point this service at a fresh/empty engine and
+      # it logs "falling through to first-run bootstrap" and, with seedFromEarliest=false
+      # (the default), seeds the cursor at NOW MINUS THE OVERLAP above. Anything older than
+      # ~10 minutes is then never indexed, so the new engine looks mysteriously near-empty.
+      # Uncomment for the first start against a new engine to reindex the whole repository
+      # instead (harmless afterwards - it only applies when no watermark exists yet):
+      ALFRESCO_REINDEX_CONTINUOUS_SEEDFROMEARLIEST: "true"
   activemq:
-    image: docker.io/alfresco/alfresco-activemq:6.2.1-jre17-rockylinux8
+    image: docker.io/alfresco/alfresco-activemq:6.2.9-jre17-rockylinux8
     mem_limit: 1g
     environment:
       # ActiveMQ 6.x requires admin credentials (matches repo messaging.broker.username/password)
@@ -179,7 +245,7 @@ services:
       retries: 5
       start_period: 5s
   content-app:
-    image: alfresco/alfresco-content-app:7.3.0
+    image: alfresco/alfresco-content-app:8.0.0
     mem_limit: 128m
     environment:
       APP_BASE_SHARE_URL: "http://localhost:8080/aca/#/preview/s"
@@ -193,7 +259,7 @@ services:
       file: commons/base.yaml
       service: content-app
   control-center:
-    image: quay.io/alfresco/alfresco-control-center:10.3.0
+    image: quay.io/alfresco/alfresco-control-center:11.0.0
     mem_limit: 128m
     environment:
       APP_CONFIG_PROVIDER: "ECM"
@@ -208,13 +274,17 @@ services:
     extends:
       file: commons/base.yaml
       service: control-center
-  proxy:
+  # Renamed from the stock `proxy` so it is not mistaken for this project's NGINX proxy
+  # (includes/proxy.yaml, container flexible-graphrag-proxy). Still extends the stock
+  # `proxy` definition — this is Alfresco's Traefik on 8080/8888.
+  alfresco-proxy:
     extends:
       file: commons/base.yaml
       service: proxy
 
-# Self-contained Alfresco Community stack with all required volumes
+# Alfresco's own data volumes. The search index volume lives with the engine, in
+# includes/alfresco-elasticsearch.yaml or includes/alfresco-opensearch.yaml (or in this
+# project's elasticsearch/opensearch include when the engine is shared).
 volumes:
   alfresco_data:
   alfresco_db_data:
-  solr6_data:

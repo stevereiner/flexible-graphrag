@@ -27,7 +27,7 @@
 #   - 8000 is reserved for the flexible-graphrag backend; 8001 is Chroma
 #   - Use LLM_PROVIDER=vllm with VLLM_MODE=server in .env
 #   - Backend running standalone (outside Docker): VLLM_API_BASE=http://localhost:8002/v1 (set in .env)
-#   - Backend also running in Docker:              VLLM_API_BASE=http://vllm:8000/v1 (set in docker.env)
+#   - Backend also running in Docker:              VLLM_API_BASE=http://vllm:8000/v1 (set in docker/.env)
 #
 # Then configure .env — see the vLLM section in env-sample.txt for the full setup.
 # Container defaults can be overridden via these .env vars:
