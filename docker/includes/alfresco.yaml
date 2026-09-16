@@ -238,6 +238,17 @@ services:
       #- "5672:5672" # AMQP
       - "8616:61616" # OpenWire (changed from 61616 due to Windows dynamic port range conflict)
       - "8613:61613" # STOMP - Required for Alfresco event monitoring (changed from 61613 due to Windows dynamic port range)
+    volumes:
+      # alfresco-activemq 6.2.9 (ACS 26.2) ships activemq.xml with every transport EXCEPT openwire
+      # commented out ("disabled by default to reduce the exposed attack surface"); 6.2.1 (ACS 26.1)
+      # had STOMP on. The image entrypoint only templates credentials, so there is no env var for
+      # this - the config has to be supplied. Without it the repo still publishes to
+      # alfresco.repo.event2 over OpenWire, but flexible-graphrag's STOMP consumer cannot attach
+      # (Docker accepts the TCP connect on 8613 and the container closes it immediately, with no
+      # STOMP ERROR frame), so the non-durable topic drops every event: "enqueued N, consumers 0,
+      # dequeued 0". This copy is 6.2.9's own file with ONLY the stomp connector uncommented -
+      # re-extract it (docker cp) when the ActiveMQ image version changes.
+      - ../config/activemq.xml:/opt/activemq/conf/activemq.xml:ro
     healthcheck:
       test: ["CMD", "/opt/activemq/bin/activemq", "query", "--objname", "type=Broker,brokerName=*,service=Health", "|", "grep", "Good"]
       interval: 10s

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "flexible-graphrag-mcp"
-version = "0.8.0"
+version = "0.8.1"
 description = "MCP server for Flexible GraphRAG — connects to the FastAPI backend (status, ingest, hybrid search, AI Q&A) for Claude Desktop and other MCP clients. Supports 14 data sources, 15 property graph DBs, 4 RDF triple stores, 10 vector DBs, LlamaIndex + LangChain"
 readme = "README.md"
 requires-python = ">=3.12,<3.15"

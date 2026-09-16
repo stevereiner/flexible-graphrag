@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2026-09-16] — v0.8.1: Alfresco 26.2 upgrade, upload path-traversal fix
+
+A maintenance release over v0.8.0. It carries the two dated entries below — the
+Alfresco Docker stack upgrade to Community 26.2 (Solr replaced by
+Elasticsearch/OpenSearch batch indexing) and the `POST /api/upload`
+path-traversal fix (GHSA-hhhf-79mm-5w28) — plus the one fix below, found while
+testing the release.
+
+### Changed
+
+- **Version bumped 0.8.0 → 0.8.1** — `flexible-graphrag/pyproject.toml`, `flexible-graphrag-mcp/pyproject.toml`, `langflow_components/extension.json`, and the three UI `package.json` (plus their `package-lock.json`, which had drifted to 0.6.3), along with the 22 flexible-graphrag version stamps embedded in the four `flows/*.json`.
+
+### Fixed
+
+- **Alfresco auto-sync received no events after the 26.2 upgrade** — `alfresco-activemq:6.2.9` ships `activemq.xml` with STOMP commented out (6.2.1, used by ACS 26.1, had it on), so `AlfrescoEventBroadcaster` could not subscribe to `alfresco.repo.event2` and the non-durable topic silently dropped every event. The image exposes no transport switch, so `docker/config/activemq.xml` — 6.2.9's own file with only the `stomp` connector uncommented — is now bind-mounted over the image copy; re-extract it with `docker cp` when the ActiveMQ image version changes.
+
 ## [2026-09-09] — Alfresco Docker stack upgraded to Community 26.2
 
 ### Changed
