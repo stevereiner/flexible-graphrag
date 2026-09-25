@@ -17,7 +17,7 @@ Flexible GraphRAG allows you to configure **LLM providers** (for reasoning/gener
 
 ### LLM Configuration
 - `LLM_PROVIDER`: The LLM provider for reasoning/generation
-  - Options: `openai`, `ollama`, `gemini`, `vertex_ai`, `anthropic`, `azure_openai`, `bedrock`, `groq`, `fireworks`, `openai_like`, `vllm`, `litellm`, `openrouter`
+  - Options: `openai`, `ollama`, `gemini`, `vertex_ai`, `anthropic`, `azure_openai`, `bedrock`, `groq`, `fireworks`, `openai_like`, `vllm`, `litellm`, `openrouter`, `requesty`
 
 ### Embedding Configuration (Independent)
 - `EMBEDDING_KIND`: Type of embedding provider *(optional - defaults to LLM provider)*
@@ -46,6 +46,7 @@ When `EMBEDDING_KIND` is **not specified**, embeddings automatically match the L
 | **vllm** | OpenAI-Like | *(your model)* | set `EMBEDDING_DIMENSION` |
 | **LiteLLM** | Ollama | nomic-embed-text | 768 |
 | **OpenRouter** | OpenAI | text-embedding-3-small | 1536 |
+| **Requesty** | OpenAI | text-embedding-3-small | 1536 |
 
 ---
 
@@ -414,7 +415,7 @@ LLM_EXTRACTION_MODE=function      # default — tool/function calling mode
 **Notes:**
 - Gemini/Vertex AI: `pydantic_program_mode=FUNCTION` is forced in code regardless of this setting (required to disable AFC)
 - Ollama: does not use `pydantic_program_mode` — log line for resolved mode will not appear for Ollama (expected)
-- Groq/Fireworks/Bedrock/OpenAI-Like/OpenRouter: auto-switch to `DynamicLLMPathExtractor` which uses `apredict()` (plain text), so this setting has no effect for those providers
+- Groq/Fireworks/Bedrock/OpenAI-Like/OpenRouter/Requesty: auto-switch to `DynamicLLMPathExtractor` which uses `apredict()` (plain text), so this setting has no effect for those providers
 - vLLM Docker server mode routes through `OpenAILike` internally — same auto-switch applies; in-process `vllm` Python package: set `KG_EXTRACTOR_TYPE=dynamic` manually if extraction returns 0 entities
 
 
@@ -665,6 +666,22 @@ EMBEDDING_MODEL=text-embedding-3-small
 EMBEDDING_KIND=ollama
 EMBEDDING_MODEL=nomic-embed-text
 ```
+
+### 21. Requesty (OpenAI-Compatible Gateway)
+
+Requesty provides a single API key for models from OpenAI, Anthropic, Google, DeepSeek, and more,
+through an OpenAI-compatible API. Get a key at https://app.requesty.ai/api-keys (docs: https://docs.requesty.ai).
+
+```bash
+LLM_PROVIDER=requesty
+REQUESTY_API_KEY=rqsty-your-key-here
+REQUESTY_MODEL=openai/gpt-4o-mini
+# Other models: anthropic/claude-sonnet-4-5, google/gemini-2.5-flash
+# Optional regional router, e.g. EU:
+# REQUESTY_API_BASE=https://router.eu.requesty.ai/v1
+```
+
+Use any of the embedding options shown for OpenRouter above (for example `EMBEDDING_KIND=openai` or `EMBEDDING_KIND=ollama`).
 
 ---
 

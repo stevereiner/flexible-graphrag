@@ -25,6 +25,7 @@ fireworks        no          LLM API only — no /v1/embeddings
 openai_like      yes         any OpenAI-compat endpoint (LM Studio, vLLM, Ollama /v1 …)
 litellm          yes         via proxy (model-dependent)
 openrouter       no          LLM API only
+requesty         no          LLM only here (no requesty EMBEDDING_KIND)
 vllm             yes         model-dependent, must expose /v1/embeddings
 groq             no          LLM API only
 
@@ -46,7 +47,7 @@ logger = logging.getLogger(__name__)
 
 #: EMBEDDING_KIND values that have no /v1/embeddings endpoint.
 EMBEDDING_ONLY_PROVIDERS = frozenset({
-    "fireworks", "openrouter", "groq",
+    "fireworks", "openrouter", "requesty", "groq",
 })
 
 

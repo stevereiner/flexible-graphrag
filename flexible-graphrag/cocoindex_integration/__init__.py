@@ -20,14 +20,14 @@ B. CocoIndex as optional pipeline backend inside flexible-graphrag
 LLM providers — ``functions.llm`` (reads ``LLM_PROVIDER``)
 ----------------------------------------------------------
 All 11 flexible-graphrag providers: openai, azure, ollama, google, vertex,
-bedrock, fireworks, openai_like, litellm, openrouter, vllm.
+bedrock, fireworks, openai_like, litellm, openrouter, requesty, vllm.
 ``get_llama_index_llm()``, ``get_langchain_llm()``.
 
 Embedding providers — ``functions.embedding`` (reads ``EMBEDDING_KIND``)
 -------------------------------------------------------------------------
 Independent of LLM_PROVIDER.  Supported: openai, azure, ollama, google,
 vertex, bedrock, openai_like, litellm, vllm.
-Not supported (LLM-only): fireworks, openrouter, groq.
+Not supported (LLM-only): fireworks, openrouter, requesty, groq.
 ``get_llamaindex_embedding()``, ``get_langchain_embedding()``.
 
 For in-pipeline embeddings CocoIndex's built-in connectors are preferred::

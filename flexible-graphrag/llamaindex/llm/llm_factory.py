@@ -392,5 +392,27 @@ def create_llm(provider: LLMProvider, config: Dict[str, Any]):
             pydantic_program_mode=_resolve_pydantic_program_mode(config),
         )
 
+    elif provider == LLMProvider.REQUESTY:
+        # Requesty is OpenAI-compatible, so it uses OpenAILike with the same
+        # defaults the OpenRouter class sets (chat model, no function calling).
+        api_key = config.get("api_key")
+        if not api_key:
+            raise ValueError("Requesty requires 'api_key' parameter (REQUESTY_API_KEY)")
+        model = config.get("model", "openai/gpt-4o-mini")
+        api_base = config.get("api_base", "https://router.requesty.ai/v1")
+        logger.info(f"Configuring Requesty LLM - Model: {model}, API Base: {api_base}")
+        return OpenAILike(
+            model=model,
+            api_base=api_base,
+            api_key=api_key,
+            temperature=config.get("temperature", 0.1),
+            timeout=config.get("timeout", 120.0),
+            context_window=config.get("context_window", 128000),
+            max_tokens=config.get("max_tokens", 16384),
+            is_chat_model=True,
+            is_function_calling_model=False,
+            pydantic_program_mode=_resolve_pydantic_program_mode(config),
+        )
+
     else:
         raise ValueError(f"Unsupported LLM provider: {provider}")

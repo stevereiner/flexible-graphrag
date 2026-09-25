@@ -280,6 +280,7 @@ _LLM_OVERRIDES: dict[str, dict] = {
     "vllm":         {"LLM_PROVIDER": "vllm",          "VLLM_MODE": "server"},
     "litellm":      {"LLM_PROVIDER": "litellm", "LITELLM_MODEL": "gpt-4o-mini"},
     "openrouter":   {"LLM_PROVIDER": "openrouter"},
+    "requesty":     {"LLM_PROVIDER": "requesty"},
     "azure_openai": {"LLM_PROVIDER": "azure_openai",  "AZURE_OPENAI_MODEL": "gpt-4.1-mini"},
 }
 
@@ -1316,7 +1317,7 @@ def main() -> int:
         # Bedrock, Vertex AI, Groq, Fireworks) the graph QA chain LLM call can exceed
         # the default 120s HTTP read timeout.  Propagate a longer search timeout.
         _cloud_llm_providers = {"gemini", "vertex_ai", "anthropic", "bedrock",
-                                "groq", "fireworks", "openrouter"}
+                                "groq", "fireworks", "openrouter", "requesty"}
         _llm_prov = overrides.get("LLM_PROVIDER", "").lower()
         if _llm_prov in _cloud_llm_providers and "INTEGRATION_SEARCH_TIMEOUT" not in pytest_env:
             pytest_env["INTEGRATION_SEARCH_TIMEOUT"] = "300"

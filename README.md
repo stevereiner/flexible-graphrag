@@ -57,7 +57,7 @@
 - **4 RDF Triple Stores**: Apache Jena Fuseki, Ontotext GraphDB, Oxigraph, Amazon Neptune RDF.
 - **10 Vector Databases**: Qdrant, Elasticsearch, OpenSearch, Neo4j, Chroma, Milvus, Weaviate, Pinecone, PostgreSQL pgvector, LanceDB — for semantic similarity search
 - **3 Search Databases**: Elasticsearch, OpenSearch, BM25 (built-in) — for full-text search and hybrid ranking
-- **LLM providers (KG extraction & chat)**: Ollama, OpenAI, Azure OpenAI, Google Gemini, Anthropic Claude, Google Vertex AI, Amazon Bedrock, Groq, Fireworks AI, OpenAI-compatible endpoints (`openai_like`), OpenRouter, LiteLLM proxy, and vLLM — configurable via `LLM_PROVIDER`; see [Supported LLM Providers](#supported-llm-providers)
+- **LLM providers (KG extraction & chat)**: Ollama, OpenAI, Azure OpenAI, Google Gemini, Anthropic Claude, Google Vertex AI, Amazon Bedrock, Groq, Fireworks AI, OpenAI-compatible endpoints (`openai_like`), OpenRouter, Requesty, LiteLLM proxy, and vLLM — configurable via `LLM_PROVIDER`; see [Supported LLM Providers](#supported-llm-providers)
 - **Embedding providers**: OpenAI, Ollama, Azure OpenAI, Google GenAI, Vertex AI, Bedrock, Fireworks, OpenAI-like (`EMBEDDING_KIND=openai_like`), and LiteLLM — see [LLM Configuration](#llm-configuration)
 - **Dual-framework pipeline**: **LlamaIndex** and **LangChain** are first-class choices for chunking, vector and search adapters, property graphs, KG extraction, RDF text-to-SPARQL retrieval, and hybrid fusion—each stage can be set independently (**LlamaIndex** defaults). See [Framework Configuration](#framework-configuration).
 - **Multi-Source Ingestion**: Processes documents from 14 data sources (10 with incremental auto sync): (file upload, cloud storage, enterprise repositories, web sources) with Docling (default), LlamaParse (cloud API), or LiteParse (local, lightweight) document parsing.
@@ -666,6 +666,7 @@ Set via `LLM_PROVIDER` and provider-specific environment variables.
 11. **OpenRouter** - 200+ models via unified API (openai/gpt-4o-mini, anthropic/claude, meta-llama, etc.)
 12. **LiteLLM Proxy** - 100+ providers via LiteLLM proxy; sample config in `scripts/litellm_config.yaml`
 13. **vLLM** - High-performance local inference server (Linux/macOS; use `openai_like` on Windows)
+14. **Requesty** - OpenAI-compatible gateway for many providers (openai/gpt-4o-mini, anthropic/claude-sonnet-4-5, etc.); EU router via `REQUESTY_API_BASE`
 
 ### LLM Provider Configuration
 

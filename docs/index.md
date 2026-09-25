@@ -42,7 +42,7 @@ hide:
 - **3 RDF Triple Stores**: Apache Jena Fuseki, Ontotext GraphDB, Oxigraph
 - **10 Vector Databases**: Qdrant, Elasticsearch, OpenSearch, Neo4j, Chroma, Milvus, Weaviate, Pinecone, PostgreSQL pgvector, LanceDB — for semantic similarity search
 - **3 Search Databases**: Elasticsearch, OpenSearch, BM25 (built-in) — for full-text search and hybrid ranking
-- **LLM providers (KG extraction & chat)**: Ollama, OpenAI, Azure OpenAI, Google Gemini, Anthropic Claude, Google Vertex AI, Amazon Bedrock, Groq, Fireworks AI, OpenAI-compatible endpoints (`openai_like`), OpenRouter, LiteLLM proxy, and vLLM — configurable via `LLM_PROVIDER`; see [LLM & Embedding Config](LLM/LLM-EMBEDDING-CONFIG.md)
+- **LLM providers (KG extraction & chat)**: Ollama, OpenAI, Azure OpenAI, Google Gemini, Anthropic Claude, Google Vertex AI, Amazon Bedrock, Groq, Fireworks AI, OpenAI-compatible endpoints (`openai_like`), OpenRouter, Requesty, LiteLLM proxy, and vLLM — configurable via `LLM_PROVIDER`; see [LLM & Embedding Config](LLM/LLM-EMBEDDING-CONFIG.md)
 - **Embedding providers**: OpenAI, Ollama, Azure OpenAI, Google GenAI, Vertex AI, Bedrock, Fireworks, OpenAI-like (`EMBEDDING_KIND=openai_like`), and LiteLLM — see [LLM Configuration](LLM/LLM-EMBEDDING-CONFIG.md)
 - **Configurable Architecture**: LlamaIndex provides abstractions for allowing multiple vector databases, property graph databases, RDF triple stores, search engines, and LLM providers to be supported
 - **Multi-Source Ingestion**: Processes documents from 14 data sources (file upload, cloud storage, enterprise repositories, web sources) with Docling (default) or LlamaParse (cloud API) document parsing.

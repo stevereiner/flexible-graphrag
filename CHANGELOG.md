@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Added
+
+- **Requesty LLM provider** (`config.py`, `llamaindex/llm/llm_factory.py`, `langchain/llm/llm_factory.py`): `LLM_PROVIDER=requesty` with `REQUESTY_API_KEY`, `REQUESTY_MODEL` (default `openai/gpt-4o-mini`) and optional `REQUESTY_API_BASE` (e.g. `https://router.eu.requesty.ai/v1`); uses `OpenAILike` / `ChatOpenAI`; auto-switches to `DynamicLLMPathExtractor` like OpenRouter
+
 ## [2026-09-16] — v0.8.1: Alfresco 26.2 upgrade, upload path-traversal fix
 
 A maintenance release over v0.8.0. It carries the two dated entries below — the

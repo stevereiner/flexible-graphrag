@@ -853,6 +853,7 @@ LLM_PROVIDER=openai
 #LLM_PROVIDER=vllm           # vLLM Python package (Linux/macOS only — see vLLM section below)
 #LLM_PROVIDER=litellm        # LiteLLM proxy (100+ providers)
 #LLM_PROVIDER=openrouter     # OpenRouter (200+ models via unified API)
+#LLM_PROVIDER=requesty       # Requesty (OpenAI-compatible LLM gateway)
 
 # OpenAI Configuration (if using OpenAI)
 OPENAI_API_KEY=your-openai-api-key-here
@@ -1035,6 +1036,14 @@ LITELLM_MODEL=gpt-4.1-mini
 # OPENROUTER_API_KEY=sk-or-your-key-here
 # or anthropic/claude-3-5-sonnet, meta-llama/llama-3.3-70b-instruct, etc.
 OPENROUTER_MODEL=openai/gpt-4.1-mini
+
+# Requesty Configuration (OpenAI-compatible gateway for many providers)
+# Get API key from https://app.requesty.ai/api-keys   Docs: https://docs.requesty.ai
+# REQUESTY_API_KEY=rqsty-your-key-here
+# or anthropic/claude-sonnet-4-5, google/gemini-2.5-flash, etc.
+REQUESTY_MODEL=openai/gpt-4.1-mini
+# Optional regional router (EU): https://router.eu.requesty.ai/v1
+#REQUESTY_API_BASE=https://router.requesty.ai/v1
 
 
 # LLM Extraction Mode
