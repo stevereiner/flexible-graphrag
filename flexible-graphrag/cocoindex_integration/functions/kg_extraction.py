@@ -294,7 +294,7 @@ def _props_to_tuples(raw: List[List[str]], disabled: bool) -> List[Tuple[str, st
 
 #: Providers that must use DynamicLLMPathExtractor (mirrors hybrid_system.py).
 _DYNAMIC_PROVIDERS = frozenset({
-    "bedrock", "fireworks", "groq", "openai_like", "openrouter", "vllm",
+    "bedrock", "fireworks", "groq", "openai_like", "openrouter", "requesty", "vllm",
 })
 _KG_TIMEOUT = int(os.getenv("KG_EXTRACTION_TIMEOUT", "120"))
 

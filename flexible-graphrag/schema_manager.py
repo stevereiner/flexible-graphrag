@@ -98,11 +98,13 @@ class SchemaManager:
         # openrouter: OpenRouter extends OpenAILike with is_function_calling_model=False by default.
         #   SchemaLLMPathExtractor returns 0 entities instantly even with valid credits — genuine
         #   tool-calling incompatibility (same pattern as openai_like/groq). Switch to Dynamic.
+        #
+        # requesty: built on OpenAILike with is_function_calling_model=False, same as openrouter.
         switch_to_simple_providers = []
         # vllm: OpenAI-compatible server strictly rejects tool_choice="required" when tools=[].
         # SchemaLLMPathExtractor injects tool_choice="required" unconditionally -> HTTP 400.
         # DynamicLLMPathExtractor avoids tool_choice, works fine with vLLM.
-        switch_to_dynamic_providers = ["bedrock", "fireworks", "groq", "openai_like", "openrouter", "vllm"]
+        switch_to_dynamic_providers = ["bedrock", "fireworks", "groq", "openai_like", "openrouter", "requesty", "vllm"]
 
         # LiteLLM routing to Ollama models: SchemaLLMPathExtractor returns 0 entities
         # (same tool_choice conflict as direct Ollama). Switch to Dynamic for ollama/* models.

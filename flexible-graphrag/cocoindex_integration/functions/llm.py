@@ -23,6 +23,7 @@ fireworks       yes         uses DynamicLLMPathExtractor; no /v1/embeddings
 openai_like     yes         uses DynamicLLMPathExtractor; any OpenAI-compat endpoint
 litellm         yes         DynamicLLMPathExtractor when model=ollama/*
 openrouter      yes         uses DynamicLLMPathExtractor; no /v1/embeddings
+requesty        yes         uses DynamicLLMPathExtractor; LLM only here
 vllm            yes         uses DynamicLLMPathExtractor; no Python package on Windows
 groq            yes         uses DynamicLLMPathExtractor; no /v1/embeddings
 
@@ -159,13 +160,13 @@ def get_langchain_llm(
 #: Providers that must use DynamicLLMPathExtractor instead of SchemaLLMPathExtractor.
 #: Mirrors ``hybrid_system.py`` ``switch_to_dynamic_providers``.
 DYNAMIC_LLM_PROVIDERS = frozenset({
-    "bedrock", "fireworks", "groq", "openai_like", "openrouter", "vllm",
+    "bedrock", "fireworks", "groq", "openai_like", "openrouter", "requesty", "vllm",
     # litellm only when backed by ollama/* (detected at runtime)
 })
 
 #: Providers that support LLM chat but NOT the /v1/embeddings endpoint.
 LLM_ONLY_PROVIDERS = frozenset({
-    "fireworks", "openrouter", "groq",
+    "fireworks", "openrouter", "requesty", "groq",
 })
 
 
