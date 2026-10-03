@@ -170,6 +170,7 @@ def load_config_from_env() -> Dict[str, Any]:
             os.getenv("VLLM_MODEL", "") if llm_provider == "vllm" else
             os.getenv("LITELLM_MODEL", "") if llm_provider == "litellm" else
             os.getenv("OPENROUTER_MODEL", "") if llm_provider == "openrouter" else
+            os.getenv("REQUESTY_MODEL", "") if llm_provider == "requesty" else
             ""
         ) or os.getenv("LLM_MODEL", ""),
         "llm_config_json": "{}",

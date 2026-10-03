@@ -430,6 +430,7 @@ LLAMAPARSE_AGENT_MODEL=openai-gpt-4-1-mini # Required for agent mode
 |  | • OpenAI-compatible / vLLM (self-hosted)           |    |
 |  | • LiteLLM (proxy: 100+ providers)                  |    |
 |  | • OpenRouter (unified cloud routing)               |    |
+|  | • Requesty (OpenAI-compatible gateway)             |    |
 |  | • VLLM (Linux/GPU local serving)                   |    |
 |  +----------------------------------------------------+    |
 |                                                            |
@@ -805,7 +806,7 @@ flexible-graphrag/
 ### Environment Variable Hierarchy
 
 1. **LLM Configuration**
-   - `LLM_PROVIDER`: openai, ollama, azure_openai, anthropic, gemini, vertex_ai, bedrock, groq, fireworks, openai_like, vllm, litellm, openrouter
+   - `LLM_PROVIDER`: openai, ollama, azure_openai, anthropic, gemini, vertex_ai, bedrock, groq, fireworks, openai_like, vllm, litellm, openrouter, requesty
    - `EMBEDDING_KIND`: openai, ollama, azure_openai, google, vertex, bedrock, fireworks, openai_like, litellm
    - Provider-specific: `OPENAI_API_KEY`, `OLLAMA_BASE_URL`, etc.
    - Per-kind embedding model: `OPENAI_EMBEDDING_MODEL`, `OLLAMA_EMBEDDING_MODEL`, `GOOGLE_EMBEDDING_MODEL`, etc.

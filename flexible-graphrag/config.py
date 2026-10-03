@@ -78,6 +78,7 @@ class LLMProvider(str, Enum):
     VLLM = "vllm"                 # vLLM server (high-performance local inference)
     LITELLM = "litellm"           # LiteLLM proxy (100+ providers via unified OpenAI-compatible API)
     OPENROUTER = "openrouter"     # OpenRouter (unified API for 200+ models)
+    REQUESTY = "requesty"         # Requesty (OpenAI-compatible LLM gateway)
 
 class DocumentParser(str, Enum):
     DOCLING = "docling"
@@ -715,6 +716,20 @@ an aristocratic family that rules the planet Caladan, the rainy planet, since 10
                     "timeout": float(os.getenv("OPENROUTER_TIMEOUT", "120.0")),
                     "context_window": int(os.getenv("OPENROUTER_CONTEXT_WINDOW", "128000")),
                     "max_tokens": int(os.getenv("OPENROUTER_MAX_TOKENS", "16384")),
+                    "extraction_mode": os.getenv("LLM_EXTRACTION_MODE", "function"),
+                }
+            elif self.llm_provider == LLMProvider.REQUESTY:
+                # Requesty - OpenAI-compatible gateway for many providers (OpenAI, Anthropic, Google, etc.)
+                # Get API key from https://app.requesty.ai/api-keys
+                # REQUESTY_API_BASE can point at a regional router, e.g. https://router.eu.requesty.ai/v1
+                self.llm_config = {
+                    "model": os.getenv("REQUESTY_MODEL", "openai/gpt-4o-mini"),
+                    "api_key": os.getenv("REQUESTY_API_KEY"),
+                    "api_base": os.getenv("REQUESTY_API_BASE", "https://router.requesty.ai/v1"),
+                    "temperature": float(os.getenv("REQUESTY_TEMPERATURE", "0.1")),
+                    "timeout": float(os.getenv("REQUESTY_TIMEOUT", "120.0")),
+                    "context_window": int(os.getenv("REQUESTY_CONTEXT_WINDOW", "128000")),
+                    "max_tokens": int(os.getenv("REQUESTY_MAX_TOKENS", "16384")),
                     "extraction_mode": os.getenv("LLM_EXTRACTION_MODE", "function"),
                 }
 

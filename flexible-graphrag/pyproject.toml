@@ -289,7 +289,7 @@ langchain = [
     "langchain>=1.0",
     "langchain-community>=0.4",   # Shared community integrations
     # LLM providers — mirrors LlamaIndex provider list
-    "langchain-openai",           # OpenAI, Azure OpenAI, vLLM, openai_like, LiteLLM, OpenRouter
+    "langchain-openai",           # OpenAI, Azure OpenAI, vLLM, openai_like, LiteLLM, OpenRouter, Requesty
     "langchain-anthropic>=1.3",   # Anthropic Claude
     "langchain-aws",              # AWS Bedrock (ChatBedrock) + Amazon Neptune RDF/PG
     "langchain-ollama>=1.0",      # Ollama local models

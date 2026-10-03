@@ -212,6 +212,15 @@ def get_langchain_llm(config: Any) -> Any:
                 **_kw(api_key=llm_config.get("api_key")),
             )
 
+        if provider == "requesty":
+            from langchain_openai import ChatOpenAI
+            return ChatOpenAI(
+                model=llm_config.get("model", "openai/gpt-4o-mini"),
+                temperature=llm_config.get("temperature", 0.1),
+                base_url=llm_config.get("api_base", "https://router.requesty.ai/v1"),
+                **_kw(api_key=llm_config.get("api_key")),
+            )
+
         logger.warning(
             "No LangChain mapping for provider '%s'; falling back to OpenAI gpt-4o-mini. "
             "Install the required langchain-* package and add the mapping to get_langchain_llm().",
