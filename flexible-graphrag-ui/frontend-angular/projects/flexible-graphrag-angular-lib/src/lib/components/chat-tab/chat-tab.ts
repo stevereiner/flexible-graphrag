@@ -1,4 +1,5 @@
-import { Component, ViewChild, ElementRef, AfterViewChecked, AfterViewInit, ChangeDetectorRef, Renderer2 } from '@angular/core';
+import { Component, ViewChild, ElementRef, AfterViewChecked, AfterViewInit, ChangeDetectorRef, Renderer2, inject } from '@angular/core';
+import { FlexibleGraphragConfigService } from '../../config.service';
 import { HttpClient } from '@angular/common/http';
 
 interface ChatMessage {
@@ -33,11 +34,12 @@ interface ApiResponse {
   standalone: false
 })
 export class ChatTabComponent implements AfterViewChecked, AfterViewInit {
+  private readonly fgConfig = inject(FlexibleGraphragConfigService);
   @ViewChild('chatContainer') chatContainer!: ElementRef;
 
   chatMessages: ChatMessage[] = [];
   chatInput = '';
-  agentIcon = 'assets/agent.png';
+  agentIcon = this.fgConfig.agentIconUrl;
   isQuerying = false;
   error = '';
 

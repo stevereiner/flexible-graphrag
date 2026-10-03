@@ -1,5 +1,5 @@
-import { Component, Input, Output, EventEmitter, OnInit } from '@angular/core';
-import { environment } from '../../../environments/environment';
+import { Component, Input, Output, EventEmitter, OnInit, inject } from '@angular/core';
+import { FlexibleGraphragConfigService } from '../../config.service';
 
 export interface AlfrescoOAuth2Config {
   client_id?: string;
@@ -15,6 +15,7 @@ export interface AlfrescoSourceConfig {
   auth_method: string;
   username?: string;
   password?: string;
+  ticket?: string;
   oauth2?: AlfrescoOAuth2Config;
   path?: string;
 }
@@ -41,7 +42,18 @@ export interface AlfrescoSourceConfig {
         </mat-select>
       </mat-form-field>
 
-      <div class="form-row" *ngIf="authMethod === 'basic' || authMethod === 'ticket'">
+      <!-- Developer testing affordance, not an end-user feature: pasting a login ticket by
+           hand is not a real workflow. The real consumer is an ACA/ADF extension posting the
+           ticket it already holds, which needs no field at all. Set showTicketField = false
+           to hide it; ticket mode then behaves as before (ticket acquired from user/pw). -->
+      <mat-form-field appearance="outline" class="full-width" *ngIf="authMethod === 'ticket' && showTicketField">
+        <mat-label>Login ticket</mat-label>
+        <input matInput type="password" [(ngModel)]="ticket" (ngModelChange)="update()"
+               placeholder="e.g., TICKET_xxxxxxxx" />
+        <mat-hint>Leave empty to fetch a ticket from the username and password below</mat-hint>
+      </mat-form-field>
+
+      <div class="form-row" *ngIf="authMethod === 'basic' || (authMethod === 'ticket' && !(showTicketField && ticket.trim()))">
         <mat-form-field appearance="outline" class="half-width">
           <mat-label>Username *</mat-label>
           <input matInput [(ngModel)]="username" (ngModelChange)="update()" required />
@@ -100,7 +112,8 @@ export interface AlfrescoSourceConfig {
   standalone: false
 })
 export class AlfrescoSourceFormComponent implements OnInit {
-  defaultUrl = environment.alfrescoBaseUrl || 'http://localhost:8080';
+  private readonly fgConfig = inject(FlexibleGraphragConfigService);
+  defaultUrl = this.fgConfig.alfrescoBaseUrl;
 
   url: string = this.defaultUrl;
   authMethod: string = 'basic';
@@ -108,6 +121,14 @@ export class AlfrescoSourceFormComponent implements OnInit {
 
   username: string = 'admin';
   password: string = 'admin';
+  // A ticket obtained elsewhere (e.g. one an ADF front end already holds). When set it
+  // replaces username/password entirely rather than being fetched from them.
+  ticket: string = '';
+  // Hidden developer testing affordance. Flip to true to expose the hand-entry ticket field
+  // (see the template comment) when exercising the pass-through path from this UI. Off by
+  // default: pasting a ticket by hand is not an end-user workflow, and the real consumer --
+  // an ACA/ADF extension posting the ticket it already holds -- needs no field at all.
+  showTicketField = false;
 
   clientId: string = '';
   clientSecret: string = '';
@@ -128,6 +149,7 @@ export class AlfrescoSourceFormComponent implements OnInit {
     if (v.path !== undefined) this.path = v.path;
     if (v.username !== undefined) this.username = v.username;
     if (v.password !== undefined) this.password = v.password;
+    if (v.ticket !== undefined) this.ticket = v.ticket;
     const o = v.oauth2 || {};
     if (o.client_id !== undefined) this.clientId = o.client_id;
     if (o.client_secret !== undefined) this.clientSecret = o.client_secret;
@@ -143,6 +165,7 @@ export class AlfrescoSourceFormComponent implements OnInit {
     if (this.authMethod === 'oauth2') {
       return this.clientId.trim() !== '' && (this.accessToken.trim() !== '' || this.clientSecret.trim() !== '');
     }
+    if (this.authMethod === 'ticket' && this.showTicketField && this.ticket.trim() !== '') return true;
     return this.username.trim() !== '' && this.password.trim() !== '';
   }
 
@@ -157,6 +180,8 @@ export class AlfrescoSourceFormComponent implements OnInit {
         access_token: this.accessToken || undefined,
         refresh_token: this.refreshToken || undefined,
       };
+    } else if (this.authMethod === 'ticket' && this.showTicketField && this.ticket.trim() !== '') {
+      config.ticket = this.ticket.trim();
     } else {
       config.username = this.username;
       config.password = this.password;
@@ -165,9 +190,32 @@ export class AlfrescoSourceFormComponent implements OnInit {
   }
 
   update(): void {
-    const config = this.buildConfig();
     this.validationChange.emit(this.isValid());
-    this.configurationChange.emit(config);
-    this.valueChange.emit(config);
+    // Two different things: the backend payload keeps ticket and username/password mutually
+    // exclusive, while the restore snapshot must carry every field. Emitting the payload as
+    // the snapshot loses whichever keys it omitted, and ngOnInit then falls back to the class
+    // defaults -- so clearing the credentials and setting a ticket resurrected admin/admin.
+    this.configurationChange.emit(this.buildConfig());
+    this.valueChange.emit(this.snapshot());
+  }
+
+  /** Full form state, for [(value)] round-tripping. Never sent to the backend. */
+  private snapshot(): any {
+    return {
+      url: this.url,
+      auth_method: this.authMethod,
+      path: this.path,
+      username: this.username,
+      password: this.password,
+      ticket: this.ticket,
+      oauth2: {
+        client_id: this.clientId,
+        client_secret: this.clientSecret,
+        token_endpoint: this.tokenEndpoint,
+        scope: this.scope,
+        access_token: this.accessToken,
+        refresh_token: this.refreshToken,
+      },
+    };
   }
 }

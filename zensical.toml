@@ -14,6 +14,9 @@ repo_name    = "stevereiner/flexible-graphrag"
 repo_url     = "https://github.com/stevereiner/flexible-graphrag"
 #validation   = false
 
+# Opens external nav links (the Blog entry) in a new tab; zensical has no target option.
+extra_javascript = ["javascripts/external-links.js"]
+
 nav = [
   {"Home" = [
     {"Overview"          = "index.md"},
@@ -138,7 +141,8 @@ nav = [
     {"Port Mappings"                 = "ADVANCED/PORT-MAPPINGS.md"},
     {"Timeout Configurations"        = "ADVANCED/TIMEOUT-CONFIGURATIONS.md"},
     {"Default Usernames & Passwords" = "ADVANCED/DEFAULT-USERNAMES-PASSWORDS.md"}
-  ]}
+  ]},
+  {"Blog" = "https://integratedsemantics.org"}
 ]
 
 # ── Theme ──────────────────────────────────────────────────────────────────────

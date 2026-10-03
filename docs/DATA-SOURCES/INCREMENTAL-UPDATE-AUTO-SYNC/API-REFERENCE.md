@@ -23,7 +23,8 @@ All endpoints are prefixed with `/api`.
 | `/api/sync/sync-now` | POST | Trigger manual sync (all sources) |
 | `/api/sync/start-monitoring` | POST | Start incremental monitoring |
 | `/api/sync/disable-all` | POST | Disable all datasources |
-| `/api/sync/enable-all` | POST | Enable all datasources |
+| `/api/sync/enable-all` | POST | Enable all datasources (skips ingest-only records) |
+| `/api/sync/coverage` | POST | Which datasources already hold each item of a selection |
 | `/api/sync/interval` | PATCH | Update global sync interval |
 | `/api/sync/status` | GET | Get system status |
 
@@ -391,6 +392,54 @@ Get overall incremental sync system status.
 - `disabled`: Incremental system not configured
 
 **Note:** Individual datasource status can be retrieved from the `datasources` array in the `GET /api/sync/datasources` response. There is no separate single-datasource status endpoint.
+
+### Check Coverage Before Ingesting
+
+Reports, for each item of an Alfresco or Nuxeo selection, which datasources already hold it — active auto syncs, and ingests made without sync (v0.8.2+). The Processing tab uses this to show "already synced" / "already ingested" and leave those rows unchecked. One call for a whole multi-select; results come back in request order.
+
+**Endpoint:** `POST /api/sync/coverage`
+
+**Request:**
+
+```json
+{
+  "data_source": "alfresco",
+  "url": "http://localhost:8080",
+  "recursive": false,
+  "items": [
+    {"path": "/Shared/GraphRAG/space-station.txt", "id": "c0f6a861-e675-42dd-b6a8-61e675d2ddc0", "is_folder": false},
+    {"path": "/Shared/GraphRAG", "is_folder": true}
+  ]
+}
+```
+
+`url` limits the answer to one repository (omit for all of that type); `recursive` is what the pending ingest would use; `id` (the repository node id) enables an exact match against `document_state`, which still recognises a file after a move or rename.
+
+**Response:**
+
+```json
+{
+  "enabled": true,
+  "items": [
+    {
+      "path": "/Shared/GraphRAG/space-station.txt", "id": "c0f6a861-...", "is_folder": false,
+      "status": "synced",
+      "datasources": [{"config_id": "334c8860-...", "source_name": "alfresco_ingest", "root": "/Shared/GraphRAG/space-station.txt",
+                       "recursive": false, "skip_graph": true, "relation": "same", "status": "synced", "auto_sync": false}],
+      "indexed": {"vector": true, "search": true, "graph": false}
+    },
+    {"path": "/Shared/GraphRAG", "is_folder": true, "status": "overlaps", "datasources": ["..."], "indexed": null}
+  ]
+}
+```
+
+**Item status:**
+- `synced`: a datasource already covers it — the item is one of its roots, or sits under one (at any depth when that datasource is recursive, directly in it when not)
+- `partial`: the same folder, but synced without subfolders while this ingest would be recursive
+- `overlaps`: a folder that contains something already held
+- `none`: not held
+
+On a match, `auto_sync: false` means it was ingested without sync; `indexed` (files only) says which stores hold it. Answers `{"enabled": false, "items": []}` when the incremental system is not running (including `PIPELINE_BACKEND=cocoindex`).
 
 ## Start Monitoring
 

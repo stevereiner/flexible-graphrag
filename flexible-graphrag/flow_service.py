@@ -27,6 +27,7 @@ logger = logging.getLogger(__name__)
 _SECRET_KEY_MARKERS = (
     "credential", "service_account_key", "account_key", "connection_string",
     "secret", "password", "api_key", "apikey", "client_secret", "token", "private_key",
+    "ticket",  # an Alfresco login ticket authenticates on its own, like a bearer token
 )
 
 
@@ -42,7 +43,10 @@ def redact_config_for_log(cfg: Any, max_len: int = 60) -> Any:
         for k, v in cfg.items():
             kl = str(k).lower()
             if not kl.endswith("_path") and any(m in kl for m in _SECRET_KEY_MARKERS):
-                out[k] = "***redacted***"
+                # Mask the value, but not its absence. Redacting None and "" as well made a
+                # log unable to answer "was a credential actually sent?" -- an unset ticket
+                # printed exactly like a real one. Neither None nor "" discloses anything.
+                out[k] = v if v is None or v == "" else "***redacted***"
             else:
                 out[k] = redact_config_for_log(v, max_len)
         return out
@@ -167,6 +171,7 @@ class FlowService:
         skip_graph: bool = False,
         config_id: Optional[str] = None,
         tweaks: Optional[Dict[str, Any]] = None,
+        replace_doc_ids: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
         if not self.ingestion_flow_id:
             raise ValueError("Ingestion flow not loaded. Call initialize_flows() first.")
@@ -183,6 +188,11 @@ class FlowService:
             # Stable doc_id prefix for incremental sync — the Data Source threads it through
             # the run-cache; the Document Processor assigns {config_id}:{identity} doc_ids.
             run_cfg["config_id"] = config_id
+        if replace_doc_ids:
+            # doc_ids an earlier ingest of this source stored. The langflow process has no
+            # incremental registry of its own, so the backend looks them up and the Document
+            # Processor deletes those it is about to insert again.
+            run_cfg["replace_doc_ids"] = list(replace_doc_ids)
 
         # output_type="debug" returns ALL component outputs (not just ChatOutput) so we can
         # also read the Document Processor's doc_states (needed to create document_state rows

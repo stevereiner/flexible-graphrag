@@ -139,6 +139,7 @@ async def ingest_source_documents(
     status_callback=None,
     skip_graph: bool = False,
     config_id: str = None,
+    replace_doc_ids=None,
 ):
     """Process a list of pre-fetched documents into all search modalities.
 
@@ -153,6 +154,8 @@ async def ingest_source_documents(
         status_callback: Optional callable for progress updates
         skip_graph: If True, skip KG extraction for this ingest
         config_id: Optional stable config_id for incremental sync (assigns stable doc_ids)
+        replace_doc_ids: ids known to be in the stores already; None = look them up in
+            document_state. Those documents are deleted before being inserted again.
     """
     from retriever_setup import setup_hybrid_retriever
     from ingest._helpers import warmup_hybrid_retriever
@@ -172,6 +175,11 @@ async def ingest_source_documents(
 
     if config_id:
         _assign_stable_doc_ids(documents, config_id)
+        # Stable ids make a repeat ingest of the same source land on the same ids: replace
+        # what the earlier run stored instead of adding a second copy.
+        from ingest.replace_existing import delete_previous_versions
+        _update_progress("Removing the previous version…", 42, current_phase="indexing")
+        await delete_previous_versions(system, documents, replace_doc_ids)
 
     system._last_ingested_documents = documents
     logger.info(f"=== PRE-CHUNKING: {len(documents)} Documents ===")

@@ -131,9 +131,22 @@ class FlexibleGraphRAGBackend:
         logger.debug("Flow ingest: source_config=%s", redact_config_for_log(source_config))
         try:
             fsvc = await self._get_flow_service()
+            # doc_ids this datasource already stored (from document_state). The flow runs in the
+            # langflow process, which has no access to these tables, so the backend looks them
+            # up and passes them along; the flow's Document Processor deletes each of them from
+            # the stores before inserting it again, so a repeat ingest replaces rather than
+            # duplicates. None (no config_id, or incremental system off) = insert only.
+            # The default pipeline does this lookup itself, in ingest_source_documents.
+            replace_doc_ids = None
+            if config_id:
+                from incremental_system import IncrementalSystemManager
+                _inc = IncrementalSystemManager._instance
+                if _inc is not None and _inc.is_initialized():
+                    replace_doc_ids = await _inc.get_doc_ids(config_id)
             result = await fsvc.run_ingestion_flow(
                 source_type=data_source, source_config=source_config,
                 skip_graph=skip_graph, config_id=config_id,
+                replace_doc_ids=replace_doc_ids,
             )
             msg = fsvc.extract_message(result)
             # Incremental sync: the docs were parsed in the langflow process, so the backend's
@@ -1138,6 +1151,9 @@ class FlexibleGraphRAGBackend:
                         "auth_method": os.getenv("ALFRESCO_AUTH_METHOD", "basic"),
                         "username": os.getenv("ALFRESCO_USERNAME", "admin"),
                         "password": os.getenv("ALFRESCO_PASSWORD", "admin"),
+                        # Pre-obtained login ticket; with auth_method=ticket it replaces
+                        # username/password rather than being fetched from them.
+                        "ticket": os.getenv("ALFRESCO_TICKET", ""),
                         "path": os.getenv("ALFRESCO_PATH", "/")
                     }
                     # Optional OAuth2 config from env (auth_method=oauth2)

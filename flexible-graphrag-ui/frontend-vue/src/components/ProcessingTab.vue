@@ -50,6 +50,11 @@
 
     <!-- File Processing Table -->
     <v-card v-if="hasConfiguredSources" class="mb-4" variant="outlined">
+      <p v-if="coveredRowCount > 0 && !isProcessing && processingProgress === 0"
+         class="text-body-2 px-4 pt-3 mb-0" style="opacity: 0.8;">
+        {{ coveredRowCount }} of {{ displayFiles.length }} already in the stores, so left unchecked.
+        Hover the status for details; checking a row ingests it again, replacing the earlier copy.
+      </p>
       <v-data-table
         v-model="selectedItems"
         :headers="tableHeaders"
@@ -118,7 +123,19 @@
 
         <!-- Status column -->
         <template #item.status="{ item }">
+          <!-- Before a run: say when this row is already in the stores -->
           <v-chip
+            v-if="showCoverage(item.index)"
+            :color="coverageFor(item.index)?.status === 'synced' ? 'info' : 'warning'"
+            size="small"
+            variant="tonal"
+            :title="coverageTooltip(item.index)"
+            style="cursor: help;"
+          >
+            {{ coverageLabel(item.index) }}
+          </v-chip>
+          <v-chip
+            v-else
             :color="getStatusColor(getFileStatus(item.name))"
             size="small"
             variant="flat"
@@ -275,6 +292,9 @@
 <script lang="ts">
 import { defineComponent, ref, computed, watch } from 'vue';
 import axios from 'axios';
+
+// Sources with no auto change sync: the "Enable auto change sync" checkbox is hidden for them
+const NO_AUTO_SYNC_SOURCES = ['upload', 'cmis', 'web', 'wikipedia', 'youtube'];
 
 // A file the server refused to store (unsupported extension, bad name, too large)
 interface SkippedFile {
@@ -881,7 +901,9 @@ export default defineComponent({
         }
         
         // Add enable_sync flag if checked
-        if (enableSync.value) {
+        // Only for a source that shows the checkbox: the value survives switching sources, so
+        // a sync left ticked on Alfresco would otherwise make a later upload a live sync too.
+        if (enableSync.value && !NO_AUTO_SYNC_SOURCES.includes(props.configuredDataSource)) {
           request.enable_sync = true;
           console.log('✓ enable_sync flag set to true - Incremental updates will be enabled');
         }
@@ -916,13 +938,19 @@ export default defineComponent({
             folder_path: props.configuredFolderPath || '/Shared/GraphRAG'
           };
         } else if (props.configuredDataSource === 'alfresco') {
-          request.paths = [props.configuredFolderPath || '/Shared/GraphRAG']; // Use configured path
-          request.alfresco_config = {
-            url: 'http://localhost:8080/alfresco',
-            username: 'admin',
-            password: 'admin',
-            path: props.configuredFolderPath || '/Shared/GraphRAG'
-          };
+          const alfrescoPath = props.configuredAlfrescoConfig?.path || props.configuredFolderPath || '/Shared/GraphRAG';
+          request.paths = [alfrescoPath];
+          // Send what the Sources tab configured. This used to be a hardcoded admin/admin
+          // literal, so the form's credentials, auth method and URL were silently discarded
+          // (and the URL differed from the form's, so the datasource never matched coverage).
+          request.alfresco_config = props.configuredAlfrescoConfig
+            ? { ...props.configuredAlfrescoConfig, path: alfrescoPath }
+            : {
+                url: 'http://localhost:8080',
+                username: 'admin',
+                password: 'admin',
+                path: alfrescoPath
+              };
         } else if (props.configuredDataSource === 'nuxeo') {
           request.nuxeo_config = props.configuredNuxeoConfig;
         } else if (props.configuredDataSource === 'web') {
@@ -1038,6 +1066,99 @@ export default defineComponent({
       }
     };
 
+    // ── Auto-sync / earlier-ingest coverage of the current rows ───────────────────────
+    // Asks the backend which rows are already in the stores (an auto change sync covers them,
+    // or an earlier ingest put them there), so they start unchecked instead of being
+    // ingested again. One call per configuration; quietly nothing on an older backend.
+    const coverage = ref<any[]>([]);
+    let coverageKey = '';
+
+    const looksLikeFile = (path: string): boolean =>
+      /\.[A-Za-z0-9]{1,8}$/.test((path || '').split('/').pop() || '');
+
+    const coverageFor = (index: number): any | null => {
+      // Rows and coverage line up one-to-one, except after a run, when the rows can be the
+      // backend's per-file list instead of the one path that was checked.
+      if (coverage.value.length !== displayFiles.value.length) return null;
+      const c = coverage.value[index];
+      return c && c.status !== 'none' ? c : null;
+    };
+
+    const coverageIsSync = (c: any): boolean =>
+      !!c?.datasources?.some((m: any) => m.auto_sync && m.status === c.status);
+
+    const coverageLabel = (index: number): string => {
+      const c = coverageFor(index);
+      const synced = coverageIsSync(c);
+      switch (c?.status) {
+        case 'synced': return synced ? 'already synced' : 'already ingested';
+        case 'partial': return synced ? 'synced, no subfolders' : 'ingested, no subfolders';
+        case 'overlaps': return synced ? 'contains synced' : 'contains ingested';
+        default: return '';
+      }
+    };
+
+    const coverageTooltip = (index: number): string => {
+      const c = coverageFor(index);
+      if (!c) return '';
+      const lines = c.datasources.map((m: any) => {
+        const how = m.auto_sync ? 'synced by' : 'ingested (no auto sync) by';
+        const what = m.relation === 'indexed' ? 'indexed by'
+          : m.relation === 'contains' ? `contains ${m.root}, ${how}`
+          : `${m.root}${m.recursive ? ' (with subfolders)' : ''}, ${how}`;
+        return `${what} ${m.source_name || m.config_id}${m.skip_graph ? ' [no graph]' : ''}`;
+      });
+      if (c.indexed) {
+        const where = ['vector', 'search', 'graph'].filter((t) => c.indexed[t]);
+        lines.push(`in: ${where.join(', ') || 'none'}`);
+      }
+      lines.push(c.status === 'synced'
+        ? 'Left unchecked. Check it to ingest again: the earlier copy is replaced, not duplicated.'
+        : 'Part of it is already in the stores; ingesting it again refreshes that part.');
+      return lines.join('\n');
+    };
+
+    const coveredRowCount = computed(() =>
+      displayFiles.value.filter((_: any, i: number) => coverageFor(i)?.status === 'synced').length);
+
+    const showCoverage = (index: number): boolean =>
+      !!coverageFor(index) && !isProcessing.value && processingProgress.value === 0;
+
+    const refreshCoverage = () => {
+      const source = props.configuredDataSource;
+      const cfg: any = source === 'alfresco' ? props.configuredAlfrescoConfig
+        : source === 'nuxeo' ? props.configuredNuxeoConfig : null;
+      if ((source !== 'alfresco' && source !== 'nuxeo') || isProcessing.value || currentProcessingId.value) {
+        if (source !== 'alfresco' && source !== 'nuxeo') { coverage.value = []; coverageKey = ''; }
+        return;
+      }
+      const path = cfg?.path || props.configuredFolderPath || '/';
+      const request = {
+        data_source: source,
+        url: cfg?.url,
+        recursive: !!cfg?.recursive,
+        items: [{ path, is_folder: !looksLikeFile(path) }],
+      };
+      const key = JSON.stringify(request);
+      if (key === coverageKey) return;
+      coverageKey = key;
+      coverage.value = [];
+      axios.post('/api/sync/coverage', request)
+        .then((res) => {
+          if (key !== coverageKey) return;  // configuration changed while this was in flight
+          coverage.value = res.data?.enabled ? res.data.items : [];
+          selectedItems.value = selectedItems.value.filter((i) => coverageFor(i)?.status !== 'synced');
+        })
+        .catch((err) => console.warn('Sync coverage check unavailable:', err));
+    };
+
+    watch(
+      () => [props.configuredDataSource, props.configurationTimestamp, props.configuredFolderPath,
+             displayFiles.value.length],
+      () => refreshCoverage(),
+      { immediate: true },
+    );
+
     // Auto-select all files when configured files change or when repository files are discovered
     watch(() => props.configuredFiles, () => {
       if (props.configuredDataSource === 'upload') {
@@ -1060,11 +1181,26 @@ export default defineComponent({
         // Reset hidden flag and increment reconfigured counter when repository sources are reconfigured
         repositoryItemsHidden.value = false;
         sourcesReconfiguredFlag.value++;
-        
-        // Auto-select repository files after configuration
+
+        // A fresh configuration starts from a clean table: the previous run's progress/status
+        // otherwise stays on the rows and hides the "already ingested" check. Re-ask coverage
+        // even for an identical configuration -- the last run may have just ingested it.
+        if (!isProcessing.value) {
+          processingProgress.value = 0;
+          processingStatus.value = '';
+          currentProcessingId.value = null;
+          statusData.value = null;
+          lastStatusData.value = null;
+        }
+        coverageKey = '';
+        refreshCoverage();
+
+        // Auto-select repository files after configuration (except rows already in the stores)
         setTimeout(() => {
           const currentFiles = displayFiles.value;
-          selectedItems.value = currentFiles.map((_, index) => index);
+          selectedItems.value = currentFiles
+            .map((_, index) => index)
+            .filter((index) => coverageFor(index)?.status !== 'synced');
           console.log('Auto-selected repository files after configuration:', selectedItems.value, 'for', currentFiles.length, 'files');
         }, 100); // Small delay to ensure displayFiles is updated
         
@@ -1104,7 +1240,10 @@ export default defineComponent({
     watch(() => displayFiles.value, (newFiles, oldFiles) => {
       if (props.configuredDataSource === 'cmis' || props.configuredDataSource === 'alfresco' || props.configuredDataSource === 'nuxeo') {
         console.log('Repository displayFiles changed:', newFiles.length, 'files');
-        selectedItems.value = newFiles.map((_, index) => index);
+        // every row except those already in the stores (see refreshCoverage)
+        selectedItems.value = newFiles
+          .map((_, index) => index)
+          .filter((index) => coverageFor(index)?.status !== 'synced');
         console.log('Auto-selected repository items:', selectedItems.value);
       } else if (['web', 'wikipedia', 'youtube', 's3', 'gcs', 'azure_blob', 'onedrive', 'sharepoint', 'box', 'google_drive'].includes(props.configuredDataSource)) {
         console.log('Web source displayFiles changed:', newFiles.length, 'items');
@@ -1145,6 +1284,12 @@ export default defineComponent({
       successMessage,
       error,
       skipGraph,
+      enableSync,  // was never returned, so the "Enable auto change sync" checkbox did nothing
+      coverageLabel,
+      coverageTooltip,
+      coverageFor,
+      coveredRowCount,
+      showCoverage,
       repositoryItemsHidden,
       sourcesReconfiguredFlag,
       tableHeaders,

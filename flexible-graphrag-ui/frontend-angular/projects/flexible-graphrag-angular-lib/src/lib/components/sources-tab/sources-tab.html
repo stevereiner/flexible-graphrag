@@ -5,23 +5,23 @@
   <mat-form-field appearance="outline" class="data-source-select">
     <mat-label>Data Source</mat-label>
     <mat-select [(value)]="dataSource" (selectionChange)="onDataSourceChange()" panelClass="compact-dropdown">
-      <mat-option value="upload">File Upload</mat-option>
-      <mat-option value="alfresco">Alfresco Repository</mat-option>
-      <mat-option value="nuxeo">Nuxeo Repository</mat-option>
-      <mat-option value="cmis">CMIS Repository</mat-option>
+      <mat-option value="upload" *ngIf="isSourceEnabled('upload')">File Upload</mat-option>
+      <mat-option value="alfresco" *ngIf="isSourceEnabled('alfresco')">Alfresco Repository</mat-option>
+      <mat-option value="nuxeo" *ngIf="isSourceEnabled('nuxeo')">Nuxeo Repository</mat-option>
+      <mat-option value="cmis" *ngIf="isSourceEnabled('cmis')">CMIS Repository</mat-option>
       <mat-option disabled>─── Web ───</mat-option>
-      <mat-option value="web">Web Page</mat-option>
-      <mat-option value="wikipedia">Wikipedia</mat-option>
-      <mat-option value="youtube">YouTube</mat-option>
+      <mat-option value="web" *ngIf="isSourceEnabled('web')">Web Page</mat-option>
+      <mat-option value="wikipedia" *ngIf="isSourceEnabled('wikipedia')">Wikipedia</mat-option>
+      <mat-option value="youtube" *ngIf="isSourceEnabled('youtube')">YouTube</mat-option>
       <mat-option disabled>─── Cloud ───</mat-option>
-      <mat-option value="google_drive">Google Drive</mat-option>
-      <mat-option value="onedrive">Microsoft OneDrive</mat-option>
-      <mat-option value="s3">Amazon S3</mat-option>
-      <mat-option value="azure_blob">Azure Blob Storage</mat-option>
-      <mat-option value="gcs">Google Cloud Storage</mat-option>
+      <mat-option value="google_drive" *ngIf="isSourceEnabled('google_drive')">Google Drive</mat-option>
+      <mat-option value="onedrive" *ngIf="isSourceEnabled('onedrive')">Microsoft OneDrive</mat-option>
+      <mat-option value="s3" *ngIf="isSourceEnabled('s3')">Amazon S3</mat-option>
+      <mat-option value="azure_blob" *ngIf="isSourceEnabled('azure_blob')">Azure Blob Storage</mat-option>
+      <mat-option value="gcs" *ngIf="isSourceEnabled('gcs')">Google Cloud Storage</mat-option>
       <mat-option disabled>─── Enterprise ───</mat-option>
-      <mat-option value="box">Box</mat-option>
-      <mat-option value="sharepoint">SharePoint</mat-option>
+      <mat-option value="box" *ngIf="isSourceEnabled('box')">Box</mat-option>
+      <mat-option value="sharepoint" *ngIf="isSourceEnabled('sharepoint')">SharePoint</mat-option>
     </mat-select>
   </mat-form-field>
 

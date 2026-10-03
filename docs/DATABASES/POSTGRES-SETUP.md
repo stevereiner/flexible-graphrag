@@ -100,6 +100,8 @@ CREATE TABLE datasource_config (
     config_id TEXT PRIMARY KEY,
     source_type TEXT,
     connection_params JSONB,
+    is_active BOOLEAN,   -- monitor this source now
+    auto_sync BOOLEAN,   -- FALSE: recorded by an ingest without auto change sync (v0.8.2+)
     ...
 );
 
@@ -216,12 +218,14 @@ effective_cache_size = 12GB
 
 The incremental updates system tracks document changes and synchronization status across multiple data sources, enabling automatic re-ingestion when content changes.
 
+Since v0.8.2 it also records ingests made **without** auto change sync (default and Langflow pipelines), so the Processing tab can show which rows are already in the stores and a repeat ingest replaces the earlier copy instead of duplicating it. See [Ingests Without Auto Sync Are Recorded Too](../DATA-SOURCES/INCREMENTAL-UPDATE-AUTO-SYNC/README.md#ingests-without-auto-sync-are-recorded-too) for the per-pipeline requirements. The `auto_sync` column is added to an existing `datasource_config` table automatically when the backend starts.
+
 ### Architecture
 
 ```
 PostgreSQL (flexible_graphrag_incremental database)
-├── datasource_config     → Configuration for each monitored source
-└── document_state        → Per-document processing state
+├── datasource_config     → One row per source: auto syncs, and ingests without sync (auto_sync = false)
+└── document_state        → Per-document processing state, for both
 ```
 
 ### Configuration

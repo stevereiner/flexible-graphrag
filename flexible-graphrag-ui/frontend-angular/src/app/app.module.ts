@@ -29,29 +29,9 @@ import { AppComponent } from './app.component';
 import { ProcessFolderComponent } from './components/process-folder/process-folder.component';
 import { QueryFormComponent } from './components/query-form/query-form.component';
 import { EnvService } from './services/env.service';
-import { SourcesTabComponent } from './components/sources-tab/sources-tab';
-import { ProcessingTabComponent } from './components/processing-tab/processing-tab';
-import { SearchTabComponent } from './components/search-tab/search-tab';
-import { ChatTabComponent } from './components/chat-tab/chat-tab';
+import { FlexibleGraphragUiModule } from '@flexible-graphrag/angular-ui';
+import { environment } from '../environments/environment';
 
-// Import all source form components
-import { 
-  BaseSourceFormComponent,
-  FileUploadFormComponent,
-  WebSourceFormComponent,
-  WikipediaSourceFormComponent,
-  YouTubeSourceFormComponent,
-  CMISSourceFormComponent,
-  AlfrescoSourceFormComponent,
-  NuxeoSourceFormComponent,
-  S3SourceFormComponent,
-  GCSSourceFormComponent,
-  AzureBlobSourceFormComponent,
-  OneDriveSourceFormComponent,
-  SharePointSourceFormComponent,
-  BoxSourceFormComponent,
-  GoogleDriveSourceFormComponent
-} from './components/sources';
 
 // Factory function to initialize environment configuration
 export function initializeEnv(envService: EnvService) {
@@ -62,27 +42,7 @@ export function initializeEnv(envService: EnvService) {
   declarations: [
     AppComponent,
     ProcessFolderComponent,
-    QueryFormComponent,
-    SourcesTabComponent,
-    ProcessingTabComponent,
-    SearchTabComponent,
-    ChatTabComponent,
-    // Add all source form components
-    BaseSourceFormComponent,
-    FileUploadFormComponent,
-    WebSourceFormComponent,
-    WikipediaSourceFormComponent,
-    YouTubeSourceFormComponent,
-    CMISSourceFormComponent,
-    AlfrescoSourceFormComponent,
-    NuxeoSourceFormComponent,
-    S3SourceFormComponent,
-    GCSSourceFormComponent,
-    AzureBlobSourceFormComponent,
-    OneDriveSourceFormComponent,
-    SharePointSourceFormComponent,
-    BoxSourceFormComponent,
-    GoogleDriveSourceFormComponent
+    QueryFormComponent
   ],
   imports: [
     BrowserModule,
@@ -109,7 +69,17 @@ export function initializeEnv(envService: EnvService) {
     MatDividerModule,
     MatMenuModule,
     MatSlideToggleModule,
-    TextFieldModule
+    TextFieldModule,
+    // The four tabs and every source form now come from the shared library; the
+    // standalone app supplies its environment as that library's configuration.
+    FlexibleGraphragUiModule.forRoot({
+      apiUrl: environment.apiUrl,
+      defaultFolderPath: environment.defaultFolderPath,
+      cmisBaseUrl: environment.cmisBaseUrl,
+      alfrescoBaseUrl: environment.alfrescoBaseUrl,
+      nuxeoBaseUrl: environment.nuxeoBaseUrl,
+      nuxeoPath: environment.nuxeoPath
+    })
   ],
   providers: [
     EnvService,

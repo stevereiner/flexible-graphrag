@@ -3,9 +3,9 @@ import { FormBuilder, FormGroup, Validators } from '@angular/forms';
 import { MatSnackBar } from '@angular/material/snack-bar';
 import { finalize, switchMap, takeWhile, takeUntil } from 'rxjs/operators';
 import { Subject, interval } from 'rxjs';
-import { ApiService } from '../../services/api.service';
+import { ApiService } from '@flexible-graphrag/angular-ui';
 import { EnvService } from '../../services/env.service';
-import { AsyncProcessingResponse, ProcessingStatusResponse } from '../../models/api.models';
+import { AsyncProcessingResponse, ProcessingStatusResponse } from '@flexible-graphrag/angular-ui';
 import { environment } from '../../../environments/environment';
 
 @Component({

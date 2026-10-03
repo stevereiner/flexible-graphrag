@@ -1,6 +1,6 @@
 [project]
 name = "flexible-graphrag"
-version = "0.8.1"
+version = "0.8.2"
 description = "Open source AI context platform: document processing, knowledge graph auto-building, ontologies, GraphRAG/RAG, hybrid search (vector, property graph, RDF/SPARQL, fulltext), 13 LLM providers, 15 property graph DBs, 4 RDF triple stores, 10 vector DBs, LlamaIndex + LangChain, FastAPI, MCP server"
 readme = "README.md"
 requires-python = ">=3.12,<3.15"
@@ -73,7 +73,7 @@ dependencies = [
     "truststore",            # verify TLS against the OS cert store (AV/proxy re-signing)
     "wikipedia",
     "cmislib",
-    "python-alfresco-api>=1.2.1",
+    "python-alfresco-api>=1.2.2",
     # Nuxeo REST client (basic/oauth2/token) for the Nuxeo data source.
     #
     # NOT nuxeo[oauth2].  That extra is `authlib` + `jwt`, and the `jwt` there is

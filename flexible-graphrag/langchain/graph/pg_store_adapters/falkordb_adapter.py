@@ -90,43 +90,56 @@ class FalkorDBAdapter:
         return self.lc_graph
 
     def add_graph_documents(self, graph_documents, include_source: bool = False, **kwargs) -> None:
-        """Write graph documents to FalkorDB, inlining properties as literals.
+        """Write graph documents to FalkorDB, one scalar parameter per property.
 
         FalkorDB's ``add_graph_documents`` uses ``SET n += $properties`` with a
         dict parameter, which FalkorDB cannot serialize when the dict is non-empty.
-        This override writes each property as ``n.key = 'value'`` directly in the
-        Cypher string, avoiding the parameterized-dict limitation.
-        """
-        def _escape(v: str) -> str:
-            return str(v).replace("'", "\\'").replace("\\", "\\\\")
+        This override sets each property separately as ``n.`key` = $p0`` with its
+        own scalar parameter, which FalkorDB does accept.
 
-        def _props_clause(prefix: str, props: dict) -> str:
-            if not props:
-                return ""
-            pairs = ", ".join(
-                f"{prefix}.`{k}` = '{_escape(v)}'" for k, v in props.items()
-                if v is not None
-            )
-            return f"SET {pairs} " if pairs else ""
+        Node ids, types and properties are LLM-extracted from document content, so
+        they are untrusted: values only ever travel as parameters, never inside the
+        query text, and the labels / relationship types / property keys that Cypher
+        cannot parameterize are reduced to a backtick-free identifier
+        (GHSA-vqrg-773h-4wxc).
+        """
+        def _ident(name: Any, fallback: str) -> str:
+            # A backtick is the only character that can end a `quoted` identifier.
+            cleaned = str(name).replace("`", "").strip()
+            return cleaned or fallback
+
+        def _props_clause(prefix: str, props: dict, params: Dict[str, Any]) -> str:
+            pairs = []
+            for k, v in (props or {}).items():
+                if v is None:
+                    continue
+                key = f"{prefix}{len(params)}"
+                params[key] = str(v)
+                pairs.append(f"{prefix}.`{_ident(k, 'property')}` = ${key}")
+            return f"SET {', '.join(pairs)} " if pairs else ""
 
         for document in graph_documents:
             for node in document.nodes:
-                props = _props_clause("n", node.properties or {})
+                params: Dict[str, Any] = {"id": str(node.id)}
+                props = _props_clause("n", node.properties, params)
                 self.lc_graph.query(
-                    f"MERGE (n:`{node.type}` {{id: '{_escape(node.id)}'}}) "
+                    f"MERGE (n:`{_ident(node.type, 'Entity')}` {{id: $id}}) "
                     f"{props}"
-                    f"RETURN distinct 'done' AS result"
+                    f"RETURN distinct 'done' AS result",
+                    params=params,
                 )
 
             for rel in document.relationships:
-                rel_type = rel.type.replace(" ", "_").upper()
-                props = _props_clause("r", rel.properties or {})
+                rel_type = _ident(rel.type.replace(" ", "_").upper(), "RELATED_TO")
+                params = {"src": str(rel.source.id), "tgt": str(rel.target.id)}
+                props = _props_clause("r", rel.properties, params)
                 self.lc_graph.query(
-                    f"MATCH (a:`{rel.source.type}` {{id: '{_escape(rel.source.id)}'}}), "
-                    f"(b:`{rel.target.type}` {{id: '{_escape(rel.target.id)}'}}) "
+                    f"MATCH (a:`{_ident(rel.source.type, 'Entity')}` {{id: $src}}), "
+                    f"(b:`{_ident(rel.target.type, 'Entity')}` {{id: $tgt}}) "
                     f"MERGE (a)-[r:`{rel_type}`]->(b) "
                     f"{props}"
-                    f"RETURN distinct 'done' AS result"
+                    f"RETURN distinct 'done' AS result",
+                    params=params,
                 )
 
     def normalize_entity_names(self) -> None:

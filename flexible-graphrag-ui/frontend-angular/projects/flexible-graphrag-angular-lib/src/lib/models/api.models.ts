@@ -84,6 +84,41 @@ export interface AsyncProcessingResponse {
   error?: string;
 }
 
+// POST /api/sync/coverage: which auto-sync datasources already cover a repository selection
+export interface SyncCoverageRequest {
+  data_source: 'alfresco' | 'nuxeo';
+  url?: string;
+  recursive: boolean;
+  items: Array<{ path: string; id?: string; is_folder: boolean }>;
+}
+
+export interface SyncCoverageMatch {
+  config_id: string;
+  source_name: string;
+  root: string;
+  recursive: boolean;
+  skip_graph: boolean;
+  relation: 'same' | 'inside' | 'contains' | 'indexed';
+  status: 'synced' | 'partial' | 'overlaps';
+  auto_sync: boolean;  // false: ingested without auto change sync
+}
+
+export interface SyncCoverageItem {
+  id?: string;
+  path: string;
+  is_folder: boolean;
+  // synced: an auto-sync datasource already covers it. partial: same folder, synced without
+  // subfolders. overlaps: a folder that contains something already synced.
+  status: 'synced' | 'partial' | 'overlaps' | 'none';
+  datasources: SyncCoverageMatch[];
+  indexed: { vector: boolean; search: boolean; graph: boolean } | null;
+}
+
+export interface SyncCoverageResponse {
+  enabled: boolean;  // false when incremental sync is off on the backend
+  items: SyncCoverageItem[];
+}
+
 // Processing status check response
 export interface ProcessingStatusResponse {
   processing_id: string;

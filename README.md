@@ -7,10 +7,12 @@
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-green.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Python](https://img.shields.io/badge/python-3.12%20%7C%203.13%20%7C%203.14-blue)](https://www.python.org/)
 [![React](https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=white)](https://react.dev/)
-[![Angular](https://img.shields.io/badge/Angular-19-DD0031?logo=angular&logoColor=white)](https://angular.dev/)
+[![Angular](https://img.shields.io/badge/Angular-20-DD0031?logo=angular&logoColor=white)](https://angular.dev/)
 [![Vue](https://img.shields.io/badge/Vue-3-4FC08D?logo=vue.js&logoColor=white)](https://vuejs.org/)
+[![Docker Hub](https://img.shields.io/badge/Docker%20Hub-integratedsemantics-2496ED?logo=docker&logoColor=white)](https://hub.docker.com/u/integratedsemantics)
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/stevereiner/flexible-graphrag)
-[![Docs](https://img.shields.io/badge/docs-GitHub%20Pages-blue)](https://stevereiner.github.io/flexible-graphrag/)
+[![Documentation](https://img.shields.io/badge/Documentation-GitHub%20Pages-blue)](https://stevereiner.github.io/flexible-graphrag/)
+[![Blog](https://img.shields.io/badge/Blog-integratedsemantics.org-orange)](https://integratedsemantics.org)
 
 <p align="center">
   <a href="./screen-shots/langflow/langflow-sharepoint-graphdb-neo4j.png">
@@ -29,6 +31,8 @@
 <p align="center"><em>Can use 1 of 3 ingest pipelines with same configured data sources and database targets, with same UI and same REST / MCP APIs</em></p>
 
 **Flexible GraphRAG** is an open source AI context platform supporting a document processing pipeline (Docling, LlamaParse, or LiteParse), knowledge graph auto-building, ontologies, schemas, many LLM providers, GraphRAG and RAG, hybrid semantic search (fulltext, vector, property graph, RDF/SPARQL), AI query, and AI chat. The backend is **Python** with **LlamaIndex** and **LangChain** as peer frameworks. **LlamaIndex** is the default for each pipeline stage; **LangChain** can be selected per stage in environment configuration. The API is a REST **FastAPI** service. **Angular**, **React**, and **Vue** TypeScript frontends and an **MCP** server are included. The stack supports 14 data sources (10 with incremental auto-sync), 15 property graph databases, 4 RDF triple stores (Apache Jena Fuseki, Ontotext GraphDB, Oxigraph, Amazon Neptune RDF), 10 vector databases, OpenSearch / Elasticsearch / BM25 search, Alfresco, and Nuxeo. Databases and dashboards can be enabled with the provided Docker Compose layout. Optionally, the ingest pipeline, hybrid search, and AI query can run through customizable **Langflow** visual flows (12 custom Langflow components). As a further option, ingest can run on a **CocoIndex** (Rust engine) pipeline that reuses the same sources, targets, parsers and KG extractors, adding step-level memoization and automatic delete reconciliation.  
+
+**New 10/2/26 — v0.8.2 release:** The Flexible GraphRAG Angular frontend's tab components are now a shared library project, published on npm as [`@flexible-graphrag/angular-ui`](https://www.npmjs.com/package/@flexible-graphrag/angular-ui), and also used by the new [KG Spaces for Alfresco Content App](https://github.com/stevereiner/kg-spaces-aca) (kg-spaces-aca), redone as a real Apache 2.0 ACA extension. Besides using multi-select of Alfresco files and folders (any mix) from ACA's regular file list views, wherever they are, it now has the data sources tab (renamed there **OTHER SOURCES**) for choosing additional data sources supported by Flexible GraphRAG. AI context can be kept up to date with **auto change sync** from Alfresco, Nuxeo, SharePoint, Box, Amazon S3, Azure Blob Storage, Google Cloud Storage, Google Drive and OneDrive, and ingested without auto sync from File Upload, CMIS, Web Pages, Wikipedia and YouTube.
 
 **New 8/18/26 — v0.8.0 release:** Optional **CocoIndex integration** — Rust-backed [CocoIndex](https://github.com/cocoindex-io/cocoindex) pipeline mixed with Flexible GraphRAG sources (incl. detectors), functions, and targets (more PG/vector/RDF/search); same UI/REST/MCP. Standalone `app.py` also supported. Now with **custom KG extractors** (bring your own, or fall back to the built-in one per document) and **entity resolution**. New **meeting-notes example** ([`examples/cocoindex/meeting_notes_graph_any/`](examples/cocoindex/meeting_notes_graph_any/README.md)) — a CocoIndex example ported to run against any configured graph store and source. See [CocoIndex Integration](#cocoindex-integration).
 

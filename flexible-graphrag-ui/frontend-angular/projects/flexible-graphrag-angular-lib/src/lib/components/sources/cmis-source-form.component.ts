@@ -1,5 +1,5 @@
-import { Component, Input, Output, EventEmitter, OnInit, OnDestroy } from '@angular/core';
-import { environment } from '../../../environments/environment';
+import { Component, Input, Output, EventEmitter, OnInit, OnDestroy, inject } from '@angular/core';
+import { FlexibleGraphragConfigService } from '../../config.service';
 
 export interface CMISSourceConfig {
   url: string;
@@ -73,6 +73,7 @@ export interface CMISSourceConfig {
   standalone: false
 })
 export class CMISSourceFormComponent implements OnInit, OnDestroy {
+  private readonly fgConfig = inject(FlexibleGraphragConfigService);
   @Input() url: string = '';
   @Input() username: string = 'admin';
   @Input() password: string = 'admin';
@@ -86,7 +87,7 @@ export class CMISSourceFormComponent implements OnInit, OnDestroy {
   @Output() validationChange = new EventEmitter<boolean>();
 
   get placeholder(): string {
-    const baseUrl = environment.cmisBaseUrl || 'http://localhost:8080';
+    const baseUrl = this.fgConfig.cmisBaseUrl;
     return `e.g., ${baseUrl}/alfresco/api/-default-/public/cmis/versions/1.1/atom`;
   }
 

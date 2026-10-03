@@ -1,5 +1,5 @@
-import { Component, EventEmitter, Output } from '@angular/core';
-import { environment } from '../../../environments/environment';
+import { Component, EventEmitter, Output, inject, OnInit } from '@angular/core';
+import { FlexibleGraphragConfigService } from '../../config.service';
 
 @Component({
   selector: 'app-sources-tab',
@@ -7,19 +7,50 @@ import { environment } from '../../../environments/environment';
   styleUrls: ['./sources-tab.scss'],
   standalone: false
 })
-export class SourcesTabComponent {
+export class SourcesTabComponent implements OnInit {
+  private readonly fgConfig = inject(FlexibleGraphragConfigService);
   @Output() configureProcessing = new EventEmitter<void>();
   @Output() sourcesConfigured = new EventEmitter<any>();
 
   // State
   dataSource = 'upload';
+
+  /**
+   * All selectable sources, in picker order. Used to fall back sensibly when the host has
+   * narrowed the list and the current selection is not in it.
+   */
+  private static readonly ALL_SOURCES = [
+    'upload', 'alfresco', 'nuxeo', 'cmis', 'web', 'wikipedia', 'youtube',
+    'google_drive', 'onedrive', 's3', 'azure_blob', 'gcs', 'box', 'sharepoint'
+  ];
+
+  /**
+   * Whether the host offers this data source. A host that knows its own repository can hide
+   * the corresponding form -- an ACA extension hides Alfresco, because ACA's own document
+   * list is the picker there and, unlike this tab's single path field, it can express a
+   * multi-select that mixes files and folders.
+   */
+  ngOnInit(): void {
+    if (!this.isSourceEnabled(this.dataSource)) {
+      const first = SourcesTabComponent.ALL_SOURCES.find((s) => this.isSourceEnabled(s));
+      if (first) {
+        this.dataSource = first;
+        this.onDataSourceChange();
+      }
+    }
+  }
+
+  isSourceEnabled(id: string): boolean {
+    const enabled = this.fgConfig.enabledSources;
+    return !enabled || enabled.includes(id);
+  }
   folderPath = '/Shared/GraphRAG';
   selectedFiles: File[] = [];
   isFormValid = false;
   currentConfig: any = {};
 
   // CMIS state
-  cmisUrl = `${environment.cmisBaseUrl || 'http://localhost:8080'}/alfresco/api/-default-/public/cmis/versions/1.1/atom`;
+  cmisUrl = `${this.fgConfig.cmisBaseUrl}/alfresco/api/-default-/public/cmis/versions/1.1/atom`;
   cmisUsername = 'admin';
   cmisPassword = 'admin';
 
@@ -60,7 +91,7 @@ export class SourcesTabComponent {
 
   // Computed properties
   get cmisPlaceholder(): string {
-    const baseUrl = environment.cmisBaseUrl || 'http://localhost:8080';
+    const baseUrl = this.fgConfig.cmisBaseUrl;
     return `e.g., ${baseUrl}/alfresco/api/-default-/public/cmis/versions/1.1/atom`;
   }
 

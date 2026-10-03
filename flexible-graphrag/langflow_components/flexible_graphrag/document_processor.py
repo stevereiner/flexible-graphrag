@@ -39,6 +39,16 @@ class FlexibleDocProcessorComponent(Component):
         from ingest.ingest_from_source import _assign_stable_doc_ids
         _assign_stable_doc_ids(documents, config_id)
 
+    @classmethod
+    async def _assign_ids_and_replace(cls, run, documents) -> None:
+        """Stable ids, then delete the stored copy of any document an earlier ingest of this
+        source already put in the stores (the backend sends those ids as replace_doc_ids), so
+        a repeat ingest refreshes instead of adding duplicate chunks/entities/triples."""
+        cls._assign_stable_ids(run, documents)
+        if run.get("config_id") and run.get("replace_doc_ids") and documents:
+            from ingest.replace_existing import delete_previous_versions
+            await delete_previous_versions(run["system"], documents, run["replace_doc_ids"])
+
     @staticmethod
     def _doc_states(run, documents):
         """Compact per-doc {id_, text, metadata} list so the backend can create document_state
@@ -60,7 +70,7 @@ class FlexibleDocProcessorComponent(Component):
         # (the source layer runs the DocumentProcessor internally) — pass through.
         existing = run.get("documents")
         if existing:
-            self._assign_stable_ids(run, existing)
+            await self._assign_ids_and_replace(run, existing)
             self.status = f"Documents already parsed by source ({len(existing)}); passing through."
             return make_payload(run["_key"], "documents", num_documents=len(existing),
                                 doc_states=self._doc_states(run, existing))
@@ -78,7 +88,7 @@ class FlexibleDocProcessorComponent(Component):
             system._last_ingested_documents = []
         system._last_ingested_documents.extend(documents)
 
-        self._assign_stable_ids(run, documents)
+        await self._assign_ids_and_replace(run, documents)
         run["documents"] = documents
         self.status = f"Processed {len(documents)} document(s) from {len(file_paths)} file(s)."
         return make_payload(run["_key"], "documents", num_documents=len(documents),

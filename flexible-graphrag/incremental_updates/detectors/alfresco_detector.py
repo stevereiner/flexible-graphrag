@@ -276,6 +276,9 @@ class AlfrescoDetector(ChangeDetector):
         self.auth_method = (config.get('auth_method') or 'basic').lower()  # basic | ticket | oauth2
         self.username = config.get('username')
         self.password = config.get('password')
+        # A login ticket the caller already holds; with auth_method='ticket' it replaces
+        # username/password entirely (see sources.alfresco_auth).
+        self.ticket = config.get('ticket') or ''
         self.oauth2 = config.get('oauth2') or {}
         # ActiveMQ broker credentials for the STOMP event connection. These are the BROKER's
         # credentials (default admin/admin), NOT the Alfresco data-source user — so real-time event
@@ -328,7 +331,9 @@ class AlfrescoDetector(ChangeDetector):
                 raise ValueError("AlfrescoDetector oauth2 auth requires oauth2.client_id")
             if not (self.oauth2.get("client_secret") or self.oauth2.get("access_token")):
                 raise ValueError("AlfrescoDetector oauth2 auth requires oauth2.client_secret or access_token")
-        else:  # basic | ticket
+        elif self.auth_method == "ticket" and self.ticket:
+            pass  # pass-through ticket: the ticket is the whole credential
+        else:  # basic, or ticket acquired from username/password
             if not self.username:
                 raise ValueError("AlfrescoDetector requires 'username' in config")
             if not self.password:
@@ -1115,24 +1120,15 @@ class AlfrescoDetector(ChangeDetector):
     
     def _build_auth_util(self, api_base_url):
         """Build a python-alfresco-api auth util for the configured auth_method (None for basic)."""
-        if self.auth_method == "ticket":
-            from python_alfresco_api.auth_util import TicketAuthUtil
-            return TicketAuthUtil(self.username, self.password, base_url=api_base_url)
-        if self.auth_method == "oauth2":
-            from python_alfresco_api.auth_util import OAuth2AuthUtil
-            o = self.oauth2 or {}
-            return OAuth2AuthUtil(
-                base_url=api_base_url,
-                client_id=o.get("client_id", ""),
-                client_secret=o.get("client_secret"),
-                token_endpoint=o.get("token_endpoint"),
-                grant_type=o.get("grant_type") or "client_credentials",
-                scope=o.get("scope"),
-                access_token=o.get("access_token"),
-                refresh_token=o.get("refresh_token"),
-                load_env=False,
-            )
-        return None  # basic
+        from sources.alfresco_auth import build_alfresco_auth_util
+        return build_alfresco_auth_util(
+            api_base_url,
+            self.auth_method,
+            username=self.username,
+            password=self.password,
+            ticket=self.ticket,
+            oauth2=self.oauth2,
+        )
 
     async def _verify_connection(self) -> None:
         """Verify connection to Alfresco server"""
@@ -1172,25 +1168,11 @@ class AlfrescoDetector(ChangeDetector):
             
             logger.info(f"Successfully connected to Alfresco at {self.url}")
             
-        except ImportError:
-            logger.warning("python-alfresco-api not installed, will use CMIS fallback")
-            # Try CMIS as fallback
-            try:
-                from cmislib import CmisClient
-                import os
-                
-                cmis_url = os.getenv("CMIS_URL", f"{self.url.rstrip('/')}/api/-default-/public/cmis/versions/1.1/atom")
-                loop = asyncio.get_event_loop()
-                cmis_client = await loop.run_in_executor(
-                    None,
-                    lambda: CmisClient(cmis_url, self.username, self.password)
-                )
-                repo = cmis_client.defaultRepository
-                
-                logger.info(f"Successfully connected to Alfresco via CMIS at {cmis_url}")
-            except Exception as e:
-                raise ConnectionError(f"Failed to connect to Alfresco: {e}")
-        
+        except ImportError as e:
+            raise ConnectionError(
+                f"python-alfresco-api is required for the Alfresco data source: {e}"
+            )
+
         except Exception as e:
             raise ConnectionError(f"Failed to connect to Alfresco at {self.url}: {e}")
         
@@ -1292,6 +1274,7 @@ class AlfrescoDetector(ChangeDetector):
             'auth_method': self.auth_method,
             'username': self.username,
             'password': self.password,
+            'ticket': self.ticket,
             'oauth2': self.oauth2,
             'path': self.path,
             'nodeIds': self.node_ids,
@@ -1317,7 +1300,7 @@ class AlfrescoDetector(ChangeDetector):
                 'content_type': file_info.get('content_type', ''),
             }
             
-            # Try to get modification time and size from alfresco_object or cmis_object
+            # Try to get modification time and size from the Alfresco REST response
             if file_info.get('alfresco_object'):
                 # From Alfresco REST API response
                 obj = file_info['alfresco_object']
@@ -1332,12 +1315,6 @@ class AlfrescoDetector(ChangeDetector):
                     metadata['modified'] = entry.get('modifiedAt', '')
                     if 'content' in entry:
                         metadata['size'] = entry['content'].get('sizeInBytes', 0)
-            
-            elif file_info.get('cmis_object'):
-                # From CMIS
-                cmis_obj = file_info['cmis_object']
-                metadata['modified'] = cmis_obj.properties.get('cmis:lastModificationDate', '')
-                metadata['size'] = cmis_obj.properties.get('cmis:contentStreamLength', 0)
             
             current_state[node_id] = metadata
         
@@ -1521,6 +1498,7 @@ class AlfrescoDetector(ChangeDetector):
                 'auth_method': self.auth_method,
                 'username': self.username,
                 'password': self.password,
+                'ticket': self.ticket,
                 'oauth2': self.oauth2,
                 'path': self.path,
                 'nodeDetails': node_details,  # Use existing nodeDetails mode

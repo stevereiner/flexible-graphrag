@@ -209,6 +209,8 @@ class FlexibleDataSourceComponent(Component):
         config_path = rc.get("config_path") or self.config_path
         skip_graph = bool(rc.get("skip_graph"))
         config_id = rc.get("config_id")  # stable doc_id prefix for incremental sync (app mode)
+        # doc_ids an earlier ingest of this source stored; replaced, not duplicated (app mode)
+        replace_doc_ids = rc.get("replace_doc_ids") or []
 
         cfg = rc.get("source_config")
         if cfg is None:
@@ -224,7 +226,8 @@ class FlexibleDataSourceComponent(Component):
         if source_type == "filesystem":
             # Filesystem: produce file paths; the Document Processor node parses them.
             file_paths = self._resolve_paths(cfg)
-            run_key = start_run(system, file_paths=file_paths, skip_graph=skip_graph, config_id=config_id)
+            run_key = start_run(system, file_paths=file_paths, skip_graph=skip_graph, config_id=config_id,
+                            replace_doc_ids=replace_doc_ids)
             self.status = f"Source ready (filesystem): {len(file_paths)} file(s)."
             return make_payload(run_key, "source", num_files=len(file_paths))
 
@@ -239,6 +242,7 @@ class FlexibleDataSourceComponent(Component):
             system._last_ingested_documents = []
         system._last_ingested_documents.extend(documents)
 
-        run_key = start_run(system, documents=documents, skip_graph=skip_graph, config_id=config_id)
+        run_key = start_run(system, documents=documents, skip_graph=skip_graph, config_id=config_id,
+                            replace_doc_ids=replace_doc_ids)
         self.status = f"Source ready ({source_type}): {len(documents)} document(s)."
         return make_payload(run_key, "source", num_documents=len(documents))

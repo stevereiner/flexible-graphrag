@@ -75,6 +75,21 @@ def _to_datetime(value: _Union[str, int, float, _datetime, None]) -> _datetime:
     return _datetime.fromtimestamp(0, tz=_timezone.utc).replace(tzinfo=None)
 
 
+def _iso_modified(value: _Union[str, int, float, _datetime, None]) -> str:
+    """A listing modified-time as ISO-8601 ("" when absent). A string that does not parse
+    as a date is kept as-is rather than dropped."""
+    if value is None or value == "":
+        return ""
+    if isinstance(value, _datetime):
+        return value.isoformat()
+    if isinstance(value, (int, float)):
+        return _to_datetime(value).isoformat()
+    try:
+        return _datetime.fromisoformat(str(value).replace("Z", "+00:00")).isoformat()
+    except ValueError:
+        return str(value)
+
+
 class FlexibleFilePath(_file.FilePath[str]):
     """A :class:`FilePath` whose resolved value is the source's stable key.
 
@@ -158,8 +173,11 @@ class FlexibleFile(_file.FileLike[str]):
         self._display_path = display_path or key
         self._file_type = file_type
         self._source_type = source_type
-        # Keep the raw listing modified value as a string for provenance.
-        self._modified_at = "" if modified is None else str(modified)
+        # Keep the listing's modified value, as ISO-8601. str(datetime) gives
+        # "2026-09-30 22:18:43.533000+00:00" (space, not "T"), which an Elasticsearch /
+        # OpenSearch index mapped by the default pipeline -- whose modified_at IS ISO --
+        # rejects as a strict date, failing the whole batch.
+        self._modified_at = _iso_modified(modified)
 
     @property
     def reader_metadata(self) -> dict:

@@ -870,6 +870,9 @@ class AlfrescoConfig(BaseModel):
     auth_method: Optional[str] = "basic"  # basic | ticket | oauth2
     username: Optional[str] = None
     password: Optional[str] = None
+    # A login ticket the caller already holds (for auth_method="ticket"). Supplied instead of
+    # username/password -- e.g. an ADF front end passing on the ticket it got at login.
+    ticket: Optional[str] = None
     oauth2: Optional[AlfrescoOAuth2Config] = None  # for auth_method="oauth2"
     path: str
     nodeIds: Optional[List[str]] = None  # Array of node IDs (UUIDs from REST API) for multi-select
@@ -1101,6 +1104,22 @@ def _build_ingest_kwargs(request) -> dict:
     return kwargs
 
 
+def _selected_node_ids(repo_config) -> List[str]:
+    """Sorted node ids of a multi-select, or [] for a plain folder path.
+
+    A multi-select arrives with ``path`` set to the selection's common parent, so url + path
+    alone would give "files A and B" and later "file C" in the same folder one config_id --
+    and the ON CONFLICT upsert would then replace the first selection's nodeDetails, silently
+    dropping A and B from sync. A whole-folder sync of that parent would collide the same way.
+    """
+    ids = set(getattr(repo_config, "nodeIds", None) or [])
+    for nd in getattr(repo_config, "nodeDetails", None) or []:
+        nd_id = nd.get("id") if isinstance(nd, dict) else getattr(nd, "id", None)
+        if nd_id:
+            ids.add(nd_id)
+    return ["nodes:" + ",".join(sorted(ids))] if ids else []
+
+
 def _resolve_config_id(data_source: str, request, paths: Optional[List[str]]) -> str:
     """Return a stable uuid5 config_id derived from the datasource identity.
 
@@ -1112,10 +1131,17 @@ def _resolve_config_id(data_source: str, request, paths: Optional[List[str]]) ->
     parts = [data_source]
     if data_source == "alfresco" and request.alfresco_config:
         ac = request.alfresco_config
-        parts += [ac.url or "", ac.username or "", ac.path or ""]
+        # Deliberately NOT keyed on username. A synced folder is one datasource_config
+        # regardless of who set it up: sync runs as a service identity, and who may read a
+        # result is a query-time decision. Keying on the user would give the same repo+path a
+        # different config_id per caller, so the same documents would be ingested repeatedly
+        # under different ref_doc_ids.
+        parts += [ac.url or "", ac.path or ""]
+        parts += _selected_node_ids(ac)
     elif data_source == "nuxeo" and request.nuxeo_config:
         nc = request.nuxeo_config
         parts += [nc.url or "", nc.username or "", nc.path or ""]
+        parts += _selected_node_ids(nc)
     elif data_source == "filesystem":
         parts += sorted(paths or [])
     elif data_source == "s3" and request.s3_config:
@@ -1251,6 +1277,39 @@ def _build_sync_connection_params(
 
     elif data_source == "alfresco" and request.alfresco_config:
         connection_params = request.alfresco_config.dict(exclude_none=True)
+        # A pass-through login ticket must never become the stored sync credential. This row is
+        # durable and re-read on every future sync, but an Alfresco ticket expires and cannot be
+        # renewed from itself -- persisting one writes a config that looks fine and is already
+        # dead. Sync needs a durable credential (a service account), and per-user access is a
+        # query-time concern, not an ingest-time one.
+        if connection_params.pop('ticket', None):
+            if connection_params.get('username') and connection_params.get('password'):
+                logger.warning(
+                    "Alfresco sync: dropped the pass-through ticket from the stored connection "
+                    "params; sync will use the supplied username/password instead."
+                )
+            else:
+                # A caller holding only a ticket (an ACA/ADF extension, say) has no durable
+                # credential to offer. Substitute the deployment's configured service account
+                # so the caller still chooses *what* to sync while FG decides *as whom*.
+                svc_user = os.getenv("ALFRESCO_SYNC_USERNAME") or os.getenv("ALFRESCO_USERNAME")
+                svc_pass = os.getenv("ALFRESCO_SYNC_PASSWORD") or os.getenv("ALFRESCO_PASSWORD")
+                if not (svc_user and svc_pass):
+                    raise ValueError(
+                        "Alfresco sync cannot be enabled with only a login ticket: a ticket "
+                        "expires and cannot be renewed. Configure a service account via "
+                        "ALFRESCO_SYNC_USERNAME/ALFRESCO_SYNC_PASSWORD (or "
+                        "ALFRESCO_USERNAME/ALFRESCO_PASSWORD), supply a username and password "
+                        "in the request, or ingest without enable_sync."
+                    )
+                connection_params['username'] = svc_user
+                connection_params['password'] = svc_pass
+                # auth_method stays "ticket": with a username/password it becomes acquire mode,
+                # so the stored credential still is not resent on every request.
+                logger.info(
+                    "Alfresco sync: caller supplied only a ticket; storing the configured "
+                    "service account (%s) as the sync credential instead.", svc_user
+                )
         source_path = connection_params.get('path', '/unknown')
         if 'stomp_port' not in connection_params:
             stomp_port = os.getenv("ALFRESCO_STOMP_PORT")
@@ -1287,6 +1346,72 @@ def _build_sync_connection_params(
         source_path = f"sharepoint://{connection_params.get('site_name', 'unknown')}"
 
     return connection_params, source_path
+
+
+def _ingest_registry_available() -> bool:
+    """True when ingests can be recorded in datasource_config / document_state: the
+    incremental system is up (ENABLE_INCREMENTAL_UPDATES + POSTGRES_INCREMENTAL_URL, and not
+    PIPELINE_BACKEND=cocoindex, which keeps its own change tracking)."""
+    return bool(incremental_manager and incremental_manager.is_initialized())
+
+
+def _without_secrets(value: Any) -> Any:
+    """Copy of a config with credential-like keys dropped (same markers the log redaction
+    uses). An ingest-only record is never synced, so it needs no credentials -- only enough
+    to identify what was ingested."""
+    from flow_service import _SECRET_KEY_MARKERS
+    if isinstance(value, dict):
+        return {
+            k: _without_secrets(v) for k, v in value.items()
+            if str(k).lower().endswith("_path")
+            or not any(m in str(k).lower() for m in _SECRET_KEY_MARKERS)
+        }
+    if isinstance(value, list):
+        return [_without_secrets(v) for v in value]
+    return value
+
+
+def _record_ingest_only(data_source: str, request, paths: Optional[List[str]],
+                        config_id: str, processing_id: str) -> None:
+    """Record an ingest made without auto change sync: its datasource row now, its
+    document_state rows once the ingest completes (in the background -- unlike the sync path
+    there is no detector waiting on them, so the request need not)."""
+    if data_source == "filesystem":
+        params: Dict[str, Any] = {"paths": list(paths or [])}
+    else:
+        params = _without_secrets(_coco_connection_params_for_request(data_source, request))
+
+    async def _run() -> None:
+        try:
+            await incremental_manager.register_ingest_only(
+                source_type=data_source,
+                source_name=f"{data_source}_ingest",
+                connection_params=params,
+                config_id=config_id,
+                skip_graph=bool(request.skip_graph),
+            )
+            await _create_document_states_after_ingestion(
+                processing_id=processing_id,
+                config_id=config_id,
+                paths=paths or [],
+                data_source=data_source,
+                skip_graph=bool(request.skip_graph),
+            )
+            await _take_over_other_ingest_copies(config_id)
+        except Exception as e:
+            logger.warning(f"Could not record ingest {processing_id} ({data_source}, {config_id}): {e}")
+
+    asyncio.create_task(_run())
+
+
+async def _take_over_other_ingest_copies(config_id: str) -> None:
+    """Delete copies of this ingest's documents that an earlier ingest made through a
+    DIFFERENT selection (so under another config_id and doc_id): files A+B, then A alone; or
+    a file uploaded again in another batch. Runs after the new copy is in place."""
+    doc_ids = await incremental_manager.take_over_other_ingest_copies(config_id)
+    if doc_ids:
+        from ingest.replace_existing import delete_doc_ids
+        await delete_doc_ids(backend_instance.system, doc_ids)
 
 
 async def _enable_incremental_sync(
@@ -1336,6 +1461,13 @@ async def _enable_incremental_sync(
         f"SUCCESS: Enabled incremental sync for {data_source}: {config_id}, "
         f"skip_graph={request.skip_graph}"
     )
+    # Only now: the row has just become auto_sync = TRUE. Before registration a source being
+    # switched from ingest-only to sync would still look ingest-only, and would wrongly hand
+    # its documents to an overlapping sync.
+    try:
+        await _take_over_other_ingest_copies(config_id)
+    except Exception as e:
+        logger.warning(f"Could not settle duplicate copies for {config_id}: {e}")
     result['sync_enabled'] = True
     result['config_id'] = config_id
 
@@ -1909,9 +2041,13 @@ async def ingest(request: IngestRequest):
         # Build backend kwargs and stable config_id from datasource identity.
         kwargs = _build_ingest_kwargs(request)
         config_id = _resolve_config_id(data_source, request, paths)
-        if request.enable_sync:
+        # With the incremental registry available, every ingest -- not only an auto-sync one --
+        # gets stable doc_ids and is recorded, so ingesting the same source again replaces what
+        # the earlier run stored instead of adding a second copy.
+        _record_ingest = _ingest_registry_available()
+        if request.enable_sync or _record_ingest:
             kwargs['config_id'] = config_id
-            logger.info(f"Stable config_id for sync ({data_source}): {config_id}")
+            logger.info(f"Stable config_id ({data_source}, sync={bool(request.enable_sync)}): {config_id}")
 
         # ── CocoIndex pipeline routing ─────────────────────────────────────────
         _bridge_primary_ds = (
@@ -1978,6 +2114,8 @@ async def ingest(request: IngestRequest):
                 result['sync_enabled'] = False
         else:
             result['sync_enabled'] = False
+            if _record_ingest and not _used_cocoindex and result.get('processing_id'):
+                _record_ingest_only(data_source, request, paths, config_id, result['processing_id'])
 
         logger.info(f"Document ingestion started with ID: {result['processing_id']}")
         return result
@@ -2796,6 +2934,77 @@ async def list_datasources():
         logger.error(f"Error listing datasources: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+class CoverageItem(BaseModel):
+    path: str
+    id: Optional[str] = None  # repository node id; enables the exact document_state match
+    is_folder: bool = False
+
+
+class CoverageRequest(BaseModel):
+    data_source: str          # alfresco | nuxeo
+    url: Optional[str] = None  # repository url; omitted = every datasource of that type
+    recursive: bool = False   # what the pending ingest would use
+    items: List[CoverageItem]
+
+
+@app.post("/api/sync/coverage")
+async def sync_coverage(request: CoverageRequest):
+    """Which datasources already cover each selected item: active auto-syncs, and sources
+    ingested without sync (``auto_sync: false`` on the match).
+
+    One call for a whole multi-select; results come back in request order. Lets a UI flag
+    rows that are already in the stores instead of ingesting them again.
+    Answers ``enabled: false`` rather than an error when incremental sync is off, so callers
+    need no separate check.
+    """
+    from incremental_updates.coverage import (
+        PATH_SOURCES, Datasource, Item, check_coverage, normalize_url,
+    )
+
+    if request.data_source not in PATH_SOURCES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"coverage is available for {', '.join(PATH_SOURCES)}, not {request.data_source}",
+        )
+    if not incremental_manager or not incremental_manager.is_initialized():
+        return {"enabled": False, "items": []}
+
+    try:
+        await ensure_config_manager_ready()
+        url = normalize_url(request.url)
+        datasources = [
+            ds for ds in map(
+                Datasource.from_config,
+                await incremental_manager.config_manager.get_coverage_configs(),
+            )
+            if ds.source_type == request.data_source and (not url or ds.url == url)
+        ]
+
+        indexed: Dict[str, List[Dict[str, Any]]] = {}
+        file_ids = [i.id for i in request.items if i.id and not i.is_folder]
+        if datasources and file_ids:
+            async with incremental_manager.state_manager.pool.acquire() as conn:
+                rows = await conn.fetch(
+                    "SELECT source_id, config_id, vector_synced_at, search_synced_at, "
+                    "graph_synced_at FROM document_state "
+                    "WHERE source_id = ANY($1::text[]) AND config_id = ANY($2::text[])",
+                    file_ids, [ds.config_id for ds in datasources],
+                )
+            for row in rows:
+                indexed.setdefault(row["source_id"], []).append(dict(row))
+
+        items = [Item(i.path, i.is_folder, i.id) for i in request.items]
+        return {
+            "enabled": True,
+            "items": check_coverage(items, datasources, indexed, request.recursive),
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error checking sync coverage: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.post("/api/sync/sync-now/{config_id}")
 async def sync_now_single(config_id: str):
     """
@@ -3009,9 +3218,10 @@ async def enable_all_syncing():
         
         # Get all inactive configs
         async with incremental_manager.config_manager.pool.acquire() as conn:
+            # auto_sync = false rows were ingested without sync: inactive by design, not paused
             rows = await conn.fetch("""
-                SELECT config_id FROM datasource_config 
-                WHERE is_active = false
+                SELECT config_id FROM datasource_config
+                WHERE is_active = false AND auto_sync = true
             """)
         
         if not rows:

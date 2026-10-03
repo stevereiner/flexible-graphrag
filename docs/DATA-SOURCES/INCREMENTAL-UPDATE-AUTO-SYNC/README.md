@@ -131,6 +131,38 @@ The **Incremental Update Engine**:
 - `datasource_config`: Data source configurations and sync status
 - `document_state`: Per-document tracking (content hash, ordinal, source ID)
 
+## Ingests Without Auto Sync Are Recorded Too
+
+Since v0.8.2, an ingest made **without** "Enable auto change sync" is also recorded in PostgreSQL: a `datasource_config` row marked `auto_sync = false` (and `is_active = false`, so it is never monitored), plus one `document_state` row per document it stored.
+
+**Why:**
+
+- **Status on the Processing tab.** Before an ingest starts, the UI asks the backend (`POST /api/sync/coverage`) which rows are already in the stores. A row covered by an auto change sync shows **already synced**; one an earlier ingest put there shows **already ingested**. Either way it starts unchecked, and the tooltip names the datasource and which stores (vector, search, graph) hold it.
+- **A record of what is in the stores**, for every ingest rather than only the synced ones.
+- **No duplicates.** Every recorded ingest gets stable document ids (`{config_id}:{identity}`), so ingesting the same thing again lands on the same ids:
+  - the previous version is deleted from the vector, search, property-graph and RDF stores before the new one is inserted, so a repeat refreshes instead of adding a second copy;
+  - the same file reached through a *different* selection (files A and B, then A alone; or a file uploaded again in another batch) is caught too: the older ingest's copy is removed once the new one is in place, and an ingest record left with no documents is dropped;
+  - an auto-sync owns its documents: if an ingest without sync stores a file a sync already holds, the sync's copy is kept (its detector keeps it current) and the new copy is dropped.
+
+  Before v0.8.2, an ingest without sync got random document ids, so processing the same file twice left two copies in every store.
+
+**Requirements, by pipeline:**
+
+| Pipeline | Needs | `datasource_config` rows | `document_state` rows | Repeats |
+| --- | --- | --- | --- | --- |
+| Default (LlamaIndex / LangChain) | `POSTGRES_INCREMENTAL_URL` **and** `ENABLE_INCREMENTAL_UPDATES=true` | every ingest (`auto_sync` true or false) | every ingest | replaced as above |
+| Langflow flow mode | same as default | every ingest | every ingest | replaced as above |
+| CocoIndex (`PIPELINE_BACKEND=cocoindex`) | `POSTGRES_INCREMENTAL_URL` only (`ENABLE_INCREMENTAL_UPDATES` is ignored) | its startup `.env` source, and UI ingests **with** auto sync checked | none | idempotent through CocoIndex's own state; no Processing-tab status |
+
+With `ENABLE_INCREMENTAL_UPDATES` off (default and Langflow pipelines), nothing is recorded and ingests behave as before v0.8.2: random ids, and a repeat adds a second copy.
+
+**Notes:**
+
+- An ingest-only row stores no credentials, only what identifies the source (URL, path, selected nodes, recursive). Checking "Enable auto change sync" on a later ingest of the same selection upgrades the same row to a real sync (`auto_sync = true`, `is_active = true`, with credentials). Ingesting a synced source again with the box *unchecked* leaves its sync running; use disable to stop a sync.
+- The same selection always maps to the same row: `config_id` is derived from the source identity (for Alfresco, URL + path + the selected node ids).
+- Browser uploads are keyed by their saved name in the upload directory (a browser never reveals a file's original path), so a re-upload with the same name replaces the earlier one — and two *different* files with the same name replace each other. For true path identity, ingest through the REST API or MCP server with `data_source: "filesystem"` and absolute paths.
+- Two auto-syncs over the same file (sync file A alone, then sync A and B together) each keep a copy. The Processing tab flags the row as already synced, so it is only duplicated if you re-check it.
+
 ## Configuration
 
 ### Environment Variables
@@ -240,15 +272,23 @@ When a file's timestamp changes but content is identical:
 Two main tables in PostgreSQL:
 
 **datasource_config**: Stores data source configurations
-- `config_id` (UUID, primary key)
+- `config_id` (UUID, primary key; deterministic from the source identity)
 - `source_name`, `source_type`
 - `connection_params` (JSON)
-- `is_active`, `sync_status`
+- `is_active`, `auto_sync`, `sync_status`
 - `refresh_interval_seconds`
 - `enable_change_stream`, `skip_graph`
 
-**document_state**: Tracks processed documents
-- `doc_id` (primary key, format: `config_id:filename`)
+`is_active` means "monitor this source now"; `auto_sync` (added in v0.8.2, created automatically on existing databases) tells a sync from an ingest-only record:
+
+| `auto_sync` | `is_active` | Meaning |
+| --- | --- | --- |
+| true | true | auto change sync running |
+| true | false | sync paused (`/api/sync/disable-all`; `enable-all` resumes it) |
+| false | false | ingested without auto sync; recorded only, never monitored, and skipped by `enable-all` |
+
+**document_state**: Tracks processed documents, one row per document (a selected folder gets rows for its files, not for itself)
+- `doc_id` (primary key, format: `config_id:identity`, e.g. `config_id:alfresco://<node id>`)
 - `config_id` (foreign key)
 - `source_path` (filename or path)
 - `content_hash` (for change detection)

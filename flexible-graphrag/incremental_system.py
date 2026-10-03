@@ -17,6 +17,61 @@ from incremental_updates.orchestrator import IncrementalUpdateOrchestrator
 logger = logging.getLogger("flexible_graphrag.incremental_system")
 
 
+# The identity part of a doc_id: everything after "{config_id}:". The same file reached
+# through two different selections has two doc_ids and one identity.
+_SAME_IDENTITY = """
+    substr(other.doc_id, length(other.config_id) + 2) = substr(mine.doc_id, length(mine.config_id) + 2)
+    AND other.config_id <> mine.config_id
+"""
+
+
+async def resolve_duplicate_copies(conn, config_id: str) -> list:
+    """After ``config_id`` stored its documents, settle any document another datasource
+    also holds, so each file ends up in the stores once:
+
+    * another INGEST-ONLY datasource's copy is superseded by this newer one;
+    * if THIS datasource is ingest-only and an AUTO-SYNC datasource holds the document, the
+      sync keeps it (its detector maintains that copy, and deleting it would only have the
+      detector re-ingest it) and this run's copy is the one dropped.
+
+    Copies between two auto-syncs are left alone. Forgets the losing copies' document_state
+    rows, drops any ingest-only datasource left with no documents, and returns the losing
+    doc_ids for the caller to delete from the stores.
+    """
+    others = await conn.fetch(f"""
+        SELECT other.doc_id, other.config_id
+        FROM document_state mine
+        JOIN document_state other ON {_SAME_IDENTITY}
+        JOIN datasource_config odc ON odc.config_id = other.config_id
+        WHERE mine.config_id = $1 AND odc.auto_sync = FALSE
+    """, config_id)
+    mine = await conn.fetch(f"""
+        SELECT DISTINCT mine.doc_id, mine.config_id
+        FROM document_state mine
+        JOIN datasource_config mdc ON mdc.config_id = mine.config_id
+        JOIN document_state other ON {_SAME_IDENTITY}
+        JOIN datasource_config odc ON odc.config_id = other.config_id
+        WHERE mine.config_id = $1 AND mdc.auto_sync = FALSE AND odc.auto_sync = TRUE
+    """, config_id)
+    losers = list(others) + list(mine)
+    if not losers:
+        return []
+    doc_ids = list(dict.fromkeys(r["doc_id"] for r in losers))
+    await conn.execute("DELETE FROM document_state WHERE doc_id = ANY($1::text[])", doc_ids)
+    emptied = await conn.fetch("""
+        DELETE FROM datasource_config dc
+        WHERE dc.config_id = ANY($1::text[]) AND dc.auto_sync = FALSE
+          AND NOT EXISTS (SELECT 1 FROM document_state ds WHERE ds.config_id = dc.config_id)
+        RETURNING config_id
+    """, list({r["config_id"] for r in losers}))
+    logger.info(
+        f"{config_id}: {len(others)} older ingest cop(ies) superseded, {len(mine)} document(s) "
+        f"left to the auto-sync that already holds them; {len(emptied)} emptied ingest "
+        f"record(s) removed"
+    )
+    return doc_ids
+
+
 class IncrementalSystemManager:
     """
     Manages the incremental update system for the backend.
@@ -204,11 +259,27 @@ class IncrementalSystemManager:
             config_id = str(uuid4())
         
         async with self.config_manager.pool.acquire() as conn:
+            # config_id is a deterministic uuid5 of the datasource identity, so re-ingesting a
+            # source that already has sync enabled lands on the same row. A plain INSERT raised
+            # UniqueViolationError there and the caller reported sync as failed. Upsert the
+            # caller's current settings, but leave sync progress (sync_status,
+            # last_sync_ordinal, last_sync_completed_at) alone so a re-registration does not
+            # force a full re-ingest.
             await conn.execute("""
                 INSERT INTO datasource_config 
                 (config_id, project_id, source_type, source_name, connection_params, 
                  refresh_interval_seconds, watchdog_filesystem_seconds, enable_change_stream, skip_graph)
                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                ON CONFLICT (config_id) DO UPDATE
+                    SET source_name                 = EXCLUDED.source_name,
+                        connection_params           = EXCLUDED.connection_params,
+                        refresh_interval_seconds    = EXCLUDED.refresh_interval_seconds,
+                        watchdog_filesystem_seconds = EXCLUDED.watchdog_filesystem_seconds,
+                        enable_change_stream        = EXCLUDED.enable_change_stream,
+                        skip_graph                  = EXCLUDED.skip_graph,
+                        is_active                   = TRUE,
+                        auto_sync                   = TRUE,
+                        updated_at                  = NOW()
             """,
                 config_id,
                 project_id,
@@ -229,6 +300,63 @@ class IncrementalSystemManager:
         
         return config_id
     
+    async def register_ingest_only(
+        self,
+        source_type: str,
+        source_name: str,
+        connection_params: dict,
+        config_id: str,
+        skip_graph: bool = False,
+        project_id: str = "default",
+    ) -> None:
+        """Record a datasource that was ingested WITHOUT auto change sync.
+
+        The row exists so a later ingest of the same source (same config_id) can find what it
+        put in the stores and replace it rather than add a second copy, and so coverage can
+        report it. It is stored inactive with auto_sync = FALSE, so no detector, orchestrator,
+        enable-all or CocoIndex loader ever picks it up.
+
+        A source that already has auto change sync keeps its row untouched: an ingest-only
+        repeat must not switch a real sync off or overwrite its stored credentials.
+        """
+        if not self._initialized:
+            raise RuntimeError("System not initialized")
+        async with self.config_manager.pool.acquire() as conn:
+            await conn.execute("""
+                INSERT INTO datasource_config
+                (config_id, project_id, source_type, source_name, connection_params,
+                 skip_graph, is_active, auto_sync)
+                VALUES ($1, $2, $3, $4, $5, $6, FALSE, FALSE)
+                ON CONFLICT (config_id) DO UPDATE
+                    SET source_name       = EXCLUDED.source_name,
+                        connection_params = EXCLUDED.connection_params,
+                        skip_graph        = EXCLUDED.skip_graph,
+                        updated_at        = NOW()
+                    WHERE datasource_config.auto_sync = FALSE
+            """,
+                config_id, project_id, source_type, source_name,
+                json.dumps(connection_params), skip_graph,
+            )
+        logger.info(f"Recorded ingest-only datasource {source_name} ({config_id})")
+
+    async def get_doc_ids(self, config_id: str) -> list:
+        """doc_ids already recorded in document_state for a datasource."""
+        if not self._initialized:
+            return []
+        async with self.state_manager.pool.acquire() as conn:
+            rows = await conn.fetch(
+                "SELECT doc_id FROM document_state WHERE config_id = $1", config_id
+            )
+        return [r["doc_id"] for r in rows]
+
+    async def take_over_other_ingest_copies(self, config_id: str) -> list:
+        """Settle documents of ``config_id`` that another datasource also holds; see
+        resolve_duplicate_copies. Returns the doc_ids the caller must delete from the stores."""
+        if not self._initialized:
+            return []
+        async with self.state_manager.pool.acquire() as conn:
+            return await resolve_duplicate_copies(conn, config_id)
+
     def is_initialized(self) -> bool:
         """Check if system is initialized"""
         return self._initialized

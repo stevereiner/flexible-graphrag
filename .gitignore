@@ -32,8 +32,12 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
-lib64/
+# Anchored to the repo root: these are Python build artifacts. Unanchored, `lib/` also
+# matches any nested directory named lib -- including the Angular library source at
+# flexible-graphrag-ui/frontend-angular/projects/flexible-graphrag-angular-lib/src/lib/,
+# which silently excluded its module and config files from commits.
+/lib/
+/lib64/
 parts/
 sdist/
 var/

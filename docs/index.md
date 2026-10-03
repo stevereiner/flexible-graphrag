@@ -12,8 +12,11 @@ hide:
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-green.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Python](https://img.shields.io/badge/python-3.12%20%7C%203.13%20%7C%203.14-blue)](https://www.python.org/)
 [![React](https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=white)](https://react.dev/)
-[![Angular](https://img.shields.io/badge/Angular-19-DD0031?logo=angular&logoColor=white)](https://angular.dev/)
+[![Angular](https://img.shields.io/badge/Angular-20-DD0031?logo=angular&logoColor=white)](https://angular.dev/)
 [![Vue](https://img.shields.io/badge/Vue-3-4FC08D?logo=vue.js&logoColor=white)](https://vuejs.org/)
+[![Docker Hub](https://img.shields.io/badge/Docker%20Hub-integratedsemantics-2496ED?logo=docker&logoColor=white)](https://hub.docker.com/u/integratedsemantics)
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/stevereiner/flexible-graphrag)
+[![Blog](https://img.shields.io/badge/Blog-integratedsemantics.org-orange)](https://integratedsemantics.org)
 
 **Flexible GraphRAG** is an open source platform supporting document processing (Docling, LlamaParse, or LiteParse), knowledge graph auto-building, schemas, LlamaIndex LLMs, RAG and GraphRAG setup, hybrid search (fulltext, vector, graph), AI query, and AI chat capabilities. The backend uses Python, LlamaIndex, and FastAPI. Has Angular, React, and Vue TypeScript frontends. A MCP Server is also available. Currently supports 14 data sources, 10 vector databases, OpenSearch / Elasticsearch / BM25 search, 15 property graph databases, 4 RDF triple stores (Apache Jena Fuseki, Ontotext GraphDB, Oxigraph, Amazon Neptune RDF), Alfresco, and Nuxeo. Databases and their dashboards can be enabled in a provided Docker Compose layout. Optionally, the ingest pipeline, hybrid search, and AI query can run through customizable **Langflow** visual flows (12 custom Langflow components). As a further option, ingest can run on a **CocoIndex** (Rust engine) pipeline (`PIPELINE_BACKEND=cocoindex`) that reuses the same sources, targets, parsers and KG extractors, adding step-level memoization and automatic delete reconciliation.
 

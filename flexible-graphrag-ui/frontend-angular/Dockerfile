@@ -24,8 +24,8 @@ FROM nginx:stable-alpine
 # Place built files under /ui/angular/ so nginx serves them at that path,
 # consistent with React (/ui/react/) and Vue (/ui/vue/).
 # Uses legacy @angular-devkit/build-angular:browser builder → output is at
-# dist/flexible-graphrag-ui/ directly (no browser/ subdirectory).
-COPY --from=builder /app/dist/flexible-graphrag-ui /usr/share/nginx/html/ui/angular
+# dist/flexible-graphrag-angular-app/ directly (no browser/ subdirectory).
+COPY --from=builder /app/dist/flexible-graphrag-angular-app /usr/share/nginx/html/ui/angular
 
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 

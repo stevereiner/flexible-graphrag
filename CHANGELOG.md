@@ -2,6 +2,38 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2026-10-02] — v0.8.2: new kg-spaces-aca shares Angular UI npm lib, process tab rows show if already synced/ingested, no duplicate ingests, FalkorDB security fix
+
+
+### Added
+
+- **Ingests without auto sync are now recorded too, and a repeat replaces instead of duplicating.** With the incremental system on (`ENABLE_INCREMENTAL_UPDATES=true` + `POSTGRES_INCREMENTAL_URL`), every ingest on the default and Langflow pipelines — not only auto-sync ones — gets a `datasource_config` row (new column `auto_sync = false`, never monitored) and `document_state` rows, with stable document ids. Ingesting the same thing again deletes the previous version from the vector, search, property-graph and RDF stores before inserting, including the same file reached through a different selection; a file an auto sync already holds stays with the sync. Before, an ingest without sync got random ids, so a repeat left a second copy in every store. CocoIndex needs only `POSTGRES_INCREMENTAL_URL`, and is already idempotent through its own state (no `document_state` rows). The `auto_sync` column is added to existing databases automatically.
+- **Processing-tab status in all three UIs (Angular, React, Vue) and KG Spaces.** Rows already in the stores show **already synced** or **already ingested**, start unchecked, and can be checked to ingest again. Backed by the new `POST /api/sync/coverage`, which checks a whole Alfresco or Nuxeo selection in one call.
+- **`@flexible-graphrag/angular-ui` on npm** — the Angular UI's four tabs and fifteen source forms as an Angular 20 library (`npm install @flexible-graphrag/angular-ui`), configured through `FlexibleGraphragUiModule.forRoot()`; the standalone Angular app now consumes it.
+- **[KG Spaces for Alfresco Content App](https://github.com/stevereiner/kg-spaces-aca)**, redone as an Apache 2.0 ACA 8.0 extension on that library: multi-select Alfresco files and folders in ACA, plus the other data sources on an OTHER SOURCES tab.
+- **Alfresco ticket pass-through** (`auth_method: "ticket"`, `alfresco_config.ticket`): ingest as an already signed-in Alfresco user without handling their password. Requires `python-alfresco-api>=1.2.2`. Auto sync, which outlives the session, uses a service account instead: `ALFRESCO_SYNC_USERNAME` / `ALFRESCO_SYNC_PASSWORD` (falling back to `ALFRESCO_USERNAME` / `ALFRESCO_PASSWORD`).
+- **Docs and README:** Docker Hub, Ask DeepWiki and Blog badges; a Blog link in the docs site navigation; external links there open in a new tab.
+
+### Changed
+
+- **The Alfresco data source no longer falls back to CMIS** when the REST API fails; REST errors are reported as such. The separate CMIS data source is unchanged.
+- **One `datasource_config` per Alfresco selection, not per user** — `config_id` is now URL + path (+ the selected node ids for a multi-select), no longer including the username. Datasources registered before 0.8.2 keep their old id; remove one before registering the same folder again to avoid indexing it twice.
+- **Re-registering a datasource updates its row** instead of failing with a `UniqueViolation`; sync progress is kept.
+- **Version 0.8.1 → 0.8.2** across the backend, MCP server, Langflow extension and flows, the three UIs and the new library.
+
+### Fixed
+
+- **Angular and Vue Alfresco ingests used a hardcoded `admin`/`admin` connection**, ignoring the Sources tab; both now send its settings.
+- **Vue's "Enable auto change sync" checkbox did nothing**; it now works.
+- **A hidden "Enable auto change sync" could turn a later upload into a live sync** (all three UIs); `enable_sync` is now sent only for sources that offer it.
+- **Multi-select processing ingested every selected item**, ignoring unchecked rows (Angular); only checked rows are sent now.
+- **CocoIndex writes into an OpenSearch/Elasticsearch index created by the default pipeline failed** on the `modified_at` date format while reporting success; CocoIndex now writes ISO-8601.
+
+### Security
+
+- **Cypher injection in the LangChain FalkorDB adapter (GHSA-vqrg-773h-4wxc).** A broken escape helper let LLM-extracted entity values from a crafted document run as Cypher — reproduced deleting the whole graph. Values are now passed as query parameters and identifiers stripped of backticks. Only `GRAPH_BACKEND=langchain` with `GRAPH_DB=falkordb` was affected. As a side effect, entities containing an apostrophe, previously dropped, are now stored.
+- The same escape-order mistake was fixed in the ArangoDB, NebulaGraph and Milvus delete filters (keyed on document paths, so lower risk).
+
 ## [2026-09-16] — v0.8.1: Alfresco 26.2 upgrade, upload path-traversal fix
 
 A maintenance release over v0.8.0. It carries the two dated entries below — the

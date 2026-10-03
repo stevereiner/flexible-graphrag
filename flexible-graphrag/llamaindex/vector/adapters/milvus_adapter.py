@@ -77,8 +77,9 @@ class LlamaIndexMilvusAdapter(LlamaIndexVectorAdapter):
         try:
             from pymilvus import MilvusClient
             client = MilvusClient(uri=self._milvus_uri)
-            # Escape backslashes so Milvus expression parser doesn't treat them as escapes
-            escaped = ref_doc_id.replace("\\", "\\\\")
+            # Escape backslashes so Milvus expression parser doesn't treat them as escapes,
+            # then double quotes so a quote in the path can't end the literal early
+            escaped = ref_doc_id.replace("\\", "\\\\").replace('"', '\\"')
             expr = f'doc_id == "{escaped}"'
             result = client.delete(collection_name=self._collection_name, filter=expr)
             deleted = len(result) if isinstance(result, list) else (result.get("delete_count", 0) if isinstance(result, dict) else 0)

@@ -1,0 +1,27 @@
+{
+  "name": "@flexible-graphrag/angular-ui",
+  "version": "0.8.2",
+  "description": "Shared Flexible GraphRAG Angular UI components (sources, processing, hybrid search, AI chat)",
+  "license": "Apache-2.0",
+  "keywords": ["angular", "graphrag", "rag", "knowledge-graph", "hybrid-search", "ai-chat", "alfresco", "flexible-graphrag"],
+  "homepage": "https://stevereiner.github.io/flexible-graphrag/",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/stevereiner/flexible-graphrag.git",
+    "directory": "flexible-graphrag-ui/frontend-angular/projects/flexible-graphrag-angular-lib"
+  },
+  "bugs": {
+    "url": "https://github.com/stevereiner/flexible-graphrag/issues"
+  },
+  "peerDependencies": {
+    "@angular/cdk": "^20.2.0",
+    "@angular/common": "^20.3.0",
+    "@angular/core": "^20.3.0",
+    "@angular/forms": "^20.3.0",
+    "@angular/material": "^20.2.0"
+  },
+  "dependencies": {
+    "tslib": "^2.3.0"
+  },
+  "sideEffects": false
+}

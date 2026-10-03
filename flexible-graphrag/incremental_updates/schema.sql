@@ -32,6 +32,7 @@ CREATE TABLE IF NOT EXISTS datasource_config (
     enable_change_stream BOOLEAN NOT NULL DEFAULT FALSE,
     skip_graph BOOLEAN NOT NULL DEFAULT FALSE,  -- If TRUE, skip graph extraction (vector + search only)
     is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    auto_sync BOOLEAN NOT NULL DEFAULT TRUE,  -- FALSE: recorded by an ingest without auto change sync (never monitored)
     sync_status TEXT NOT NULL DEFAULT 'idle',  -- idle, syncing, error
     last_sync_ordinal BIGINT,  -- Last processed ordinal (microsecond timestamp)
     last_sync_completed_at TIMESTAMPTZ,

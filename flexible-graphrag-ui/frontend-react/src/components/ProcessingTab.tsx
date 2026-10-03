@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import {
   Box,
   Typography,
@@ -29,6 +29,9 @@ import {
   FileDisplayInfo 
 } from '../types/api';
 
+// Sources with no auto change sync: the "Enable auto change sync" checkbox is hidden for them
+const NO_AUTO_SYNC_SOURCES = ['upload', 'cmis', 'web', 'wikipedia', 'youtube'];
+
 // A file the server refused to store (unsupported extension, bad name, too large)
 interface SkippedFile {
   filename: string;
@@ -52,6 +55,7 @@ interface ProcessingTabProps {
   enterpriseConfig?: any;
   selectedFileIndices: Set<number>;
   repositoryItemsHidden: boolean;
+  configurationVersion?: number;  // bumped each time the Sources tab is applied
   // Persistent processing state
   isProcessing: boolean;
   processingStatus: string;
@@ -93,6 +97,7 @@ export const ProcessingTab: React.FC<ProcessingTabProps> = ({
   enterpriseConfig,
   selectedFileIndices,
   repositoryItemsHidden,
+  configurationVersion = 0,
   isProcessing,
   processingStatus,
   processingProgress,
@@ -130,6 +135,10 @@ export const ProcessingTab: React.FC<ProcessingTabProps> = ({
 
   // Debug state
   const [showDebugPanel, setShowDebugPanel] = useState<boolean>(false);
+
+  // Auto-sync / earlier-ingest coverage of the current rows (see the coverage effect below)
+  const [coverage, setCoverage] = useState<any[]>([]);
+  const coverageKey = useRef('');
 
   // File size formatting
   const formatFileSize = (bytes: number): string => {
@@ -287,6 +296,93 @@ export const ProcessingTab: React.FC<ProcessingTabProps> = ({
     }
     return [];
   };
+
+  // ── Coverage: which rows are already in the stores ───────────────────────────────
+  // An auto change sync covers them, or an earlier ingest put them there; they start
+  // unchecked instead of being ingested again. Quietly nothing on an older backend.
+  const looksLikeFile = (path: string): boolean =>
+    /\.[A-Za-z0-9]{1,8}$/.test((path || '').split('/').pop() || '');
+
+  const coverageFor = (index: number): any | null => {
+    // Rows and coverage line up one-to-one, except after a run, when the rows can be the
+    // backend's per-file list instead of the one path that was checked.
+    if (coverage.length !== getDisplayFiles().length) return null;
+    const c = coverage[index];
+    return c && c.status !== 'none' ? c : null;
+  };
+
+  const coverageLabel = (index: number): string => {
+    const c = coverageFor(index);
+    const synced = !!c?.datasources?.some((m: any) => m.auto_sync && m.status === c.status);
+    switch (c?.status) {
+      case 'synced': return synced ? 'already synced' : 'already ingested';
+      case 'partial': return synced ? 'synced, no subfolders' : 'ingested, no subfolders';
+      case 'overlaps': return synced ? 'contains synced' : 'contains ingested';
+      default: return '';
+    }
+  };
+
+  const coverageTooltip = (index: number): string => {
+    const c = coverageFor(index);
+    if (!c) return '';
+    const lines = c.datasources.map((m: any) => {
+      const how = m.auto_sync ? 'synced by' : 'ingested (no auto sync) by';
+      const what = m.relation === 'indexed' ? 'indexed by'
+        : m.relation === 'contains' ? `contains ${m.root}, ${how}`
+        : `${m.root}${m.recursive ? ' (with subfolders)' : ''}, ${how}`;
+      return `${what} ${m.source_name || m.config_id}${m.skip_graph ? ' [no graph]' : ''}`;
+    });
+    if (c.indexed) {
+      const where = ['vector', 'search', 'graph'].filter((t) => c.indexed[t]);
+      lines.push(`in: ${where.join(', ') || 'none'}`);
+    }
+    lines.push(c.status === 'synced'
+      ? 'Left unchecked. Check it to ingest again: the earlier copy is replaced, not duplicated.'
+      : 'Part of it is already in the stores; ingesting it again refreshes that part.');
+    return lines.join('\n');
+  };
+
+  const showCoverage = (index: number): boolean =>
+    !!coverageFor(index) && !isProcessing && processingProgress === 0;
+
+  const coveredRowCount = getDisplayFiles()
+    .filter((_, i) => coverageFor(i)?.status === 'synced').length;
+
+  useEffect(() => {
+    const repoConfig = configuredDataSource === 'alfresco' ? alfrescoConfig
+      : configuredDataSource === 'nuxeo' ? nuxeoConfig : null;
+    if (configuredDataSource !== 'alfresco' && configuredDataSource !== 'nuxeo') {
+      setCoverage([]);
+      coverageKey.current = '';
+      return;
+    }
+    if (repositoryItemsHidden || isProcessing || currentProcessingId) return;
+    const path = repoConfig?.path || folderPath || '/';
+    const request = {
+      data_source: configuredDataSource,
+      url: repoConfig?.url,
+      recursive: !!repoConfig?.recursive,
+      items: [{ path, is_folder: !looksLikeFile(path) }],
+    };
+    // configurationVersion in the key: re-applying the same configuration (e.g. after a run
+    // that just ingested it) must ask again, or the answer from before that run is reused.
+    const key = JSON.stringify(request) + '#' + configurationVersion;
+    if (key === coverageKey.current) return;
+    coverageKey.current = key;
+    setCoverage([]);
+    axios.post('/api/sync/coverage', request)
+      .then((res) => {
+        if (key !== coverageKey.current) return;  // configuration changed while in flight
+        const items = res.data?.enabled ? res.data.items : [];
+        setCoverage(items);
+        // uncheck rows already in the stores
+        items.forEach((c: any, i: number) => {
+          if (c?.status === 'synced' && selectedFileIndices.has(i)) onSelectFile(i, false);
+        });
+      })
+      .catch((err) => console.warn('Sync coverage check unavailable:', err));
+  }, [configuredDataSource, alfrescoConfig, nuxeoConfig, folderPath, repositoryItemsHidden,
+      isProcessing, currentProcessingId, configurationVersion]);
 
   // Get file progress data
   const getFileProgressData = (filename: string) => {
@@ -481,7 +577,9 @@ export const ProcessingTab: React.FC<ProcessingTabProps> = ({
       }
       
       // Add enable_sync flag if checked
-      if (enableSync) {
+      // Only for a source that shows the checkbox: the value survives switching sources, so
+      // a sync left ticked on Alfresco would otherwise make a later upload a live sync too.
+      if (enableSync && !NO_AUTO_SYNC_SOURCES.includes(configuredDataSource)) {
         request.enable_sync = true;
         console.log('✓ enable_sync flag set to true - Incremental updates will be enabled');
       }
@@ -604,16 +702,29 @@ export const ProcessingTab: React.FC<ProcessingTabProps> = ({
     onRemoveProcessingFile(index);
   };
 
-  // Auto-select files when they are configured for single-source data types
+  // Auto-select files when they are configured for single-source data types.
+  // Applied only when the rows themselves (or their coverage) change -- NOT on every selection
+  // change: that re-ran this on each click and forced the selection straight back, so a row
+  // left unchecked as "already ingested" could never be checked to ingest it again.
+  const autoSelectKey = useRef('');
   useEffect(() => {
     if (configuredDataSource === 'cmis' || configuredDataSource === 'alfresco' || configuredDataSource === 'nuxeo' ||
         configuredDataSource === 'web' || configuredDataSource === 'wikipedia' ||
-        configuredDataSource === 'youtube' || 
+        configuredDataSource === 'youtube' ||
         ['s3', 'gcs', 'azure_blob', 'google_drive', 'onedrive', 'sharepoint', 'box'].includes(configuredDataSource)) {
       const displayFiles = getDisplayFiles();
-      // Auto-select all files (both repository path and individual files when discovered)
+      const rowsKey = JSON.stringify([
+        configuredDataSource, configurationVersion, displayFiles.map((f) => f.name),
+        coverage.map((c: any) => c?.status),
+      ]);
+      if (rowsKey === autoSelectKey.current) return;
+      autoSelectKey.current = rowsKey;
+      // Auto-select all files (both repository path and individual files when discovered),
+      // except rows already in the stores (see the coverage effect)
       const newSelection = new Set<number>();
-      displayFiles.forEach((_, index) => newSelection.add(index));
+      displayFiles.forEach((_, index) => {
+        if (coverageFor(index)?.status !== 'synced') newSelection.add(index);
+      });
       
       // Only update if selection has actually changed
       const currentSelection = Array.from(selectedFileIndices).sort();
@@ -638,7 +749,8 @@ export const ProcessingTab: React.FC<ProcessingTabProps> = ({
         }
       }
     }
-  }, [statusData, lastStatusData, configuredDataSource, selectedFileIndices, onSelectFile]);
+  }, [statusData, lastStatusData, configuredDataSource, selectedFileIndices, onSelectFile, coverage,
+      configurationVersion]);
 
   // Note: File selection is now handled by parent component
 
@@ -710,6 +822,13 @@ export const ProcessingTab: React.FC<ProcessingTabProps> = ({
       )}
       
       {/* File Table - Show for all configured sources */}
+      {hasConfiguredSources && coveredRowCount > 0 && !isProcessing && processingProgress === 0 && (
+        <Typography variant="body2" sx={{ mb: 1, opacity: 0.8 }}>
+          {coveredRowCount} of {getDisplayFiles().length} already in the stores, so left unchecked.
+          Hover the status for details; checking a row ingests it again, replacing the earlier copy.
+        </Typography>
+      )}
+
       {hasConfiguredSources && (
         <TableContainer component={Paper} sx={{ mb: 3 }}>
           <Table size="small">
@@ -801,15 +920,27 @@ export const ProcessingTab: React.FC<ProcessingTabProps> = ({
                       </IconButton>
                     </TableCell>
                     <TableCell>
-                      <Chip
-                        label={progressData?.status || 'ready'}
-                        size="small"
-                        color={
-                          progressData?.status === 'completed' ? 'success' :
-                          progressData?.status === 'failed' ? 'error' :
-                          progressData?.status === 'processing' ? 'primary' : 'default'
-                        }
-                      />
+                      {showCoverage(index) ? (
+                        // Before a run: say when this row is already in the stores
+                        <Chip
+                          label={coverageLabel(index)}
+                          size="small"
+                          variant="outlined"
+                          color={coverageFor(index)?.status === 'synced' ? 'info' : 'warning'}
+                          title={coverageTooltip(index)}
+                          sx={{ cursor: 'help' }}
+                        />
+                      ) : (
+                        <Chip
+                          label={progressData?.status || 'ready'}
+                          size="small"
+                          color={
+                            progressData?.status === 'completed' ? 'success' :
+                            progressData?.status === 'failed' ? 'error' :
+                            progressData?.status === 'processing' ? 'primary' : 'default'
+                          }
+                        />
+                      )}
                     </TableCell>
                   </TableRow>
                 );

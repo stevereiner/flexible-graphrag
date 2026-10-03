@@ -15,6 +15,7 @@ CREATE TABLE IF NOT EXISTS datasource_config (
     enable_change_stream BOOLEAN NOT NULL DEFAULT FALSE,
     skip_graph BOOLEAN NOT NULL DEFAULT FALSE,
     is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    auto_sync BOOLEAN NOT NULL DEFAULT TRUE,  -- FALSE: recorded by an ingest without auto change sync (never monitored)
     sync_status TEXT NOT NULL DEFAULT 'idle',
     last_sync_ordinal BIGINT,
     last_sync_completed_at TIMESTAMPTZ,

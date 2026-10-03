@@ -205,8 +205,9 @@ class MilvusVectorAdapter(LangChainVectorAdapter):
         if self._store is None:
             return
         try:
-            # Escape backslashes so Milvus expression parser doesn't interpret them
-            escaped = ref_doc_id.replace("\\", "\\\\")
+            # Escape backslashes so Milvus expression parser doesn't interpret them,
+            # then double quotes so a quote in the path can't end the literal early
+            escaped = ref_doc_id.replace("\\", "\\\\").replace('"', '\\"')
 
             # Try pymilvus MilvusClient path (new API) — most reliable
             connection_args = getattr(self._store, "connection_args", None) or {}

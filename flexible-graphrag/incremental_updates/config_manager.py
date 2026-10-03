@@ -26,6 +26,7 @@ class DataSourceConfig:
     enable_change_stream: bool = False
     skip_graph: bool = False  # If True, skip graph extraction for this datasource
     is_active: bool = True
+    auto_sync: bool = True  # False: recorded by an ingest without auto change sync; never monitored
     sync_status: str = 'idle'  # idle, syncing, error
     last_sync_ordinal: Optional[int] = None
     last_sync_completed_at: Optional[datetime] = None
@@ -75,9 +76,18 @@ class ConfigManager:
                 )
             """)
             
+            # auto_sync = FALSE marks a row recorded by a plain ingest (no auto change sync), so a
+            # repeat ingest of the same source can be recognised and replaced. Those rows stay
+            # is_active = FALSE; the column keeps them from being mistaken for a paused sync
+            # (enable-all must not switch them on). Added after the table first shipped.
+            await conn.execute("""
+                ALTER TABLE datasource_config
+                ADD COLUMN IF NOT EXISTS auto_sync BOOLEAN NOT NULL DEFAULT TRUE
+            """)
+
             # Create indexes
             await conn.execute("""
-                CREATE INDEX IF NOT EXISTS idx_datasource_config_project_id 
+                CREATE INDEX IF NOT EXISTS idx_datasource_config_project_id
                 ON datasource_config(project_id)
             """)
             await conn.execute("""
@@ -86,7 +96,17 @@ class ConfigManager:
             """)
     
     async def create_config(self, config: DataSourceConfig) -> str:
-        """Create new datasource config"""
+        """Create or refresh a datasource config.
+
+        config_id is a deterministic uuid5 of the datasource identity, so re-enabling sync on
+        a source that is already registered is a normal event, not an error -- and with a
+        plain INSERT it raised UniqueViolationError and reported sync as failed. Upsert
+        instead, matching what the CocoIndex bridge already does.
+
+        The caller's current settings win, but sync progress (sync_status,
+        last_sync_ordinal, last_sync_completed_at) is deliberately left untouched: resetting
+        it would re-ingest the whole source on every re-registration.
+        """
         if not config.config_id:
             config.config_id = str(uuid4())
         
@@ -94,13 +114,24 @@ class ConfigManager:
             await conn.execute("""
                 INSERT INTO datasource_config 
                 (config_id, project_id, source_type, source_name, connection_params,
-                 refresh_interval_seconds, watchdog_filesystem_seconds, enable_change_stream, skip_graph, is_active)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-            """, config.config_id, config.project_id, config.source_type, 
+                 refresh_interval_seconds, watchdog_filesystem_seconds, enable_change_stream, skip_graph, is_active,
+                 auto_sync)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+                ON CONFLICT (config_id) DO UPDATE
+                    SET source_name                 = EXCLUDED.source_name,
+                        connection_params           = EXCLUDED.connection_params,
+                        refresh_interval_seconds    = EXCLUDED.refresh_interval_seconds,
+                        watchdog_filesystem_seconds = EXCLUDED.watchdog_filesystem_seconds,
+                        enable_change_stream        = EXCLUDED.enable_change_stream,
+                        skip_graph                  = EXCLUDED.skip_graph,
+                        is_active                   = EXCLUDED.is_active,
+                        auto_sync                   = EXCLUDED.auto_sync,
+                        updated_at                  = NOW()
+            """, config.config_id, config.project_id, config.source_type,
                 config.source_name, json.dumps(config.connection_params),
                 config.refresh_interval_seconds, config.watchdog_filesystem_seconds,
                 config.enable_change_stream, config.skip_graph,
-                config.is_active)
+                config.is_active, config.auto_sync)
         
         return config.config_id
     
@@ -116,6 +147,15 @@ class ConfigManager:
             
             return self._row_to_config(row)
     
+    async def get_coverage_configs(self) -> List[DataSourceConfig]:
+        """Configs whose documents are in the stores: active syncs plus ingest-only records."""
+        async with self.pool.acquire() as conn:
+            rows = await conn.fetch(
+                "SELECT * FROM datasource_config WHERE is_active = TRUE OR auto_sync = FALSE "
+                "ORDER BY created_at"
+            )
+            return [self._row_to_config(row) for row in rows]
+
     async def get_all_active_configs(self) -> List[DataSourceConfig]:
         """Get all active datasource configs"""
         async with self.pool.acquire() as conn:
@@ -250,6 +290,7 @@ class ConfigManager:
             enable_change_stream=row['enable_change_stream'],
             skip_graph=row.get('skip_graph', False),
             is_active=row['is_active'],
+            auto_sync=row.get('auto_sync', True),
             sync_status=row['sync_status'],
             last_sync_ordinal=row['last_sync_ordinal'],
             last_sync_completed_at=row['last_sync_completed_at'],

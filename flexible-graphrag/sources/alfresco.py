@@ -18,7 +18,7 @@ try:
 except ImportError:
     ClientFactory = None
     content_utils = None
-    logging.warning("python-alfresco-api not installed, Alfresco will use CMIS only")
+    logging.warning("python-alfresco-api not installed - the Alfresco data source will not work")
 
 
 class AlfrescoSource(BaseDataSource):
@@ -30,6 +30,9 @@ class AlfrescoSource(BaseDataSource):
         self.auth_method = (config.get("auth_method") or "basic").lower()  # basic | ticket | oauth2
         self.username = config.get("username", "")
         self.password = config.get("password", "")
+        # A login ticket the caller already holds (e.g. one an ADF front end obtained at
+        # login). With auth_method="ticket" this replaces username/password entirely.
+        self.ticket = config.get("ticket", "") or ""
         self.oauth2 = config.get("oauth2") or {}
         self.path = config.get("path", "/")
         self.node_details = config.get("nodeDetails", None)  # Multi-select from ACA/ADF
@@ -94,10 +97,6 @@ class AlfrescoSource(BaseDataSource):
         logger.info(f"Final use_api value: {self.use_api}")
         logger.info(f"Final core_client available: {self.core_client is not None}")
         
-        # Lazy initialization - CMIS will be initialized only when needed
-        self.cmis_client = None
-        self.cmis_repo = None
-        
         logger.info("=== ALFRESCO SOURCE INITIALIZATION COMPLETE ===")
         logger.info(f"Summary: use_api={self.use_api}, has_core_client={self.core_client is not None}")
     
@@ -105,58 +104,18 @@ class AlfrescoSource(BaseDataSource):
         """Build a python-alfresco-api auth util for the configured auth_method.
 
         Returns None for basic auth (ClientFactory builds its own from username/password).
-        - ticket: TicketAuthUtil self-fetches an Alfresco login ticket (Basic base64(ticket)).
-        - oauth2: OAuth2AuthUtil (client_credentials/refresh or a pre-obtained access_token → Bearer).
+        See sources.alfresco_auth for what each method does.
         """
-        if self.auth_method == "ticket":
-            try:
-                from python_alfresco_api.auth_util import TicketAuthUtil
-                logger.info("Using Alfresco ticket authentication")
-                return TicketAuthUtil(self.username, self.password, base_url=api_base_url)
-            except Exception as e:
-                logger.warning(f"Ticket auth setup failed, falling back to basic: {e}")
-                return None
-        if self.auth_method == "oauth2":
-            try:
-                from python_alfresco_api.auth_util import OAuth2AuthUtil
-                logger.info("Using Alfresco OAuth2 (Bearer) authentication")
-                return OAuth2AuthUtil(
-                    base_url=api_base_url,
-                    client_id=self.oauth2.get("client_id", ""),
-                    client_secret=self.oauth2.get("client_secret"),
-                    token_endpoint=self.oauth2.get("token_endpoint"),
-                    grant_type=self.oauth2.get("grant_type") or "client_credentials",
-                    scope=self.oauth2.get("scope"),
-                    access_token=self.oauth2.get("access_token"),
-                    refresh_token=self.oauth2.get("refresh_token"),
-                    load_env=False,
-                )
-            except Exception as e:
-                logger.warning(f"OAuth2 auth setup failed, falling back to basic: {e}")
-                return None
-        return None  # basic
+        from sources.alfresco_auth import build_alfresco_auth_util
+        return build_alfresco_auth_util(
+            api_base_url,
+            self.auth_method,
+            username=self.username,
+            password=self.password,
+            ticket=self.ticket,
+            oauth2=self.oauth2,
+        )
 
-    def _ensure_cmis_initialized(self):
-        """Lazy initialization of CMIS client - only when needed"""
-        if self.cmis_repo is not None:
-            return  # Already initialized
-        
-        logger.info("--- Initializing CMIS (lazy init) ---")
-        try:
-            from cmislib import CmisClient
-            import os
-            cmis_url = os.getenv("CMIS_URL", f"{self.url.rstrip('/')}/api/-default-/public/cmis/versions/1.1/atom")
-            logger.info(f"CMIS URL: {cmis_url}")
-            logger.info(f"Creating CMIS client...")
-            self.cmis_client = CmisClient(cmis_url, self.username, self.password)
-            logger.info("CMIS client created, getting default repository...")
-            self.cmis_repo = self.cmis_client.defaultRepository
-            logger.info(f"Default repository: {self.cmis_repo}")
-            logger.info("[OK] Successfully connected to Alfresco using CMIS for path operations")
-        except Exception as e:
-            logger.error(f"[FAIL] Failed to connect to Alfresco via CMIS: {str(e)}", exc_info=True)
-            raise
-    
     def validate_config(self) -> bool:
         """Validate the Alfresco source configuration."""
         if not self.url:
@@ -170,7 +129,10 @@ class AlfrescoSource(BaseDataSource):
             if not (self.oauth2.get("access_token") or self.oauth2.get("client_secret")):
                 logger.error("OAuth2 auth requires an access_token or client_secret")
                 return False
-        else:  # basic or ticket
+        elif self.auth_method == "ticket" and self.ticket:
+            # Pass-through ticket: the ticket is the whole credential, no username/password.
+            pass
+        else:  # basic, or ticket acquired from username/password
             if not self.username:
                 logger.error("No username specified for Alfresco source")
                 return False
@@ -296,7 +258,6 @@ class AlfrescoSource(BaseDataSource):
                                             'name': child_name,
                                             'path': child_path,
                                             'content_type': content_type,
-                                            'cmis_object': None,
                                             'alfresco_object': child_data
                                         })
                                     else:
@@ -320,18 +281,13 @@ class AlfrescoSource(BaseDataSource):
                             return []
                         
                 except Exception as e:
-                    logger.warning(f"Alfresco API folder listing failed for {node_id}: {str(e)}", exc_info=True)
-                    logger.info(f"Attempting CMIS fallback...")
+                    logger.error(f"Alfresco API folder listing failed for {node_id}: {str(e)}", exc_info=True)
+                    raise
             else:
-                logger.info(f"Alfresco API not available (use_api={self.use_api}, core_client={self.core_client is not None})")
-                logger.info(f"Skipping to CMIS fallback...")
-            
-            # Fallback to CMIS using path
-            logger.info(f"Using CMIS fallback for folder: {name}")
-            result = self._process_folder_by_path(path)
-            logger.info(f"<<< _process_folder_by_id() COMPLETE via CMIS fallback")
-            logger.info(f"    Total documents found: {len(result)}")
-            return result
+                raise RuntimeError(
+                    f"Alfresco REST API unavailable (use_api={self.use_api}, "
+                    f"core_client={self.core_client is not None}) - cannot list folder {name}"
+                )
             
         except Exception as e:
             logger.error(f"Error processing folder {name} (id: {node_id}): {str(e)}", exc_info=True)
@@ -376,7 +332,6 @@ class AlfrescoSource(BaseDataSource):
                                     'name': name,
                                     'path': path,
                                     'content_type': content_type,
-                                    'cmis_object': None,
                                     'alfresco_object': node_info
                                 }
                             else:
@@ -391,47 +346,17 @@ class AlfrescoSource(BaseDataSource):
                         logger.warning(f"API returned node_info without entry attribute")
                             
                 except Exception as e:
-                    logger.warning(f"Alfresco API failed for node {node_id}: {str(e)}", exc_info=True)
-                    logger.info(f"Attempting CMIS fallback...")
-            else:
-                logger.info(f"Alfresco API not available (use_api={self.use_api}, core_client={self.core_client is not None})")
-                logger.info(f"Skipping to CMIS fallback...")
-            
-            # Fallback to CMIS using path
-            logger.info(f"Using CMIS fallback for file: {name}")
-            logger.info(f"Calling: self.cmis_repo.getObjectByPath('{path}')")
-            
-            # Ensure CMIS is initialized before using it
-            self._ensure_cmis_initialized()
-            
-            obj = self.cmis_repo.getObjectByPath(path)
-            logger.info(f"CMIS object retrieved: {obj is not None}")
-            
-            if obj and obj.properties['cmis:baseTypeId'] == 'cmis:document':
-                content_type = obj.properties.get('cmis:contentStreamMimeType', '')
-                logger.info(f"    Content type: {content_type}")
-                
-                if is_docling_supported(content_type, name):
-                    logger.info(f"    [+] Supported document type - returning file metadata")
-                    logger.info(f"<<< _process_file_by_id() SUCCESS via CMIS")
-                    return {
-                        'id': node_id,
-                        'name': name,
-                        'path': path,
-                        'content_type': content_type,
-                        'cmis_object': obj,
-                        'alfresco_object': None
-                    }
-                else:
-                    logger.warning(f"    [-] Unsupported document type: {name} ({content_type})")
-                    logger.info(f"<<< _process_file_by_id() FAILED - unsupported type")
+                    logger.error(f"Alfresco API failed for node {node_id}: {str(e)}", exc_info=True)
+                    logger.info(f"<<< _process_file_by_id() FAILED - API error")
                     return None
             else:
-                base_type = obj.properties.get('cmis:baseTypeId', 'unknown') if obj else 'no object'
-                logger.warning(f"Node at path {path} is not a document (baseTypeId: {base_type})")
-                logger.info(f"<<< _process_file_by_id() FAILED - not a document")
-                return None
-                
+                logger.error(
+                    f"Alfresco REST API unavailable (use_api={self.use_api}, "
+                    f"core_client={self.core_client is not None}) - cannot process file {name}"
+                )
+            logger.info(f"<<< _process_file_by_id() FAILED")
+            return None
+            
         except Exception as e:
             logger.error(f"Error processing file {name} (id: {node_id}): {str(e)}", exc_info=True)
             logger.info(f"<<< _process_file_by_id() FAILED - exception")
@@ -486,7 +411,6 @@ class AlfrescoSource(BaseDataSource):
                                     'name': filename,
                                     'path': folder_path,
                                     'content_type': content_type,
-                                    'cmis_object': None,
                                     'alfresco_object': node_info
                                 }]
                             else:
@@ -502,95 +426,14 @@ class AlfrescoSource(BaseDataSource):
                             return result
                         
                 except Exception as e:
-                    logger.warning(f"Alfresco API relative_path failed for {folder_path}: {str(e)}", exc_info=True)
-                    logger.info(f"Falling back to CMIS...")
+                    logger.error(f"Alfresco API relative_path failed for {folder_path}: {str(e)}", exc_info=True)
+                    raise
             else:
-                logger.info(f"Alfresco API not available (use_api={self.use_api}, core_client={self.core_client is not None})")
-                logger.info(f"Skipping to CMIS fallback...")
-            
-            # Fallback to CMIS getObjectByPath for backward compatibility
-            logger.info(f"Using CMIS fallback for path: {folder_path}")
-            
-            # Ensure CMIS is initialized before using it
-            self._ensure_cmis_initialized()
-            
-            # Use CMIS getObjectByPath for reliable path-based access
-            # Check if path points to a specific document
-            try:
-                obj = self.cmis_repo.getObjectByPath(folder_path)
-                if obj and obj.properties['cmis:baseTypeId'] == 'cmis:document':
-                    # It's a specific document
-                    content_type = obj.properties.get('cmis:contentStreamMimeType', '')
-                    filename = obj.getName()
-                    
-                    if is_docling_supported(content_type, filename):
-                        logger.info(f"AlfrescoSource found specific document: {filename}")
-                        return [{
-                            'id': obj.getObjectId(),
-                            'name': filename,
-                            'path': folder_path,
-                            'content_type': content_type,
-                            'cmis_object': obj,
-                            'alfresco_object': None
-                        }]
-                    else:
-                        logger.warning(f"Unsupported document type: {filename} ({content_type})")
-                        return []
-            except:
-                # Not a document, proceed as folder
-                pass
-            
-            # Treat as folder - use CMIS for folder operations
-            try:
-                folder = self.cmis_repo.getObjectByPath(folder_path)
-                if not folder:
-                    raise ValueError(f"Folder not found: {folder_path}")
-                
-                logger.info(f"Processing folder via CMIS: {folder_path} (recursive: {self.recursive})")
-                documents = []
-                children = folder.getChildren()
-                
-                for child in children:
-                    if child.properties['cmis:baseTypeId'] == 'cmis:document':
-                        content_type = child.properties.get('cmis:contentStreamMimeType', '')
-                        filename = child.getName()
-                        
-                        if is_docling_supported(content_type, filename):
-                            documents.append({
-                                'id': child.getObjectId(),
-                                'name': filename,
-                                'path': f"{folder_path.rstrip('/')}/{filename}",
-                                'content_type': content_type,
-                                'cmis_object': child,
-                                'alfresco_object': None
-                            })
-                    elif child.properties['cmis:baseTypeId'] == 'cmis:folder' and self.recursive:
-                        # Only recursively process subfolders if recursive=True
-                        subfolder_path = f"{folder_path.rstrip('/')}/{child.getName()}"
-                        try:
-                            subfolder_source = AlfrescoSource({
-                                "url": self.url,
-                                "username": self.username,
-                                "password": self.password,
-                                "path": subfolder_path,
-                                "recursive": self.recursive  # Pass recursive flag to subfolder
-                            })
-                            documents.extend(subfolder_source.list_files())
-                        except Exception as e:
-                            logger.warning(f"Error processing subfolder {subfolder_path}: {str(e)}")
-                    elif child.properties['cmis:baseTypeId'] == 'cmis:folder':
-                        # Skip subfolder if recursive=False
-                        logger.debug(f"Skipping subfolder (recursive=False): {child.getName()}")
-                
-                logger.info(f"<<< _process_folder_by_path() SUCCESS via CMIS")
-                logger.info(f"    Total documents: {len(documents)}")
-                return documents
-                
-            except Exception as e:
-                logger.error(f"<<< _process_folder_by_path() FAILED - CMIS error")
-                logger.error(f"Error accessing folder {folder_path}: {str(e)}")
-                raise
-                
+                raise RuntimeError(
+                    f"Alfresco REST API unavailable (use_api={self.use_api}, "
+                    f"core_client={self.core_client is not None}) - cannot process path {folder_path}"
+                )
+
         except Exception as e:
             logger.error(f"<<< _process_folder_by_path() FAILED - exception")
             logger.error(f"Error processing folder {folder_path}: {str(e)}")
@@ -697,14 +540,6 @@ class AlfrescoSource(BaseDataSource):
                                 if hasattr(entry, 'modified_at'):
                                     processed_doc.metadata['modified_at'] = entry.modified_at.isoformat() if hasattr(entry.modified_at, 'isoformat') else str(entry.modified_at)
                                     logger.info(f"Added modification timestamp from NodeResponse: {processed_doc.metadata['modified_at']}")
-                        
-                        # Extract from CMIS object if available
-                        elif file_info.get('cmis_object'):
-                            cmis_obj = file_info['cmis_object']
-                            modified = cmis_obj.properties.get('cmis:lastModificationDate')
-                            if modified:
-                                processed_doc.metadata['modified_at'] = str(modified)
-                                logger.info(f"Added modification timestamp from CMIS: {modified}")
                         
                         logger.info(f"Metadata updated: {processed_doc.metadata}")
                         
@@ -831,7 +666,6 @@ class AlfrescoSource(BaseDataSource):
             logger.info(f"    Node ID: {node_id}")
             logger.info(f"    Temp dir: {temp_dir}")
             logger.info(f"    Has alfresco_object: {'alfresco_object' in document and document['alfresco_object'] is not None}")
-            logger.info(f"    Has cmis_object: {'cmis_object' in document and document['cmis_object'] is not None}")
             
             # Determine file extension from filename or content type
             file_ext = ''
@@ -877,37 +711,9 @@ class AlfrescoSource(BaseDataSource):
                         download_method = "python-alfresco-api (content_utils)"
                         logger.info(f"    [OK] Downloaded {bytes_written} bytes via python-alfresco-api content_utils")
                 except Exception as e:
-                    logger.warning(f"python-alfresco-api content_utils download failed: {str(e)}", exc_info=True)
-                    logger.info(f"Attempting CMIS fallback...")
+                    logger.error(f"python-alfresco-api content_utils download failed: {str(e)}", exc_info=True)
             else:
                 logger.info(f"Skipping python-alfresco-api (use_api={self.use_api}, core_client={self.core_client is not None}, content_utils={content_utils is not None})")
-            
-            # Fall back to CMIS if Alfresco APIs didn't work
-            if not content_downloaded and 'cmis_object' in document:
-                try:
-                    logger.info(f"Attempting download via CMIS")
-                    
-                    # Ensure CMIS is initialized before using it
-                    self._ensure_cmis_initialized()
-                    
-                    cmis_object = document['cmis_object']
-                    logger.info(f"    CMIS object: {cmis_object}")
-                    logger.info(f"Calling: cmis_object.getContentStream()")
-                    content_stream = cmis_object.getContentStream()
-                    logger.info(f"    Content stream: {content_stream}")
-                    
-                    if content_stream:
-                        content_data = content_stream.read()
-                        bytes_written = temp_file.write(content_data)
-                        content_stream.close()
-                        content_downloaded = True
-                        download_method = "CMIS"
-                        logger.info(f"    [OK] Downloaded {bytes_written} bytes via CMIS")
-                except Exception as e:
-                    logger.warning(f"CMIS download failed: {str(e)}", exc_info=True)
-            else:
-                if not content_downloaded:
-                    logger.info(f"Skipping CMIS download (no cmis_object)")
             
             if content_downloaded:
                 temp_file.flush()
@@ -922,7 +728,7 @@ class AlfrescoSource(BaseDataSource):
                 temp_file.close()
                 os.unlink(temp_file_path)
                 logger.error(f"<<< _download_document() FAILED - no method succeeded")
-                raise ValueError(f"No content available for document: {filename} (tried Alfresco API, python-alfresco-api, and CMIS)")
+                raise ValueError(f"No content available for document: {filename}")
                 
         except Exception as e:
             logger.error(f"Error downloading Alfresco document {document.get('name', 'unknown')}: {str(e)}", exc_info=True)

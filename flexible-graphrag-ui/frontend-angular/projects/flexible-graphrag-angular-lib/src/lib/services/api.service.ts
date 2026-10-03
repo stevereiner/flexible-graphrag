@@ -1,14 +1,15 @@
-import { Injectable } from '@angular/core';
+import { Injectable, inject } from '@angular/core';
+import { FlexibleGraphragConfigService } from '../config.service';
 import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { Observable, catchError, throwError } from 'rxjs';
-import { ProcessFolderRequest, QueryRequest, ApiResponse, IngestRequest, AsyncProcessingResponse, ProcessingStatusResponse } from '../models/api.models';
-import { environment } from '../../environments/environment';
+import { ProcessFolderRequest, QueryRequest, ApiResponse, IngestRequest, AsyncProcessingResponse, ProcessingStatusResponse, SyncCoverageRequest, SyncCoverageResponse } from '../models/api.models';
 
 @Injectable({
   providedIn: 'root'
 })
 export class ApiService {
-  private apiUrl = environment.apiUrl;
+  private readonly fgConfig = inject(FlexibleGraphragConfigService);
+  private apiUrl = this.fgConfig.apiUrl;
 
   constructor(private http: HttpClient) {}
 
@@ -24,6 +25,15 @@ export class ApiService {
   getProcessingStatus(processingId: string): Observable<ProcessingStatusResponse> {
     return this.http.get<ProcessingStatusResponse>(
       `${this.apiUrl}/processing-status/${processingId}`
+    ).pipe(
+      catchError(this.handleError)
+    );
+  }
+
+  checkSyncCoverage(request: SyncCoverageRequest): Observable<SyncCoverageResponse> {
+    return this.http.post<SyncCoverageResponse>(
+      `${this.apiUrl}/sync/coverage`,
+      request
     ).pipe(
       catchError(this.handleError)
     );

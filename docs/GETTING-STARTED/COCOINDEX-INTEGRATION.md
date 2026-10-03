@@ -100,6 +100,10 @@ Who drives ingest, and where per-document state lives:
 | Document tracking | Postgres `document_state` | CocoIndex LMDB (`cocoindex.db`) |
 | Re-run cost | unchanged files never enter the pipeline | unchanged *steps* are served from LMDB |
 | Deletes | detector DELETE → pipeline | CocoIndex reconciler → `delete_row` on each target |
+| Ingest without auto sync (v0.8.2+) | recorded (`datasource_config` with `auto_sync = false` + `document_state`); a repeat replaces the earlier copy | not recorded in Postgres; a repeat is a no-op through CocoIndex's own state |
+| Processing-tab "already synced / ingested" status | yes | no (`/api/sync/coverage` answers `enabled: false`) |
+
+CocoIndex needs only `POSTGRES_INCREMENTAL_URL` for its Postgres rows: it writes `datasource_config` for its startup `.env` source and for UI ingests with auto sync checked, and never writes `document_state`. See [Ingests Without Auto Sync Are Recorded Too](../DATA-SOURCES/INCREMENTAL-UPDATE-AUTO-SYNC/README.md#ingests-without-auto-sync-are-recorded-too).
 
 ---
 

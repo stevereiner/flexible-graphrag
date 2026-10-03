@@ -53,6 +53,9 @@
 .welcome-icon {
   width: 48px;
   height: 48px;
+  // Match .agent-avatar below, and the React/Vue apps, which round both. Without this the
+  // icon's light-grey backing shows as a square here and a circle everywhere else.
+  border-radius: 50%;
   margin-bottom: 16px;
   opacity: 0.8;
   
@@ -344,4 +347,10 @@
       }
     }
   }
+}
+// Scoped copy of the one global utility this component borrowed from the standalone app's
+// styles.scss. A library cannot rely on a host's global stylesheet -- in an ACA extension
+// that rule does not exist, and the button would sit flush against its neighbour.
+.ml-2 {
+  margin-left: 0.5rem;
 }

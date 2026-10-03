@@ -2,8 +2,8 @@ import { Component } from '@angular/core';
 import { FormBuilder, FormGroup, Validators } from '@angular/forms';
 import { MatSnackBar } from '@angular/material/snack-bar';
 import { finalize } from 'rxjs/operators';
-import { ApiService } from '../../services/api.service';
-import { ApiResponse, SearchResult } from '../../models/api.models';
+import { ApiService } from '@flexible-graphrag/angular-ui';
+import { ApiResponse, SearchResult } from '@flexible-graphrag/angular-ui';
 
 @Component({
   selector: 'app-query-form',

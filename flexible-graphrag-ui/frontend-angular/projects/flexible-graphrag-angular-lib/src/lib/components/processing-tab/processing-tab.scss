@@ -106,6 +106,34 @@
   color: #000000 !important; // Black text for contrast
 }
 
+// Already covered by an auto-sync datasource (blue), or only partly / overlapping (amber)
+.coverage-chip {
+  cursor: help;
+  background-color: #fff3e0 !important;
+  color: #8a4b00 !important;
+}
+
+.coverage-chip.coverage-synced {
+  background-color: #e3f2fd !important;
+  color: #0d47a1 !important;
+}
+
+:host-context(.dark-theme) .coverage-chip {
+  background-color: #5d4037 !important;
+  color: #ffe0b2 !important;
+}
+
+:host-context(.dark-theme) .coverage-chip.coverage-synced {
+  background-color: #1a3a5c !important;
+  color: #bbdefb !important;
+}
+
+.coverage-note {
+  margin: 0 0 8px;
+  font-size: 13px;
+  opacity: 0.8;
+}
+
 .status-card {
   margin-bottom: 24px;
 }

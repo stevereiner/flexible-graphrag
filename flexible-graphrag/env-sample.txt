@@ -1220,6 +1220,17 @@ CMIS_PASSWORD=admin
 ALFRESCO_URL=http://localhost:8080
 ALFRESCO_USERNAME=admin
 ALFRESCO_PASSWORD=admin
+# ALFRESCO_AUTH_METHOD: basic | ticket | oauth2  (default: basic)
+# With "ticket", a ticket is fetched from the username/password above. A ticket the caller
+# already holds is passed per request instead (alfresco_config.ticket), not configured here:
+# it expires, so it does not belong in a config file.
+#ALFRESCO_AUTH_METHOD=basic
+# Service account used when a caller enables auto-sync while holding only a login ticket
+# (e.g. an ACA/ADF extension, which has no durable credential to offer). The ticket is never
+# stored -- it expires -- so the sync row gets these credentials instead. Falls back to
+# ALFRESCO_USERNAME/ALFRESCO_PASSWORD above when unset.
+#ALFRESCO_SYNC_USERNAME=graphrag-sync
+#ALFRESCO_SYNC_PASSWORD=change-me
 # ALFRESCO_STOMP_PORT: ActiveMQ STOMP port for real-time events (default: 61613)
 # Note: If you've changed the ActiveMQ STOMP port in docker-compose (e.g., to 8613), set it here
 ALFRESCO_STOMP_PORT=8613

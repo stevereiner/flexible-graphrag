@@ -1,7 +1,10 @@
 import { Component, Input, Output, EventEmitter, OnInit, OnChanges, SimpleChanges } from '@angular/core';
 import { MatCheckboxChange } from '@angular/material/checkbox';
 import { ApiService } from '../../services/api.service';
-import { AsyncProcessingResponse, ProcessingStatusResponse } from '../../models/api.models';
+import { AsyncProcessingResponse, ProcessingStatusResponse, SyncCoverageItem, SyncCoverageRequest } from '../../models/api.models';
+
+// Sources with no auto change sync: the "Enable auto change sync" checkbox is hidden for them
+const NO_AUTO_SYNC_SOURCES = ['upload', 'cmis', 'web', 'wikipedia', 'youtube'];
 
 // A file the server refused to store (unsupported extension, bad name, too large)
 interface SkippedFile {
@@ -42,6 +45,23 @@ export class ProcessingTabComponent implements OnInit, OnChanges {
   @Output() removeUploadFile = new EventEmitter<number>();
 
   // Table configuration
+  /** nodeDetails from whichever repository source is configured, or [] if none carries any. */
+  private repositoryNodeDetails(): any[] {
+    const cfg = this.configuredAlfrescoConfig || this.configuredNuxeoConfig || this.configuredCmisConfig;
+    return Array.isArray(cfg?.nodeDetails) ? cfg.nodeDetails : [];
+  }
+
+  /** The Alfresco or Nuxeo config in play, or null for any other source. */
+  private pathRepositoryConfig(): any {
+    if (this.configuredDataSource === 'alfresco') return this.configuredAlfrescoConfig;
+    if (this.configuredDataSource === 'nuxeo') return this.configuredNuxeoConfig;
+    return null;
+  }
+
+  // Auto-sync coverage of the current rows, by row index (see refreshCoverage)
+  coverage: SyncCoverageItem[] = [];
+  private coverageKey = '';
+
   displayedColumns: string[] = ['select', 'name', 'size', 'progress', 'remove', 'status'];
   
   // State
@@ -86,6 +106,16 @@ export class ProcessingTabComponent implements OnInit, OnChanges {
       // Clear old processing messages when configuration changes
       this.successMessage = '';
       this.error = '';
+      // ...and the previous run's progress, which otherwise stays on the rows and hides the
+      // "already ingested" check; re-ask coverage even for an identical configuration, since
+      // the last run may have just ingested it. Left alone while a run is in flight.
+      if (!this.isProcessing) {
+        this.processingProgress = 0;
+        this.currentProcessingId = null;
+        this.statusData = null;
+        this.lastStatusData = null;
+        this.coverageKey = '';
+      }
     }
     
     this.updateDisplayFiles();
@@ -111,24 +141,37 @@ export class ProcessingTabComponent implements OnInit, OnChanges {
         return;
       }
       
-      // Only use individual files from status data if we're currently processing
-      // or if the processing was for the current repository configuration
-      const individualFiles = (this.isProcessing || this.currentProcessingId) ? 
+      // The selection decides the rows, and keeps them for the whole run.
+      //
+      // individual_files from the status endpoint used to REPLACE this list, so mid-ingest the
+      // table collapsed to whatever the backend happened to be reporting -- one file, losing
+      // its path -- and never recovered, because lastStatusData still answers after the run
+      // finishes. Progress is decorated onto these rows instead: getFileProgress() matches by
+      // full path, basename or substring, and falls back to the overall figure for a node the
+      // backend has not reported yet.
+      // No `return` in this branch: autoSelectFiles() runs at the end of this method, and
+      // skipping it leaves every row unchecked, which disables Start Processing.
+      const nodeDetails = this.repositoryNodeDetails();
+      const individualFiles = (this.isProcessing || this.currentProcessingId) ?
         (this.statusData?.individual_files || this.lastStatusData?.individual_files || []) : [];
-      if (individualFiles.length > 0) {
-        this.displayFiles = individualFiles.map((file: any, index: number) => {
-          // Show full path instead of extracting just filename
-          const displayName = file.filename || `File ${index + 1}`;
-          
-          return {
-            index,
-            name: displayName, // Use full path as display name
-            size: 0, // Repository files don't have size info
-            type: 'repository-file'
-          };
-        });
+
+      if (nodeDetails.length) {
+        this.displayFiles = nodeDetails.map((node: any, index: number) => ({
+          index,
+          name: node.path || node.name || `Item ${index + 1}`,
+          size: 0,
+          type: node.isFolder ? 'repository' : 'repository-file'
+        }));
+      } else if (individualFiles.length > 0) {
+        // No per-node detail (a path typed on the Sources tab): the backend's own file list is
+        // the only breakdown available, so use it when there is one.
+        this.displayFiles = individualFiles.map((file: any, index: number) => ({
+          index,
+          name: file.filename || `File ${index + 1}`,
+          size: 0,
+          type: 'repository-file'
+        }));
       } else {
-        // Default to repository path when no individual files yet - show full path
         this.displayFiles = [{
           index: 0,
           name: this.configuredFolderPath || 'Repository Path',
@@ -200,14 +243,108 @@ export class ProcessingTabComponent implements OnInit, OnChanges {
     
     // Auto-select files after updating display
     this.autoSelectFiles();
+    this.refreshCoverage();
+  }
+
+  /**
+   * Ask the backend which rows an auto-sync datasource already covers, so they can start
+   * unchecked instead of being ingested a second time under another config_id. One call for
+   * the whole selection, re-made only when the selection changes -- updateDisplayFiles() also
+   * runs on every status poll. Quietly does nothing against a backend without the endpoint.
+   */
+  private refreshCoverage(): void {
+    const cfg = this.pathRepositoryConfig();
+    if (!cfg || this.repositoryItemsHidden || this.isProcessing || this.currentProcessingId) {
+      if (!cfg) { this.coverage = []; this.coverageKey = ''; }
+      return;
+    }
+    const nodes = this.repositoryNodeDetails();
+    const request: SyncCoverageRequest = {
+      data_source: this.configuredDataSource as 'alfresco' | 'nuxeo',
+      url: cfg.url,
+      recursive: !!cfg.recursive,
+      items: nodes.length
+        ? nodes.map((n: any) => ({ path: n.path, id: n.id, is_folder: !!n.isFolder }))
+        : [this.pathItem(cfg.path || this.configuredFolderPath || '/')],
+    };
+    const key = JSON.stringify(request);
+    if (key === this.coverageKey) return;
+    this.coverageKey = key;
+    this.coverage = [];
+
+    this.apiService.checkSyncCoverage(request).subscribe({
+      next: (res) => {
+        if (key !== this.coverageKey) return;  // the selection changed while this was in flight
+        this.coverage = res.enabled ? res.items : [];
+        this.autoSelectFiles();
+      },
+      error: (err: any) => console.warn('Sync coverage check unavailable:', err),
+    });
+  }
+
+  /** A typed repository path can name a file as well as a folder; an extension means file. */
+  private pathItem(path: string): { path: string; is_folder: boolean } {
+    const last = (path || '').split('/').pop() || '';
+    return { path, is_folder: !/\.[A-Za-z0-9]{1,8}$/.test(last) };
+  }
+
+  /** Coverage for a row, when an auto-sync datasource already covers any of it. */
+  coverageFor(index: number): SyncCoverageItem | null {
+    // Rows and coverage line up one-to-one, except after a path-only run, when the rows can
+    // be the backend's per-file list instead of the one folder that was checked.
+    if (this.coverage.length !== this.displayFiles.length) return null;
+    const c = this.coverage[index];
+    return c && c.status !== 'none' ? c : null;
+  }
+
+  coverageLabel(index: number): string {
+    const c = this.coverageFor(index);
+    // "synced" only when an auto change sync covers it; otherwise it was ingested once
+    const synced = !!c?.datasources.some((m) => m.auto_sync && m.status === c.status);
+    switch (c?.status) {
+      case 'synced': return synced ? 'already synced' : 'already ingested';
+      case 'partial': return synced ? 'synced, no subfolders' : 'ingested, no subfolders';
+      case 'overlaps': return synced ? 'contains synced' : 'contains ingested';
+      default: return '';
+    }
+  }
+
+  coverageTooltip(index: number): string {
+    const c = this.coverageFor(index);
+    if (!c) return '';
+    const lines = c.datasources.map((m) => {
+      const how = m.auto_sync ? 'synced by' : 'ingested (no auto sync) by';
+      const what = m.relation === 'indexed' ? 'indexed by'
+        : m.relation === 'contains' ? `contains ${m.root}, ${how}`
+        : `${m.root}${m.recursive ? ' (with subfolders)' : ''}, ${how}`;
+      return `${what} ${m.source_name || m.config_id}${m.skip_graph ? ' [no graph]' : ''}`;
+    });
+    if (c.indexed) {
+      const where = (['vector', 'search', 'graph'] as const).filter((t) => c.indexed![t]);
+      lines.push(`in: ${where.join(', ') || 'none'}`);
+    }
+    lines.push(c.status === 'synced'
+      ? 'Left unchecked. Check it to ingest again: the earlier copy is replaced, not duplicated.'
+      : 'Part of it is already in the stores; ingesting it again refreshes that part.');
+    return lines.join('\n');
+  }
+
+  get coveredRowCount(): number {
+    return this.displayFiles.filter((_, i) => this.coverageFor(i)?.status === 'synced').length;
   }
 
   private autoSelectFiles(): void {
     if (this.configuredDataSource === 'upload') {
       this.selectedItems = new Set(this.configuredFiles.map((_, index) => index));
     } else if (this.configuredDataSource === 'cmis' || this.configuredDataSource === 'alfresco' || this.configuredDataSource === 'nuxeo') {
-      // Auto-select all repository files (whether individual files or repository path)
-      this.selectedItems = new Set(this.displayFiles.map((_, index) => index));
+      // Auto-select all repository rows except those auto-sync already covers. Mid-run the
+      // selection is left alone: this also runs on every status poll.
+      if (this.isProcessing) return;
+      this.selectedItems = new Set(
+        this.displayFiles
+          .map((_, index) => index)
+          .filter((index) => this.coverageFor(index)?.status !== 'synced')
+      );
     } else if (['web', 'wikipedia', 'youtube', 's3', 'gcs', 'azure_blob', 'onedrive', 'sharepoint', 'box', 'google_drive'].includes(this.configuredDataSource)) {
       // Auto-select the single source item
       this.selectedItems = new Set(this.displayFiles.map((_, index) => index));
@@ -222,6 +359,16 @@ export class ProcessingTabComponent implements OnInit, OnChanges {
     } else {
       return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
     }
+  }
+
+  /**
+   * True once a run has finished successfully. The status poll stops at that point, so
+   * lastStatusData keeps whatever mid-flight sample arrived last -- a row could sit at
+   * "40% - Loading" next to a green "Successfully ingested" banner. A per-file record is
+   * still preferred when it reports a terminal state, so a file that errored keeps saying so.
+   */
+  private get runFinishedOk(): boolean {
+    return !this.isProcessing && this.processingProgress === 100 && !this.error;
   }
 
   getFileProgressData(filename: string): any {
@@ -255,6 +402,9 @@ export class ProcessingTabComponent implements OnInit, OnChanges {
     // Try to get individual file data first, fall back to overall progress for repository files
     const progressData = this.getFileProgressData(filename);
     if (progressData) {
+      if (this.runFinishedOk && progressData.status !== 'error') {
+        return 100;
+      }
       return progressData.progress || 0;
     }
     
@@ -277,6 +427,9 @@ export class ProcessingTabComponent implements OnInit, OnChanges {
     // Try to get individual file data first
     const progressData = this.getFileProgressData(filename);
     if (progressData) {
+      if (this.runFinishedOk && progressData.status !== 'error') {
+        return 'Completed';
+      }
       const phase = progressData.phase || 'ready';
       const phaseNames: { [key: string]: string } = {
         'ready': 'Ready',
@@ -328,6 +481,9 @@ export class ProcessingTabComponent implements OnInit, OnChanges {
     // Try to get individual file data first
     const progressData = this.getFileProgressData(filename);
     if (progressData) {
+      if (this.runFinishedOk && progressData.status !== 'error') {
+        return 'completed';
+      }
       return progressData.status || 'ready';
     }
     
@@ -417,6 +573,26 @@ export class ProcessingTabComponent implements OnInit, OnChanges {
     this.selectedItems.clear();
   }
 
+  /**
+   * The nodeDetails whose rows are checked. Rows used to be decoration only -- every node was
+   * sent whatever was ticked -- so unchecking an already-synced row would not have kept it out.
+   */
+  private checkedNodeDetails(): any[] {
+    return this.repositoryNodeDetails().filter((_: any, index: number) => this.selectedItems.has(index));
+  }
+
+  /** Narrow a repository config's nodeDetails / nodeIds to the checked rows. */
+  private withCheckedNodes(cfg: any): any {
+    if (!Array.isArray(cfg?.nodeDetails) || !cfg.nodeDetails.length) return cfg;
+    const checked = this.checkedNodeDetails();
+    const ids = new Set(checked.map((n: any) => n.id));
+    return {
+      ...cfg,
+      nodeDetails: checked,
+      ...(Array.isArray(cfg.nodeIds) ? { nodeIds: cfg.nodeIds.filter((id: string) => ids.has(id)) } : {}),
+    };
+  }
+
   canStartProcessing(): boolean {
     return this.hasConfiguredSources && this.selectedItems.size > 0 && !this.isProcessing;
   }
@@ -481,15 +657,33 @@ export class ProcessingTabComponent implements OnInit, OnChanges {
           folder_path: this.configuredFolderPath || '/Sites/swsdp/documentLibrary'
         };
       } else if (this.configuredDataSource === 'alfresco') {
-        processingData.paths = [this.configuredFolderPath || '/Sites/swsdp/documentLibrary']; // Use configured path
-        processingData.alfresco_config = {
-          url: 'http://localhost:8080',
-          username: 'admin',
-          password: 'admin',
-          path: this.configuredFolderPath || '/Sites/swsdp/documentLibrary'
-        };
+        const alfrescoPath = this.configuredAlfrescoConfig?.path
+          || this.configuredFolderPath
+          || '/Sites/swsdp/documentLibrary';
+        // One path per selected node when the host supplied nodeDetails, so a multi-select
+        // ingests exactly what was picked. The backend also routes per nodeDetails entry, so
+        // these agree; a single collapsed path would silently widen a partial selection.
+        const nodePaths = this.checkedNodeDetails()
+          .map((n: any) => n.path)
+          .filter((p: any): p is string => !!p);
+        processingData.paths = nodePaths.length ? nodePaths : [alfrescoPath];
+        // Send what the Sources tab actually configured. This used to be a hardcoded
+        // url/username/password literal, so every edit made in the form -- credentials, auth
+        // method, ticket -- was silently discarded and every ingest ran as admin/admin against
+        // http://localhost:8080. The literals remain only as a fallback for when nothing has
+        // been configured at all.
+        processingData.alfresco_config = this.configuredAlfrescoConfig
+          ? this.withCheckedNodes({ ...this.configuredAlfrescoConfig, path: alfrescoPath })
+          : {
+              url: 'http://localhost:8080',
+              username: 'admin',
+              password: 'admin',
+              path: alfrescoPath
+            };
       } else if (this.configuredDataSource === 'nuxeo') {
-        processingData.nuxeo_config = this.configuredNuxeoConfig;
+        processingData.nuxeo_config = this.configuredNuxeoConfig
+          ? this.withCheckedNodes({ ...this.configuredNuxeoConfig })
+          : this.configuredNuxeoConfig;
       } else if (this.configuredDataSource === 'web') {
         processingData.web_config = this.configuredWebConfig;
       } else if (this.configuredDataSource === 'wikipedia') {
@@ -530,7 +724,9 @@ export class ProcessingTabComponent implements OnInit, OnChanges {
       }
       
       // Add enable_sync flag to processing data
-      if (this.enableSync) {
+      // Only for a source that shows the checkbox: the value survives switching sources, so
+      // a sync left ticked on Alfresco would otherwise make a later upload a live sync too.
+      if (this.enableSync && !NO_AUTO_SYNC_SOURCES.includes(this.configuredDataSource)) {
         processingData.enable_sync = true;
         console.log('✓ enable_sync flag set to true - Incremental updates will be enabled');
       }

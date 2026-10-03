@@ -212,8 +212,9 @@ class ArangoDBAdapter:
                     logger.warning("ArangoDB delete step failed: %s — AQL: %s", exc, aql)
         else:
             # Fallback: use langchain-arangodb query() with a simpler AQL.
-            # This path may fail for ref_doc_ids containing backslashes (Windows paths).
-            _rid = ref_doc_id.replace("'", "\\'")
+            # Escape the backslash before the quote: the other order doubles the quote's
+            # own escape and ends the AQL string literal early (GHSA-vqrg-773h-4wxc).
+            _rid = ref_doc_id.replace("\\", "\\\\").replace("'", "\\'")
             node_aql = (
                 f"FOR n IN `{entity_col}` "
                 f"  FILTER n.ref_doc_id == '{_rid}' OR n.doc_id == '{_rid}' "

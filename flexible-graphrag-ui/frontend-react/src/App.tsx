@@ -112,6 +112,7 @@ const App: React.FC = () => {
   // File selection state for processing tab
   const [selectedFileIndices, setSelectedFileIndices] = useState<Set<number>>(new Set());
   const [repositoryItemsHidden, setRepositoryItemsHidden] = useState(false);
+  const [configurationVersion, setConfigurationVersion] = useState(0); // bumped on each Sources apply
   
   // Success message state
   const [successMessage, setSuccessMessage] = useState<string>('');
@@ -246,7 +247,19 @@ const App: React.FC = () => {
     setEnterpriseConfig(data.enterpriseConfig);
     setRepositoryItemsHidden(false); // Reset hidden flag when sources are reconfigured
     setError(''); // Clear any previous errors
-    
+    // A fresh configuration starts from a clean table: the previous run's progress/status
+    // otherwise stays on the rows (and hides the "already ingested" check). Left alone while
+    // a run is in flight, whose status polling still needs it.
+    if (!isProcessing) {
+      setProcessingStatus('');
+      setProcessingProgress(0);
+      setCurrentProcessingId(null);
+      setStatusData(null);
+      setLastStatusData(null);
+      setSuccessMessage('');
+    }
+    setConfigurationVersion((v) => v + 1);
+
     // Auto-select files for processing
     if (data.dataSource === 'upload') {
       // For upload files, auto-select all configured files
@@ -526,6 +539,7 @@ const App: React.FC = () => {
                 enterpriseConfig={enterpriseConfig}
                 selectedFileIndices={selectedFileIndices}
                 repositoryItemsHidden={repositoryItemsHidden}
+                configurationVersion={configurationVersion}
                 isProcessing={isProcessing}
                 processingStatus={processingStatus}
                 processingProgress={processingProgress}

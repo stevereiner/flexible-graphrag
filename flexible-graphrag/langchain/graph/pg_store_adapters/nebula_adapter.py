@@ -425,7 +425,8 @@ class NebulaGraphAdapter:
             or self.config.get("space_name")
             or self.config.get("database", "flexible_graphrag")
         )
-        _rid = ref_doc_id.replace('"', '\\"')
+        # backslash first, or a path ending in "\" escapes the closing quote
+        _rid = ref_doc_id.replace("\\", "\\\\").replace('"', '\\"')
         # MATCH uses openCypher style; DELETE VERTEX is nGQL.
         # NebulaGraph 3.x supports MATCH within nGQL contexts.
         fetch_ngql = (
