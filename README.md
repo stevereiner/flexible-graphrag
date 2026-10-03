@@ -10,7 +10,7 @@
 [![Angular](https://img.shields.io/badge/Angular-20-DD0031?logo=angular&logoColor=white)](https://angular.dev/)
 [![Vue](https://img.shields.io/badge/Vue-3-4FC08D?logo=vue.js&logoColor=white)](https://vuejs.org/)
 [![Docker Hub](https://img.shields.io/badge/Docker%20Hub-integratedsemantics-2496ED?logo=docker&logoColor=white)](https://hub.docker.com/u/integratedsemantics)
-[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/stevereiner/flexible-graphrag)
+[![Ask DeepWiki](https://img.shields.io/badge/Ask-DeepWiki-20B2AA)](https://deepwiki.com/stevereiner/flexible-graphrag)
 [![Documentation](https://img.shields.io/badge/Documentation-GitHub%20Pages-blue)](https://stevereiner.github.io/flexible-graphrag/)
 [![Blog](https://img.shields.io/badge/Blog-integratedsemantics.org-orange)](https://integratedsemantics.org)
 
