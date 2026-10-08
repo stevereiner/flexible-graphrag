@@ -10,18 +10,23 @@ import functools
 import logging
 import os
 import time
-from typing import Optional, List, Dict
+from typing import Optional, List, Dict, Iterable
 from pathlib import Path
 
 from llama_index.core import Document
 from llama_index.core import VectorStoreIndex, PropertyGraphIndex
 
+from . import sync_jobs
 from .detectors import ChangeEvent, ChangeType, FileMetadata
 from .state_manager import StateManager, DocumentState
 from process.document_processor import DocumentProcessor
 from config import Settings as AppSettings
 
 logger = logging.getLogger("flexible_graphrag.incremental.engine")
+
+
+# Stores a document can be deleted from on its own; "graph" is the property graph and RDF.
+DELETE_TARGETS = ("vector", "search", "graph")
 
 
 def _is_benign_delete_conflict(e: Exception) -> bool:
@@ -75,63 +80,6 @@ class IncrementalUpdateEngine:
         self.config = app_config
         self.hybrid_system = hybrid_system  # Store for use in _insert_to_all_indexes
         self.config_manager = config_manager  # Store for accessing datasource configs
-    
-    def _delete_from_all_indexes(self, doc_id: str):
-        """
-        Delete document from all indexes (vector, search, graph).
-        
-        If hybrid_system is available, uses its indexes directly.
-        This ensures we use the latest index references.
-        
-        Args:
-            doc_id: The document ID to delete
-        """
-        # Get indexes - use hybrid_system's indexes if available
-        vector_index = self.hybrid_system.vector_index if self.hybrid_system else self.vector_index
-        search_index = self.hybrid_system.search_index if self.hybrid_system else self.search_index
-        graph_index = self.hybrid_system.graph_index if self.hybrid_system else self.graph_index
-        
-        # Delete from Vector Index
-        if vector_index is not None:
-            try:
-                vector_index.delete_ref_doc(ref_doc_id=doc_id, delete_from_docstore=True)
-                logger.info(f"  Deleted from vector index")
-            except Exception as e:
-                if 'not found' in str(e).lower():
-                    logger.debug(f"  Document not in vector index")
-                else:
-                    logger.warning(f"  Vector index delete error: {e}")
-        
-        # Delete from Search Index (only if separate from vector)
-        if search_index is not None and search_index is not vector_index:
-            try:
-                search_index.delete_ref_doc(ref_doc_id=doc_id, delete_from_docstore=True)
-                logger.info(f"  Deleted from search index")
-            except Exception as e:
-                error_str = str(e).lower()
-                if 'not found' in error_str or 'version conflict' in error_str:
-                    logger.debug(f"  Document not in search index or already deleted")
-                else:
-                    logger.warning(f"  Search index delete error: {e}")
-        
-        # Delete from Graph Index
-        if graph_index is not None:
-            self._delete_from_graph_helper(doc_id, graph_index)
-            logger.info(f"  Deleted from graph index")
-
-        # Delete from RDF stores (when rdf_graph_db != none)
-        if self.hybrid_system is not None:
-            try:
-                rdf_adapter = getattr(self.hybrid_system, "rdf_adapter", None)
-                if rdf_adapter is not None:
-                    from rdf.kg_to_rdf_converter import DEFAULT_BASE_NS
-                    graph_uri = DEFAULT_BASE_NS.rstrip("/")
-                    rdf_adapter.delete(doc_id, graph_uri=graph_uri)
-                    logger.info(f"  Deleted RDF triples for ref_doc_id={doc_id}")
-                else:
-                    self.hybrid_system._delete_from_rdf_stores(doc_id)
-            except Exception as e:
-                logger.warning(f"  RDF store delete error for doc '{doc_id}': {e}")
     
     async def _insert_to_all_indexes(self, llama_doc, doc_id: str, metadata: FileMetadata, datasource_config=None):
         """
@@ -265,14 +213,30 @@ class IncrementalUpdateEngine:
         elif should_skip_graph:
             logger.info(f"  SKIP: Graph extraction (skip_graph={skip_graph}, enable_knowledge_graph={self.config.enable_knowledge_graph}, graph_db={self.config.pg_graph_db})")
     
-    async def _delete_from_all_indexes(self, doc_id: str) -> None:
+    async def _delete_from_all_indexes(self, doc_id: str, targets: Optional[Iterable[str]] = None) -> None:
         """
         Delete document from all indexes by doc_id.
-        
+
         Now that backend and incremental system use same stable doc_id format (config_id:filename),
         this simple doc_id-based delete will work correctly!
+
+        ``targets`` limits the delete to some of ``DELETE_TARGETS``: "vector", "search", and
+        "graph" (property graph and RDF together). None deletes from every store.
         """
-        
+        targets = set(DELETE_TARGETS if targets is None else targets)
+        unknown = targets - set(DELETE_TARGETS)
+        if unknown:
+            raise ValueError(f"unknown delete target(s): {sorted(unknown)}")
+
+        if "vector" in targets:
+            await self._delete_from_vector(doc_id)
+        if "search" in targets:
+            await self._delete_from_search(doc_id)
+        if "graph" in targets:
+            self._delete_from_property_graph(doc_id)
+            self._delete_from_rdf(doc_id)
+
+    async def _delete_from_vector(self, doc_id: str) -> None:
         hs = self.hybrid_system
 
         # ── Vector store delete ───────────────────────────────────────────────
@@ -318,6 +282,9 @@ class IncrementalUpdateEngine:
                 logger.info(f"  Deleted from LI vector index (delete_ref_doc)")
             except Exception as e:
                 _log_delete_outcome("LI vector index", e)
+
+    async def _delete_from_search(self, doc_id: str) -> None:
+        hs = self.hybrid_system
 
         # ── Search store delete ───────────────────────────────────────────────
         # LC mode: custom delete using ES/OpenSearch delete_by_query.
@@ -379,6 +346,9 @@ class IncrementalUpdateEngine:
             except Exception as e:
                 _log_delete_outcome("LI search", e)
 
+    def _delete_from_property_graph(self, doc_id: str) -> None:
+        hs = self.hybrid_system
+
         # ── Property graph delete ─────────────────────────────────────────────
         # LC mode: LangChainPGAdapter.delete() uses Cypher/AQL/etc. with ref_doc_id.
         # LI mode: _delete_from_graph_helper uses graph_index.delete_ref_doc() + store.delete().
@@ -404,6 +374,7 @@ class IncrementalUpdateEngine:
                 except Exception as e:
                     _log_delete_outcome("LI graph", e)
 
+    def _delete_from_rdf(self, doc_id: str) -> None:
         # Delete from RDF stores (when rdf_graph_db != none)
         if self.hybrid_system is not None:
             try:
@@ -435,7 +406,12 @@ class IncrementalUpdateEngine:
             return
             
         prefix = f"{context} " if context else ""
-        
+
+        # Cypher stores / NebulaGraph: by the document's own facts, not by node ownership
+        # (see _cypher_graph_delete)
+        if self._cypher_graph_delete(doc_id, graph_index, prefix) or                 self._nebula_graph_delete(doc_id, graph_index, prefix):
+            return
+
         try:
             # Step 1: Delete chunk nodes by ref_doc_id
             # Note: May log "ref_doc_id not found" warning from LlamaIndex - this is expected
@@ -466,6 +442,90 @@ class IncrementalUpdateEngine:
         except Exception as e:
             logger.debug(f"  Could not delete {prefix}graph data: {e}")
     
+    # Property-graph stores that take Cypher through structured_query (ArcadeDB: no parameters)
+    _CYPHER_GRAPH_STORES = {"neo4j", "memgraph", "falkordb", "arcadedb"}
+
+    def _cypher_graph_delete(self, doc_id: str, graph_index, prefix: str = "") -> bool:
+        """Delete one document's graph data from a Cypher store; False when the store is not one.
+
+        Entities are shared across documents and carry the doc_id of whichever document created
+        them first, so deleting nodes by doc_id (the generic path) both leaves this document's
+        relationships between other documents' entities behind and detach-deletes entities that
+        other documents' relationships still use. Instead: the relationships extracted from this
+        document (each carries its doc_id), then its chunks, then entities of this document left
+        with no relationship at all, then the document node.
+        """
+        cfg = self.config or getattr(self.hybrid_system, "config", None)
+        store_type = str(getattr(getattr(cfg, "pg_graph_db", ""), "value", getattr(cfg, "pg_graph_db", ""))).lower()
+        if store_type not in self._CYPHER_GRAPH_STORES:
+            return False
+        store = graph_index.property_graph_store
+
+        def run(cypher: str) -> None:
+            if store_type == "arcadedb":
+                # No query parameters (the id goes in the text), and structured_query sends
+                # Cypher to the read-only endpoint: a write must go as a command
+                quoted = "'%s'" % doc_id.replace("\\", "\\\\").replace("'", "\\'")
+                store._db.query("opencypher", cypher.replace("$doc_id", quoted), is_command=True)
+            else:
+                store.structured_query(cypher, param_map={"doc_id": doc_id})
+
+        try:
+            run("MATCH ()-[r]->() WHERE r.doc_id = $doc_id DELETE r")
+        except Exception as e:
+            logger.warning(f"  Could not delete {prefix}graph relationships of {doc_id}: {e}")
+            return False  # leave it to the generic path
+        try:
+            graph_index.delete_ref_doc(ref_doc_id=doc_id, delete_from_docstore=True)
+        except Exception:
+            logger.debug(f"  {prefix}chunk nodes not found or already deleted")
+        for cypher, what in (
+            ("MATCH (c) WHERE c.ref_doc_id = $doc_id DETACH DELETE c", "chunks"),
+            ("MATCH (e) WHERE e.doc_id = $doc_id OPTIONAL MATCH (e)-[x]-() "
+             "WITH e, count(x) AS n WHERE n = 0 DELETE e", "unused entities"),
+            ("MATCH (d) WHERE d.id = $doc_id DETACH DELETE d", "document node"),
+        ):
+            try:
+                run(cypher)
+            except Exception as e:
+                logger.debug(f"  Could not delete {prefix}{what} of {doc_id}: {e}")
+        return True
+
+    def _nebula_graph_delete(self, doc_id: str, graph_index, prefix: str = "") -> bool:
+        """_cypher_graph_delete for NebulaGraph (nGQL): its Relation__ edges carrying this doc_id,
+        its chunks, then its entities left with no edge at all. False when not NebulaGraph."""
+        cfg = self.config or getattr(self.hybrid_system, "config", None)
+        if str(getattr(getattr(cfg, "pg_graph_db", ""), "value", getattr(cfg, "pg_graph_db", ""))).lower() != "nebula":
+            return False
+        store = graph_index.property_graph_store
+        lit = '"%s"' % doc_id.replace("\\", "\\\\").replace('"', '\\"')
+        try:
+            edges = store.structured_query(
+                "MATCH ()-[r:`Relation__`]->() WHERE r.doc_id == %s "
+                "RETURN src(r) AS s, dst(r) AS d, rank(r) AS k" % lit) or []
+            for e in edges:
+                store.structured_query('DELETE EDGE `Relation__` "%s" -> "%s" @%s;' % (
+                    str(e["s"]).replace('"', '\\"'), str(e["d"]).replace('"', '\\"'), int(e["k"] or 0)))
+        except Exception as ex:
+            logger.warning(f"  Could not delete {prefix}NebulaGraph relationships of {doc_id}: {ex}")
+            return False
+        try:
+            graph_index.delete_ref_doc(ref_doc_id=doc_id, delete_from_docstore=True)
+        except Exception:
+            logger.debug(f"  {prefix}chunk nodes not found or already deleted")
+        try:
+            for row in store.structured_query(
+                    "MATCH (e) WHERE e.Props__.ref_doc_id == %s OR id(e) == %s RETURN id(e) AS i" % (lit, lit)) or []:
+                store.structured_query('DELETE VERTEX "%s" WITH EDGE;' % str(row["i"]).replace('"', '\\"'))
+            for row in store.structured_query(
+                    "MATCH (e:`Entity__`) WHERE e.Props__.doc_id == %s OPTIONAL MATCH (e)-[x]-() "
+                    "WITH e, count(x) AS n WHERE n == 0 RETURN id(e) AS i" % lit) or []:
+                store.structured_query('DELETE VERTEX "%s";' % str(row["i"]).replace('"', '\\"'))
+        except Exception as ex:
+            logger.debug(f"  Could not delete {prefix}NebulaGraph chunks / unused entities of {doc_id}: {ex}")
+        logger.info(f"  NebulaGraph: deleted {len(edges)} relationship(s) of {doc_id}")
+        return True
+
     async def _process_and_insert_to_graph(self, llama_doc, doc_id: str, metadata: FileMetadata) -> int:
         """
         Helper method to extract entities from document and insert into graph.
@@ -656,9 +716,20 @@ class IncrementalUpdateEngine:
                 # Still invoke callback if this is a MODIFY (to process ADD even if DELETE not found)
                 if event.is_modify_delete and event.modify_callback:
                     logger.info(f"MODIFY: Invoking callback for ADD (despite DELETE not found)")
-                    await event.modify_callback()
+                    with sync_jobs.updating():
+                        await event.modify_callback()
                 return
             
+            # The delete half of an UPDATE for a document whose auto sync is off (frozen, or
+            # removed from the stores): leave it as it is, and the ADD half must not run.
+            # A real repository delete still goes through, and forgets the row.
+            if event.is_modify_delete and await self.state_manager.sync_off(doc_id):
+                logger.info(f"SKIP UPDATE: {metadata.path}: auto sync is off for this document")
+                # Still follow a rename or move: the row is kept so this document can be put back
+                if metadata.path and metadata.path != existing_state.source_path:
+                    await self.state_manager._update_source_path(doc_id, metadata.path)
+                return
+
             logger.info(f"DELETE: Document found in database, proceeding with deletion...")
             
             # Determine which ID to use for index deletion (must match ref_doc_id in vector/search):
@@ -683,14 +754,25 @@ class IncrementalUpdateEngine:
             # Delete from all indexes using the correct ID
             await self._delete_from_all_indexes(delete_id)
             
-            # HARD DELETE: Remove state from PostgreSQL completely
-            await self.state_manager.mark_deleted(doc_id)
+            # HARD DELETE: Remove state from PostgreSQL completely -- except the delete half of an
+            # UPDATE for a document whose graph was removed: its row carries skip_graph, which
+            # the ADD half reads, so keep it and just mark the document out of the stores.
+            if event.is_modify_delete and await self.state_manager.doc_skip_graph(doc_id):
+                await self.state_manager.clear_targets(doc_id)
+            else:
+                await self.state_manager.mark_deleted(doc_id)
             logger.info(f"SUCCESS: Deleted {metadata.path}")
-            
+            if not event.is_modify_delete:  # a repository delete: show it on the Jobs list
+                source_type = getattr(metadata, 'source_type', None)
+                if source_type in (None, "", "deleted"):  # periodic-refresh deletes carry no type
+                    source_type = getattr(datasource_config, "source_type", None)
+                sync_jobs.record_delete(source_type, existing_state.source_path or metadata.path)
+
             # If this is a MODIFY delete, invoke callback to process ADD
             if event.is_modify_delete and event.modify_callback:
                 logger.info(f"MODIFY: DELETE completed, invoking callback for ADD")
-                await event.modify_callback()
+                with sync_jobs.updating():
+                    await event.modify_callback()
             
             return
         
@@ -714,6 +796,11 @@ class IncrementalUpdateEngine:
             if existing_state:
                 logger.debug(f"Found existing state by doc_id: {doc_id}")
         
+        # Auto sync is off for this document (see the DELETE branch above)
+        if existing_state and await self.state_manager.sync_off(existing_state.doc_id):
+            logger.info(f"SKIP: {metadata.path}: auto sync is off for this document")
+            return
+
         # Quick timestamp-based change detection (optimization for Alfresco and other sources)
         if (existing_state and 
             metadata.modified_timestamp and 
@@ -1013,6 +1100,10 @@ class IncrementalUpdateEngine:
         
         # Get existing files from document_state to detect deletions
         existing_states = await self.state_manager.get_all_states_for_config(config_id)
+        # Documents whose auto sync is off are not this sync's to follow: they are often not under
+        # its roots at all (a row ingested but not synced, or taken off the roots), so a listing
+        # of the roots must not read their absence as a repository delete
+        existing_states = [s for s in existing_states if s.auto_sync is not False]
         
         # Build set of existing identifiers (prefer source_id, fall back to source_path)
         existing_identifiers = set()

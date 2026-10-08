@@ -1,10 +1,16 @@
 <template>
   <div class="pa-4">
+    <v-tabs v-model="subTab" class="mb-4" density="compact">
+      <v-tab :value="0">Processing</v-tab>
+      <v-tab :value="1">{{ runningJobCount ? `Jobs (${runningJobCount} running)` : 'Jobs' }}</v-tab>
+    </v-tabs>
+    <div v-if="subTab === 0">
     <!-- Header with Checkboxes -->
     <div class="d-flex justify-space-between align-center mb-4">
       <h2>File Processing</h2>
       <div class="d-flex flex-column gap-2">
         <v-checkbox
+          v-if="!columnsMode"
           v-model="skipGraph"
           label="Skip graph (search + vector only)"
           :disabled="isProcessing"
@@ -15,7 +21,8 @@
         <!-- Only show Enable Sync for datasources that support auto-sync -->
         <!-- Hidden for: upload, cmis, webpage, wikipedia, youtube -->
         <v-checkbox
-          v-if="configuredDataSource !== 'upload' &&
+          v-if="!columnsMode &&
+                configuredDataSource !== 'upload' &&
                 configuredDataSource !== 'cmis' &&
                 configuredDataSource !== 'web' &&
                 configuredDataSource !== 'wikipedia' &&
@@ -50,10 +57,12 @@
 
     <!-- File Processing Table -->
     <v-card v-if="hasConfiguredSources" class="mb-4" variant="outlined">
-      <p v-if="coveredRowCount > 0 && !isProcessing && processingProgress === 0"
+      <p v-if="ingestedRowCount > 0 && !isProcessing && processingProgress === 0"
          class="text-body-2 px-4 pt-3 mb-0" style="opacity: 0.8;">
-        {{ coveredRowCount }} of {{ displayFiles.length }} already in the stores, so left unchecked.
-        Hover the status for details; checking a row ingests it again, replacing the earlier copy.
+        {{ ingestedRowCount }} of {{ displayFiles.length }} already in the stores, so left unchecked.
+        {{ columnsMode ? 'Check rows, set Search+Vector / Graphs, and click START PROCESSING to update them.'
+                       : 'Check rows and click START PROCESSING to update them.' }}
+        Hover the status for details.
       </p>
       <v-data-table
         v-model="selectedItems"
@@ -107,14 +116,85 @@
           </div>
         </template>
 
+        <!-- Search+Vector / Graphs columns: what the row should end up in -->
+        <template #header.searchVector>
+          <v-checkbox
+            :model-value="countWant('sv') === displayFiles.length && displayFiles.length > 0"
+            :indeterminate="countWant('sv') > 0 && countWant('sv') < displayFiles.length"
+            :disabled="isProcessing || !canSearchVector"
+            label="Search+Vector"
+            title="Vector and full-text search stores, for every row"
+            class="text-no-wrap"
+            density="compact"
+            hide-details
+            @update:model-value="(v) => setWant(allRows(), 'sv', !!v)"
+          ></v-checkbox>
+        </template>
+        <template #header.graphs>
+          <v-checkbox
+            :model-value="countWant('graphs') === displayFiles.length && displayFiles.length > 0"
+            :indeterminate="countWant('graphs') > 0 && countWant('graphs') < displayFiles.length"
+            :disabled="isProcessing || !canGraphs"
+            label="Graphs"
+            :title="canGraphs ? 'Property graph and RDF, for every row' : 'No graph store configured in .env'"
+            class="text-no-wrap"
+            density="compact"
+            hide-details
+            @update:model-value="(v) => setWant(allRows(), 'graphs', !!v)"
+          ></v-checkbox>
+        </template>
+        <template #item.searchVector="{ item }">
+          <v-checkbox
+            :model-value="wantFor(item.index).sv"
+            :disabled="isProcessing || !canSearchVector"
+            density="compact"
+            hide-details
+            @update:model-value="(v) => setWant([item.index], 'sv', !!v)"
+          ></v-checkbox>
+        </template>
+        <template #item.graphs="{ item }">
+          <v-checkbox
+            :model-value="wantFor(item.index).graphs"
+            :disabled="isProcessing || !canGraphs"
+            density="compact"
+            hide-details
+            @update:model-value="(v) => setWant([item.index], 'graphs', !!v)"
+          ></v-checkbox>
+        </template>
+        <!-- Auto Sync column: kept up to date with repository changes -->
+        <template #header.autoSync>
+          <v-checkbox
+            :model-value="countWant('sync') === displayFiles.length && displayFiles.length > 0"
+            :indeterminate="countWant('sync') > 0 && countWant('sync') < displayFiles.length"
+            :disabled="isProcessing"
+            label="Auto Sync"
+            title="Keep every row up to date with repository changes"
+            class="text-no-wrap"
+            density="compact"
+            hide-details
+            @update:model-value="(v) => setWant(allRows(), 'sync', !!v)"
+          ></v-checkbox>
+        </template>
+        <template #item.autoSync="{ item }">
+          <v-checkbox
+            :model-value="wantFor(item.index).sync"
+            :disabled="isProcessing"
+            title="Unchecking stops this row's auto sync; for a datasource's own root it also stops watching it"
+            density="compact"
+            hide-details
+            @update:model-value="(v) => setWant([item.index], 'sync', !!v)"
+          ></v-checkbox>
+        </template>
+
         <!-- Remove column -->
         <template #item.remove="{ item }">
-          <div class="text-center">
+          <div class="text-center" style="white-space: nowrap;">
             <v-btn
               icon="mdi-close"
               size="small"
               variant="text"
               color="error"
+              title="Take this row off the list (the stores are not touched)"
               @click="removeFile(item.index)"
             >
             </v-btn>
@@ -123,16 +203,26 @@
 
         <!-- Status column -->
         <template #item.status="{ item }">
-          <!-- Before a run: say when this row is already in the stores -->
+          <!-- Before a run: which stores the row is in now -->
           <v-chip
-            v-if="showCoverage(item.index)"
-            :color="coverageFor(item.index)?.status === 'synced' ? 'info' : 'warning'"
+            v-if="columnsMode && !isProcessing && processingProgress === 0"
+            :color="inStores(item.index) ? 'info' : undefined"
             size="small"
             variant="tonal"
-            :title="coverageTooltip(item.index)"
+            :title="ingestStatusTooltip(item.index)"
             style="cursor: help;"
           >
-            {{ coverageLabel(item.index) }}
+            {{ storesLabel(item.index) }}
+          </v-chip>
+          <v-chip
+            v-else-if="showIngestStatus(item.index)"
+            :color="ingestStatusFor(item.index)?.status === 'synced' ? 'info' : 'warning'"
+            size="small"
+            variant="tonal"
+            :title="ingestStatusTooltip(item.index)"
+            style="cursor: help;"
+          >
+            {{ ingestStatusLabel(item.index) }}
           </v-chip>
           <v-chip
             v-else
@@ -223,16 +313,15 @@
         {{ getProcessingButtonText }}
       </v-btn>
 
-      <v-btn
-        v-if="selectedItems.length > 0 && displayFiles.length > 0"
-        color="error"
-        variant="outlined"
-        prepend-icon="mdi-delete"
-        @click="removeSelectedFiles"
-      >
-        REMOVE SELECTED ({{ selectedItems.length }})
-      </v-btn>
-
+      <v-checkbox
+        v-model="runInBackground"
+        label="Run in background"
+        title="Start the job and keep this tab free; follow it on the Jobs tab"
+        :disabled="isProcessing"
+        color="primary"
+        density="compact"
+        hide-details
+      ></v-checkbox>
       <!-- Debug toggle -->
       <v-btn
         variant="text"
@@ -286,11 +375,62 @@
     >
       {{ error }}
     </v-alert>
+    </div>
+
+    <div v-if="subTab === 1">
+      <div class="d-flex justify-space-between align-center mb-4">
+        <h2>Jobs</h2>
+        <div class="d-flex ga-2">
+          <v-btn variant="outlined" size="small" prepend-icon="mdi-refresh" @click="loadJobs">Refresh</v-btn>
+          <v-btn variant="outlined" size="small" prepend-icon="mdi-notification-clear-all"
+                 :disabled="jobs.every(jobRunning)" title="Remove finished jobs from the list (running ones stay)"
+                 @click="clearJobs">Clear finished</v-btn>
+        </div>
+      </div>
+      <p v-if="jobs.length === 0" class="text-body-2" style="opacity: 0.75;">
+        No jobs yet. Jobs started from the Processing tab -- and auto sync runs -- are listed here,
+        oldest first. The backend keeps them until it restarts.
+      </p>
+      <div v-else style="overflow-x: auto;">
+        <v-table density="compact" style="min-width: 900px;">
+          <thead>
+            <tr>
+              <th>Started</th><th>Job</th><th>Source</th><th>Status</th>
+              <th style="min-width: 140px;">Progress</th><th>Message</th><th></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="job in jobs" :key="job.processing_id">
+              <td style="white-space: nowrap;">{{ job.started_at ? new Date(job.started_at).toLocaleString() : '' }}</td>
+              <td :title="job.label || job.processing_id"
+                  style="max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                {{ job.kind === 'sync' ? ('auto sync ' + (job.sync_action || '') + (job.label ? ': ' + job.label : '')) : (job.label || job.processing_id) }}
+              </td>
+              <td>{{ job.data_source }}</td>
+              <td>
+                <v-chip size="small" variant="flat"
+                        :color="job.status === 'completed' ? 'success' : job.status === 'failed' ? 'error'
+                                : jobRunning(job) ? 'primary' : undefined">{{ job.status }}</v-chip>
+              </td>
+              <td>
+                <v-progress-linear :model-value="job.progress || 0" color="primary" height="8" rounded></v-progress-linear>
+                <span class="text-caption">{{ job.progress || 0 }}%</span>
+              </td>
+              <td style="min-width: 320px; white-space: normal; overflow-wrap: anywhere;">{{ job.message }}</td>
+              <td>
+                <v-btn v-if="jobRunning(job) && job.kind === 'ingest'" size="small" color="error"
+                       variant="outlined" @click="cancelJob(job)">Cancel</v-btn>
+              </td>
+            </tr>
+          </tbody>
+        </v-table>
+      </div>
+    </div>
   </div>
 </template>
 
 <script lang="ts">
-import { defineComponent, ref, computed, watch } from 'vue';
+import { defineComponent, ref, computed, watch, onBeforeUnmount } from 'vue';
 import axios from 'axios';
 
 // Sources with no auto change sync: the "Enable auto change sync" checkbox is hidden for them
@@ -404,13 +544,24 @@ export default defineComponent({
     const sourcesReconfiguredFlag = ref(0); // Counter to force repository items to show when reconfigured
 
     // Table headers
-    const tableHeaders = [
-      { title: 'Filename', key: 'name', width: '30%' }, // Use percentage for flexible but controlled width
+    // Search+Vector / Graphs columns once the ingest-status check answered with `stores`
+    // (with them, Filename and Progress give up width: at 30% + 45% the two checkbox columns were
+    // squeezed until their labels broke letter by letter)
+    const tableHeaders = computed(() => [
+      { title: 'Filename', key: 'name', width: columnsMode.value ? '25%' : '30%' },
       { title: 'File Size', key: 'size', width: '80px' },
-      { title: 'Progress', key: 'progress', width: '45%', sortable: false }, // Maintain good progress bar width
+      { title: 'Progress', key: 'progress', width: columnsMode.value ? '30%' : '45%', sortable: false },
+      ...(columnsMode.value ? [
+        { title: 'Search+Vector', key: 'searchVector', sortable: false, align: 'start', width: '170px', minWidth: '170px' },
+        { title: 'Graphs', key: 'graphs', sortable: false, align: 'start', width: '120px', minWidth: '120px' },
+        // Auto Sync only for repository sources (uploads are not kept in sync)
+        ...(props.configuredDataSource === 'upload' ? [] : [
+          { title: 'Auto Sync', key: 'autoSync', sortable: false, align: 'start', width: '140px', minWidth: '140px' },
+        ]),
+      ] : []),
       { title: '', key: 'remove', width: '50px', sortable: false, align: 'center' },
       { title: 'Status', key: 'status', width: '100px' },
-    ] as const;
+    ] as any[]);
 
     // Computed
     const displayFiles = computed(() => {
@@ -439,26 +590,9 @@ export default defineComponent({
           sourcesReconfiguredFlag: sourcesReconfiguredFlag.value
         });
         
-        // Only use individual files from status data if we're currently processing
-        // or if the processing was for the current repository configuration
-        const individualFiles = (isProcessing.value || currentProcessingId.value) ? 
-          (statusData.value?.individual_files || lastStatusData.value?.individual_files || []) : [];
-        if (individualFiles.length > 0) {
-          return individualFiles.map((file: any, index: number) => {
-            const originalFilename = file.filename || `File ${index + 1}`;
-            // Show full path instead of extracting just filename
-            const displayName = originalFilename;
-            
-            return {
-              index,
-              name: displayName, // Use full path as display name
-              originalFilename, // Keep original filename for progress matching
-              size: 0, // Repository files don't have size info
-              type: 'repository-file',
-            };
-          });
-        }
-        // Default to repository path when no individual files yet - show full path
+        // The selection decides the rows, before, during and after a run. The backend's per-file
+        // list used to replace them once a run started, so a folder row could turn into one of
+        // its files (and stay that way), and the rows stopped lining up with the ingest status.
         const displayName = props.configuredFolderPath || 'Repository Path';
         
         const repositoryFile = {
@@ -762,59 +896,6 @@ export default defineComponent({
       }
     };
 
-    const removeSelectedFiles = () => {
-      console.log('Remove selected files:', selectedItems.value);
-      
-      if (props.configuredDataSource === 'upload') {
-        // For upload files, remove from the configured files array
-        const indicesToRemove = [...selectedItems.value].sort((a, b) => b - a);
-        const newFiles = [...props.configuredFiles];
-        indicesToRemove.forEach(index => {
-          newFiles.splice(index, 1);
-        });
-        // Emit event to parent to update configured files
-        emit('files-removed', newFiles);
-      } else if (props.configuredDataSource === 'cmis' || props.configuredDataSource === 'alfresco' || props.configuredDataSource === 'nuxeo') {
-        // For repository items, remove from display
-        if (statusData.value?.individual_files && statusData.value.individual_files.length > 0) {
-          // If we have individual files, remove selected ones
-          const indicesToRemove = [...selectedItems.value].sort((a, b) => b - a);
-          const updatedFiles = [...statusData.value.individual_files];
-          indicesToRemove.forEach(index => {
-            updatedFiles.splice(index, 1);
-          });
-          statusData.value = {
-            ...statusData.value,
-            individual_files: updatedFiles
-          };
-        } else {
-          // If it's the initial repository path and all are selected, hide all
-          repositoryItemsHidden.value = true;
-          sourcesReconfiguredFlag.value = 0; // Reset counter to allow hiding
-        }
-        
-        if (lastStatusData.value?.individual_files && lastStatusData.value.individual_files.length > 0) {
-          const indicesToRemove = [...selectedItems.value].sort((a, b) => b - a);
-          const updatedFiles = [...lastStatusData.value.individual_files];
-          indicesToRemove.forEach(index => {
-            updatedFiles.splice(index, 1);
-          });
-          lastStatusData.value = {
-            ...lastStatusData.value,
-            individual_files: updatedFiles
-          };
-        } else if (lastStatusData.value) {
-          lastStatusData.value = {
-            ...lastStatusData.value,
-            individual_files: []
-          };
-        }
-      }
-      
-      // Clear selection
-      selectedItems.value = [];
-    };
-
     const pollProcessingStatus = async (processingId: string) => {
       try {
         const response = await axios.get<ProcessingStatusResponse>(`/api/processing-status/${processingId}`);
@@ -894,8 +975,17 @@ export default defineComponent({
           data_source: props.configuredDataSource
         };
 
-        // Add skip_graph flag if checked
-        if (skipGraph.value) {
+        // Search+Vector / Graphs columns: each checked row says what it should end up as
+        const planned = columnsMode.value ? itemActions() : null;
+        const actions = planned;
+        if (planned && planned.length === 0) {
+          successMessage.value = 'Nothing to do: the checked rows already match their Search+Vector / Graphs settings.';
+          isProcessing.value = false;
+          return;
+        }
+        if (planned) {
+          request.item_actions = actions;
+        } else if (skipGraph.value) {
           request.skip_graph = true;
           console.log('✓ skip_graph flag set to true - Knowledge graph extraction will be skipped');
         }
@@ -903,7 +993,7 @@ export default defineComponent({
         // Add enable_sync flag if checked
         // Only for a source that shows the checkbox: the value survives switching sources, so
         // a sync left ticked on Alfresco would otherwise make a later upload a live sync too.
-        if (enableSync.value && !NO_AUTO_SYNC_SOURCES.includes(props.configuredDataSource)) {
+        if (!planned && enableSync.value && !NO_AUTO_SYNC_SOURCES.includes(props.configuredDataSource)) {
           request.enable_sync = true;
           console.log('✓ enable_sync flag set to true - Incremental updates will be enabled');
         }
@@ -942,7 +1032,7 @@ export default defineComponent({
           request.paths = [alfrescoPath];
           // Send what the Sources tab configured. This used to be a hardcoded admin/admin
           // literal, so the form's credentials, auth method and URL were silently discarded
-          // (and the URL differed from the form's, so the datasource never matched coverage).
+          // (and the URL differed from the form's, so the datasource never matched ingest status).
           request.alfresco_config = props.configuredAlfrescoConfig
             ? { ...props.configuredAlfrescoConfig, path: alfrescoPath }
             : {
@@ -983,10 +1073,17 @@ export default defineComponent({
           }
         }
 
+
         const response = await axios.post('/api/ingest', request);
         
         // Handle async processing response
-        if (response.data.status === 'started') {
+        if (response.data.status === 'started' && runInBackground.value) {
+          // The job carries on in the backend; this tab is free to start another one
+          watchedJobs.value = [...watchedJobs.value, response.data.processing_id];
+          isProcessing.value = false;
+          successMessage.value = `Started in the background (job ${response.data.processing_id}). Follow it on the Jobs tab.`;
+        } else if (response.data.status === 'started') {
+          foregroundRun = true;
           processingStatus.value = response.data.message;
           processingProgress.value = 0;
           currentProcessingId.value = response.data.processing_id;
@@ -1066,40 +1163,44 @@ export default defineComponent({
       }
     };
 
-    // ── Auto-sync / earlier-ingest coverage of the current rows ───────────────────────
+    // ── Ingest status of the current rows (auto sync or earlier ingest) ───────────────
     // Asks the backend which rows are already in the stores (an auto change sync covers them,
     // or an earlier ingest put them there), so they start unchecked instead of being
     // ingested again. One call per configuration; quietly nothing on an older backend.
-    const coverage = ref<any[]>([]);
-    let coverageKey = '';
+    const ingestStatus = ref<any[]>([]);
+    let ingestStatusKey = '';
+    let ingestStatusRequest: any = null;  // the request behind `ingestStatus` (rows line up)
+    // Which stores are configured; any can be "none" in .env (from the ingest-status response)
+    const stores = ref<Record<string, boolean>>({});
 
     const looksLikeFile = (path: string): boolean =>
       /\.[A-Za-z0-9]{1,8}$/.test((path || '').split('/').pop() || '');
 
-    const coverageFor = (index: number): any | null => {
-      // Rows and coverage line up one-to-one, except after a run, when the rows can be the
+    const ingestStatusFor = (index: number): any | null => {
+      // Rows and ingest status line up one-to-one, except after a run, when the rows can be the
       // backend's per-file list instead of the one path that was checked.
-      if (coverage.value.length !== displayFiles.value.length) return null;
-      const c = coverage.value[index];
+      if (ingestStatus.value.length !== displayFiles.value.length) return null;
+      const c = ingestStatus.value[index];
       return c && c.status !== 'none' ? c : null;
     };
 
-    const coverageIsSync = (c: any): boolean =>
+    const ingestStatusIsSync = (c: any): boolean =>
       !!c?.datasources?.some((m: any) => m.auto_sync && m.status === c.status);
 
-    const coverageLabel = (index: number): string => {
-      const c = coverageFor(index);
-      const synced = coverageIsSync(c);
+    const ingestStatusLabel = (index: number): string => {
+      const c = ingestStatusFor(index);
+      const synced = ingestStatusIsSync(c);
       switch (c?.status) {
         case 'synced': return synced ? 'already synced' : 'already ingested';
         case 'partial': return synced ? 'synced, no subfolders' : 'ingested, no subfolders';
         case 'overlaps': return synced ? 'contains synced' : 'contains ingested';
+        case 'removed': return 'removed';
         default: return '';
       }
     };
 
-    const coverageTooltip = (index: number): string => {
-      const c = coverageFor(index);
+    const ingestStatusTooltip = (index: number): string => {
+      const c = ingestStatusFor(index);
       if (!c) return '';
       const lines = c.datasources.map((m: any) => {
         const how = m.auto_sync ? 'synced by' : 'ingested (no auto sync) by';
@@ -1113,51 +1214,292 @@ export default defineComponent({
         lines.push(`in: ${where.join(', ') || 'none'}`);
       }
       lines.push(c.status === 'synced'
-        ? 'Left unchecked. Check it to ingest again: the earlier copy is replaced, not duplicated.'
-        : 'Part of it is already in the stores; ingesting it again refreshes that part.');
+        ? 'Left unchecked. Check it and click START PROCESSING to update it.'
+        : c.status === 'removed'
+          ? 'Removed from the stores and kept out of its auto sync, even when it changes. Ingest it to put it back.'
+          : 'Part of it is already in the stores; ingesting it again refreshes that part.');
       return lines.join('\n');
     };
 
-    const coveredRowCount = computed(() =>
-      displayFiles.value.filter((_: any, i: number) => coverageFor(i)?.status === 'synced').length);
+    const ingestedRowCount = computed(() =>
+      displayFiles.value.filter((_: any, i: number) => ingestStatusFor(i)?.status === 'synced').length);
 
-    const showCoverage = (index: number): boolean =>
-      !!coverageFor(index) && !isProcessing.value && processingProgress.value === 0;
+    const showIngestStatus = (index: number): boolean =>
+      !!ingestStatusFor(index) && !isProcessing.value && processingProgress.value === 0;
 
-    const refreshCoverage = () => {
+    const refreshIngestStatus = () => {
       const source = props.configuredDataSource;
       const cfg: any = source === 'alfresco' ? props.configuredAlfrescoConfig
         : source === 'nuxeo' ? props.configuredNuxeoConfig : null;
-      if ((source !== 'alfresco' && source !== 'nuxeo') || isProcessing.value || currentProcessingId.value) {
-        if (source !== 'alfresco' && source !== 'nuxeo') { coverage.value = []; coverageKey = ''; }
+      const isUpload = source === 'upload';
+      if ((!isUpload && source !== 'alfresco' && source !== 'nuxeo') || isProcessing.value
+          || (isUpload && !displayFiles.value.length)) {
+        if ((!isUpload && source !== 'alfresco' && source !== 'nuxeo') || (isUpload && !displayFiles.value.length)) {
+          ingestStatus.value = []; ingestStatusKey = '';
+        }
         return;
       }
       const path = cfg?.path || props.configuredFolderPath || '/';
-      const request = {
-        data_source: source,
-        url: cfg?.url,
-        recursive: !!cfg?.recursive,
-        items: [{ path, is_folder: !looksLikeFile(path) }],
-      };
+      // Uploaded files: rows by file name (the backend finds them under its upload directory)
+      const request = isUpload
+        ? { data_source: 'upload', recursive: false,
+            items: displayFiles.value.map((f: any) => ({ path: f.name, is_folder: false })) }
+        : {
+            data_source: source,
+            url: cfg?.url,
+            recursive: !!cfg?.recursive,
+            items: [{ path, is_folder: !looksLikeFile(path) }],
+          };
       const key = JSON.stringify(request);
-      if (key === coverageKey) return;
-      coverageKey = key;
-      coverage.value = [];
-      axios.post('/api/sync/coverage', request)
+      if (key === ingestStatusKey) return;
+      ingestStatusKey = key;
+      ingestStatusRequest = request;
+      ingestStatus.value = [];
+      axios.post('/api/sync/ingest-status', request)
         .then((res) => {
-          if (key !== coverageKey) return;  // configuration changed while this was in flight
-          coverage.value = res.data?.enabled ? res.data.items : [];
-          selectedItems.value = selectedItems.value.filter((i) => coverageFor(i)?.status !== 'synced');
+          if (key !== ingestStatusKey) return;  // configuration changed while this was in flight
+          ingestStatus.value = res.data?.enabled ? res.data.items : [];
+          stores.value = res.data?.stores || {};
+          if (!awaitingStatus) {
+            selectedItems.value = selectedItems.value.filter((i) => ingestStatusFor(i)?.status !== 'synced');
+          }
         })
-        .catch((err) => console.warn('Sync coverage check unavailable:', err));
+        .catch((err) => console.warn('Ingest status check unavailable:', err));
     };
 
     watch(
       () => [props.configuredDataSource, props.configurationTimestamp, props.configuredFolderPath,
              displayFiles.value.length],
-      () => refreshCoverage(),
+      () => refreshIngestStatus(),
       { immediate: true },
     );
+
+    // ── Search+Vector / Graphs columns ────────────────────────────────────────────────
+    type ItemActionKind = 'ingest' | 'ingest_no_graph' | 'remove_graph' | 'remove_all' | 'keep';
+    type ColumnKind = 'sv' | 'graphs' | 'sync';
+    const TERMINAL_JOB = ['completed', 'failed', 'cancelled'];
+    // What each row should end up in, by row name, once the user changed it (see wantFor)
+    const wantSearch = ref<Record<string, boolean>>({});
+    const wantGraphs = ref<Record<string, boolean>>({});
+    const wantSync = ref<Record<string, boolean>>({});
+    let awaitingStatus = false;  // a run just ended: check nothing until the fresh ingest status
+
+    const columnsMode = computed(() => ingestStatus.value.length > 0 && ingestStatusRequest !== null && Object.keys(stores.value).length > 0);
+    const canSearchVector = computed(() => !!(stores.value.vector || stores.value.search));
+    const canGraphs = computed(() => !!stores.value.graph);
+    const inStores = (index: number): boolean =>
+      ['synced', 'partial', 'overlaps'].includes(ingestStatusFor(index)?.status);
+
+    /** What a row is in now, from the ingest status. */
+    const currentFor = (index: number) => {
+      const c = ingestStatusFor(index);
+      const sync = !!c?.auto_sync;
+      if (!c || !inStores(index)) return { sv: false, graphs: false, sync };
+      if (c.indexed) return { sv: !!(c.indexed.vector || c.indexed.search), graphs: !!c.indexed.graph, sync };
+      return { sv: true, graphs: (c.datasources || []).some((m: any) => !m.skip_graph), sync };
+    };
+
+    /** Whether an auto sync already covers the row (so Auto Sync on resumes, not starts, it). */
+    const coveredBySync = (index: number): boolean =>
+      !!(ingestStatusFor(index)?.datasources || []).some((m: any) => m.auto_sync);
+
+    /** What a row should end up in: the user's choice, else what it is in now, else everything. */
+    const wantFor = (index: number) => {
+      const name = displayFiles.value[index]?.name;
+      const cur = currentFor(index);
+      const fresh = !inStores(index);
+      const sv = wantSearch.value[name] ?? (fresh ? canSearchVector.value : cur.sv);
+      const graphs = wantGraphs.value[name] ?? (fresh ? canGraphs.value : cur.graphs);
+      const sync = wantSync.value[name] ?? cur.sync;
+      // Graphs and Auto Sync both need Search+Vector: a sync with nothing indexed would only
+      // put the document back on its next change
+      return { sv, graphs: sv && graphs, sync: sv && sync };
+    };
+
+    /** Changing a row's Search+Vector / Graphs checks the row: START PROCESSING applies it. */
+    const setWant = (indices: number[], kind: ColumnKind, value: boolean) => {
+      for (const i of indices) {
+        const name = displayFiles.value[i]?.name;
+        if (!name) continue;
+        if (kind === 'sv') {
+          wantSearch.value = { ...wantSearch.value, [name]: value };
+          if (!value) {  // no graphs and no sync without search + vector
+            wantGraphs.value = { ...wantGraphs.value, [name]: false };
+            wantSync.value = { ...wantSync.value, [name]: false };
+          }
+        } else if (kind === 'graphs') {
+          wantGraphs.value = { ...wantGraphs.value, [name]: value };
+          if (value) wantSearch.value = { ...wantSearch.value, [name]: true };
+        } else {
+          wantSync.value = { ...wantSync.value, [name]: value };
+          if (value) wantSearch.value = { ...wantSearch.value, [name]: true };
+        }
+      }
+      selectedItems.value = [...new Set([...selectedItems.value, ...indices])];
+    };
+    const allRows = (): number[] => displayFiles.value.map((_: any, i: number) => i);
+    const countWant = (kind: ColumnKind): number => allRows().filter((i) => wantFor(i)[kind]).length;
+
+    /** What START PROCESSING does with a checked row, or null when there is nothing to do. */
+    const actionFor = (index: number): ItemActionKind | null => {
+      const cur = currentFor(index);
+      const want = wantFor(index);
+      if (!want.sv) return cur.sv || cur.graphs ? 'remove_all' : null;
+      if (want.graphs) return 'ingest';
+      return cur.sv && cur.graphs ? 'remove_graph' : 'ingest_no_graph';
+    };
+
+    /** The Status column in columns mode: which stores the row is in now. */
+    const storesLabel = (index: number): string => {
+      const c = ingestStatusFor(index);
+      if (c?.status === 'removed') return 'removed';
+      const cur = currentFor(index);
+      if (!cur.sv && !cur.graphs) return 'not ingested';
+      return (cur.graphs ? 'search+vector, graphs' : 'search+vector') + (cur.sync ? ' (synced)' : '');
+    };
+
+    /** A sync change for a checked row: false stops it, true resumes it, null = none. */
+    const syncChange = (index: number): boolean | null => {
+      const want = wantFor(index).sync;
+      return want !== currentFor(index).sync ? want : null;
+    };
+
+    /**
+     * What START PROCESSING sends for the checked rows: per row a store action and/or an Auto
+     * Sync change. A row no sync covers yet, with Auto Sync checked, is ingested with
+     * auto_sync: true: the backend makes this run\'s datasource an auto sync watching it.
+     */
+    const itemActions = () => {
+      const rows: any[] = [];
+      for (const i of [...selectedItems.value].sort((a, b) => a - b)) {
+        const item = ingestStatusRequest?.items?.[i];
+        if (!item) continue;
+        const ref = { path: item.path, id: item.id, is_folder: !!item.is_folder };
+        const sync = syncChange(i);
+        if (sync === true && !coveredBySync(i)) {
+          rows.push({ ...ref, action: actionFor(i) ?? (wantFor(i).graphs ? 'ingest' : 'ingest_no_graph'), auto_sync: true });
+          continue;
+        }
+        const action = actionFor(i);
+        if (!action && sync === null) continue;
+        rows.push({ ...ref, action: action ?? 'keep', ...(sync === null ? {} : { auto_sync: sync }) });
+      }
+      return rows;
+    };
+
+    /**
+     * A run is over. The rows' choices go back to their defaults -- rows in the stores
+     * unchecked, columns showing what each row is in now -- so a second START does not repeat
+     * the run. The ingest status is asked again once the run's document_state rows are written.
+     */
+    const afterRun = () => {
+      wantSearch.value = {};
+      wantGraphs.value = {};
+      wantSync.value = {};
+      selectedItems.value = [];
+      awaitingStatus = true;
+      setTimeout(() => {
+        awaitingStatus = false;
+        ingestStatusKey = '';
+        refreshIngestStatus();
+      }, 4000);
+    };
+
+    let foregroundRun = false;  // a background start also flips isProcessing; only reset after a real run
+    watch(isProcessing, (now, before) => {
+      if (before && !now && foregroundRun) afterRun();
+      if (!now) foregroundRun = false;
+    });
+
+    // ── Jobs sub-tab ──────────────────────────────────────────────────────────────────
+    const runInBackground = ref(false);
+    const subTab = ref(0);  // 0 Processing, 1 Jobs
+    const jobs = ref<any[]>([]);
+    const watchedJobs = ref<string[]>([]);  // background jobs started here, until they finish
+    const jobRunning = (job: any): boolean => !TERMINAL_JOB.includes(job.status);
+    const runningJobCount = computed(() => jobs.value.filter(jobRunning).length);
+
+    const showFinishedJob = async (job: any) => {
+      if (!isProcessing.value) {
+        try {
+          const res = await axios.get(`/api/processing-status/${job.processing_id}`);
+          const status = res.data;
+          statusData.value = null;
+          lastStatusData.value = status;
+          processingProgress.value = status.status === 'completed' ? 100 : status.progress || 0;
+          if (status.status === 'completed') successMessage.value = status.message || 'Background job finished.';
+          else error.value = `Background job ${status.status}: ${status.error || status.message || ''}`;
+        } catch { /* the job may have been cleared */ }
+      }
+      afterRun();
+    };
+
+    const loadJobs = async () => {
+      try {
+        const res = await axios.get('/api/processing-status');
+        jobs.value = res.data?.jobs || [];
+        for (const job of jobs.value) {
+          if (watchedJobs.value.includes(job.processing_id) && !jobRunning(job)) {
+            watchedJobs.value = watchedJobs.value.filter((id) => id !== job.processing_id);
+            showFinishedJob(job);
+          }
+        }
+      } catch (err) {
+        console.warn('Job list unavailable:', err);
+      }
+    };
+
+    // Refresh the job list while it is shown or a background job started here is still going:
+    // every 3 s while a job runs, every 15 s when none does (still picks up auto sync runs)
+    let jobsTimer: any = null;
+    let jobsDelay = 0;
+    const scheduleJobs = () => {
+      const wanted = subTab.value === 1 || watchedJobs.value.length > 0;
+      const delay = watchedJobs.value.length > 0 || jobs.value.some(jobRunning) ? 3000 : 15000;
+      if (jobsTimer && (!wanted || delay < jobsDelay)) {  // stop, or a job just started
+        clearTimeout(jobsTimer);
+        jobsTimer = null;
+      }
+      if (wanted && !jobsTimer) {
+        jobsDelay = delay;
+        jobsTimer = setTimeout(async () => {
+          jobsTimer = null;
+          await loadJobs();
+          scheduleJobs();
+        }, delay);
+      }
+    };
+    watch(() => [subTab.value, watchedJobs.value.length], () => {
+      if (!jobsTimer && (subTab.value === 1 || watchedJobs.value.length > 0)) loadJobs();
+      scheduleJobs();
+    });
+    onBeforeUnmount(() => clearTimeout(jobsTimer));
+
+    const clearJobs = async () => {
+      try {
+        await axios.delete('/api/processing-status');
+      } catch (err: any) {
+        error.value = `Clear failed: ${err?.response?.data?.detail || err?.message || err}`;
+      }
+      loadJobs();
+    };
+
+    const cancelJob = async (job: any) => {
+      try {
+        await axios.post(`/api/cancel-processing/${job.processing_id}`, {});
+      } catch (err: any) {
+        error.value = `Cancel failed: ${err?.response?.data?.detail || err?.message || err}`;
+      }
+      loadJobs();
+    };
+
+    // A new selection opens on the Processing sub-tab, from the defaults
+    watch(() => props.configurationTimestamp, () => {
+      subTab.value = 0;
+      wantSearch.value = {};
+      wantGraphs.value = {};
+      wantSync.value = {};
+    });
 
     // Auto-select all files when configured files change or when repository files are discovered
     watch(() => props.configuredFiles, () => {
@@ -1183,7 +1525,7 @@ export default defineComponent({
         sourcesReconfiguredFlag.value++;
 
         // A fresh configuration starts from a clean table: the previous run's progress/status
-        // otherwise stays on the rows and hides the "already ingested" check. Re-ask coverage
+        // otherwise stays on the rows and hides the "already ingested" check. Re-ask ingest status
         // even for an identical configuration -- the last run may have just ingested it.
         if (!isProcessing.value) {
           processingProgress.value = 0;
@@ -1192,15 +1534,15 @@ export default defineComponent({
           statusData.value = null;
           lastStatusData.value = null;
         }
-        coverageKey = '';
-        refreshCoverage();
+        ingestStatusKey = '';
+        refreshIngestStatus();
 
         // Auto-select repository files after configuration (except rows already in the stores)
         setTimeout(() => {
           const currentFiles = displayFiles.value;
           selectedItems.value = currentFiles
             .map((_, index) => index)
-            .filter((index) => coverageFor(index)?.status !== 'synced');
+            .filter((index) => ingestStatusFor(index)?.status !== 'synced');
           console.log('Auto-selected repository files after configuration:', selectedItems.value, 'for', currentFiles.length, 'files');
         }, 100); // Small delay to ensure displayFiles is updated
         
@@ -1240,10 +1582,10 @@ export default defineComponent({
     watch(() => displayFiles.value, (newFiles, oldFiles) => {
       if (props.configuredDataSource === 'cmis' || props.configuredDataSource === 'alfresco' || props.configuredDataSource === 'nuxeo') {
         console.log('Repository displayFiles changed:', newFiles.length, 'files');
-        // every row except those already in the stores (see refreshCoverage)
+        // every row except those already in the stores (see refreshIngestStatus)
         selectedItems.value = newFiles
           .map((_, index) => index)
-          .filter((index) => coverageFor(index)?.status !== 'synced');
+          .filter((index) => ingestStatusFor(index)?.status !== 'synced');
         console.log('Auto-selected repository items:', selectedItems.value);
       } else if (['web', 'wikipedia', 'youtube', 's3', 'gcs', 'azure_blob', 'onedrive', 'sharepoint', 'box', 'google_drive'].includes(props.configuredDataSource)) {
         console.log('Web source displayFiles changed:', newFiles.length, 'items');
@@ -1285,11 +1627,28 @@ export default defineComponent({
       error,
       skipGraph,
       enableSync,  // was never returned, so the "Enable auto change sync" checkbox did nothing
-      coverageLabel,
-      coverageTooltip,
-      coverageFor,
-      coveredRowCount,
-      showCoverage,
+      ingestStatusLabel,
+      ingestStatusTooltip,
+      columnsMode,
+      canSearchVector,
+      canGraphs,
+      inStores,
+      wantFor,
+      setWant,
+      allRows,
+      countWant,
+      storesLabel,
+      runInBackground,
+      subTab,
+      jobs,
+      jobRunning,
+      runningJobCount,
+      loadJobs,
+      clearJobs,
+      cancelJob,
+      ingestStatusFor,
+      ingestedRowCount,
+      showIngestStatus,
       repositoryItemsHidden,
       sourcesReconfiguredFlag,
       tableHeaders,
@@ -1302,7 +1661,6 @@ export default defineComponent({
       getFileStatus,
       getStatusColor,
       removeFile,
-      removeSelectedFiles,
       cancelProcessing,
       startProcessing,
       uploadFiles,
@@ -1320,6 +1678,10 @@ export default defineComponent({
 }
 
 /* Hide all data table footer elements */
+/* Search+Vector / Graphs header labels stay on one line */
+:deep(.v-data-table__th .v-label) {
+  white-space: nowrap;
+}
 :deep(.v-data-table-footer) {
   display: none !important;
 }

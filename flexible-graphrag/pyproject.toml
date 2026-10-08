@@ -1,6 +1,6 @@
 [project]
 name = "flexible-graphrag"
-version = "0.8.2"
+version = "0.8.3"
 description = "Open source AI context platform: document processing, knowledge graph auto-building, ontologies, GraphRAG/RAG, hybrid search (vector, property graph, RDF/SPARQL, fulltext), 13 LLM providers, 15 property graph DBs, 4 RDF triple stores, 10 vector DBs, LlamaIndex + LangChain, FastAPI, MCP server"
 readme = "README.md"
 requires-python = ">=3.12,<3.15"
@@ -290,7 +290,7 @@ langchain = [
     "langchain-community>=0.4",   # Shared community integrations
     # LLM providers — mirrors LlamaIndex provider list
     "langchain-openai",           # OpenAI, Azure OpenAI, vLLM, openai_like, LiteLLM, OpenRouter
-    "langchain-anthropic>=1.3",   # Anthropic Claude
+    "langchain-anthropic>=1.7",   # Anthropic Claude (1.7+: works with the anthropic 1.x SDK; older caps it below 1)
     "langchain-aws",              # AWS Bedrock (ChatBedrock) + Amazon Neptune RDF/PG
     "langchain-ollama>=1.0",      # Ollama local models
     # langchain-google-genai>=4.0 covers BOTH Gemini API and Vertex AI (ChatGoogleGenerativeAI
@@ -459,11 +459,15 @@ only-include = [
     "flow_service.py",   # Langflow flow-mode REST client (backend imports it when ENABLE_LANGFLOW_FLOWS)
     "hybrid_system.py",
     "incremental_system.py",
+    "job_retention.py",       # Jobs list retention (PROCESSING_STATUS pruning)
     "main.py",
+    "permission_filter.py",   # query-time permission filter (Alfresco ticket)
     "post_ingestion_state.py",
     "query_engine.py",
     "retriever_setup.py",
     "schema_manager.py",
+    "scope_filter.py",        # scoped Ask: in-store doc-id filters
+    "ssl_compat.py",          # SSL context patch (main.py, Langflow components)
     "start.py",
     # subpackages
     "adapters",

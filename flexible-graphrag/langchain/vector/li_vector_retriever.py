@@ -44,14 +44,17 @@ class LangChainVectorStoreRetriever(LCBackedLIRetriever):
         lc_store: Any,
         top_k: int = 10,
         store_name: str = "lc_vector",
+        search_kwargs: dict | None = None,
         **kwargs: Any,
     ) -> None:
         super().__init__(**kwargs)
         self._lc_store = lc_store
         self._top_k = top_k
         self._store_name = store_name
+        self._search_kwargs = dict(search_kwargs or {})  # e.g. a scoped question's doc-id filter
         # Layer 0 LC retriever — exposed via as_lc_retriever() fallback
-        self._lc_retriever = LCVectorRetriever(lc_store, top_k=top_k, store_name=store_name)
+        self._lc_retriever = LCVectorRetriever(lc_store, top_k=top_k, store_name=store_name,
+                                               search_kwargs=self._search_kwargs)
 
     def as_lc_retriever(self) -> Any:
         """Return an LC retriever for EnsembleRetriever integration.
@@ -61,7 +64,7 @@ class LangChainVectorStoreRetriever(LCBackedLIRetriever):
         ``LCVectorRetriever`` wrapper when ``as_retriever`` is absent.
         """
         if hasattr(self._lc_store, "as_retriever"):
-            return self._lc_store.as_retriever(search_kwargs={"k": self._top_k})
+            return self._lc_store.as_retriever(search_kwargs={"k": self._top_k, **self._search_kwargs})
         return self._lc_retriever
 
     def _retrieve(self, query_bundle: QueryBundle) -> List[NodeWithScore]:

@@ -1,9 +1,16 @@
 <div class="processing-tab-container">
+  <mat-tab-group class="processing-subtabs" animationDuration="0ms"
+                 [selectedIndex]="subTabIndex" (selectedIndexChange)="onSubTabChange($event)">
+
+  <!-- ── Processing ─────────────────────────────────────────────────────────────── -->
+  <mat-tab label="Processing">
   <!-- Header with Checkboxes -->
   <div class="processing-header">
     <h2>File Processing</h2>
     <div class="checkbox-group">
-      <mat-checkbox 
+      <!-- With the Search+Vector / Graphs columns each row says it; otherwise one setting -->
+      <mat-checkbox
+        *ngIf="!columnsMode"
         [(ngModel)]="skipGraph"
         [disabled]="isProcessing"
         color="primary"
@@ -12,8 +19,9 @@
       </mat-checkbox>
       <!-- Only show Enable Sync for datasources that support auto-sync -->
       <!-- Hidden for: upload, cmis, webpage, wikipedia, youtube -->
-      <mat-checkbox 
-        *ngIf="configuredDataSource !== 'upload' &&
+      <mat-checkbox
+        *ngIf="!columnsMode &&
+               configuredDataSource !== 'upload' &&
                configuredDataSource !== 'cmis' &&
                configuredDataSource !== 'web' &&
                configuredDataSource !== 'wikipedia' &&
@@ -31,18 +39,22 @@
   <mat-card *ngIf="!hasConfiguredSources" class="no-sources-card">
     <mat-card-content>
       <h3>No Data Source Configured</h3>
-      <p>Please go to the Sources tab to configure your data source first.</p>
+      <p>{{ config.noSourcesMessage }}</p>
       <button mat-raised-button color="primary" (click)="goToSources.emit()">
-        ← Go to Sources
+        {{ config.goToSourcesLabel }}
       </button>
     </mat-card-content>
   </mat-card>
 
   <!-- File Processing Table -->
   <mat-card *ngIf="hasConfiguredSources" class="processing-card">
-    <p *ngIf="coveredRowCount > 0 && !isProcessing && processingProgress === 0" class="coverage-note">
-      {{ coveredRowCount }} of {{ displayFiles.length }} already in the stores, so left unchecked.
-      Hover the status for details; checking a row ingests it again, replacing the earlier copy.
+    <p *ngIf="ingestedRowCount > 0 && !isProcessing && processingProgress === 0" class="ingest-status-note">
+      {{ ingestedRowCount }} of {{ displayFiles.length }} already in the stores, so left unchecked.
+      <ng-container *ngIf="columnsMode; else plainNote">
+        Check rows, set Search+Vector / Graphs, and click START PROCESSING to update them.
+      </ng-container>
+      <ng-template #plainNote>Check rows and click START PROCESSING to update them.</ng-template>
+      Hover the status for details.
     </p>
     <table mat-table [dataSource]="displayFiles" class="processing-table">
       <!-- Checkbox Column -->
@@ -75,7 +87,7 @@
         <th mat-header-cell *matHeaderCellDef>File Size</th>
         <td mat-cell *matCellDef="let file">
           <span class="file-size">
-            {{ file.size > 0 ? formatFileSize(file.size) : 
+            {{ file.size > 0 ? formatFileSize(file.size) :
                file.type === 'repository' ? 'Repository' : '-' }}
           </span>
         </td>
@@ -86,7 +98,7 @@
         <th mat-header-cell *matHeaderCellDef>Progress</th>
         <td mat-cell *matCellDef="let file" class="progress-cell">
           <div class="progress-container">
-            <mat-progress-bar 
+            <mat-progress-bar
               [value]="Math.max(getFileProgress(file.name), 2)"
               mode="determinate"
               class="progress-bar">
@@ -98,13 +110,78 @@
         </td>
       </ng-container>
 
+      <!-- Search+Vector Column: what the row should end up in -->
+      <ng-container matColumnDef="searchVector">
+        <th mat-header-cell *matHeaderCellDef class="store-col">
+          <mat-checkbox
+            [checked]="allWant('sv')"
+            [indeterminate]="someWant('sv')"
+            [disabled]="isProcessing || !canSearchVector"
+            (change)="setWantAll('sv', $event.checked)"
+            title="Vector and full-text search stores, for every row">
+            Search+Vector
+          </mat-checkbox>
+        </th>
+        <td mat-cell *matCellDef="let file; let i = index" class="store-col">
+          <mat-checkbox
+            [checked]="wantFor(i).sv"
+            [disabled]="isProcessing || !canSearchVector"
+            (change)="setWant(i, 'sv', $event.checked)">
+          </mat-checkbox>
+        </td>
+      </ng-container>
+
+      <!-- Graphs Column: property graph + RDF -->
+      <ng-container matColumnDef="graphs">
+        <th mat-header-cell *matHeaderCellDef class="store-col">
+          <mat-checkbox
+            [checked]="allWant('graphs')"
+            [indeterminate]="someWant('graphs')"
+            [disabled]="isProcessing || !canGraphs"
+            (change)="setWantAll('graphs', $event.checked)"
+            [title]="canGraphs ? 'Property graph and RDF, for every row' : 'No graph store configured in .env'">
+            Graphs
+          </mat-checkbox>
+        </th>
+        <td mat-cell *matCellDef="let file; let i = index" class="store-col">
+          <mat-checkbox
+            [checked]="wantFor(i).graphs"
+            [disabled]="isProcessing || !canGraphs"
+            (change)="setWant(i, 'graphs', $event.checked)">
+          </mat-checkbox>
+        </td>
+      </ng-container>
+
+      <!-- Auto Sync Column: kept up to date with repository changes -->
+      <ng-container matColumnDef="autoSync">
+        <th mat-header-cell *matHeaderCellDef class="store-col">
+          <mat-checkbox
+            [checked]="allWant('sync')"
+            [indeterminate]="someWant('sync')"
+            [disabled]="isProcessing"
+            (change)="setWantAll('sync', $event.checked)"
+            title="Keep every row up to date with repository changes">
+            Auto Sync
+          </mat-checkbox>
+        </th>
+        <td mat-cell *matCellDef="let file; let i = index" class="store-col">
+          <mat-checkbox
+            [checked]="wantFor(i).sync"
+            [disabled]="isProcessing"
+            (change)="setWant(i, 'sync', $event.checked)"
+            title="Unchecking stops this row's auto sync; for a datasource's own root it also stops watching it (the datasource is removed once nothing is left)">
+          </mat-checkbox>
+        </td>
+      </ng-container>
+
       <!-- Remove Column -->
       <ng-container matColumnDef="remove">
         <th mat-header-cell *matHeaderCellDef class="text-center"></th>
         <td mat-cell *matCellDef="let file; let i = index">
-          <button 
-            mat-icon-button 
+          <button
+            mat-icon-button
             color="warn"
+            title="Take this row off the list (the stores are not touched)"
             (click)="removeFile(i)">
             <mat-icon>close</mat-icon>
           </button>
@@ -115,14 +192,24 @@
       <ng-container matColumnDef="status">
         <th mat-header-cell *matHeaderCellDef>Status</th>
         <td mat-cell *matCellDef="let file; let i = index">
-          <!-- Before a run: say when auto-sync already covers this row -->
-          <mat-chip
-            *ngIf="coverageFor(i) && !isProcessing && processingProgress === 0; else runStatus"
-            class="status-chip coverage-chip"
-            [class.coverage-synced]="coverageFor(i)?.status === 'synced'"
-            [title]="coverageTooltip(i)">
-            {{ coverageLabel(i) }}
-          </mat-chip>
+          <ng-container *ngIf="!isProcessing && processingProgress === 0 && (columnsMode || ingestStatusFor(i)); else runStatus">
+            <!-- Before a run: which stores the row is in now -->
+            <mat-chip
+              *ngIf="columnsMode; else plainStatus"
+              class="status-chip ingest-status-chip"
+              [class.ingest-status-synced]="inStores(i)"
+              [title]="ingestStatusTooltip(i)">
+              {{ storesLabel(i) }}
+            </mat-chip>
+            <ng-template #plainStatus>
+              <mat-chip
+                class="status-chip ingest-status-chip"
+                [class.ingest-status-synced]="ingestStatusFor(i)?.status === 'synced'"
+                [title]="ingestStatusTooltip(i)">
+                {{ ingestStatusLabel(i) }}
+              </mat-chip>
+            </ng-template>
+          </ng-container>
           <ng-template #runStatus>
           <mat-chip
             [color]="getStatusColor(getFileStatus(file.name))"
@@ -146,15 +233,15 @@
           <mat-spinner diameter="20"></mat-spinner>
           <span>{{ processingStatus || 'Processing documents...' }}</span>
         </div>
-        <button 
-          mat-stroked-button 
-          color="warn" 
+        <button
+          mat-stroked-button
+          color="warn"
           [disabled]="!currentProcessingId"
           (click)="cancelProcessing()">
           Cancel
         </button>
       </div>
-      
+
       <div class="progress-info">
         <mat-progress-bar [value]="processingProgress" mode="determinate"></mat-progress-bar>
         <p class="progress-details">
@@ -169,23 +256,21 @@
 
   <!-- Action Buttons -->
   <div class="action-buttons">
-    <button 
-      mat-raised-button 
+    <button
+      mat-raised-button
       color="primary"
       [disabled]="!canStartProcessing()"
       [class.loading]="isProcessing"
       (click)="startProcessing()">
       {{ getProcessingButtonText() }}
     </button>
-
-    <button 
-      *ngIf="selectedItems.size > 0 && displayFiles.length > 0"
-      mat-stroked-button 
-      color="warn"
-      (click)="removeSelectedFiles()">
-      <mat-icon>delete</mat-icon>
-      REMOVE SELECTED ({{ selectedItems.size }})
-    </button>
+    <mat-checkbox
+      [(ngModel)]="runInBackground"
+      [disabled]="isProcessing"
+      color="primary"
+      title="Start the job and keep this tab free; follow it on the Jobs tab">
+      Run in background
+    </mat-checkbox>
   </div>
 
   <!-- Success/Error Messages -->
@@ -195,11 +280,74 @@
       <mat-icon>close</mat-icon>
     </button>
   </div>
-  
+
   <div *ngIf="error" class="message error-message">
     {{ error }}
     <button mat-icon-button class="close-button" (click)="error = ''" aria-label="Close">
       <mat-icon>close</mat-icon>
     </button>
   </div>
+  </mat-tab>
+
+  <!-- ── Jobs ───────────────────────────────────────────────────────────────────── -->
+  <mat-tab [label]="runningJobCount ? 'Jobs (' + runningJobCount + ' running)' : 'Jobs'">
+    <div class="jobs-header">
+      <h2>Jobs</h2>
+      <div class="jobs-actions">
+        <button mat-stroked-button (click)="loadJobs()">
+          <mat-icon>refresh</mat-icon> Refresh
+        </button>
+        <button mat-stroked-button [disabled]="finishedJobCount === 0" (click)="clearJobs()"
+                title="Remove finished jobs from the list (running ones stay)">
+          <mat-icon>clear_all</mat-icon> Clear finished
+        </button>
+      </div>
+    </div>
+    <p *ngIf="jobs.length === 0" class="jobs-empty">
+      No jobs yet. Jobs started from the Processing tab -- and auto sync runs -- are listed here,
+      oldest first. The backend keeps them until it restarts.
+    </p>
+    <div *ngIf="jobs.length > 0" class="jobs-table-wrap">
+    <table class="jobs-table">
+      <thead>
+        <tr>
+          <th>Started</th>
+          <th>Job</th>
+          <th>Source</th>
+          <th>Status</th>
+          <th class="jobs-progress">Progress</th>
+          <th>Message</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr *ngFor="let job of jobs">
+          <td class="nowrap">{{ job.started_at ? (job.started_at | date:'short') : '' }}</td>
+          <td class="jobs-label" [title]="job.label || job.processing_id">
+            {{ job.kind === 'sync' ? ('auto sync ' + (job.sync_action || '') + (job.label ? ': ' + job.label : '')) : (job.label || job.processing_id) }}
+          </td>
+          <td>{{ job.data_source }}</td>
+          <td>
+            <mat-chip [class]="'status-chip' + (job.status === 'completed' ? ' mat-mdc-chip-success' : '')"
+                      [color]="getStatusColor(job.status === 'started' ? 'processing' : job.status)">
+              {{ job.status }}
+            </mat-chip>
+          </td>
+          <td class="jobs-progress">
+            <mat-progress-bar [value]="job.progress || 0" mode="determinate"></mat-progress-bar>
+            <span class="progress-text">{{ job.progress || 0 }}%</span>
+          </td>
+          <td class="jobs-message">{{ job.message }}</td>
+          <td>
+            <button *ngIf="jobRunning(job) && job.kind === 'ingest'" mat-stroked-button color="warn"
+                    (click)="cancelJob(job)">
+              Cancel
+            </button>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+    </div>
+  </mat-tab>
+  </mat-tab-group>
 </div>

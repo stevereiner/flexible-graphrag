@@ -137,7 +137,7 @@ Since v0.8.2, an ingest made **without** "Enable auto change sync" is also recor
 
 **Why:**
 
-- **Status on the Processing tab.** Before an ingest starts, the UI asks the backend (`POST /api/sync/coverage`) which rows are already in the stores. A row covered by an auto change sync shows **already synced**; one an earlier ingest put there shows **already ingested**. Either way it starts unchecked, and the tooltip names the datasource and which stores (vector, search, graph) hold it.
+- **Status on the Processing tab.** Before an ingest starts, the UI asks the backend (`POST /api/sync/ingest-status`) which rows are already in the stores. A row covered by an auto change sync shows **already synced**; one an earlier ingest put there shows **already ingested**. Either way it starts unchecked, and the tooltip names the datasource and which stores (vector, search, graph) hold it. Per-row **Search+Vector** and **Graphs** columns say what each row should end up in; **START PROCESSING** ingests, refreshes or removes accordingly as one job (`item_actions` on `POST /api/ingest`), and removals stick for documents an auto sync holds. Jobs are listed on the Processing tab's **Jobs** sub-tab (`GET /api/processing-status`).
 - **A record of what is in the stores**, for every ingest rather than only the synced ones.
 - **No duplicates.** Every recorded ingest gets stable document ids (`{config_id}:{identity}`), so ingesting the same thing again lands on the same ids:
   - the previous version is deleted from the vector, search, property-graph and RDF stores before the new one is inserted, so a repeat refreshes instead of adding a second copy;
@@ -286,6 +286,8 @@ Two main tables in PostgreSQL:
 | true | true | auto change sync running |
 | true | false | sync paused (`/api/sync/disable-all`; `enable-all` resumes it) |
 | false | false | ingested without auto sync; recorded only, never monitored, and skipped by `enable-all` |
+
+A sync whose last root is turned off on the Processing tab's **Auto Sync** column becomes `false` / `false` while documents of it are still in a store, and is deleted once none is.
 
 **document_state**: Tracks processed documents, one row per document (a selected folder gets rows for its files, not for itself)
 - `doc_id` (primary key, format: `config_id:identity`, e.g. `config_id:alfresco://<node id>`)

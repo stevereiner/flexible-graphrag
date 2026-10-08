@@ -2,6 +2,32 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2026-10-08] — v0.8.3: per-row Search+Vector / Graphs / Auto Sync on the Processing tab, Jobs sub-tab, Ask KG Spaces about a document or folder, answers only from documents the user may read
+
+### Added
+
+- **Per-row columns on the Processing tab** (React, Vue, Angular, KG Spaces; Alfresco, Nuxeo and file uploads): **Search+Vector** and **Graphs** say what each row should end up in; one **START PROCESSING** job ingests, refreshes, removes graphs or removes rows from every store. Default and Langflow pipelines.
+- **Auto Sync column** (Alfresco, Nuxeo): turn the auto sync on or off per row, and remove an auto-sync datasource completely from the regular UI. A selection stays one datasource with one `document_state` row per document.
+- **Jobs sub-tab and Run in background**: running and recent jobs (ingests and auto sync add / update / delete), with progress, cancel and Clear finished.
+- **Ask KG Spaces about this document / folder**: AI CHAT scoped to one document or folder, backed by a `scope` on the search and query APIs. Store-specific queries have the vector, search, property graph and RDF stores (LlamaIndex and LangChain backends) return only that document's or folder's results; a final filter drops anything outside the scope.
+- **Answers only from documents the user may read** (KG Spaces): backend support for checking the signed-in user's Alfresco ticket at question time, so hybrid search, AI query and AI chat answer only from documents that user can read.
+- KG Spaces keeps the Processing tab across ACA navigation; configurable chat welcome and empty-selection text.
+- `run_matrix.py --scope` integration tests for scoped Ask across store combinations.
+
+### Changed
+
+- `POST /api/sync/coverage` is now `POST /api/sync/ingest-status` (response adds `stores` and a `removed` status).
+- Lighter job polling: the status endpoint no longer returns ingested documents, finished jobs are kept for a while (`JOB_RETENTION_MINUTES` / `JOB_RETENTION_MAX`), the Jobs list refreshes less often when idle, and status polls stay out of the access log.
+
+### Fixed
+
+- Graph removal no longer deletes other documents' facts (Neo4j, Memgraph, FalkorDB, ArcadeDB, NebulaGraph) and now works on ArangoDB, TigerGraph, SurrealDB, Cosmos DB / Gremlin and LangChain NebulaGraph.
+- Wheel installs: missing modules added, and `.env` is read from the working directory.
+- Anthropic SDK 1.x and newer Claude models that reject `temperature` (LlamaIndex and LangChain); the extras need `langchain-anthropic>=1.7`, and `extras-overrides.txt` raises `langchain-core` to 1.6.6.
+- MCP `ingest_documents`: typed `paths` schema (no MCP Inspector portability warning).
+- Alfresco files without an extension are parsed by their content type; job messages count only documents actually ingested.
+- Renamed or moved documents keep their new name in `document_state`; Processing tab rows keep their checks and stay one per selection; nothing is recorded as synced for a store set to `none`.
+
 ## [2026-10-02] — v0.8.2: new kg-spaces-aca shares Angular UI npm lib, process tab rows show if already synced/ingested, no duplicate ingests, FalkorDB security fix
 
 

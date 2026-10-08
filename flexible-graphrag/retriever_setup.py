@@ -257,15 +257,21 @@ def get_langchain_llm(config):
 # Main hybrid retriever builder
 # ---------------------------------------------------------------------------
 
-def setup_hybrid_retriever(system) -> None:
+def setup_hybrid_retriever(system, scope_doc_ids=None):
     """Assemble and assign system.hybrid_retriever from all configured modalities.
 
     Reads from system: config, vector_index, graph_index, embed_model,
     vector_store, search_store, search_index, llm, _last_ingested_documents.
-    Writes: system.hybrid_retriever.
+    Writes: system.hybrid_retriever -- unless ``scope_doc_ids`` is given: then a one-question
+    retriever is built whose vector / search retrievers filter to those documents inside the
+    store (scope_filter.py), and it is only returned, never stored on the system.
 
     Args:
         system: HybridSearchSystem instance
+        scope_doc_ids: stable doc ids to limit retrieval to, or None for everything
+
+    Returns:
+        the hybrid retriever built
     """
     from llama_index.core.retrievers import QueryFusionRetriever
     from factories import DatabaseFactory
@@ -274,6 +280,20 @@ def setup_hybrid_retriever(system) -> None:
     from langchain.graph.retrievers.synonym_fusion import SynonymFusion
 
     config = system.config
+
+    # Scoped question: in-store doc-id filters for the LlamaIndex vector / search retrievers
+    _vec_scope_kw: dict = {}
+    _search_scope_kw: dict = {}
+    if scope_doc_ids is not None:
+        from scope_filter import li_retriever_scope_kwargs
+        from scope_filter import lc_vector_scope_kwargs
+        _vec_is_lc = bool(getattr(system.vector_store, "is_langchain", None)) and system.vector_store.is_langchain()
+        _vec_scope_kw = (lc_vector_scope_kwargs if _vec_is_lc else li_retriever_scope_kwargs)(
+            config.vector_db, scope_doc_ids)
+        _search_scope_kw = li_retriever_scope_kwargs(config.search_db, scope_doc_ids)
+        logger.info("Scoped retriever: %d document(s); in-store filter on vector=%s search=%s",
+                    len(scope_doc_ids), bool(_vec_scope_kw),
+                    bool(_search_scope_kw) or config.search_db == SearchDBType.BM25)  # BM25: a scoped index
 
     logger.info(f"Setting up hybrid retriever - SEARCH_DB={config.search_db}")
     logger.info(
@@ -373,6 +393,7 @@ def setup_hybrid_retriever(system) -> None:
                     lc_store=lc_raw_store,
                     top_k=10,
                     store_name=str(config.vector_db),
+                    search_kwargs=_vec_scope_kw,  # a scoped question's doc-id filter (else {})
                 )
                 logger.info(f"LangChain {config.vector_db} vector retriever created")
             elif system.vector_index is not None:
@@ -393,6 +414,7 @@ def setup_hybrid_retriever(system) -> None:
                             similarity_top_k=10,
                             embed_model=system.embed_model,
                             vector_store_query_mode=VectorStoreQueryMode.HYBRID,
+                            **_vec_scope_kw,
                         )
                         logger.info(
                             "OpenSearch hybrid mode [LI]: HYBRID retriever created "
@@ -405,12 +427,14 @@ def setup_hybrid_retriever(system) -> None:
                             similarity_top_k=10,
                             embed_model=system.embed_model,
                             vector_store_query_mode=VectorStoreQueryMode.DEFAULT,
+                            **_vec_scope_kw,
                         )
                         logger.info("OpenSearch vector retriever created with DEFAULT mode")
                 else:
                     vector_retriever = system.vector_index.as_retriever(
                         similarity_top_k=10,
                         embed_model=system.embed_model,
+                        **_vec_scope_kw,
                     )
             elif _has_cocoindex_read_vector:
                 # CocoIndex owns ingestion; build a read-only retriever over the
@@ -538,17 +562,35 @@ def setup_hybrid_retriever(system) -> None:
                     logger.info("LI BM25 retriever created from vector_index docstore (%d docs)", len(docstore.docs))
                 else:
                     logger.error("LI BM25: no docstore available — retriever creation failed")
+        if scope_doc_ids is not None and bm25_retriever is not None:
+            # Scoped question: a BM25 index over the scope's chunks only (scope_filter.py)
+            from scope_filter import scoped_bm25_retriever
+            scoped = scoped_bm25_retriever(system, scope_doc_ids, config.bm25_similarity_top_k)
+            if scoped is not None:
+                bm25_retriever = scoped
     else:
         logger.info(f"No BM25 retriever needed for search_db={config.search_db}")
 
     # ---- LlamaIndex graph retriever ----
     graph_retriever = None
-    if has_langchain_pg:
+    if has_langchain_pg and scope_doc_ids is not None and config.enable_knowledge_graph:
+        # Scoped question: facts from the scope's documents only (scope_filter.py); the
+        # text-to-query / vector LC graph retrievers below are skipped -- their results name
+        # no document, so the scope would drop them anyway
+        from scope_filter import ScopedLCGraphRetriever
+        graph_retriever = ScopedLCGraphRetriever(system, scope_doc_ids, top_k=10)
+        logger.info("Scoped LangChain graph retriever for %s", config.pg_graph_db)
+    elif has_langchain_pg:
         # LC PG adapter is live — the graph slot is filled by LC retrievers below.
         logger.info(
             "LC PG adapter is active: LangChain TextToGraphQueryRetriever used for property graph retrieval"
         )
         logger.debug("LlamaIndex graph_index present=%s (ignored for fusion graph slot)", system.graph_index is not None)
+    elif config.enable_knowledge_graph and system.graph_index and scope_doc_ids is not None:
+        # Scoped question: only facts extracted from the scope's documents (scope_filter.py)
+        from scope_filter import ScopedGraphRetriever
+        graph_retriever = ScopedGraphRetriever(system, scope_doc_ids, top_k=10)
+        logger.info("Scoped graph retriever for %s", config.pg_graph_db)
     elif config.enable_knowledge_graph and system.graph_index:
         graph_retriever = system.graph_index.as_retriever(
             include_text=True,
@@ -588,10 +630,15 @@ def setup_hybrid_retriever(system) -> None:
                     # LangChain search backend — wrap raw LC store directly
                     from langchain.vector.li_vector_retriever import LangChainVectorStoreRetriever
                     lc_raw_store = system.search_store.get_store()
+                    _lc_search_kw = {}
+                    if scope_doc_ids is not None:
+                        from scope_filter import lc_vector_scope_kwargs
+                        _lc_search_kw = lc_vector_scope_kwargs(config.search_db, scope_doc_ids)
                     search_retriever = LangChainVectorStoreRetriever(
                         lc_store=lc_raw_store,
                         top_k=10,
                         store_name=str(config.search_db),
+                        search_kwargs=_lc_search_kw,  # a scoped question's doc-id filter (else {})
                     )
                     logger.info(f"LangChain {config.search_db} search retriever created")
                 else:
@@ -604,10 +651,11 @@ def setup_hybrid_retriever(system) -> None:
                             search_retriever = search_index.as_retriever(
                                 similarity_top_k=10,
                                 vector_store_query_mode=VectorStoreQueryMode.TEXT_SEARCH,
+                                **_search_scope_kw,
                             )
                             logger.info("Created OpenSearch retriever with TEXT_SEARCH mode")
                         else:
-                            search_retriever = search_index.as_retriever(similarity_top_k=10)
+                            search_retriever = search_index.as_retriever(similarity_top_k=10, **_search_scope_kw)
                             logger.info(f"Created {config.search_db} retriever")
             except Exception as e:
                 logger.warning(f"Failed to create {config.search_db} retriever: {e} - continuing without it")
@@ -672,7 +720,12 @@ def setup_hybrid_retriever(system) -> None:
             rdf_lc_graph = rdf_adapter.get_lc_graph()
         except Exception as _exc:
             logger.debug(f"rdf_adapter.get_lc_graph() failed: {_exc}")
-    rdf_retriever = create_rdf_graph_retriever(config, lc_graph_override=rdf_lc_graph, source_files=_source_files)
+    if scope_doc_ids is not None and str(getattr(config, "rdf_graph_db", "none")).lower() not in ("none", ""):
+        # Scoped question: only triples annotated with a scope document (scope_filter.py)
+        from scope_filter import ScopedRdfRetriever
+        rdf_retriever = ScopedRdfRetriever(config, scope_doc_ids, top_k=10)
+    else:
+        rdf_retriever = create_rdf_graph_retriever(config, lc_graph_override=rdf_lc_graph, source_files=_source_files)
     if rdf_retriever is not None:
         # Graph QA retrievers must NOT be synonym-expanded: each synonym triggers a full
         # SPARQL-gen + LLM-answer cycle, producing near-duplicate paraphrases of the same
@@ -736,6 +789,9 @@ def setup_hybrid_retriever(system) -> None:
                 "Set LANGCHAIN_PG_VECTOR_SEARCH=false to suppress this warning.",
                 _graph_backend,
             )
+
+    if scope_doc_ids is not None:  # scoped: ScopedLCGraphRetriever above fills the graph slot
+        _enable_text_to_graph = _enable_lc_vector = _use_pg_neighborhood = False
 
     logger.debug(
         "LC graph retriever routing: store=%s is_lc=%s store_has_vector=%s "
@@ -868,7 +924,7 @@ def setup_hybrid_retriever(system) -> None:
     logger.debug(f"[HYBRID RETRIEVER] System type: {type(system).__name__}, system id: {id(system)}")
 
     if len(retrievers) == 1:
-        system.hybrid_retriever = retrievers[0]
+        result = retrievers[0]
         logger.info(f"Using single {retriever_types[0]} retriever directly (no fusion needed)")
     else:
         fusion = getattr(config, "retrieval_fusion", "llamaindex").lower()
@@ -877,13 +933,13 @@ def setup_hybrid_retriever(system) -> None:
             ensemble, success = _try_build_lc_ensemble(retrievers)
             if success:
                 from langchain.search.li_search_retriever import LangChainRetrieverWrapper as _LCWrap
-                system.hybrid_retriever = _LCWrap(
+                result = _LCWrap(
                     ensemble, top_k=15, label="lc_ensemble"
                 )
                 used_lc_fusion = True
 
         if not used_lc_fusion:
-            system.hybrid_retriever = QueryFusionRetriever(
+            result = QueryFusionRetriever(
                 retrievers=retrievers,
                 mode="relative_score",
                 similarity_top_k=15,
@@ -899,7 +955,10 @@ def setup_hybrid_retriever(system) -> None:
                 logger.info("Using QueryFusionRetriever for multiple retrievers (async enabled)")
 
     # Optional synonym exploder — "all" scope: wrap the entire fusion retriever.
-    logger.debug(f"[HYBRID RETRIEVER] Before wrap_all: system.hybrid_retriever={type(system.hybrid_retriever).__name__ if system.hybrid_retriever else None}")
-    system.hybrid_retriever = _syn.wrap_all(system.hybrid_retriever)
-    logger.debug(f"[HYBRID RETRIEVER] After wrap_all: system.hybrid_retriever={type(system.hybrid_retriever).__name__ if system.hybrid_retriever else None}")
-    logger.info(f"[HYBRID RETRIEVER] Hybrid retriever setup completed - system.hybrid_retriever={type(system.hybrid_retriever).__name__ if system.hybrid_retriever else 'None'}")
+    result = _syn.wrap_all(result)
+    if scope_doc_ids is None:
+        system.hybrid_retriever = result
+    logger.info("[HYBRID RETRIEVER] Hybrid retriever setup completed%s - %s",
+                " (scoped, not stored)" if scope_doc_ids is not None else "",
+                type(result).__name__ if result else "None")
+    return result

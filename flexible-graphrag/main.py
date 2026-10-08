@@ -29,12 +29,16 @@ if os.getenv("USE_SYSTEM_CERT_STORE", "true").lower() != "false":
 from contextlib import asynccontextmanager
 from pathlib import Path
 from time import monotonic as _monotonic
-from dotenv import load_dotenv
+from dotenv import find_dotenv, load_dotenv
 
-# Load .env FIRST before any other imports (especially backend.py) so environment vars are available
-load_dotenv()
+# Load .env FIRST before any other imports (especially backend.py) so environment vars are available.
+# From the working directory first: in a wheel install this file is in site-packages, where a bare
+# load_dotenv() (which searches from the caller's folder) finds nothing -- every os.getenv()
+# setting (e.g. the *_DB_CONFIG JSON) then silently fell back to its default. Next to this file
+# second (a source checkout run from elsewhere).
+load_dotenv(find_dotenv(usecwd=True) or find_dotenv())
 
-from fastapi import FastAPI, HTTPException, Depends, status, UploadFile, File
+from fastapi import FastAPI, HTTPException, Depends, status, UploadFile, File, Header
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -53,6 +57,22 @@ logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+
+
+class _QuietStatusPolls(logging.Filter):
+    """Keep the UIs' job polling (GET /api/processing-status..., every few seconds per open UI)
+    out of the uvicorn access log; failed polls are still logged."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        args = record.args
+        if isinstance(args, tuple) and len(args) >= 5:
+            method, path, code = args[1], str(args[2]), args[4]
+            if method == "GET" and path.startswith("/api/processing-status") and code in (200, 304):
+                return False
+        return True
+
+
+logging.getLogger("uvicorn.access").addFilter(_QuietStatusPolls())
 
 # Initialize observability if enabled
 try:
@@ -981,11 +1001,36 @@ class GoogleDriveConfig(BaseModel):
     credentials_path: Optional[str] = None
     token_path: Optional[str] = None
 
+class ItemAction(BaseModel):
+    """One processing-tab row and what it should end up as (repository sources)."""
+    path: str
+    id: Optional[str] = None
+    is_folder: bool = False
+    # ingest: search + vector + graphs | ingest_no_graph: search + vector only |
+    # remove_graph: drop the graphs, keep search + vector | remove_all: drop everything |
+    # keep: no store change (only auto_sync below)
+    action: str = "keep"
+    # The Auto Sync column: False stops this row's auto sync (its documents are skipped by the
+    # sync, and a datasource root is taken off the root list); True resumes it for documents
+    # whose sync was stopped, or -- on a row being ingested that no sync covers -- makes this
+    # run's datasource an auto sync watching it (its other rows are recorded with auto sync
+    # off; see _plan_row_sync). None = no change.
+    auto_sync: Optional[bool] = None
+
+
+ITEM_ACTIONS = ("ingest", "ingest_no_graph", "remove_graph", "remove_all", "keep")
+
+
 class IngestRequest(BaseModel):
     paths: Optional[List[str]] = None  # overrides config
     data_source: Optional[str] = None  # filesystem, cmis, alfresco, nuxeo, web, wikipedia, youtube, s3, gcs, azure_blob, onedrive, sharepoint, box, google_drive
     skip_graph: Optional[bool] = False  # Per-ingest flag to skip knowledge graph step (doesn't persist)
     enable_sync: Optional[bool] = False  # Enable incremental sync monitoring for this datasource
+    # Per-row actions (Alfresco/Nuxeo): one job runs the removals, then one ingest pass per
+    # graph setting, all under the datasource of the rows being ingested.
+    item_actions: Optional[List[ItemAction]] = None
+    # Who started it (e.g. the ACA user), so a jobs list can show a user their own runs
+    owner: Optional[str] = None
     cmis_config: Optional[CmisConfig] = None
     alfresco_config: Optional[AlfrescoConfig] = None
     nuxeo_config: Optional[NuxeoConfig] = None
@@ -1000,10 +1045,21 @@ class IngestRequest(BaseModel):
     box_config: Optional[BoxConfig] = None
     google_drive_config: Optional[GoogleDriveConfig] = None
 
+class AskScope(BaseModel):
+    """Ask about one repository document or folder only (KG Spaces "Ask AI about this ...")."""
+    data_source: str = "alfresco"  # alfresco | nuxeo
+    url: Optional[str] = None      # repository url; omitted = every datasource of that type
+    node_id: Optional[str] = None  # the document's / folder's node id
+    path: Optional[str] = None     # its repository path (a folder covers everything below it)
+    is_folder: bool = False
+    name: Optional[str] = None     # for messages
+
+
 class QueryRequest(BaseModel):
     query: str
     top_k: int = 10
     query_type: Optional[str] = "hybrid"  # hybrid, qa
+    scope: Optional[AskScope] = None  # answer only from this document / folder
 
 class TextIngestRequest(BaseModel):
     content: str
@@ -1404,14 +1460,60 @@ def _record_ingest_only(data_source: str, request, paths: Optional[List[str]],
     asyncio.create_task(_run())
 
 
-async def _take_over_other_ingest_copies(config_id: str) -> None:
+async def _take_over_other_ingest_copies(config_id: str, sync_takeover: bool = False) -> None:
     """Delete copies of this ingest's documents that an earlier ingest made through a
     DIFFERENT selection (so under another config_id and doc_id): files A+B, then A alone; or
-    a file uploaded again in another batch. Runs after the new copy is in place."""
-    doc_ids = await incremental_manager.take_over_other_ingest_copies(config_id)
+    a file uploaded again in another batch. Runs after the new copy is in place. With
+    ``sync_takeover`` (a sync just registered): other syncs' copies too, and those syncs give
+    up the roots this one covers (_hand_over_roots)."""
+    doc_ids = await incremental_manager.take_over_other_ingest_copies(config_id, sync_takeover)
     if doc_ids:
         from ingest.replace_existing import delete_doc_ids
         await delete_doc_ids(backend_instance.system, doc_ids)
+    if sync_takeover:
+        losers = {d.split(":", 1)[0] for d in doc_ids if ":" in d} - {config_id}
+        if losers:
+            await _hand_over_roots(config_id, losers)
+
+
+async def _hand_over_roots(winner: str, losers: set) -> None:
+    """Syncs that lost documents to a newly registered sync (``winner``) stop watching what it
+    covers: each root of theirs that falls inside the winner's roots comes off their list; one
+    left with no roots is retired (removal.retire_datasource) and its updater stopped, the
+    others restart on the roots they keep."""
+    from incremental_updates.ingest_status import Datasource, Item, relate
+    from incremental_updates.removal import retire_datasource, trim_roots
+    cm = incremental_manager.config_manager
+    orch = getattr(incremental_manager, "orchestrator", None)
+    win_cfg = await cm.get_config(winner)
+    if win_cfg is None:
+        return
+    win = Datasource.from_config(win_cfg)
+    for config_id in losers:
+        try:
+            cfg = await cm.get_config(config_id)
+            if cfg is None or not getattr(cfg, "auto_sync", False):
+                continue
+            ds = Datasource.from_config(cfg)
+            covered = [Item(r.path, r.is_folder, r.node_id) for r in ds.roots
+                       if any(m.status == "synced" for m in relate(Item(r.path, r.is_folder, r.node_id), win, ds.recursive))]
+            new_cp, left, did = trim_roots(cfg.connection_params, covered)
+            if not did:
+                continue
+            if left:
+                await cm.update_config(config_id, connection_params=new_cp)
+                cfg = await cm.get_config(config_id)
+                if orch is not None and cfg is not None:
+                    await orch._handle_config_change({"operation": "update", "config": cfg})
+                logger.info(f"Auto sync {config_id}: handed {len(covered)} root(s) over to {winner}")
+            else:
+                async with incremental_manager.state_manager.pool.acquire() as conn:
+                    outcome = await retire_datasource(conn, config_id)
+                if orch is not None:
+                    await orch._handle_config_change({"operation": "delete", "config_id": config_id})
+                logger.info(f"Auto sync {config_id}: all roots handed over to {winner} ({outcome})")
+        except Exception as e:
+            logger.warning(f"Auto sync {config_id}: could not hand roots over to {winner}: {e}")
 
 
 async def _enable_incremental_sync(
@@ -1421,8 +1523,12 @@ async def _enable_incremental_sync(
     request,
     paths: Optional[List[str]],
     inc_mgr,
+    row_sync: Optional[dict] = None,
 ) -> None:
     """Register datasource for incremental sync after a successful ingest.
+
+    ``row_sync`` (_plan_row_sync): only its "synced" rows become the sync's roots, and the
+    documents of its "unsynced" rows are recorded with their auto sync off.
 
     Creates document_state rows SYNCHRONOUSLY before starting the detector so the
     detector's first scan finds all files already tracked (prevents duplicate ingest).
@@ -1434,6 +1540,16 @@ async def _enable_incremental_sync(
         logger.warning(f"Could not enable sync for {data_source}: missing configuration")
         result['sync_enabled'] = False
         return
+
+    unsynced = [_row_item(r) for r in (row_sync or {}).get("unsynced", [])]
+    async with inc_mgr.state_manager.pool.acquire() as conn:
+        was_ingest_only = (await conn.fetchval(
+            "SELECT auto_sync FROM datasource_config WHERE config_id = $1", config_id)) is False
+    if unsynced:
+        from incremental_updates.removal import trim_roots
+        trimmed, left, _ = trim_roots(connection_params, unsynced)
+        if left:
+            connection_params = trimmed
 
     processing_id = result['processing_id']
     logger.info(
@@ -1448,6 +1564,20 @@ async def _enable_incremental_sync(
         skip_graph=request.skip_graph,
     )
     logger.info(f"Document_state records created synchronously for {data_source}")
+    if was_ingest_only:
+        # Converting an ingest-only datasource: its rows were recorded with auto sync off
+        from incremental_updates.removal import fetch_rows, select_rows, set_auto_sync
+        async with inc_mgr.state_manager.pool.acquire() as conn:
+            if row_sync and row_sync.get("synced"):
+                rows = await fetch_rows(conn, [config_id])
+                ids = [r.doc_id for m in select_rows([_row_item(r) for r in row_sync["synced"]], rows,
+                                                     recursive=True) for r in m]
+            else:
+                ids = [r["doc_id"] for r in await conn.fetch(
+                    "SELECT doc_id FROM document_state WHERE config_id = $1", config_id)]
+            await set_auto_sync(conn, ids, True)
+    if unsynced:
+        await _turn_off_row_sync(config_id, unsynced, [_row_item(r) for r in row_sync["synced"]])
 
     # NOW start monitoring — detector's first scan finds files already in document_state.
     await inc_mgr.add_datasource_for_sync(
@@ -1465,11 +1595,38 @@ async def _enable_incremental_sync(
     # switched from ingest-only to sync would still look ingest-only, and would wrongly hand
     # its documents to an overlapping sync.
     try:
-        await _take_over_other_ingest_copies(config_id)
+        await _take_over_other_ingest_copies(config_id, sync_takeover=True)
     except Exception as e:
         logger.warning(f"Could not settle duplicate copies for {config_id}: {e}")
     result['sync_enabled'] = True
     result['config_id'] = config_id
+
+
+async def _turn_off_row_sync(config_id: str, unsynced, synced) -> None:
+    """Auto sync off for the documents of the rows not synced in a new auto sync -- before its
+    detector starts. A document a synced row also stands for (a synced file in an unsynced
+    folder) stays on."""
+    from incremental_updates.removal import fetch_rows, select_rows, set_auto_sync
+    async with incremental_manager.state_manager.pool.acquire() as conn:
+        rows = await fetch_rows(conn, [config_id])
+        keep = {r.doc_id for m in select_rows(synced, rows, recursive=True) for r in m}
+        ids = [r.doc_id for m in select_rows(unsynced, rows, recursive=True) for r in m
+               if r.doc_id not in keep]
+        n = await set_auto_sync(conn, ids, False)
+    logger.info(f"{config_id}: auto sync off for {n} document(s) of rows not synced")
+
+
+def _register_row_sync(data_source: str, result: dict, config_id: str, request, paths,
+                       row_sync: Optional[dict]) -> None:
+    """_enable_incremental_sync for a per-row run, in the background."""
+    async def _run() -> None:
+        try:
+            await _enable_incremental_sync(data_source, dict(result), config_id, request, paths,
+                                           incremental_manager, row_sync)
+        except Exception as e:
+            logger.error(f"Could not enable auto sync for {config_id}: {e}", exc_info=True)
+
+    asyncio.create_task(_run())
 
 
 def _env_float(name: str, default: float) -> float:
@@ -2028,6 +2185,369 @@ async def _start_cocoindex_ingest(
     }
 
 
+def _label_job(result: dict, data_source: str, request, paths) -> None:
+    """Record what a job is and who started it, for GET /api/processing-status."""
+    from backend import PROCESSING_STATUS
+    entry = PROCESSING_STATUS.get((result or {}).get("processing_id") or "")
+    if entry is None:
+        return
+    label = entry.get("label")
+    if not label:
+        repo = getattr(request, f"{data_source}_config", None)
+        nodes = getattr(repo, "nodeDetails", None) or []
+        label = (", ".join(nd.path for nd in nodes) if nodes
+                 else getattr(repo, "path", None) or ", ".join(paths or []) or data_source)
+    entry.update({"data_source": data_source, "label": str(label)[:200],
+                  "owner": getattr(request, "owner", None)})
+
+
+def _prepare_item_actions(data_source: str, request) -> dict:
+    """Validate per-row actions and narrow the request's selection to the rows being ingested,
+    so its config_id -- the datasource -- is that of those rows alone (a row being removed in
+    the same run must not turn the selection into a different datasource). Returns the rows
+    split by action."""
+    from incremental_updates.ingest_status import FS_SOURCES, ROW_SOURCES, fs_key
+    if data_source not in ROW_SOURCES:
+        raise HTTPException(status_code=400,
+                            detail=f"per-row actions are available for {', '.join(ROW_SOURCES)}, not {data_source}")
+    if data_source in FS_SOURCES:
+        # Filesystem / upload rows: each row's path is its file (an upload by name); its
+        # document_state key (source_id) is the normalized path -- used as the row's id
+        for a in request.item_actions:
+            a.path = _fs_row_path(a.path)
+            a.id = None if a.is_folder else fs_key(a.path)
+    bad = sorted({a.action for a in request.item_actions} - set(ITEM_ACTIONS))
+    if bad:
+        raise HTTPException(status_code=400,
+                            detail=f"unknown action(s) {', '.join(bad)}; use {', '.join(ITEM_ACTIONS)}")
+    split = {a: [i for i in request.item_actions if i.action == a] for a in ITEM_ACTIONS}
+    ingest_rows = split["ingest"] + split["ingest_no_graph"]
+    if (split["remove_graph"] or split["remove_all"]) and not _ingest_registry_available():
+        raise HTTPException(status_code=400,
+                            detail="removing needs ENABLE_INCREMENTAL_UPDATES=true "
+                                   "(document_state says what a row stands for)")
+
+    if data_source in FS_SOURCES:
+        keep = {fs_key(i.path) for i in ingest_rows}
+        request.paths = [p for p in (request.paths or []) if fs_key(p) in keep] or None
+    cfg_attr = f"{data_source}_config"
+    cfg = getattr(request, cfg_attr, None)
+    if cfg is not None and (cfg.nodeDetails or cfg.nodeIds):
+        keep = {i.id for i in ingest_rows if i.id}
+        setattr(request, cfg_attr, cfg.copy(update={
+            "nodeDetails": [nd for nd in (cfg.nodeDetails or []) if nd.id in keep] or None,
+            "nodeIds": [n for n in (cfg.nodeIds or []) if n in keep] or None,
+        }))
+    # The datasource's own skip_graph: on only when nothing in this run builds graphs.
+    request.skip_graph = not split["ingest"]
+    split["sync_changes"] = [i for i in request.item_actions if i.auto_sync is not None]
+    # "ingest_rows": every row that is ingested (with graphs or not); "ingest" alone is only the
+    # rows ingested with graphs -- they must not share a key, or a run whose rows are all
+    # "search + vector only" looks like a removal-only run and registers no datasource.
+    return {**split, "ingest_rows": ingest_rows}
+
+
+async def _sync_datasources(data_source: str, url):
+    """The auto sync datasources of this source (and repository, when ``url`` is given):
+    (configs by config_id, Datasource list)."""
+    from incremental_updates.ingest_status import Datasource, normalize_url
+    await ensure_config_manager_ready()
+    url = normalize_url(url)
+    configs = [c for c in await incremental_manager.config_manager.get_ingest_status_configs()
+               if getattr(c, "auto_sync", True) and c.source_type == data_source]
+    syncs = [ds for ds in map(Datasource.from_config, configs) if not url or ds.url == url]
+    return {c.config_id: c for c in configs}, syncs
+
+
+def _fs_row_path(path: str) -> str:
+    """The backend path of a filesystem / upload row: an uploaded file is named by its file name
+    (saved under ./uploads, see /api/upload); anything else is a path already."""
+    if path and not os.path.isabs(path) and not any(sep in path for sep in ("/", "\\")):
+        safe = safe_upload_filename(path) or path
+        return str((Path("./uploads") / safe).resolve())
+    return path
+
+
+def _row_item(row):
+    from incremental_updates.ingest_status import Item, normalize_repo_path
+    return Item(normalize_repo_path(row.path), row.is_folder, row.id)
+
+
+async def _place_rows(data_source: str, request, rows) -> Optional[dict]:
+    """Where each row being ingested belongs, so a selection stays one datasource and a document
+    one copy: a file row a datasource already holds is refreshed under that datasource (an
+    auto sync preferred over an ingest record); rows held by nobody are "new" and join the
+    auto sync holding the others ("target"), or -- when no sync holds any -- start this run's
+    own datasource as before. None when the registry is off."""
+    from incremental_updates.ingest_status import Datasource, normalize_url
+    from incremental_updates.removal import fetch_rows, select_rows
+    if not rows or not _ingest_registry_available():
+        return None
+    await ensure_config_manager_ready()
+    repo = getattr(request, f"{data_source}_config", None)
+    url = normalize_url(getattr(repo, "url", None))
+    configs = [c for c in await incremental_manager.config_manager.get_ingest_status_configs()
+               if c.source_type == data_source]
+    dss = {ds.config_id: ds for ds in map(Datasource.from_config, configs) if not url or ds.url == url}
+    held: Dict[int, str] = {}
+    if dss:
+        async with incremental_manager.state_manager.pool.acquire() as conn:
+            state_rows = await fetch_rows(conn, list(dss))
+        for r in rows:
+            if r.is_folder:  # a folder may span datasources: it is ingested as one, as before
+                continue
+            cfgs = {m.config_id for m in select_rows([_row_item(r)], state_rows, recursive=False)[0]}
+            if cfgs:
+                held[id(r)] = sorted([c for c in cfgs if dss[c].auto_sync] or cfgs)[0]
+    syncs = sorted({c for c in held.values() if dss[c].auto_sync})
+    return {"held": held, "new": [r for r in rows if id(r) not in held],
+            "target": syncs[0] if syncs else None, "datasources": dss}
+
+
+def _record_row_run(data_source: str, result: dict, paths, placement: dict) -> None:
+    """Record a per-row run that started no datasource of its own (_place_rows): every
+    document's row under the datasource that holds it, the new rows in the target sync --
+    those sent with Auto Sync on become its roots, the others are kept with auto sync off --
+    and a sync that now has a graph on some document builds graphs on its updates."""
+    from incremental_updates.removal import add_roots
+
+    async def _run() -> None:
+        try:
+            pid = result["processing_id"]
+            target = placement["target"]
+            fallback = target or next(iter(placement["held"].values()))
+            await _create_document_states_after_ingestion(
+                processing_id=pid, config_id=fallback, paths=paths or [], data_source=data_source)
+            cm = incremental_manager.config_manager
+            changed = set()
+            if target and placement["new"]:
+                synced = [r for r in placement["new"] if r.auto_sync is True]
+                unsynced = [r for r in placement["new"] if r.auto_sync is not True]
+                if unsynced:
+                    await _turn_off_row_sync(target, [_row_item(r) for r in unsynced],
+                                             [_row_item(r) for r in synced])
+                if synced:
+                    cfg = await cm.get_config(target)
+                    cp, added = add_roots(cfg.connection_params, [_row_item(r) for r in synced])
+                    if added:
+                        await cm.update_config(target, connection_params=cp)
+                        changed.add(target)
+            # Graphs built for a document of a skip-graph sync: its updates must build them too
+            # (documents ingested without graphs carry their own skip_graph)
+            for config_id in placement.get("graphed") or ():
+                ds = placement["datasources"].get(config_id)
+                if ds is not None and ds.skip_graph:
+                    await cm.update_config(config_id, skip_graph=False)
+                    changed.add(config_id)
+            orch = getattr(incremental_manager, "orchestrator", None)
+            for config_id in changed:
+                cfg = await cm.get_config(config_id)
+                if orch is not None and cfg is not None and getattr(cfg, "auto_sync", False):
+                    await orch._handle_config_change({"operation": "update", "config": cfg})
+            for config_id in set(placement["held"].values()) | ({target} if target else set()):
+                await _take_over_other_ingest_copies(config_id)
+        except Exception as e:
+            logger.error(f"Could not record per-row run {result.get('processing_id')}: {e}", exc_info=True)
+
+    asyncio.create_task(_run())
+
+
+async def _plan_row_sync(data_source: str, request, actions: dict) -> Optional[dict]:
+    """Auto Sync on the rows being ingested. A row with ``auto_sync: true`` that no auto sync
+    covers yet (none watches it or holds its documents) starts one: this run's datasource
+    becomes an auto sync (``request.enable_sync``) watching those rows, and the other rows it
+    ingests are recorded in it with their auto sync off. With ``enable_sync`` already set, every
+    ingested row is synced except those sent with ``auto_sync: false``. None: no sync to start.
+    Rows an existing sync covers are resumed / stopped there (_apply_row_sync) instead."""
+    from incremental_updates.ingest_status import relate
+    from incremental_updates.removal import fetch_rows, select_rows
+    placement = actions.get("placement")
+    rows = placement["new"] if placement else actions["ingest_rows"]
+    if placement and placement["target"]:
+        return None  # new rows join an existing sync (_record_row_run), no sync to start
+    if not rows:
+        return None
+    if request.enable_sync:
+        synced = [r for r in rows if r.auto_sync is not False]
+    else:
+        want = [r for r in rows if r.auto_sync is True]
+        if not want or not _ingest_registry_available():
+            return None
+        repo = getattr(request, f"{data_source}_config", None)
+        recursive = bool(getattr(repo, "recursive", False))
+        _, syncs = await _sync_datasources(data_source, getattr(repo, "url", None))
+        items = [_row_item(r) for r in want]
+        held = [[]] * len(items)
+        if syncs:
+            async with incremental_manager.state_manager.pool.acquire() as conn:
+                held = select_rows(items, await fetch_rows(conn, [ds.config_id for ds in syncs]),
+                                   recursive=True)
+        # Covered: a sync watches it (it is, or is inside, a root) -- or, for a file, a sync
+        # holds it. A sync holding some files of a folder does not watch the folder.
+        synced = [r for r, it, h in zip(want, items, held)
+                  if not (h and not it.is_folder) and not any(m.status == "synced" for ds in syncs
+                                                              for m in relate(it, ds, recursive))]
+        if not synced:
+            return None
+        request.enable_sync = True
+    unsynced = [r for r in rows if all(r is not s for s in synced)]
+    return {"synced": synced, "unsynced": unsynced}
+
+
+async def _apply_row_sync(data_source: str, url, off_rows, on_rows) -> list:
+    """The Auto Sync column (incremental_updates/removal.py): stop or resume rows' auto sync.
+    Stopping takes a datasource root off its root list, and resuming puts it back; a
+    datasource left with no roots stops syncing -- ingest-only while documents of it are in a
+    store, else deleted. Returns lines for the job message."""
+    from incremental_updates.ingest_status import relate
+    from incremental_updates.removal import (
+        add_roots, fetch_rows, retire_datasource, select_rows, set_auto_sync, trim_roots,
+    )
+    if not incremental_manager or not incremental_manager.is_initialized():
+        return []
+    cm = incremental_manager.config_manager
+    by_id, syncs = await _sync_datasources(data_source, url)
+    lines: list = []
+    if not syncs:
+        return lines
+    off = [_row_item(r) for r in off_rows]
+    on = [_row_item(r) for r in on_rows]
+    async with incremental_manager.state_manager.pool.acquire() as conn:
+        rows = await fetch_rows(conn, [ds.config_id for ds in syncs])
+        if off:
+            ids = [r.doc_id for m in select_rows(off, rows, recursive=True) for r in m]
+            n = await set_auto_sync(conn, ids, False)
+            if n:
+                lines.append(f"stopped auto sync for {n} document(s)")
+        if on:
+            ids = [r.doc_id for m in select_rows(on, rows, recursive=True) for r in m if not r.auto_sync]
+            n = await set_auto_sync(conn, ids, True)
+            if n:
+                lines.append(f"resumed auto sync for {n} document(s)")
+        changed = []
+        for ds in syncs:
+            cfg = by_id[ds.config_id]
+            new_cp, left, did = trim_roots(cfg.connection_params, off) if off else (None, 1, False)
+            if on:
+                # A resumed row this sync holds documents of but no longer watches (it was taken
+                # off the roots when stopped) goes back on them, so new files there sync again
+                mine = [r for r in rows if r.config_id == ds.config_id]
+                back = [it for it, m in zip(on, select_rows(on, mine, recursive=True))
+                        if m and not any(x.status == "synced" for x in relate(it, ds, ds.recursive))]
+                new_cp, added = add_roots(new_cp if did else cfg.connection_params, back)
+                if added:
+                    did, left = True, len(new_cp.get("nodeDetails") or []) or 1
+            if not did:
+                continue
+            if left:
+                await cm.update_config(ds.config_id, connection_params=new_cp)
+                changed.append((ds.config_id, "trimmed"))
+                lines.append(f"auto sync {ds.source_name or ds.config_id} now watches {left} item(s)")
+            else:
+                outcome = await retire_datasource(conn, ds.config_id)
+                changed.append((ds.config_id, outcome))
+                lines.append(f"auto sync {ds.source_name or ds.config_id} stopped"
+                             + (" (its documents stay in the stores, now tracked as ingested)"
+                                if outcome == "ingest-only" else " and removed"))
+    # Restart (new roots) or stop the running syncs this changed
+    orch = getattr(incremental_manager, "orchestrator", None)
+    for config_id, outcome in changed:
+        try:
+            if orch is None:
+                break
+            if outcome == "trimmed":
+                cfg = await cm.get_config(config_id)
+                if cfg is not None:
+                    await orch._handle_config_change({"operation": "update", "config": cfg})
+            else:
+                await orch._handle_config_change({"operation": "delete", "config_id": config_id})
+        except Exception as e:
+            logger.warning(f"Auto sync {config_id}: could not restart/stop its updater: {e}")
+    return lines
+
+
+async def _start_item_actions(data_source: str, request, paths, kwargs: dict, actions: dict,
+                              row_sync: Optional[dict] = None) -> dict:
+    """Start the per-row run: removals, then an ingest pass with graphs and one without."""
+    from incremental_updates.ingest_status import Item
+    from incremental_updates.removal import configured_stores
+
+    repo = getattr(request, f"{data_source}_config", None)
+    url = getattr(repo, "url", None)
+    recursive = bool(getattr(repo, "recursive", False))
+
+    async def remove_step() -> list:
+        """One line per removal kind, e.g. "removed 5 document(s) from property graph and RDF
+        stores"."""
+        from incremental_updates.removal import store_names
+        stores = configured_stores(settings)
+        lines = []
+        for action, targets in (("remove_all", ["vector", "search", "graph"]), ("remove_graph", ["graph"])):
+            rows = actions[action]
+            targets = [t for t in targets if stores[t]]
+            if rows and targets:
+                res = await _remove_items(data_source, url, recursive,
+                                          [Item(r.path, r.is_folder, r.id) for r in rows], targets)
+                if res["documents"]:
+                    lines.append(f"removed {res['documents']} document(s) from "
+                                 f"{store_names(res['targets_hit'] or targets, settings)}")
+        return lines
+
+    sync_off = [r for r in request.item_actions if r.auto_sync is False]
+    # (rows starting this run's own sync are not resumed elsewhere: no sync covers them)
+    starting = (row_sync or {}).get("synced", [])
+    sync_on = [r for r in request.item_actions
+               if r.auto_sync is True and all(r is not s for s in starting)]
+
+    async def change_step() -> list:
+        """Auto sync changes first (so a datasource retired here is ingest-only before the
+        removals, which then drop it once it is empty), then the removals."""
+        lines = await _apply_row_sync(data_source, url, sync_off, sync_on) if (sync_off or sync_on) else []
+        removed = await remove_step()
+        if removed and any(" stopped" in line for line in lines):
+            # The same run removes the documents: just "auto sync X stopped", then the removal
+            # (not "its documents stay in the stores", nor a per-document count first)
+            lines = [line.split(" (its documents stay", 1)[0].replace(" and removed", "")
+                     for line in lines if not line.startswith("stopped auto sync for ")]
+        return lines + removed
+
+    has_removals = bool(actions["remove_all"] or actions["remove_graph"] or sync_off or sync_on)
+
+    cfg_key = f"{data_source}_config"
+    base_cfg = kwargs.get(cfg_key) or {}
+    # One pass per (datasource, graph setting): a row a datasource already holds is refreshed
+    # under it, the new rows go to the target sync or this run's own datasource (_place_rows)
+    placement = actions.get("placement") or {}
+    held = placement.get("held") or {}
+    default_cfg = placement.get("target") or kwargs.get("config_id")
+    passes = []
+    for action, skip in (("ingest", False), ("ingest_no_graph", True)):
+        groups: Dict[Optional[str], list] = {}
+        for r in actions[action]:
+            groups.setdefault(held.get(id(r), default_cfg), []).append(r)
+        for pass_cfg, rows in groups.items():
+            sub = {}
+            if base_cfg.get("nodeDetails") or base_cfg.get("nodeIds"):
+                ids = {r.id for r in rows if r.id}
+                sub[cfg_key] = {
+                    **base_cfg,
+                    "nodeDetails": [nd for nd in (base_cfg.get("nodeDetails") or []) if nd.get("id") in ids] or None,
+                    "nodeIds": [n for n in (base_cfg.get("nodeIds") or []) if n in ids] or None,
+                }
+            entry = {"skip_graph": skip, "kwargs": sub, "config_id": pass_cfg}
+            if data_source == "filesystem":
+                from incremental_updates.ingest_status import fs_key
+                ids = {fs_key(r.path) for r in rows}
+                entry["paths"] = [p for p in (paths or []) if fs_key(p) in ids] or [r.path for r in rows]
+            passes.append(entry)
+
+    run_kwargs = {k: v for k, v in kwargs.items() if k not in ("skip_graph", "config_id")}
+    label = ", ".join(r.path for r in request.item_actions)[:200]
+    return await backend_instance.run_item_actions(
+        data_source, passes, change_step if has_removals else None,
+        paths=paths, config_id=kwargs.get("config_id"), label=label, **run_kwargs)
+
+
 @app.post("/api/ingest")
 async def ingest(request: IngestRequest):
     try:
@@ -2038,9 +2558,50 @@ async def ingest(request: IngestRequest):
         data_source = request.data_source or str(settings.data_source)
         paths = request.paths
 
+        actions = None
+        row_sync = None
+        id_request = request  # the selection this run's own datasource id comes from
+        id_paths = paths
+        if request.item_actions:
+            actions = _prepare_item_actions(data_source, request)
+            paths = request.paths if data_source == "filesystem" else paths  # narrowed above
+            id_paths = paths
+            placement = await _place_rows(data_source, request, actions["ingest_rows"])
+            if placement:
+                actions["placement"] = placement
+                if data_source == "filesystem" and placement["new"]:
+                    from incremental_updates.ingest_status import fs_key
+                    new_keys = {fs_key(r.path) for r in placement["new"]}
+                    id_paths = [p for p in (paths or []) if fs_key(p) in new_keys]
+                cfg_attr = f"{data_source}_config"
+                cfg = getattr(request, cfg_attr, None)
+                if cfg is not None and (cfg.nodeDetails or cfg.nodeIds) and placement["new"]:
+                    # this run's own datasource is that of its new rows only
+                    new_ids = {r.id for r in placement["new"] if r.id}
+                    id_request = request.copy(update={cfg_attr: cfg.copy(update={
+                        "nodeDetails": [nd for nd in (cfg.nodeDetails or []) if nd.id in new_ids] or None,
+                        "nodeIds": [n for n in (cfg.nodeIds or []) if n in new_ids] or None,
+                    })})
+            if placement and not placement["target"]:
+                # A row held by an ingest-only datasource that asks for Auto Sync: that datasource
+                # becomes the sync (same id), its rows in this run are recorded in it as before
+                convert = sorted({placement["held"][id(r)] for r in actions["ingest_rows"]
+                                  if r.auto_sync is True and id(r) in placement["held"]})
+                if convert:
+                    moved = [r for r in actions["ingest_rows"] if placement["held"].get(id(r)) == convert[0]]
+                    for r in moved:
+                        del placement["held"][id(r)]
+                    placement["new"] = moved + placement["new"]
+                    placement["convert"] = convert[0]
+            # Auto Sync on rows being ingested: may make this run's datasource an auto sync
+            # (sets request.enable_sync), so before the cocoindex check and registration below
+            row_sync = await _plan_row_sync(data_source, request, actions)
+
         # Build backend kwargs and stable config_id from datasource identity.
         kwargs = _build_ingest_kwargs(request)
-        config_id = _resolve_config_id(data_source, request, paths)
+        config_id = _resolve_config_id(data_source, id_request, id_paths)
+        if actions is not None and (actions.get("placement") or {}).get("convert"):
+            config_id = actions["placement"]["convert"]  # an ingest-only datasource becoming a sync
         # With the incremental registry available, every ingest -- not only an auto-sync one --
         # gets stable doc_ids and is recorded, so ingesting the same source again replaces what
         # the earlier run stored instead of adding a second copy.
@@ -2077,6 +2638,12 @@ async def ingest(request: IngestRequest):
                 "message": "No data_source specified; existing CocoIndex sources keep updating.",
                 "pipeline_backend": "cocoindex",
             }
+        elif cocoindex_bridge and actions is not None:
+            raise HTTPException(
+                status_code=400,
+                detail="per-row actions need the default or Langflow pipeline "
+                       "(PIPELINE_BACKEND=cocoindex keeps its own state)",
+            )
         elif cocoindex_bridge:
             _conn_params = _coco_connection_params_for_request(data_source, request)
             result = await _start_cocoindex_ingest(
@@ -2090,11 +2657,38 @@ async def ingest(request: IngestRequest):
             )
             _used_cocoindex = True
 
-        if not _used_cocoindex:
+        if actions is not None:
+            result = await _start_item_actions(data_source, request, paths, kwargs, actions, row_sync)
+        elif not _used_cocoindex:
             result = await backend_instance.ingest_documents(data_source=data_source, paths=paths, **kwargs)
 
+        # A run that only removed: no datasource to register or record.
+        if actions is not None and not actions["ingest_rows"]:
+            result['sync_enabled'] = False
+            _label_job(result, data_source, request, paths)
+            return result
+
+        # A run whose rows all belong to existing datasources (refreshed in place, new rows
+        # joining a sync): no datasource of its own to register, only rows to record
+        _placement = (actions or {}).get("placement")
+        if _placement:
+            # the datasources this run builds graphs in (rows ingested with graphs)
+            _placement["graphed"] = {_placement["held"].get(id(r)) or _placement["target"]
+                                     for r in actions["ingest"]} - {None}
+        if _placement and (_placement["target"] or not _placement["new"]) and result.get("processing_id"):
+            _record_row_run(data_source, result, paths, _placement)
+            result['sync_enabled'] = bool(_placement["target"])
+            _label_job(result, data_source, request, paths)
+            return result
+
         # ── Incremental sync registration ──────────────────────────────────────
-        if request.enable_sync and incremental_manager and incremental_manager.is_initialized():
+        if request.enable_sync and actions is not None and _ingest_registry_available():
+            # Per-row run: register in the background (it waits for the job to finish), so the
+            # request returns at once and the UI follows the job like any other
+            _register_row_sync(data_source, result, config_id, request, paths, row_sync)
+            result['sync_enabled'] = True
+            result['config_id'] = config_id
+        elif request.enable_sync and incremental_manager and incremental_manager.is_initialized():
             try:
                 await _enable_incremental_sync(
                     data_source=data_source,
@@ -2115,8 +2709,9 @@ async def ingest(request: IngestRequest):
         else:
             result['sync_enabled'] = False
             if _record_ingest and not _used_cocoindex and result.get('processing_id'):
-                _record_ingest_only(data_source, request, paths, config_id, result['processing_id'])
+                _record_ingest_only(data_source, request, id_paths, config_id, result['processing_id'])
 
+        _label_job(result, data_source, request, paths)
         logger.info(f"Document ingestion started with ID: {result['processing_id']}")
         return result
 
@@ -2271,14 +2866,116 @@ async def upload_files(files: List[UploadFile] = File(...)):
         logger.error(f"Error uploading files: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/api/search")
-async def search(request: QueryRequest):
+async def _scope_doc_ids(scope: "AskScope") -> List[str]:
+    """The stable doc ids of the documents a scope stands for, and only those in a store now:
+    a document by its node id, a folder by everything below its path (any depth). Through
+    document_state, so it needs the incremental system (ENABLE_INCREMENTAL_UPDATES=true)."""
+    from incremental_updates.ingest_status import Datasource, Item, normalize_url
+    from incremental_updates.removal import fetch_rows, select_rows
+
+    if not incremental_manager or not incremental_manager.is_initialized():
+        if os.getenv("PIPELINE_BACKEND", "default").lower() == "cocoindex":
+            # the incremental registry cannot run with CocoIndex, which keeps its own state
+            raise HTTPException(status_code=400, detail=(
+                "asking about one document or folder is not available with PIPELINE_BACKEND=cocoindex "
+                "(it needs the incremental registry, which CocoIndex replaces with its own state)"))
+        raise HTTPException(status_code=400,
+                            detail="asking about one document or folder needs ENABLE_INCREMENTAL_UPDATES=true "
+                                   "and POSTGRES_INCREMENTAL_URL")
+    if not (scope.node_id or scope.path):
+        raise HTTPException(status_code=400, detail="scope needs a node_id or a path")
+    await ensure_config_manager_ready()
+    url = normalize_url(scope.url)
+    config_ids = [
+        ds.config_id for ds in map(Datasource.from_config,
+                                   await incremental_manager.config_manager.get_ingest_status_configs())
+        if ds.source_type == scope.data_source and (not url or ds.url == url)
+    ]
+    if not config_ids:
+        return []
+    async with incremental_manager.state_manager.pool.acquire() as conn:
+        rows = await fetch_rows(conn, config_ids)
+    item = Item(scope.path or "", scope.is_folder, None if scope.is_folder else scope.node_id)
+    matched = select_rows([item], rows, recursive=True)[0]
+    return sorted({r.doc_id for r in matched if r.synced["vector"] or r.synced["search"] or r.synced["graph"]})
+
+
+async def _candidate_doc_ids(query: str) -> List[str]:
+    """The documents an ordinary (unfiltered) retrieval finds for ``query``: what a permission
+    check has to look at when the question names no scope."""
+    from retriever_setup import setup_hybrid_retriever
+    from scope_filter import node_doc_id
+    from llama_index.core.schema import QueryBundle
+    system = backend_instance.system
+    if not system.hybrid_retriever:
+        setup_hybrid_retriever(system)
+    if not system.hybrid_retriever:
+        return []
+    nodes = await system.hybrid_retriever.aretrieve(QueryBundle(query_str=query))
+    return list(dict.fromkeys(d for d in (node_doc_id(n) for n in nodes) if d))
+
+
+async def _readable(doc_ids: List[str], ticket: str) -> List[str]:
+    """``doc_ids`` the ticket's Alfresco user may read (permission_filter.py). Each document is
+    checked on the Alfresco server its datasource ingested it from (ALFRESCO_URL otherwise)."""
+    from permission_filter import readable_doc_ids
+    from incremental_updates.ingest_status import Datasource
+    urls: Dict[str, str] = {}
+    if incremental_manager and incremental_manager.is_initialized():
+        await ensure_config_manager_ready()
+        for ds in map(Datasource.from_config,
+                      await incremental_manager.config_manager.get_ingest_status_configs()):
+            if ds.url:
+                urls[ds.config_id] = ds.url
+
+    def repo_url(doc_id: str) -> Optional[str]:
+        return urls.get(doc_id.split(":alfresco://", 1)[0])
+
     try:
-        logger.info(f"Processing {request.query_type} query: {request.query}")
+        return await readable_doc_ids(doc_ids, ticket, repo_url, os.getenv("ALFRESCO_URL"))
+    except PermissionError as e:
+        raise HTTPException(status_code=401, detail=str(e))
+
+
+async def _question_scope(request: "QueryRequest", ticket: Optional[str]):
+    """The doc ids a question may be answered from, or None for everything: the request's scope,
+    narrowed to what the ticket's user may read when a ticket came with it. Returns
+    (doc_ids or None, message when nothing is left)."""
+    scope_ids = None
+    if request.scope:
+        scope_ids = await _scope_doc_ids(request.scope)
+        if not scope_ids:
+            return [], _nothing_in_scope(request.scope)
+    if ticket:
+        candidates = scope_ids if scope_ids is not None else await _candidate_doc_ids(request.query)
+        scope_ids = await _readable(candidates, ticket)
+        if not scope_ids:
+            return [], ("You don't have access to any document that answers this."
+                        if candidates else "Nothing in the stores matches this question.")
+    return scope_ids, None
+
+
+def _nothing_in_scope(scope: "AskScope") -> str:
+    what = scope.name or scope.path or "the selected item"
+    return (f"Nothing from {what} is in the stores yet. Add it to KG Spaces and process it, "
+            f"then ask again.")
+
+
+@app.post("/api/search")
+async def search(request: QueryRequest, x_alfresco_ticket: Optional[str] = Header(default=None)):
+    try:
+        logger.info(f"Processing {request.query_type} query: {request.query}"
+                    + (f" (scope: {request.scope.path or request.scope.node_id})" if request.scope else ""))
+        # A scope, and/or the asking user's Alfresco permissions (X-Alfresco-Ticket)
+        scope_ids, nothing = await _question_scope(request, x_alfresco_ticket)
+        if nothing:
+            if request.query_type == "qa":
+                return {"success": True, "answer": nothing}
+            return {"success": True, "results": [], "message": nothing}
         
         if request.query_type == "qa":
             # Q&A query - return answer
-            result = await backend_instance.qa_query(request.query)
+            result = await backend_instance.qa_query(request.query, scope_doc_ids=scope_ids)
             if result["success"]:
                 logger.info("Q&A query completed successfully")
                 return {"success": True, "answer": result["answer"]}
@@ -2286,7 +2983,7 @@ async def search(request: QueryRequest):
                 raise HTTPException(500, result["error"])
         else:
             # Hybrid search - return results
-            result = await backend_instance.search_documents(request.query, request.top_k)
+            result = await backend_instance.search_documents(request.query, request.top_k, scope_doc_ids=scope_ids)
             if result["success"]:
                 logger.info("Hybrid search completed successfully")
                 return {"success": True, "results": result["results"]}
@@ -2299,10 +2996,13 @@ async def search(request: QueryRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/query")
-async def query_graph(request: QueryRequest):
+async def query_graph(request: QueryRequest, x_alfresco_ticket: Optional[str] = Header(default=None)):
     try:
         logger.info(f"Processing query: {request.query}")
-        result = await backend_instance.query_documents(request.query, request.top_k)
+        scope_ids, nothing = await _question_scope(request, x_alfresco_ticket)
+        if nothing:
+            return {"status": "success", "answer": nothing}
+        result = await backend_instance.query_documents(request.query, request.top_k, scope_doc_ids=scope_ids)
         
         if result["success"]:
             logger.info("Query processing completed successfully")
@@ -2427,16 +3127,62 @@ async def ingest_custom_text(request: TextIngestRequest):
         logger.error(f"Error starting text ingestion: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.get("/api/processing-status")
+async def list_processing_status(owner: Optional[str] = None, limit: int = 50):
+    """Processing jobs, oldest first and newest last: running ones and recent results (memory only -- a backend
+    restart forgets them). ``owner`` limits the list to one user's jobs; auto-sync runs have no
+    owner and are always listed (``kind: "sync"``). Passes of a per-row run are folded into it."""
+    from backend import PROCESSING_STATUS
+    from job_retention import prune
+    prune(PROCESSING_STATUS)
+    jobs = []
+    for pid, st in list(PROCESSING_STATUS.items()):
+        if st.get("pass_of"):  # a pass of a per-row run (backend.run_item_actions)
+            continue
+        kind = "sync" if pid.startswith("incremental_") else "ingest"
+        if owner and kind == "ingest" and st.get("owner") != owner:
+            continue
+        jobs.append({
+            "processing_id": pid,
+            "kind": kind,
+            "status": st.get("status"),
+            "message": st.get("message"),
+            "progress": st.get("progress", 0),
+            "data_source": st.get("data_source"),
+            "label": st.get("label"),
+            "sync_action": st.get("sync_action"),  # auto sync: add | update | delete
+            "owner": st.get("owner"),
+            "started_at": st.get("started_at"),
+            "updated_at": st.get("updated_at"),
+        })
+    # Oldest first, newest last (the order they ran); past ``limit`` the oldest are dropped.
+    jobs.sort(key=lambda j: str(j.get("started_at") or j.get("updated_at") or ""))
+    return {"jobs": jobs[-max(1, min(limit, 500)):]}
+
+
+@app.delete("/api/processing-status")
+async def clear_processing_status():
+    """Forget finished jobs (completed, failed, cancelled); running ones stay. So does a finished
+    job whose document_state rows are still being written (its documents are read for them) --
+    unless it finished over ten minutes ago, when that writer has given up."""
+    from backend import PROCESSING_STATUS
+    from job_retention import clear_finished
+    return clear_finished(PROCESSING_STATUS)
+
+
 @app.get("/api/processing-status/{processing_id}")
 async def get_processing_status(processing_id: str):
-    """Get processing status by ID."""
+    """Get processing status by ID (without the job's ingested documents -- see job_retention)."""
+    from backend import PROCESSING_STATUS
+    from job_retention import prune, public_view
     try:
-        logger.info(f"Checking processing status for ID: {processing_id}")
+        prune(PROCESSING_STATUS)
+        logger.debug(f"Checking processing status for ID: {processing_id}")
         result = backend_instance.get_processing_status(processing_id)
-        
+
         if result["success"]:
-            logger.info(f"Status retrieved for {processing_id}: {result['processing']['status']}")
-            return result["processing"]
+            logger.debug(f"Status retrieved for {processing_id}: {result['processing']['status']}")
+            return public_view(result["processing"])
         else:
             raise HTTPException(404, result["error"])
     except HTTPException:
@@ -2934,38 +3680,43 @@ async def list_datasources():
         logger.error(f"Error listing datasources: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-class CoverageItem(BaseModel):
+class IngestStatusItem(BaseModel):
     path: str
     id: Optional[str] = None  # repository node id; enables the exact document_state match
     is_folder: bool = False
 
 
-class CoverageRequest(BaseModel):
+class IngestStatusRequest(BaseModel):
     data_source: str          # alfresco | nuxeo
     url: Optional[str] = None  # repository url; omitted = every datasource of that type
     recursive: bool = False   # what the pending ingest would use
-    items: List[CoverageItem]
+    items: List[IngestStatusItem]
 
 
-@app.post("/api/sync/coverage")
-async def sync_coverage(request: CoverageRequest):
-    """Which datasources already cover each selected item: active auto-syncs, and sources
-    ingested without sync (``auto_sync: false`` on the match).
+@app.post("/api/sync/ingest-status")
+async def sync_ingest_status(request: IngestStatusRequest):
+    """Ingest status of each selected item: which datasources already hold it -- active
+    auto-syncs, and sources ingested without sync (``auto_sync: false`` on the match).
 
     One call for a whole multi-select; results come back in request order. Lets a UI flag
     rows that are already in the stores instead of ingesting them again.
     Answers ``enabled: false`` rather than an error when incremental sync is off, so callers
     need no separate check.
     """
-    from incremental_updates.coverage import (
-        PATH_SOURCES, Datasource, Item, check_coverage, normalize_url,
+    from incremental_updates.ingest_status import (
+        FS_SOURCES, ROW_SOURCES, Datasource, Item, check_ingest_status, fs_item, normalize_url,
+    )
+    from incremental_updates.removal import (
+        configs_present, configured_stores, fetch_rows, stores_holding,
     )
 
-    if request.data_source not in PATH_SOURCES:
+    if request.data_source not in ROW_SOURCES:
         raise HTTPException(
             status_code=400,
-            detail=f"coverage is available for {', '.join(PATH_SOURCES)}, not {request.data_source}",
+            detail=f"ingest status is available for {', '.join(ROW_SOURCES)}, not {request.data_source}",
         )
+    fs = request.data_source in FS_SOURCES
+    source_type = "filesystem" if fs else request.data_source  # uploads are filesystem ingests
     if not incremental_manager or not incremental_manager.is_initialized():
         return {"enabled": False, "items": []}
 
@@ -2975,33 +3726,144 @@ async def sync_coverage(request: CoverageRequest):
         datasources = [
             ds for ds in map(
                 Datasource.from_config,
-                await incremental_manager.config_manager.get_coverage_configs(),
+                await incremental_manager.config_manager.get_ingest_status_configs(),
             )
-            if ds.source_type == request.data_source and (not url or ds.url == url)
+            if ds.source_type == source_type and (fs or not url or ds.url == url)
         ]
 
-        indexed: Dict[str, List[Dict[str, Any]]] = {}
-        file_ids = [i.id for i in request.items if i.id and not i.is_folder]
-        if datasources and file_ids:
+        rows = []
+        if datasources:
             async with incremental_manager.state_manager.pool.acquire() as conn:
-                rows = await conn.fetch(
-                    "SELECT source_id, config_id, vector_synced_at, search_synced_at, "
-                    "graph_synced_at FROM document_state "
-                    "WHERE source_id = ANY($1::text[]) AND config_id = ANY($2::text[])",
-                    file_ids, [ds.config_id for ds in datasources],
-                )
-            for row in rows:
-                indexed.setdefault(row["source_id"], []).append(dict(row))
+                rows = await fetch_rows(conn, [ds.config_id for ds in datasources])
+        indexed: Dict[str, List[Dict[str, Any]]] = {}
+        for row in rows:
+            if row.source_id:
+                indexed.setdefault(row.source_id, []).append(
+                    {"config_id": row.config_id, "auto_sync": row.auto_sync,
+                     **{f"{t}_synced_at": v for t, v in row.synced.items()}})
 
-        items = [Item(i.path, i.is_folder, i.id) for i in request.items]
+        items = ([fs_item(_fs_row_path(i.path), i.is_folder) for i in request.items] if fs
+                 else [Item(i.path, i.is_folder, i.id) for i in request.items])
+        results = check_ingest_status(items, datasources, indexed, request.recursive,
+                                      present=configs_present(items, rows))
+        # A folder row: which stores hold the documents below it (files get theirs above), and
+        # whether any of them is still auto-synced (document_state.auto_sync)
+        from incremental_updates.removal import item_matches
+        auto_ids = {ds.config_id for ds in datasources if ds.auto_sync}
+        for item, result in zip(items, results):
+            if item.is_folder and result["indexed"] is None and result["status"] != "none":
+                result["indexed"] = stores_holding(item, rows, request.recursive)
+            if item.is_folder:
+                under = [r for r in rows if r.config_id in auto_ids
+                         and item_matches(item, r, request.recursive)]
+                if under:
+                    result["auto_sync"] = any(r.auto_sync for r in under)
         return {
             "enabled": True,
-            "items": check_coverage(items, datasources, indexed, request.recursive),
+            "stores": configured_stores(settings),
+            "items": results,
         }
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error checking sync coverage: {e}")
+        logger.error(f"Error checking ingest status: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class RemoveRequest(IngestStatusRequest):
+    # vector | search | graph (graph = property graph and RDF together)
+    targets: List[str] = ["vector", "search", "graph"]
+
+
+async def _remove_items(data_source: str, url, recursive: bool, items, targets: List[str]) -> dict:
+    """Remove ``items`` (ingest_status.Item) from ``targets``; see /api/sync/remove."""
+    from incremental_updates.ingest_status import Datasource, normalize_url
+    from incremental_updates.removal import fetch_rows, record_removal, select_rows
+    from ingest.replace_existing import delete_doc_ids
+
+    await ensure_config_manager_ready()
+    url = normalize_url(url)
+    datasources = [
+        ds for ds in map(
+            Datasource.from_config,
+            await incremental_manager.config_manager.get_ingest_status_configs(),
+        )
+        if ds.source_type == data_source and (not url or ds.url == url)
+    ]
+    auto_sync = {ds.config_id for ds in datasources if ds.auto_sync}
+
+    async with incremental_manager.state_manager.pool.acquire() as conn:
+        rows = await fetch_rows(conn, [ds.config_id for ds in datasources]) if datasources else []
+    per_item = select_rows(items, rows, recursive)
+
+    # Only delete where the document is: skips stores it never reached (skip_graph).
+    selected = {r.doc_id: r for matched in per_item for r in matched}
+    in_stores = [r for r in selected.values() if any(r.synced[t] for t in targets)]
+    # Which of the targets those documents were actually in: what the message should name
+    hit = [t for t in targets if any(r.synced[t] for r in in_stores)]
+    if in_stores:
+        await delete_doc_ids(backend_instance.system, [r.doc_id for r in in_stores], targets)
+    async with incremental_manager.state_manager.pool.acquire() as conn:
+        counts = await record_removal(conn, selected.values(), targets, auto_sync)
+
+    return {
+        "status": "success",
+        "targets": targets,
+        "documents": len(in_stores),
+        "targets_hit": hit,
+        **counts,
+        "items": [
+            {
+                "id": item.id,
+                "path": item.path,
+                "documents": len(matched),
+                "kept_out_of_auto_sync": sum(r.config_id in auto_sync for r in matched),
+            }
+            for item, matched in zip(items, per_item)
+        ],
+    }
+
+
+@app.post("/api/sync/remove")
+async def sync_remove(request: RemoveRequest):
+    """Take the selected files and folders back out of some or all of the stores.
+
+    Same body as /api/sync/ingest-status plus ``targets``. A folder stands for the documents
+    below it (all depths when ``recursive``). A document an auto-sync keeps, removed from every
+    store, stays out of that sync until it is ingested again; see
+    incremental_updates/removal.py.
+    """
+    from incremental_updates.ingest_status import PATH_SOURCES, Item
+    from incremental_updates.engine import DELETE_TARGETS
+
+    if request.data_source not in PATH_SOURCES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"remove is available for {', '.join(PATH_SOURCES)}, not {request.data_source}",
+        )
+    targets = list(dict.fromkeys(request.targets))
+    unknown = set(targets) - set(DELETE_TARGETS)
+    if not targets or unknown:
+        raise HTTPException(
+            status_code=400,
+            detail=f"targets must be some of {', '.join(DELETE_TARGETS)}"
+                   + (f"; unknown: {', '.join(sorted(unknown))}" if unknown else ""),
+        )
+    if not incremental_manager or not incremental_manager.is_initialized():
+        raise HTTPException(
+            status_code=400,
+            detail="remove needs ENABLE_INCREMENTAL_UPDATES=true: document_state is what says "
+                   "which documents a selection stands for",
+        )
+
+    try:
+        await ensure_config_manager_ready()
+        items = [Item(i.path, i.is_folder, i.id) for i in request.items]
+        return await _remove_items(request.data_source, request.url, request.recursive, items, targets)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error removing documents: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

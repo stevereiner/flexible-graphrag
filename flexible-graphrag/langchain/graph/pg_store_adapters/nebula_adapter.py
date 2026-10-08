@@ -413,12 +413,13 @@ class NebulaGraphAdapter:
         return self.lc_graph
 
     def delete(self, ref_doc_id: str) -> None:
-        """Delete all vertices tagged with *ref_doc_id* from NebulaGraph using nGQL.
+        """Delete one document's graph data from NebulaGraph using nGQL.
 
-        NebulaGraph uses nGQL (not Cypher), so the default Cypher DETACH DELETE
-        in ``LangChainPGAdapter`` won't work.  This override finds VIDs via a
-        MATCH on the ``Props__`` tag (which stores ``ref_doc_id``) and then
-        deletes them with DELETE VERTEX ... WITH EDGE.
+        NebulaGraph uses nGQL (not Cypher), so the default Cypher DETACH DELETE in
+        ``LangChainPGAdapter`` won't work. Every edge this ingest writes carries the document's
+        id (``doc_id``, or ``ref_doc_id``), while an entity vertex is shared across documents:
+        so first this document's edges (of every type), then only its vertices left with no
+        edge at all -- deleting vertices WITH EDGE would also take other documents' edges.
         """
         space = (
             self.config.get("space")
@@ -426,46 +427,30 @@ class NebulaGraphAdapter:
             or self.config.get("database", "flexible_graphrag")
         )
         # backslash first, or a path ending in "\" escapes the closing quote
-        _rid = ref_doc_id.replace("\\", "\\\\").replace('"', '\\"')
-        # MATCH uses openCypher style; DELETE VERTEX is nGQL.
-        # NebulaGraph 3.x supports MATCH within nGQL contexts.
-        fetch_ngql = (
-            f"USE `{space}`; "
-            f'MATCH (v) WHERE v.`Props__`.`ref_doc_id` == "{_rid}" '
-            f"RETURN id(v) AS vid LIMIT 1000"
-        )
-        try:
-            result = self.lc_graph.execute(fetch_ngql)
+        _rid = '"%s"' % ref_doc_id.replace("\\", "\\\\").replace('"', '\\"')
+
+        def rows(ngql: str) -> list:
+            result = self.lc_graph.execute(f"USE `{space}`; {ngql}")
             if not result.is_succeeded():
-                logger.debug(
-                    "NebulaGraph delete: MATCH query failed: %s", result.error_msg()
-                )
-                return
-            vids = []
-            for row in result.rows():
-                vid = row.values[0]
-                if vid.HasField("sVal"):
-                    vids.append(vid.sVal.decode("utf-8"))
-                elif vid.HasField("iVal"):
-                    vids.append(str(vid.iVal))
-            if not vids:
-                logger.info(
-                    "NebulaGraph: no vertices found for ref_doc_id=%s", ref_doc_id
-                )
-                return
-            vid_list = ", ".join(f'"{v}"' for v in vids)
-            del_ngql = f"USE `{space}`; DELETE VERTEX {vid_list} WITH EDGE"
-            del_result = self.lc_graph.execute(del_ngql)
-            if del_result.is_succeeded():
-                logger.info(
-                    "NebulaGraph: deleted %d vertices for ref_doc_id=%s",
-                    len(vids), ref_doc_id,
-                )
-            else:
-                logger.warning(
-                    "NebulaGraph: DELETE VERTEX failed for ref_doc_id=%s: %s",
-                    ref_doc_id, del_result.error_msg(),
-                )
+                raise RuntimeError(result.error_msg())
+            return [list(r.values()) for r in result.as_primitive()]
+
+        def q(value) -> str:
+            return '"%s"' % str(value).replace("\\", "\\\\").replace('"', '\\"')
+
+        try:
+            edges = rows(
+                f"MATCH (a:`Props__`)-[r]->(b) WHERE r.doc_id == {_rid} OR r.ref_doc_id == {_rid} "
+                "RETURN type(r), src(r), dst(r), rank(r)")
+            for etype, src, dst, rank in edges:
+                self._ex(f"DELETE EDGE `{etype}` {q(src)} -> {q(dst)} @{int(rank or 0)}", space)
+            vids = [v for (v,) in rows(
+                f"MATCH (v:`Props__`) WHERE v.`Props__`.doc_id == {_rid} OR v.`Props__`.ref_doc_id == {_rid} "
+                "OPTIONAL MATCH (v)-[x]-() WITH v, count(x) AS n WHERE n == 0 RETURN id(v)")]
+            for v in vids:
+                self._ex(f"DELETE VERTEX {q(v)}", space)
+            logger.info("NebulaGraph: deleted %d edge(s) and %d unused vertices for ref_doc_id=%s",
+                        len(edges), len(vids), ref_doc_id)
         except Exception as exc:
             logger.warning("NebulaGraph delete failed for ref_doc_id=%s: %s", ref_doc_id, exc)
 

@@ -25,16 +25,24 @@ _SAME_IDENTITY = """
 """
 
 
-async def resolve_duplicate_copies(conn, config_id: str) -> list:
+async def resolve_duplicate_copies(conn, config_id: str, sync_takeover: bool = False) -> list:
     """After ``config_id`` stored its documents, settle any document another datasource
     also holds, so each file ends up in the stores once:
 
     * another INGEST-ONLY datasource's copy is superseded by this newer one;
     * if THIS datasource is ingest-only and an AUTO-SYNC datasource holds the document, the
       sync keeps it (its detector maintains that copy, and deleting it would only have the
-      detector re-ingest it) and this run's copy is the one dropped.
+      detector re-ingest it) and this run's copy is the one dropped -- unless the sync's copy
+      has its auto sync turned off (document_state.auto_sync, removal.py): then this copy is
+      the only one, and it stays;
+    * the same when THIS datasource is an auto sync but this document's auto sync is off in
+      it (a row ingested, not synced, in a run that started a sync for others).
 
-    Copies between two auto-syncs are left alone. Forgets the losing copies' document_state
+    With ``sync_takeover`` (only when ``config_id`` has just been registered as an auto sync):
+    another AUTO-SYNC's copy of a document this sync follows is dropped too -- the new sync
+    takes it over (a folder synced after its files were synced one by one); the caller then
+    takes the covered roots off the other sync (main._hand_over_roots). Otherwise copies
+    between two auto-syncs are left alone. Forgets the losing copies' document_state
     rows, drops any ingest-only datasource left with no documents, and returns the losing
     doc_ids for the caller to delete from the stores.
     """
@@ -51,9 +59,21 @@ async def resolve_duplicate_copies(conn, config_id: str) -> list:
         JOIN datasource_config mdc ON mdc.config_id = mine.config_id
         JOIN document_state other ON {_SAME_IDENTITY}
         JOIN datasource_config odc ON odc.config_id = other.config_id
-        WHERE mine.config_id = $1 AND mdc.auto_sync = FALSE AND odc.auto_sync = TRUE
+        WHERE mine.config_id = $1 AND (mdc.auto_sync = FALSE OR NOT mine.auto_sync)
+          AND odc.auto_sync = TRUE AND other.auto_sync
     """, config_id)
-    losers = list(others) + list(mine)
+    synced_others = []
+    if sync_takeover:
+        synced_others = await conn.fetch(f"""
+            SELECT other.doc_id, other.config_id
+            FROM document_state mine
+            JOIN datasource_config mdc ON mdc.config_id = mine.config_id
+            JOIN document_state other ON {_SAME_IDENTITY}
+            JOIN datasource_config odc ON odc.config_id = other.config_id
+            WHERE mine.config_id = $1 AND mdc.auto_sync = TRUE AND mine.auto_sync
+              AND odc.auto_sync = TRUE
+        """, config_id)
+    losers = list(others) + list(mine) + list(synced_others)
     if not losers:
         return []
     doc_ids = list(dict.fromkeys(r["doc_id"] for r in losers))
@@ -312,7 +332,7 @@ class IncrementalSystemManager:
         """Record a datasource that was ingested WITHOUT auto change sync.
 
         The row exists so a later ingest of the same source (same config_id) can find what it
-        put in the stores and replace it rather than add a second copy, and so coverage can
+        put in the stores and replace it rather than add a second copy, and so ingest status can
         report it. It is stored inactive with auto_sync = FALSE, so no detector, orchestrator,
         enable-all or CocoIndex loader ever picks it up.
 
@@ -337,6 +357,15 @@ class IncrementalSystemManager:
                 config_id, project_id, source_type, source_name,
                 json.dumps(connection_params), skip_graph,
             )
+            # An auto sync's row is otherwise left alone, but an ingest that built the graph
+            # makes it a graph datasource again (its graph may have been removed, which marked
+            # it skip_graph -- see incremental_updates/removal.py).
+            if not skip_graph:
+                await conn.execute(
+                    "UPDATE datasource_config SET skip_graph = FALSE, updated_at = NOW() "
+                    "WHERE config_id = $1 AND auto_sync = TRUE AND skip_graph",
+                    config_id,
+                )
         logger.info(f"Recorded ingest-only datasource {source_name} ({config_id})")
 
     async def get_doc_ids(self, config_id: str) -> list:
@@ -349,13 +378,13 @@ class IncrementalSystemManager:
             )
         return [r["doc_id"] for r in rows]
 
-    async def take_over_other_ingest_copies(self, config_id: str) -> list:
+    async def take_over_other_ingest_copies(self, config_id: str, sync_takeover: bool = False) -> list:
         """Settle documents of ``config_id`` that another datasource also holds; see
         resolve_duplicate_copies. Returns the doc_ids the caller must delete from the stores."""
         if not self._initialized:
             return []
         async with self.state_manager.pool.acquire() as conn:
-            return await resolve_duplicate_copies(conn, config_id)
+            return await resolve_duplicate_copies(conn, config_id, sync_takeover)
 
     def is_initialized(self) -> bool:
         """Check if system is initialized"""

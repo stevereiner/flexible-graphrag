@@ -565,7 +565,12 @@ class NuxeoSource(BaseDataSource):
 
         filename = document["name"]
         node_id = document["id"]
-        temp_file_path = os.path.join(temp_dir, filename)
+        local_name = filename
+        if "." not in filename and document.get("content_type"):
+            # the parser picks by extension: give the temp file one from the content type
+            import mimetypes
+            local_name += mimetypes.guess_extension(document["content_type"].split(";")[0].strip()) or ""
+        temp_file_path = os.path.join(temp_dir, local_name)
 
         logger.info(f">>> _download_document() {filename} (id={node_id}, kind={document.get('kind')})")
 

@@ -295,6 +295,10 @@ class NuxeoDetector(ChangeDetector):
             return
 
         skip_graph = getattr(self, "skip_graph", False)
+        # ...or just this document's graph was removed (document_state.skip_graph)
+        if not skip_graph and self.state_manager and self.config_id:
+            skip_graph = await self.state_manager.doc_skip_graph(
+                config_id=self.config_id, source_id=uid)
         processing_id = f"incremental_nuxeo_{uid[:8]}"
 
         nuxeo_config = self._base_source_config()
@@ -324,12 +328,13 @@ class NuxeoDetector(ChangeDetector):
 
         if self.state_manager:
             try:
-                await self._create_document_state_from_processing_status(processing_id, filename, uid, file_path)
+                await self._create_document_state_from_processing_status(processing_id, filename, uid, file_path, skip_graph=skip_graph)
             except Exception as e:
                 logger.error(f"Failed to create document_state for {filename}: {e}")
 
     async def _create_document_state_from_processing_status(
-        self, processing_id: str, filename: str, uid: str, file_path: str
+        self, processing_id: str, filename: str, uid: str, file_path: str,
+        skip_graph: Optional[bool] = None
     ) -> None:
         from backend import PROCESSING_STATUS
         from incremental_updates.state_manager import DocumentState, StateManager
@@ -371,7 +376,7 @@ class NuxeoDetector(ChangeDetector):
             modified_timestamp=modified_timestamp,
             vector_synced_at=now,
             search_synced_at=now,
-            graph_synced_at=now if not getattr(self, "skip_graph", False) else None,
+            graph_synced_at=now if not (getattr(self, "skip_graph", False) if skip_graph is None else skip_graph) else None,
         )
         await self.state_manager.save_state(doc_state)
         logger.info(f"Created document_state for {filename}: {doc_id}")

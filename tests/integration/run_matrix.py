@@ -100,6 +100,11 @@ uv run tests/integration/run_matrix.py --pg neo4j --vector qdrant --data-source 
 # Test specific flexible data sources (2 jobs: s3, azure_blob)
 uv run tests/integration/run_matrix.py --pg neo4j --vector qdrant --data-source s3,azure_blob
 
+# Scoped Ask ("ask about this document") on every vector store / every graph store:
+# no results from outside the scope, and the run removes its own documents afterwards
+uv run tests/integration/run_matrix.py --vector all --search bm25 --scope
+uv run tests/integration/run_matrix.py --pg all --backends both --scope
+
 # Test filesystem with incremental updates (only filesystem is supported for incremental)
 uv run tests/integration/run_matrix.py --vector qdrant --incremental --data-source filesystem
 
@@ -582,6 +587,31 @@ def _label(pg, rdf, vector, search, backend, fusion, llm=None, embedding=None, c
     return f"{db_str}{suffix}"
 
 
+_SCOPE_REGISTRY_URL = "postgresql://postgres:password@localhost:5433/fg_scope_matrix"
+
+
+def _ensure_database(url: str) -> None:
+    """Create the PostgreSQL database in ``url`` when it does not exist (--scope registry)."""
+    import asyncio
+    from urllib.parse import urlparse, urlunparse
+
+    import asyncpg
+
+    name = urlparse(url).path.lstrip("/")
+    admin = urlunparse(urlparse(url)._replace(path="/postgres"))
+
+    async def run() -> None:
+        conn = await asyncpg.connect(admin)
+        try:
+            if not await conn.fetchval("SELECT 1 FROM pg_database WHERE datname = $1", name):
+                await conn.execute(f'CREATE DATABASE "{name}"')
+                print(f"[matrix] --scope: created registry database {name}")
+        finally:
+            await conn.close()
+
+    asyncio.run(run())
+
+
 def _write_env(overrides: dict[str, str], base_env: Path) -> Path:
     import tempfile
     lines: list[str] = []
@@ -739,6 +769,13 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--fusion",   default=None,
                    help="RETRIEVAL_FUSION: llamaindex | langchain | both  "
                         "(default: matches --backends — langchain when backends=langchain, else llamaindex)")
+    p.add_argument("--scope", action="store_true",
+                   help="Run the scoped-Ask tests (test_scope.py) per combination: two Alfresco "
+                        "documents ingested, questions scoped to one, nothing from the other may "
+                        "come back; the test removes its documents itself. Turns on the "
+                        "incremental registry (scoping resolves documents through it) on its own "
+                        "database: SCOPE_TEST_INCREMENTAL_URL (default "
+                        f"{_SCOPE_REGISTRY_URL}), created when missing. Overrides --test-path.")
     p.add_argument("--incremental", action="store_true",
                    help="Run incremental tests: sets ENABLE_INCREMENTAL_UPDATES=true, uses "
                         "INTEGRATION_WATCH_DIR from .env, and targets test_incremental.py. "
@@ -902,6 +939,15 @@ def main() -> int:
         return [(b, "langchain" if b == "langchain" else "llamaindex") for b in backends]
 
     base_env = Path(args.base_env)
+
+    # --scope: scoped-Ask tests, incremental registry on (its own database)
+    scope_registry_url: str | None = None
+    if args.scope:
+        scope_registry_url = os.environ.get("SCOPE_TEST_INCREMENTAL_URL", _SCOPE_REGISTRY_URL)
+        if not args.dry_run:
+            _ensure_database(scope_registry_url)
+        args.test_path = "tests/integration/test_scope.py"
+        print(f"[matrix] --scope: test_path={args.test_path}, registry={scope_registry_url}")
 
     # --incremental: override test-path and enable incremental updates.
     # Uses INTEGRATION_WATCH_DIR from .env (or shell env) — no temp dir created.
@@ -1184,7 +1230,7 @@ def main() -> int:
         and any(_FLEXIBLE_DS_TEST.get(ds, "") for ds in data_source_list if ds)
     )
 
-    if not args.incremental and args.test_path == _DEFAULT_TEST_PATH:
+    if not args.incremental and not args.scope and args.test_path == _DEFAULT_TEST_PATH:
         if _using_langflow and not _using_lc_chunker and not _using_native_coco:
             args.test_path = "tests/integration/test_langflow.py"
             print(f"[matrix] --langflow true: auto-targeting {args.test_path}")
@@ -1263,6 +1309,9 @@ def main() -> int:
             )
             if incremental_watch_dir:
                 overrides["ENABLE_INCREMENTAL_UPDATES"] = "true"
+            if scope_registry_url:
+                overrides["ENABLE_INCREMENTAL_UPDATES"] = "true"
+                overrides["POSTGRES_INCREMENTAL_URL"] = scope_registry_url
                 overrides["INTEGRATION_WATCH_DIR"] = incremental_watch_dir
 
             # Per-job pytest filter: restrict to the matching test function so each

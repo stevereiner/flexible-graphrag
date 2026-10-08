@@ -190,6 +190,39 @@ pytest tests/integration/test_incremental.py -m incremental -s
 
 ---
 
+## Scoped Ask tests (`run_matrix.py --scope`)
+
+`test_scope.py` checks "ask about one document / folder" against whatever stores a combination
+configures: two Alfresco documents are ingested with graphs, searches and a question are scoped
+to one of them, and nothing from the other may come back from any store. The fixture then
+removes both documents with `POST /api/sync/remove` (the app's own removal), so it cleans up
+after itself whether or not `--clean` is used.
+
+```powershell
+# every local vector store, BM25 search
+uv run tests/integration/run_matrix.py --vector qdrant,elasticsearch,opensearch,postgres,chroma,neo4j,milvus,weaviate,lancedb --search bm25 --scope
+# every property graph store, LlamaIndex and LangChain backends
+uv run tests/integration/run_matrix.py --pg all --backends both --search bm25 --scope
+# RDF stores
+uv run tests/integration/run_matrix.py --rdf all --search bm25 --scope
+```
+
+- `--scope` turns on the incremental registry (scoping resolves documents through
+  `document_state`) on its own database, `SCOPE_TEST_INCREMENTAL_URL` (default
+  `postgresql://postgres:password@localhost:5433/fg_scope_matrix`), created when missing.
+- Alfresco must be running. The documents are taken from `SCOPE_TEST_FOLDER` (default
+  `/Shared/GraphRAG`): a file whose name contains `SCOPE_TEST_IN_SCOPE` (default `cmis`) and one
+  containing `SCOPE_TEST_OFF_SCOPE` (default `space`); `SCOPE_TEST_IN_TOPIC` /
+  `SCOPE_TEST_OFF_TOPIC` are the search texts. Skipped when Alfresco is unreachable, failed when
+  it is reachable but the files are missing.
+- A backend already running on the test port is reused as is. To run next to your own backend
+  on 8000, set `API_TEST_PORT=8100`.
+- The tests catch leaks (results from outside the scope); whether a store filtered *inside*
+  the store or the final safety filter dropped them shows in the backend log
+  (`Scoped retriever: ... in-store filter on vector=... search=...`, `[scoped graph(...)]`,
+  `[scoped lc graph(...)]`, `[scoped rdf]`, `[scoped bm25]`, and `Scope: kept N of M` when the
+  safety filter had to drop something).
+
 ## Available profiles
 
 | Profile | PG Graph | RDF | Vector | Notes |

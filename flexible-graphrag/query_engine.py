@@ -347,13 +347,14 @@ def _is_entity_name_stub(txt: str) -> bool:
 # Search entry point
 # ---------------------------------------------------------------------------
 
-async def search(system, query: str, top_k: int = 10) -> List[Dict[str, Any]]:
+async def search(system, query: str, top_k: int = 10, scope_doc_ids=None) -> List[Dict[str, Any]]:
     """Execute hybrid search across all configured modalities.
 
     Args:
         system: HybridSearchSystem instance
         query: Natural-language query string
         top_k: Maximum number of results to return
+        scope_doc_ids: when set, only results from these documents (scope_filter.py)
 
     Returns:
         List of result dicts with keys: rank, content, score, source,
@@ -407,7 +408,11 @@ async def search(system, query: str, top_k: int = 10) -> List[Dict[str, Any]]:
     while True:
         try:
             _retrieve_attempts += 1
-            raw_results = await system.hybrid_retriever.aretrieve(query_bundle)
+            if scope_doc_ids is not None:
+                from scope_filter import build_scoped_retriever
+                raw_results = await build_scoped_retriever(system, scope_doc_ids).aretrieve(query_bundle)
+            else:
+                raw_results = await system.hybrid_retriever.aretrieve(query_bundle)
             raw_results = _dedup_and_sum_scores(raw_results)
             break
         except Exception as e:
@@ -718,11 +723,12 @@ async def search(system, query: str, top_k: int = 10) -> List[Dict[str, Any]]:
 # Query engine
 # ---------------------------------------------------------------------------
 
-def get_query_engine(system, **kwargs):
+def get_query_engine(system, scope_doc_ids=None, **kwargs):
     """Build and return a RetrieverQueryEngine for Q&A.
 
     Args:
         system: HybridSearchSystem instance
+        scope_doc_ids: when set, answer only from these documents (scope_filter.py)
         **kwargs: Passed through to RetrieverQueryEngine.from_args
     """
     from retriever_setup import setup_hybrid_retriever
@@ -804,8 +810,12 @@ def get_query_engine(system, **kwargs):
         raise ValueError("System not initialized. Please ingest documents first.")
 
     try:
+        retriever = _DeduplicatingRetriever(system.hybrid_retriever)
+        if scope_doc_ids is not None:
+            from scope_filter import build_scoped_retriever
+            retriever = _DeduplicatingRetriever(build_scoped_retriever(system, scope_doc_ids))
         return RetrieverQueryEngine.from_args(
-            retriever=_DeduplicatingRetriever(system.hybrid_retriever),
+            retriever=retriever,
             llm=system.llm,
             **kwargs,
         )

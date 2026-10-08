@@ -1330,6 +1330,11 @@ MAX_PATHS_PER_CHUNK=20
 ENABLE_INCREMENTAL_UPDATES=false
 #ENABLE_INCREMENTAL_UPDATES=true
 
+# Processing tab Jobs list (in memory): finished jobs (ingests and auto sync runs) are kept
+# this many minutes, and at most this many; running jobs are never dropped.
+#JOB_RETENTION_MINUTES=60
+#JOB_RETENTION_MAX=200
+
 # PostgreSQL connection for state management (required if ENABLE_INCREMENTAL_UPDATES=true)
 # Recommended: Reuse existing postgres-pgvector service on port 5433
 # Create database: flexible_graphrag_incremental (separate from pgvector database)

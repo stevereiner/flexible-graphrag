@@ -1,6 +1,8 @@
-import { Component, ViewChild, ElementRef, AfterViewChecked, AfterViewInit, ChangeDetectorRef, Renderer2, inject } from '@angular/core';
+import { Component, ViewChild, ElementRef, AfterViewChecked, AfterViewInit, ChangeDetectorRef, Renderer2, inject,
+         Input, Output, EventEmitter, OnChanges, SimpleChanges } from '@angular/core';
 import { FlexibleGraphragConfigService } from '../../config.service';
 import { HttpClient } from '@angular/common/http';
+import { AskScope } from '../../models/api.models';
 
 interface ChatMessage {
   id: string;
@@ -16,6 +18,7 @@ interface QueryRequest {
   query: string;
   query_type?: string;
   top_k?: number;
+  scope?: AskScope;
 }
 
 interface ApiResponse {
@@ -33,9 +36,18 @@ interface ApiResponse {
   styleUrls: ['./chat-tab.scss'],
   standalone: false
 })
-export class ChatTabComponent implements AfterViewChecked, AfterViewInit {
+export class ChatTabComponent implements AfterViewChecked, AfterViewInit, OnChanges {
   private readonly fgConfig = inject(FlexibleGraphragConfigService);
   @ViewChild('chatContainer') chatContainer!: ElementRef;
+
+  /** Ask about this document or folder only; null = all content. */
+  @Input() scope: AskScope | null = null;
+  /** The user cleared the scope (the bar's ✕): back to all content. */
+  @Output() scopeChange = new EventEmitter<AskScope | null>();
+
+  welcomeTitle = this.fgConfig.chatWelcomeTitle;
+  welcomeLines = this.fgConfig.chatWelcomeLines;
+  showScopeBar = this.fgConfig.showChatScope;
 
   chatMessages: ChatMessage[] = [];
   chatInput = '';
@@ -44,6 +56,29 @@ export class ChatTabComponent implements AfterViewChecked, AfterViewInit {
   error = '';
 
   constructor(private http: HttpClient, private cdr: ChangeDetectorRef, private renderer: Renderer2) {}
+
+  ngOnChanges(changes: SimpleChanges): void {
+    // A new scope is a new conversation: earlier answers came from other documents
+    const c = changes['scope'];
+    if (c && !c.firstChange && JSON.stringify(c.currentValue) !== JSON.stringify(c.previousValue)) {
+      this.chatMessages = [];
+    }
+  }
+
+  get scopeLabel(): string {
+    return this.scope ? (this.scope.name || this.scope.path || 'selected item') : 'All content';
+  }
+
+  get scopeIcon(): string {
+    if (!this.scope) return 'travel_explore';
+    return this.scope.is_folder ? 'folder' : 'description';
+  }
+
+  clearScope(): void {
+    this.scope = null;
+    this.chatMessages = [];
+    this.scopeChange.emit(null);
+  }
 
   ngAfterViewInit(): void {
     // Initial scroll setup
@@ -125,10 +160,12 @@ export class ChatTabComponent implements AfterViewChecked, AfterViewInit {
       const request: QueryRequest = {
         query: currentInput,
         query_type: 'qa',
-        top_k: 10
+        top_k: 10,
+        ...(this.scope ? { scope: this.scope } : {}),
       };
       
-      const response = await this.http.post<ApiResponse>('/api/search', request).toPromise();
+      const response = await this.http.post<ApiResponse>(`${this.fgConfig.apiUrl}/search`, request,
+        { headers: this.fgConfig.questionHeaders() }).toPromise();
       
       // Remove loading message
       const messageIndex = this.chatMessages.findIndex(msg => msg.id === loadingMessage.id);

@@ -50,9 +50,19 @@ def get_langchain_llm(config: Any) -> Any:
 
         if provider == "anthropic":
             from langchain_anthropic import ChatAnthropic
+            model = llm_config.get("model", "claude-3-5-sonnet-20241022")
+            # Newer models (Sonnet 5.5, Fable 5, Opus 4.7+ ...) reject sampling controls:
+            # langchain-anthropic raises ValueError for any non-default temperature. Leave it out
+            # for those -- the same model list llama-index-llms-anthropic (a base dependency)
+            # uses to drop it on the LlamaIndex side.
+            try:
+                from llama_index.llms.anthropic.utils import ANTHROPIC_NO_TEMP_MODELS
+            except ImportError:
+                ANTHROPIC_NO_TEMP_MODELS = ()
+            no_temperature = any(m in model for m in ANTHROPIC_NO_TEMP_MODELS)
             return ChatAnthropic(
-                model_name=llm_config.get("model", "claude-3-5-sonnet-20241022"),
-                temperature=llm_config.get("temperature", 0.1),
+                model_name=model,
+                **({} if no_temperature else {"temperature": llm_config.get("temperature", 0.1)}),
                 **_kw(api_key=llm_config.get("api_key")),
             )
 

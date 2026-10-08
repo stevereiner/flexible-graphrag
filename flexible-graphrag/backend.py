@@ -174,7 +174,9 @@ class FlexibleGraphRAGBackend:
     # Processing status management
     
     def _create_processing_id(self) -> str:
-        """Create a unique processing ID"""
+        """Create a unique processing ID (and let go of old finished jobs: job_retention)"""
+        from job_retention import prune
+        prune(PROCESSING_STATUS)
         return str(uuid.uuid4())[:8]
     
     def _estimate_processing_time(self, data_source: str = None, paths: List[str] = None, content: str = None) -> str:
@@ -892,6 +894,94 @@ class FlexibleGraphRAGBackend:
             "estimated_time": estimated_time
         }
     
+    async def run_item_actions(self, data_source: str, passes: List[Dict[str, Any]], remove_step=None,
+                               paths: List[str] = None, config_id: str = None, label: str = "",
+                               **kwargs) -> Dict[str, Any]:
+        """Start one job for a processing-tab run where each row says what it wants: removals
+        first (``remove_step``, a coroutine function), then one ingest pass per graph setting.
+
+        ``passes`` is a list of ``{"skip_graph": bool, "kwargs": {...}}``; each pass's kwargs
+        override the request's (e.g. an alfresco_config narrowed to that pass's nodes). All
+        passes share ``config_id``, so the selection stays ONE datasource. Each pass runs through
+        _process_documents_async under its own sub-id, so whichever pipeline is configured
+        (default or Langflow) does the work unchanged; this job mirrors their progress and, at
+        the end, holds every pass's documents -- each marked ``_skip_graph`` -- for the
+        document_state rows (post_ingestion_state reads the mark per document).
+        """
+        processing_id = self._create_processing_id()
+        self._update_processing_status(processing_id, "started", "Processing has started, please wait...", 0)
+        PROCESSING_STATUS[processing_id].update({"data_source": data_source, "label": label})
+        asyncio.create_task(self._run_item_actions_async(
+            processing_id, data_source, passes, remove_step, paths, config_id, kwargs))
+        return {
+            "processing_id": processing_id,
+            "status": "started",
+            "message": "Document processing has started, please wait...",
+            "estimated_time": self._estimate_processing_time(data_source, paths),
+        }
+
+    async def _run_item_actions_async(self, processing_id, data_source, passes, remove_step,
+                                      paths, config_id, kwargs):
+        try:
+            if remove_step is not None:
+                self._update_processing_status(processing_id, "processing", "Removing from the stores...", 3)
+                PROCESSING_STATUS[processing_id]["removed"] = await remove_step()
+            documents: List = []
+            files_done: List = []  # per-file progress of finished passes, shown with the current one
+            pass_messages: List[str] = []  # each pass's own completion message (names the stores)
+            total = len(passes)
+            for n, p in enumerate(passes):
+                if self._is_processing_cancelled(processing_id):
+                    return
+                skip = bool(p.get("skip_graph"))
+                what = "search + vector only" if skip else "with graphs"
+                sub_id = f"{processing_id}-{n + 1}"
+                self._update_processing_status(sub_id, "started", f"Pass {n + 1} of {total}", 0)
+                PROCESSING_STATUS[sub_id]["pass_of"] = processing_id  # folded into its run on the Jobs list
+                # A pass may carry its own datasource: rows already held by one are refreshed
+                # under it (main._place_rows), never copied into this run's datasource
+                task = asyncio.create_task(self._process_documents_async(
+                    sub_id, data_source, p.get("paths") or paths, skip, p.get("config_id") or config_id,
+                    **{**kwargs, **p.get("kwargs", {})}))
+                while not task.done():
+                    sub = PROCESSING_STATUS.get(sub_id, {})
+                    if self._is_processing_cancelled(processing_id):
+                        self.cancel_processing(sub_id)
+                    else:
+                        base = 5 + 95 * n / total
+                        PROCESSING_STATUS[processing_id]["individual_files"] = (
+                            files_done + list(sub.get("individual_files") or []))
+                        self._update_processing_status(
+                            processing_id, "processing",
+                            (f"Pass {n + 1} of {total} ({what}): " if total > 1 else "") + str(sub.get("message", "")),
+                            int(min(99, base + (95 / total) * (sub.get("progress") or 0) / 100)))
+                    await asyncio.sleep(1)
+                sub = PROCESSING_STATUS.get(sub_id, {})
+                if sub.get("status") != "completed":
+                    if not self._is_processing_cancelled(processing_id):
+                        self._update_processing_status(
+                            processing_id, "failed",
+                            f"Pass {n + 1} of {total} ({what}) {sub.get('status')}: {sub.get('message', '')}",
+                            PROCESSING_STATUS[processing_id].get("progress", 0))
+                    return
+                files_done += list(sub.get("individual_files") or [])
+                if sub.get("message"):
+                    pass_messages.append((f"{what[:1].upper()}{what[1:]}: " if total > 1 else "") + str(sub["message"]))
+                PROCESSING_STATUS[processing_id]["individual_files"] = list(files_done)
+                for doc in sub.get("documents") or []:
+                    meta = getattr(doc, "metadata", None)
+                    if isinstance(meta, dict):
+                        meta["_skip_graph"] = skip
+                    documents.append(doc)
+            PROCESSING_STATUS[processing_id]["documents"] = documents
+            removed = [line[:1].upper() + line[1:] + "." for line in
+                       PROCESSING_STATUS[processing_id].get("removed") or []]
+            message = " ".join(pass_messages + removed) or "Nothing to do."
+            self._update_processing_status(processing_id, "completed", message, 100)
+        except Exception as e:
+            logger.error(f"Processing run {processing_id} failed: {e}", exc_info=True)
+            self._update_processing_status(processing_id, "failed", f"Processing failed: {e}", 0)
+
     async def _process_documents_async(self, processing_id: str, data_source: str = None, paths: List[str] = None, skip_graph: bool = False, config_id: str = None, **kwargs):
         """Background task for document processing"""
         try:
@@ -908,7 +998,12 @@ class FlexibleGraphRAGBackend:
             # Check for cancellation before starting
             if self._is_processing_cancelled(processing_id):
                 return
-                
+
+            # An auto sync run: name its source, document and action on the Jobs list
+            from incremental_updates import sync_jobs
+            if sync_jobs.is_sync_run(processing_id):
+                sync_jobs.begin(processing_id, data_source, sync_jobs.label_for(paths, kwargs))
+
             self._update_processing_status(
                 processing_id,
                 "processing",
@@ -1742,21 +1837,22 @@ class FlexibleGraphRAGBackend:
                     0
                 )
     
-    async def search_documents(self, query: str, top_k: int = 10) -> Dict[str, Any]:
+    async def search_documents(self, query: str, top_k: int = 10, scope_doc_ids=None) -> Dict[str, Any]:
         """Search documents using hybrid search"""
         start_time = datetime.now()
         logger.info(f"Search query started at {start_time.strftime('%H:%M:%S.%f')[:-3]} - Query: '{query}' (top_k={top_k})")
 
         try:
-            # FLOW MODE: run the Langflow query flow instead of the system.
-            if self.settings.enable_langflow_flows:
+            # FLOW MODE: run the Langflow query flow instead of the system (it cannot scope
+            # to documents; a scoped search uses the direct pipeline below)
+            if self.settings.enable_langflow_flows and scope_doc_ids is None:
                 fsvc = await self._get_flow_service()
                 results = await fsvc.run_search_flow(query, top_k=top_k)
                 duration = (datetime.now() - start_time).total_seconds()
                 logger.info(f"Flow search returned {len(results)} results in {duration:.3f}s")
                 return {"success": True, "results": results, "query_time": f"{duration:.3f}s"}
 
-            results = await self.system.search(query, top_k=top_k)
+            results = await self.system.search(query, top_k=top_k, scope_doc_ids=scope_doc_ids)
             
             end_time = datetime.now()
             duration = (end_time - start_time).total_seconds()
@@ -1783,14 +1879,15 @@ class FlexibleGraphRAGBackend:
             logger.error(f"Search query failed after {duration:.3f}s: {error_msg}", exc_info=True)
             return {"success": False, "error": error_msg, "query_time": f"{duration:.3f}s"}
     
-    async def qa_query(self, query: str) -> Dict[str, Any]:
+    async def qa_query(self, query: str, scope_doc_ids=None) -> Dict[str, Any]:
         """Answer a question using the Q&A system"""
         start_time = datetime.now()
         logger.info(f"Q&A query started at {start_time.strftime('%H:%M:%S.%f')[:-3]} - Query: '{query}'")
 
         try:
-            # FLOW MODE: run the Langflow query flow instead of the system.
-            if self.settings.enable_langflow_flows:
+            # FLOW MODE: run the Langflow query flow instead of the system (it cannot scope
+            # to documents; a scoped question uses the direct pipeline below)
+            if self.settings.enable_langflow_flows and scope_doc_ids is None:
                 fsvc = await self._get_flow_service()
                 qa = await fsvc.run_aiquery_flow(query)
                 duration = (datetime.now() - start_time).total_seconds()
@@ -1804,7 +1901,7 @@ class FlexibleGraphRAGBackend:
                         await self.system.vector_store._aclient.connect()
                         logger.info("Connected Weaviate async client for Q&A query")
             
-            query_engine = self.system.get_query_engine()
+            query_engine = self.system.get_query_engine(scope_doc_ids=scope_doc_ids)
             
             # Use async method directly (nest_asyncio.apply() called at module level)
             _qa_attempts = 0
@@ -1858,6 +1955,8 @@ class FlexibleGraphRAGBackend:
             end_time = datetime.now()
             duration = (end_time - start_time).total_seconds()
             answer = str(response)
+            if scope_doc_ids is not None and answer.strip() in ("Empty Response", ""):
+                answer = "I found nothing about that in the selected document or folder."
             logger.info(f"Q&A query completed in {duration:.3f}s - Answer length: {len(answer)} characters")
             
             # Record LLM generation metrics for observability
@@ -1913,21 +2012,22 @@ class FlexibleGraphRAGBackend:
             logger.error(f"Q&A query failed after {duration:.3f}s: {error_msg}", exc_info=True)
             return {"success": False, "error": error_msg, "query_time": f"{duration:.3f}s"}
     
-    async def query_documents(self, query: str, top_k: int = 10) -> Dict[str, Any]:
+    async def query_documents(self, query: str, top_k: int = 10, scope_doc_ids=None) -> Dict[str, Any]:
         """Query documents with AI-generated answers"""
         start_time = datetime.now()
         logger.info(f"Document query started at {start_time.strftime('%H:%M:%S.%f')[:-3]} - Query: '{query}'")
 
         try:
-            # FLOW MODE: run the Langflow query flow instead of the system.
-            if self.settings.enable_langflow_flows:
+            # FLOW MODE: run the Langflow query flow instead of the system (it cannot scope
+            # to documents; a scoped question uses the direct pipeline below)
+            if self.settings.enable_langflow_flows and scope_doc_ids is None:
                 fsvc = await self._get_flow_service()
                 qa = await fsvc.run_aiquery_flow(query)
                 duration = (datetime.now() - start_time).total_seconds()
                 return {"success": True, "answer": qa["answer"], "sources": qa["sources"],
                         "query_time": f"{duration:.3f}s"}
 
-            query_engine = self.system.get_query_engine()
+            query_engine = self.system.get_query_engine(scope_doc_ids=scope_doc_ids)
 
             # Use async method directly (nest_asyncio.apply() called at module level)
             _qd_attempts = 0
@@ -2004,6 +2104,8 @@ class FlexibleGraphRAGBackend:
             end_time = datetime.now()
             duration = (end_time - start_time).total_seconds()
             answer = str(response)
+            if scope_doc_ids is not None and answer.strip() in ("Empty Response", ""):
+                answer = "I found nothing about that in the selected document or folder."
             logger.info(f"Document query completed in {duration:.3f}s - Answer length: {len(answer)} characters")
             
             # Record LLM generation metrics for observability

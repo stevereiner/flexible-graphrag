@@ -147,7 +147,7 @@ class ConfigManager:
             
             return self._row_to_config(row)
     
-    async def get_coverage_configs(self) -> List[DataSourceConfig]:
+    async def get_ingest_status_configs(self) -> List[DataSourceConfig]:
         """Configs whose documents are in the stores: active syncs plus ingest-only records."""
         async with self.pool.acquire() as conn:
             rows = await conn.fetch(
@@ -204,7 +204,7 @@ class ConfigManager:
         """Update datasource config fields"""
         allowed_fields = {
             'source_name', 'connection_params', 'refresh_interval_seconds',
-            'enable_change_stream', 'is_active'
+            'enable_change_stream', 'is_active', 'skip_graph', 'auto_sync'
         }
         
         updates = []

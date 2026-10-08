@@ -28,6 +28,11 @@ class DocumentState:
     vector_synced_at: Optional[datetime] = None
     search_synced_at: Optional[datetime] = None
     graph_synced_at: Optional[datetime] = None
+    # This document leaves the graph out (see the skip_graph column). None = keep what the row
+    # has, unless this save wrote the graph.
+    skip_graph: Optional[bool] = None
+    # Follows its datasource's auto sync (see the auto_sync column). None = keep what the row has.
+    auto_sync: Optional[bool] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 
@@ -81,6 +86,30 @@ class StateManager:
             await conn.execute("""
                 CREATE INDEX IF NOT EXISTS idx_document_state_source_id 
                 ON document_state(config_id, source_id)
+            """)
+            # auto_sync: whether this document follows its datasource's auto sync. FALSE keeps the
+            # row -- so the sync does not see a "new document" and add it back -- while the sync
+            # skips its updates: frozen as it is in the stores, or kept out of them entirely
+            # (removed from every store). Renames / moves and repository deletes still apply.
+            # Set per row from the Processing tab's Auto Sync column (main.py) and by a removal
+            # from every store (removal.py). Meaningless for an ingest-only datasource.
+            await conn.execute("""
+                ALTER TABLE document_state
+                ADD COLUMN IF NOT EXISTS auto_sync BOOLEAN NOT NULL DEFAULT TRUE
+            """)
+            # excluded: the earlier form of auto_sync = FALSE (0.8.3 development); migrated once
+            await conn.execute("""
+                ALTER TABLE document_state
+                ADD COLUMN IF NOT EXISTS excluded BOOLEAN NOT NULL DEFAULT FALSE
+            """)
+            await conn.execute(
+                "UPDATE document_state SET auto_sync = FALSE, excluded = FALSE WHERE excluded")
+            # skip_graph: this document's graph was removed while its datasource keeps building
+            # graphs, so the sync's updates leave the graph out for it (datasource skip_graph OR
+            # this). Cleared by any save that wrote the graph -- an ingest putting it back.
+            await conn.execute("""
+                ALTER TABLE document_state
+                ADD COLUMN IF NOT EXISTS skip_graph BOOLEAN NOT NULL DEFAULT FALSE
             """)
     
     @staticmethod
@@ -159,7 +188,9 @@ class StateManager:
                     modified_timestamp=row.get('modified_timestamp'),
                     vector_synced_at=row['vector_synced_at'],
                     search_synced_at=row['search_synced_at'],
-                    graph_synced_at=row['graph_synced_at']
+                    graph_synced_at=row['graph_synced_at'],
+                    skip_graph=row.get('skip_graph'),
+                    auto_sync=row.get('auto_sync'),
                 ))
             
             return states
@@ -281,9 +312,12 @@ class StateManager:
             await conn.execute("""
                 INSERT INTO document_state 
                 (doc_id, config_id, source_path, source_id, ordinal, content_hash, modified_timestamp,
-                 vector_synced_at, search_synced_at, graph_synced_at)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                 vector_synced_at, search_synced_at, graph_synced_at, skip_graph, auto_sync)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, COALESCE($11, FALSE), COALESCE($12, TRUE))
                 ON CONFLICT (doc_id) DO UPDATE SET
+                    -- the document's current name: a renamed or moved document keeps its doc_id
+                    -- (node id) and its row, so the display path must follow
+                    source_path = EXCLUDED.source_path,
                     source_id = COALESCE(EXCLUDED.source_id, document_state.source_id),
                     ordinal = EXCLUDED.ordinal,
                     content_hash = EXCLUDED.content_hash,
@@ -291,9 +325,12 @@ class StateManager:
                     vector_synced_at = EXCLUDED.vector_synced_at,
                     search_synced_at = EXCLUDED.search_synced_at,
                     graph_synced_at = EXCLUDED.graph_synced_at,
+                    auto_sync = COALESCE($12, document_state.auto_sync),
+                    skip_graph = COALESCE($11, document_state.skip_graph AND EXCLUDED.graph_synced_at IS NULL),
                     updated_at = NOW()
             """, state.doc_id, state.config_id, state.source_path, state.source_id, state.ordinal,
-                state.content_hash, modified_ts, vector_ts, search_ts, graph_ts)
+                state.content_hash, modified_ts, vector_ts, search_ts, graph_ts, state.skip_graph,
+                state.auto_sync)
     
     async def mark_target_synced(self, doc_id: str, target: str):
         """Mark a target database as synced (uses UTC timezone)"""
@@ -319,6 +356,32 @@ class StateManager:
                     WHERE doc_id = $2
                 """, now, doc_id)
     
+    async def sync_off(self, doc_id: str) -> bool:
+        """Whether this document's auto sync is off (the auto_sync column): its sync skips it."""
+        async with self.pool.acquire() as conn:
+            return (await conn.fetchval(
+                "SELECT auto_sync FROM document_state WHERE doc_id = $1", doc_id
+            )) is False
+
+    async def doc_skip_graph(self, doc_id: Optional[str] = None, config_id: Optional[str] = None,
+                             source_id: Optional[str] = None) -> bool:
+        """Whether this one document leaves the graph out (see the skip_graph column), by doc_id
+        or by (config_id, repository source_id)."""
+        async with self.pool.acquire() as conn:
+            if doc_id:
+                return bool(await conn.fetchval(
+                    "SELECT skip_graph FROM document_state WHERE doc_id = $1", doc_id))
+            return bool(await conn.fetchval(
+                "SELECT bool_or(skip_graph) FROM document_state WHERE config_id = $1 AND source_id = $2",
+                config_id, source_id))
+
+    async def clear_targets(self, doc_id: str):
+        """Mark a document as in no store, keeping its row (and its flags)."""
+        async with self.pool.acquire() as conn:
+            await conn.execute(
+                "UPDATE document_state SET vector_synced_at = NULL, search_synced_at = NULL, "
+                "graph_synced_at = NULL, updated_at = NOW() WHERE doc_id = $1", doc_id)
+
     async def mark_deleted(self, doc_id: str):
         """Remove document state completely (hard delete)"""
         async with self.pool.acquire() as conn:

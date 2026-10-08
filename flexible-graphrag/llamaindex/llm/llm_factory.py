@@ -25,6 +25,32 @@ from llama_index.core.base.llms.types import ChatResponse, MessageRole
 from llama_index.llms.openai.utils import to_openai_message_dicts
 
 
+def _anthropic_sdk_major() -> int:
+    try:
+        import anthropic
+        return int(str(anthropic.__version__).split(".")[0])
+    except Exception:
+        return 0
+
+
+class _AnthropicSDK1(Anthropic):
+    """llama-index-llms-anthropic for anthropic SDK 1.x.
+
+    anthropic 1.0 removed ``temperature`` / ``top_p`` / ``top_k`` from ``messages.create()``
+    (passing one is a TypeError), while the LlamaIndex integration (0.12.x) still puts
+    ``temperature`` in every request. In SDK 1.x they go in ``extra_body`` instead -- still sent
+    to the API, still honoured by models that accept them (the integration already drops
+    temperature for models that reject it).
+    """
+
+    def _get_all_kwargs(self, **kwargs):
+        all_kwargs = super()._get_all_kwargs(**kwargs)
+        moved = {k: all_kwargs.pop(k) for k in ("temperature", "top_p", "top_k") if k in all_kwargs}
+        if moved:
+            all_kwargs["extra_body"] = {**(all_kwargs.get("extra_body") or {}), **moved}
+        return all_kwargs
+
+
 def _patch_google_genai_nested_asyncio() -> None:
     """Python 3.14 fix for the Gemini/Vertex (google-genai) LLM.
 
@@ -192,7 +218,9 @@ def create_llm(provider: LLMProvider, config: Dict[str, Any]):
         )
 
     elif provider == LLMProvider.ANTHROPIC:
-        return Anthropic(
+        # SDK 1.x takes sampling parameters only through extra_body (see _AnthropicSDK1)
+        anthropic_cls = _AnthropicSDK1 if _anthropic_sdk_major() >= 1 else Anthropic
+        return anthropic_cls(
             model=config.get("model", "claude-sonnet-4-5-20250929"),
             api_key=config.get("api_key"),
             temperature=config.get("temperature", 0.1),

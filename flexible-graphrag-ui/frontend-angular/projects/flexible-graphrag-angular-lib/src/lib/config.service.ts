@@ -25,4 +25,17 @@ export class FlexibleGraphragConfigService {
   get nuxeoPath(): string { return this.cfg.nuxeoPath!; }
   get enabledSources(): string[] | undefined { return this.cfg.enabledSources; }
   get agentIconUrl(): string { return this.cfg.agentIconUrl!; }
+  get noSourcesMessage(): string { return this.cfg.noSourcesMessage!; }
+  get goToSourcesLabel(): string { return this.cfg.goToSourcesLabel!; }
+  get chatWelcomeTitle(): string { return this.cfg.chatWelcomeTitle!; }
+  get chatWelcomeLines(): string[] { return this.cfg.chatWelcomeLines!; }
+  get showChatScope(): boolean { return !!this.cfg.showChatScope; }
+  /** Headers for a search / chat question (e.g. the user's Alfresco ticket); {} when none. */
+  questionHeaders(): Record<string, string> {
+    try {
+      return this.cfg.requestHeaders?.() || {};
+    } catch {
+      return {};
+    }
+  }
 }

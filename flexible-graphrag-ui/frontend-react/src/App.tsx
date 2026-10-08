@@ -378,13 +378,17 @@ const App: React.FC = () => {
   };
 
   const handleSelectFile = (index: number, checked: boolean) => {
-    const newSelected = new Set(selectedFileIndices);
-    if (checked) {
-      newSelected.add(index);
-    } else {
-      newSelected.delete(index);
-    }
-    setSelectedFileIndices(newSelected);
+    // Functional update: several calls in one go (e.g. unchecking every row already in the
+    // stores) must each build on the previous one, not on the selection of this render
+    setSelectedFileIndices((prev) => {
+      const newSelected = new Set(prev);
+      if (checked) {
+        newSelected.add(index);
+      } else {
+        newSelected.delete(index);
+      }
+      return newSelected;
+    });
   };
 
   return (

@@ -1,5 +1,6 @@
-"""Which datasources already cover a repository selection -- active auto-syncs, and sources
-ingested without sync (recorded with auto_sync = FALSE).
+"""Ingest status of a repository selection: which datasources already hold it -- active
+auto-syncs ("synced"), and sources ingested without sync ("ingested", recorded with
+auto_sync = FALSE).
 
 Answers, before an ingest starts, "is any of this already being synced?" -- so a UI can show it
 per row instead of ingesting the same documents a second time under a different config_id
@@ -24,17 +25,40 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, Iterable, List, Optional
 
 PATH_SOURCES = ("alfresco", "nuxeo")
+# Sources whose rows are files on the backend's disk: an uploaded file (by its name, saved under
+# the upload directory) or a filesystem path. Ingest status and per-row runs cover them too.
+FS_SOURCES = ("filesystem", "upload")
+ROW_SOURCES = PATH_SOURCES + FS_SOURCES
+
+
+def fs_key(path: str) -> str:
+    """A filesystem path as document_state keeps it (its source_id): normalized, lowercase on
+    Windows (incremental_updates.path_utils)."""
+    from .path_utils import normalize_filesystem_path
+    return normalize_filesystem_path(path)
+
+
+def fs_item(path: str, is_folder: bool = False) -> "Item":
+    """A filesystem row as an Item: path in repository form (forward slashes, for folder
+    depth) and the document_state source_id as its id (exact file matching)."""
+    key = fs_key(path)
+    return Item(normalize_repo_path(key), is_folder, None if is_folder else key)
 
 # Strongest first: one item may relate to several datasources, and its status is the
 # strongest of those relations.
 STATUS_ORDER = ("synced", "partial", "overlaps", "none")
+# Not ranked: set after the fact for a file whose only copy an auto-sync keeps, after it was
+# removed from every store (incremental_updates/removal.py).
+REMOVED = "removed"
 
 
 def normalize_repo_path(path: Optional[str]) -> str:
     """Canonical form for comparing repository paths: leading slash, no trailing slash,
     no doubled slashes, and Alfresco's ``/Company Home`` prefix dropped (the UIs strip it,
     older configs may still carry it)."""
-    p = re.sub(r"/+", "/", "/" + (path or "").strip())
+    # (backslashes too: a filesystem path compares the same way -- repository names cannot
+    # contain one)
+    p = re.sub(r"/+", "/", "/" + (path or "").strip().replace("\\", "/"))
     p = re.sub(r"^/Company Home(?=/|$)", "", p) or "/"
     return p.rstrip("/") or "/"
 
@@ -75,7 +99,13 @@ class Datasource:
     def from_config(cls, cfg: Any) -> "Datasource":
         cp: Dict[str, Any] = dict(getattr(cfg, "connection_params", None) or {})
         details = cp.get("nodeDetails") or []
-        if details:
+        if cp.get("paths") and not details:
+            # A filesystem / upload datasource: its paths are the roots
+            import os
+            roots = [Root(path=normalize_repo_path(fs_key(p)), is_folder=os.path.isdir(p),
+                          node_id=None if os.path.isdir(p) else fs_key(p))
+                     for p in cp.get("paths") or [] if p]
+        elif details:
             roots = [
                 Root(
                     path=normalize_repo_path(nd.get("path")),
@@ -159,26 +189,34 @@ def relate(item: Item, ds: Datasource, request_recursive: bool) -> List[Match]:
     return matches
 
 
-def check_coverage(
+def check_ingest_status(
     items: Iterable[Item],
     datasources: Iterable[Datasource],
     indexed: Dict[str, List[Dict[str, Any]]],
     request_recursive: bool = False,
+    present: Optional[List[set]] = None,
 ) -> List[Dict[str, Any]]:
-    """Per-item coverage. ``indexed`` maps a node id to its ``document_state`` rows (each with
-    ``config_id`` and the ``*_synced_at`` timestamps), already limited to ``datasources``."""
+    """Per-item ingest status. ``indexed`` maps a node id to its ``document_state`` rows (each with
+    ``config_id`` and the ``*_synced_at`` timestamps), already limited to ``datasources``.
+
+    ``present``, per item, names the datasources that still have one of its documents in a
+    store. An ingest-only datasource missing from it no longer covers the item: what it
+    ingested there was removed, and its path rules alone would still claim it."""
     datasources = list(datasources)
     by_id = {ds.config_id: ds for ds in datasources}
     results = []
-    for item in items:
+    for n, item in enumerate(items):
         item = Item(normalize_repo_path(item.path), item.is_folder, item.id)
         matches: List[Match] = []
         for ds in datasources:
+            if present is not None and not ds.auto_sync and ds.config_id not in present[n]:
+                continue
             matches.extend(relate(item, ds, request_recursive))
 
         # document_state is ground truth for a file: it catches a file the path rules miss
         # (moved or renamed since it was synced).
         targets = None
+        auto_sync = None  # per document: an auto-sync datasource, and its own auto_sync on
         if item.id and not item.is_folder:
             rows = [r for r in indexed.get(item.id) or [] if r.get("config_id") in by_id]
             for row in rows:
@@ -191,8 +229,15 @@ def check_coverage(
                     t: any(r.get(f"{t}_synced_at") for r in rows)
                     for t in ("vector", "search", "graph")
                 }
+                auto_sync = any(by_id[r["config_id"]].auto_sync and r.get("auto_sync", True) for r in rows)
+        if auto_sync is None:
+            # Nothing per document (a folder, or a file no sync has recorded yet): the
+            # datasources that cover it
+            auto_sync = any(m.auto_sync for m in matches)
 
         status = min((m.status for m in matches), key=STATUS_ORDER.index, default="none")
+        if targets is not None and not any(targets.values()):
+            status = REMOVED
         results.append({
             "id": item.id,
             "path": item.path,
@@ -200,5 +245,6 @@ def check_coverage(
             "status": status,
             "datasources": [m.as_dict() for m in matches],
             "indexed": targets,
+            "auto_sync": auto_sync,
         })
     return results

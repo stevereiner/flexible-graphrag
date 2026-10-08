@@ -52,10 +52,11 @@ async def delete_previous_versions(system, documents: List, replace_doc_ids: Opt
     return await delete_doc_ids(system, targets)
 
 
-async def delete_doc_ids(system, doc_ids: Iterable[str]) -> int:
-    """Delete each document from every configured store. Returns how many were processed."""
-    targets = list(dict.fromkeys(doc_ids))
-    if not targets:
+async def delete_doc_ids(system, doc_ids: Iterable[str], targets: Optional[Iterable[str]] = None) -> int:
+    """Delete each document from every configured store, or only from ``targets`` (see
+    engine.DELETE_TARGETS). Returns how many were processed."""
+    doc_ids = list(dict.fromkeys(doc_ids))
+    if not doc_ids:
         return 0
     # The incremental engine already knows how to delete one document from every configured
     # vector, search, property-graph and RDF store; reuse it rather than a second copy.
@@ -69,7 +70,8 @@ async def delete_doc_ids(system, doc_ids: Iterable[str]) -> int:
         app_config=getattr(system, "config", None),
         hybrid_system=system,
     )
-    for doc_id in targets:
-        logger.info("  replacing %s", doc_id)
-        await engine._delete_from_all_indexes(doc_id)
-    return len(targets)
+    stores = None if targets is None else list(targets)
+    for doc_id in doc_ids:
+        logger.info("  deleting %s from %s", doc_id, ", ".join(stores) if stores else "all stores")
+        await engine._delete_from_all_indexes(doc_id, stores)
+    return len(doc_ids)

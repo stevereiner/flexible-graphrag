@@ -58,6 +58,9 @@ class PostIngestionStateManager:
             from incremental_updates.state_manager import DocumentState, StateManager
             
             logger.info(f"Monitoring ingestion {processing_id} for completion to create document_state records...")
+            # GET/DELETE /api/processing-status: this job's documents are still needed until the
+            # rows below are written; "Clear finished" leaves it until then.
+            PROCESSING_STATUS.setdefault(processing_id, {})["records_state"] = True
             
             # Poll processing status until completed (max 10 minutes)
             max_attempts = 600  # 10 minutes at 1 second intervals
@@ -108,6 +111,10 @@ class PostIngestionStateManager:
             logger.error(f"Error in background document_state creation: {e}")
             import traceback
             traceback.print_exc()
+        finally:
+            from backend import PROCESSING_STATUS as _ps
+            if processing_id in _ps:
+                _ps[processing_id]["state_recorded"] = True
     
     async def _create_states(
         self,
@@ -138,12 +145,19 @@ class PostIngestionStateManager:
             await config_mgr.close()
             skip_graph = bool(datasource_config.skip_graph) if datasource_config else False
         
+        # Only record a target as synced when a store is behind it (any can be "none" in .env),
+        # so ingest status and removal see what is really in the stores.
+        from config import Settings
+        from incremental_updates.removal import configured_stores
+        stores = configured_stores(Settings())
+
         # Extract processed files and their metadata
         processed_files, documents_dict = self._extract_processed_files(status_dict, paths)
         
         logger.info(f"Creating document_state for {len(processed_files)} files: {processed_files}")
         
         created_count = 0
+        ingest_only: dict = {}  # config_id -> datasource is ingest-only
         for filename in processed_files:
             try:
                 logger.info(f"Creating state for: {filename}")
@@ -167,7 +181,22 @@ class PostIngestionStateManager:
                 # For Alfresco/OneDrive/SharePoint: stable_path = alfresco://node_id or onedrive://file_id
                 # For other sources: stable_path = source_path (same as display path)
                 # source_path is the human-readable path (for display in UI)
-                doc_id = StateManager.make_doc_id(config_id, stable_path)
+                # A per-row run can ingest documents under different datasources (a row already
+                # held by one is refreshed under it): each document's stable doc id names its own
+                doc_config_id = config_id
+                _doc = documents_dict.get(filename)
+                _did = str(getattr(_doc, 'id_', '') or '') if _doc is not None else ''
+                _colon = _did.find(':')
+                if _colon > 1 and '-' in _did[:_colon]:
+                    doc_config_id = _did[:_colon]
+                doc_id = StateManager.make_doc_id(doc_config_id, stable_path)
+                # A document of an ingest-only datasource is followed by no sync: auto_sync off
+                # (a sync turns its rows on itself when it is registered, main.py)
+                if doc_config_id not in ingest_only:
+                    async with state_mgr.pool.acquire() as _conn:
+                        ingest_only[doc_config_id] = (await _conn.fetchval(
+                            "SELECT auto_sync FROM datasource_config WHERE config_id = $1",
+                            doc_config_id)) is False
                 
                 # Compute content hash based on data source
                 content_hash = self._compute_content_hash(
@@ -183,22 +212,29 @@ class PostIngestionStateManager:
                 # Get current UTC time for sync timestamps
                 now = datetime.now(timezone.utc)
                 
-                # Determine if graph was synced based on skip_graph setting
-                graph_synced = now if not skip_graph else None
+                # Determine if graph was synced based on skip_graph setting -- per document when
+                # the run had a graph choice per row (backend.run_item_actions marks each doc)
+                doc = documents_dict.get(filename)
+                doc_skip = (getattr(doc, 'metadata', None) or {}).get('_skip_graph') if doc is not None else None
+                skip_this = skip_graph if doc_skip is None else bool(doc_skip)
+                graph_synced = now if not skip_this and stores["graph"] else None
                 logger.info(f"Document state sync timestamps: vector={now}, search={now}, graph={'synced' if graph_synced else 'null (skip_graph=True)'}")
                 
                 # Create document state with all targets marked as synced
                 state = DocumentState(
                     doc_id=doc_id,
-                    config_id=config_id,
+                    config_id=doc_config_id,
                     source_path=source_path,
                     source_id=source_id,
                     ordinal=ordinal,
                     content_hash=content_hash,
                     modified_timestamp=modified_timestamp,
-                    vector_synced_at=now,
-                    search_synced_at=now,
-                    graph_synced_at=graph_synced
+                    vector_synced_at=now if stores["vector"] else None,
+                    search_synced_at=now if stores["search"] else None,
+                    graph_synced_at=graph_synced,
+                    # per document when the run chose per row, else the run's own Skip graph
+                    skip_graph=bool(skip_this),
+                    auto_sync=False if ingest_only.get(doc_config_id) else None,
                 )
                 
                 await state_mgr.save_state(state)

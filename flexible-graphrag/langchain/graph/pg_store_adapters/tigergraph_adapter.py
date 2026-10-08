@@ -220,9 +220,11 @@ class TigerGraphAdapter:
         total_nodes = total_edges = 0
 
         for doc in graph_documents:
-            source_id = ""
-            if include_source and doc.source:
-                source_id = doc.source.metadata.get("source", "")
+            # ``source`` holds the document's stable id (ref_doc_id): the fixed schema has no
+            # other place for it, and removal and scoped questions find a document's
+            # vertices / edges by it
+            meta = (doc.source.metadata or {}) if doc.source else {}
+            source_id = meta.get("ref_doc_id") or meta.get("doc_id") or meta.get("source", "")
 
             # ---- Upsert vertices ----------------------------------------
             vertices = []
@@ -260,6 +262,30 @@ class TigerGraphAdapter:
             "TigerGraph: upserted %d vertices, %d edges into %s",
             total_nodes, total_edges, graphname,
         )
+
+    def delete(self, ref_doc_id: str) -> None:
+        """Delete one document's graph data: its ``__Relationship__`` edges (``source`` = its
+        id), then its vertices left with no edge at all. An entity vertex is shared across
+        documents, so a vertex still used by another document's edge stays."""
+        conn = getattr(self.lc_graph, "conn", None)
+        if conn is None:
+            return
+        quoted = '"%s"' % ref_doc_id.replace("\\", "\\\\").replace('"', '\\"')
+        try:
+            edges = [e for e in conn.getEdgesByType("__Relationship__") or []
+                     if (e.get("attributes") or {}).get("source") == ref_doc_id]
+            for from_id in {e["from_id"] for e in edges}:
+                conn.delEdges("__Entity__", from_id, "__Relationship__", where=f"source={quoted}")
+            gone = 0
+            for v in conn.getVertices("__Entity__", where=f"source={quoted}") or []:
+                vid = v.get("v_id")
+                if vid and not conn.getEdges("__Entity__", vid):
+                    conn.delVerticesById("__Entity__", vid)
+                    gone += 1
+            logger.info("TigerGraph: deleted %d edge(s) and %d unused vertices for ref_doc_id=%s",
+                        len(edges), gone, ref_doc_id)
+        except Exception as exc:
+            logger.warning("TigerGraph delete failed for ref_doc_id=%s: %s", ref_doc_id, exc)
 
     # ------------------------------------------------------------------
     # Post-ingest normalisation

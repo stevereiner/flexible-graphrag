@@ -1,17 +1,26 @@
 <div class="chat-tab-container">
   <!-- Removed header to save space - Clear History button moved to input area -->
 
+  <!-- What the chat answers from: one document or folder, or all content -->
+  <div *ngIf="scope || showScopeBar" class="scope-bar" [class.scoped]="!!scope">
+    <mat-icon>{{ scopeIcon }}</mat-icon>
+    <span>Asking about: <strong>{{ scopeLabel }}</strong></span>
+    <span *ngIf="scope?.path && scope?.path !== scope?.name" class="scope-path" [title]="scope?.path || ''">{{ scope?.path }}</span>
+    <button *ngIf="scope" mat-icon-button class="scope-clear" (click)="clearScope()"
+            title="Ask about all content instead" aria-label="Ask about all content">
+      <mat-icon>close</mat-icon>
+    </button>
+  </div>
+
   <!-- Chat Messages -->
   <mat-card class="chat-messages">
     <div class="scroll-container" #chatContainer>
     <!-- Welcome Message -->
     <div *ngIf="chatMessages.length === 0" class="welcome-message">
       <img [src]="agentIcon" alt="Agent" class="welcome-icon">
-      <h3>Welcome to Flexible GraphRAG Chat</h3>
+      <h3>{{ welcomeTitle }}</h3>
       <p>
-        Ask questions about your documents and get conversational answers.
-        <br />
-        The AI will provide detailed responses based on your processed documents.
+        <ng-container *ngFor="let line of welcomeLines; let last = last">{{ line }}<br *ngIf="!last" /></ng-container>
       </p>
     </div>
 

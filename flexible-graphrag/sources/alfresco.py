@@ -681,12 +681,16 @@ class AlfrescoSource(BaseDataSource):
                 file_ext = '.txt'
             elif 'markdown' in document['content_type'].lower():
                 file_ext = '.md'
-            
+            if not file_ext and document.get('content_type'):
+                import mimetypes
+                file_ext = mimetypes.guess_extension(document['content_type'].split(';')[0].strip()) or ''
+
             logger.info(f"    File extension: {file_ext}")
-            
+
             # Create temporary file with original filename for LlamaParse display
-            # Use original filename so it appears correctly in LlamaCloud
-            temp_file_path = os.path.join(temp_dir, filename)
+            # Use original filename so it appears correctly in LlamaCloud -- plus the extension
+            # from the content type when the name has none (the parser picks by extension)
+            temp_file_path = os.path.join(temp_dir, filename if '.' in filename else filename + file_ext)
             logger.info(f"    Target path: {temp_file_path}")
             temp_file = open(temp_file_path, 'wb')
             

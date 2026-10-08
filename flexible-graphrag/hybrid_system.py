@@ -257,9 +257,9 @@ class HybridSearchSystem:
     # Search
     # -----------------------------------------------------------------------
 
-    async def search(self, query: str, top_k: int = 10) -> List[Dict[str, Any]]:
+    async def search(self, query: str, top_k: int = 10, scope_doc_ids=None) -> List[Dict[str, Any]]:
         """Execute hybrid search across all configured modalities."""
-        return await _search(self, query, top_k=top_k)
+        return await _search(self, query, top_k=top_k, scope_doc_ids=scope_doc_ids)
 
     def get_query_engine(self, **kwargs):
         """Build and return a RetrieverQueryEngine for Q&A."""

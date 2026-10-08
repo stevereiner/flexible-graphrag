@@ -2,7 +2,7 @@ import { Injectable, inject } from '@angular/core';
 import { FlexibleGraphragConfigService } from '../config.service';
 import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { Observable, catchError, throwError } from 'rxjs';
-import { ProcessFolderRequest, QueryRequest, ApiResponse, IngestRequest, AsyncProcessingResponse, ProcessingStatusResponse, SyncCoverageRequest, SyncCoverageResponse } from '../models/api.models';
+import { ProcessFolderRequest, QueryRequest, ApiResponse, IngestRequest, AsyncProcessingResponse, ProcessingStatusResponse, IngestStatusRequest, IngestStatusResponse, SyncRemoveRequest, SyncRemoveResponse, ProcessingJob } from '../models/api.models';
 
 @Injectable({
   providedIn: 'root'
@@ -30,9 +30,32 @@ export class ApiService {
     );
   }
 
-  checkSyncCoverage(request: SyncCoverageRequest): Observable<SyncCoverageResponse> {
-    return this.http.post<SyncCoverageResponse>(
-      `${this.apiUrl}/sync/coverage`,
+  removeFromStores(request: SyncRemoveRequest): Observable<SyncRemoveResponse> {
+    return this.http.post<SyncRemoveResponse>(
+      `${this.apiUrl}/sync/remove`,
+      request
+    ).pipe(
+      catchError(this.handleError)
+    );
+  }
+
+  listJobs(owner?: string): Observable<{ jobs: ProcessingJob[] }> {
+    const q = owner ? `?owner=${encodeURIComponent(owner)}` : '';
+    return this.http.get<{ jobs: ProcessingJob[] }>(`${this.apiUrl}/processing-status${q}`).pipe(
+      catchError(this.handleError)
+    );
+  }
+
+  /** Forget finished jobs (the backend keeps ones that finished in the last two minutes). */
+  clearJobs(): Observable<{ cleared: number; kept: number }> {
+    return this.http.delete<{ cleared: number; kept: number }>(`${this.apiUrl}/processing-status`).pipe(
+      catchError(this.handleError)
+    );
+  }
+
+  checkIngestStatus(request: IngestStatusRequest): Observable<IngestStatusResponse> {
+    return this.http.post<IngestStatusResponse>(
+      `${this.apiUrl}/sync/ingest-status`,
       request
     ).pipe(
       catchError(this.handleError)

@@ -404,20 +404,29 @@ class CosmosDBGremlinAdapter:
                 properties=props,
             )
 
-        def _safe_rel(r: _R) -> _R:
+        def _safe_rel(r: _R, doc_key: Optional[str]) -> _R:
+            props = {k: _esc(v) for k, v in r.properties.items()}
+            if doc_key:
+                # The (hashed) document id on every edge: removal and scoped questions
+                # find a document's facts by it -- an entity vertex is shared and keeps only
+                # the first writer's ref_doc_id
+                props["doc_id"] = doc_key
             return _R(
                 source=_safe_node(r.source),
                 target=_safe_node(r.target),
                 type=_esc(r.type),
-                properties={k: _esc(v) for k, v in r.properties.items()},
+                properties=props,
             )
 
         def _safe_gd(gd: _GD) -> _GD:
             # Keep a minimal source document so GraphDocument is valid, but we
             # pass include_source=False below so it is never written to Gremlin.
+            meta = (gd.source.metadata or {}) if gd.source is not None else {}
+            rid = meta.get("ref_doc_id") or meta.get("doc_id")
+            doc_key = _safe_ref_doc_id(str(rid)) if rid else None
             return _GD(
                 nodes=[_safe_node(n) for n in gd.nodes],
-                relationships=[_safe_rel(r) for r in gd.relationships],
+                relationships=[_safe_rel(r, doc_key) for r in gd.relationships],
                 source=gd.source,
             )
 
@@ -438,41 +447,41 @@ class CosmosDBGremlinAdapter:
             allow_dangerous_requests=True,
         )
 
+    def _submit(self, gremlin: str) -> list:
+        if hasattr(self.lc_graph, "client"):  # gremlinpython client of langchain's GremlinGraph
+            return self.lc_graph.client.submit(gremlin).all().result() or []
+        return self.lc_graph.query(gremlin) or []
+
+    def scoped_facts(self, doc_ids: list) -> list:
+        """(subject, relation, object, doc_id) of the edges extracted from ``doc_ids`` (each
+        edge carries its document's hashed id)."""
+        by_key = {hashlib.sha1(d.encode("utf-8")).hexdigest(): d for d in doc_ids}
+        keys = ", ".join(f"'{k}'" for k in by_key)
+        rows = self._submit(
+            f"g.E().has('doc_id', within({keys})).limit(1000)"
+            ".project('s','r','o','d').by(outV().values('id')).by(label()).by(inV().values('id')).by('doc_id')")
+        return [(r.get("s"), r.get("r"), r.get("o"), by_key.get(r.get("d"))) for r in rows
+                if isinstance(r, dict)]
+
     def delete(self, ref_doc_id: str) -> None:
-        """Delete all vertices tagged with *ref_doc_id* using Gremlin.
+        """Delete one document's graph data using Gremlin.
 
-        The default ``LangChainPGAdapter.delete`` uses a Cypher DETACH DELETE
-        which GremlinGraph does not support.  This override issues a Gremlin
-        traversal that drops all vertices with ``ref_doc_id`` property matching
-        the given value.
-
-        For Cosmos DB the ``partitionKey`` filter is also applied to keep the
-        traversal within the single logical partition used by this adapter.
+        The default ``LangChainPGAdapter.delete`` uses a Cypher DETACH DELETE which GremlinGraph
+        does not support. First this document's edges (``doc_id``), then the vertices it
+        created that no edge uses any more: a vertex is shared across documents, and dropping
+        it would drop other documents' edges with it. ref_doc_id / doc_id are SHA-1 hashed on
+        write (Cosmos Gremlin rejects backslashes, slashes, colons and other path characters in
+        property values), so the same hash is matched here. On Cosmos DB the partitionKey filter
+        keeps the vertex traversal inside the single logical partition this adapter uses.
         """
-        # ref_doc_id was hashed on write (Cosmos Gremlin rejects backslashes, forward
-        # slashes, colons, and other path characters in property values). Apply the
-        # same SHA-1 hash here so the delete filter matches what was stored.
         _rid = hashlib.sha1(ref_doc_id.encode("utf-8")).hexdigest()
         _pk_prop = self._partition_key_prop    # e.g. "partitionKey", or None for local
         _pk_val  = self._partition_key_value   # fixed value e.g. "graph"
-
-        if _pk_prop:
-            gremlin = (
-                f"g.V().has('{_pk_prop}', '{_pk_val}')"
-                f".has('ref_doc_id', '{_rid}').drop()"
-            )
-        else:
-            gremlin = f"g.V().has('ref_doc_id', '{_rid}').drop()"
-
+        vertices = f"g.V().has('{_pk_prop}', '{_pk_val}')" if _pk_prop else "g.V()"
         try:
-            # GremlinGraph.run() / query() executes a Gremlin string and returns results.
-            if hasattr(self.lc_graph, "client"):
-                # langchain_community GremlinGraph uses a gremlinpython client
-                self.lc_graph.client.submit(gremlin).all().result()
-            else:
-                # Fallback: try generic query()
-                self.lc_graph.query(gremlin)
-            logger.info("CosmosDBGremlin: deleted vertices for ref_doc_id=%s", ref_doc_id)
+            self._submit(f"g.E().has('doc_id', '{_rid}').drop()")
+            self._submit(f"{vertices}.has('ref_doc_id', '{_rid}').not(bothE()).drop()")
+            logger.info("CosmosDBGremlin: deleted edges and unused vertices for ref_doc_id=%s", ref_doc_id)
         except Exception as exc:
             logger.warning("CosmosDBGremlin delete failed for ref_doc_id=%s: %s", ref_doc_id, exc)
 

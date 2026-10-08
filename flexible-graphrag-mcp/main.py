@@ -93,7 +93,7 @@ async def get_system_status() -> Dict[str, Any]:
 @mcp.tool()
 async def ingest_documents(
     data_source: str = "filesystem", 
-    paths: Optional[Union[str, list]] = None,
+    paths: Optional[Union[str, List[str]]] = None,  # List[str], not bare list: typed array items (MCP schema portability)
     enable_sync: Optional[bool] = False,
     skip_graph: Optional[bool] = False,
     cmis_config: Optional[Union[str, dict]] = None,

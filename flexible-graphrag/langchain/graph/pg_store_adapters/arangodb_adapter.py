@@ -151,6 +151,16 @@ class ArangoDBAdapter:
                 f"  FILTER s.ref_doc_id == @rid OR s.doc_id == @rid RETURN s._id) "
             )
             steps = [
+                # 0) LINKS_TO edges extracted from this document: each carries the key of the
+                #    SOURCE it came from (source_id). Exact -- an entity's ref_doc_id is only
+                #    that of the last document that wrote it, so it cannot say whose edge is whose.
+                (
+                    f"LET skeys = (FOR s IN `{source_col}` "
+                    f"  FILTER s.ref_doc_id == @rid OR s.doc_id == @rid RETURN s._key) "
+                    f"FOR e IN `{relationship_col}` "
+                    f"  FILTER e.source_id IN skeys "
+                    f"  REMOVE e IN `{relationship_col}` OPTIONS {{ignoreErrors: true}}"
+                ),
                 # 1) Scoped orphan sweep — must run BEFORE the HAS_SOURCE edges are
                 #    removed.  Candidates are only entities linked to *this*
                 #    document's sources; any that another document also links to
@@ -180,25 +190,14 @@ class ArangoDBAdapter:
                     f"  FILTER s.ref_doc_id == @rid OR s.doc_id == @rid "
                     f"  REMOVE s IN `{source_col}` OPTIONS {{ignoreErrors: true}}"
                 ),
-                # 4) LINKS_TO edges touching entities stamped with this rid.
-                (
-                    f"FOR e IN `{relationship_col}` "
-                    f"  LET from_doc = DOCUMENT(e._from) "
-                    f"  LET to_doc   = DOCUMENT(e._to) "
-                    f"  FILTER (from_doc != null AND "
-                    f"          (from_doc.ref_doc_id == @rid OR from_doc.doc_id == @rid)) "
-                    f"      OR (to_doc != null AND "
-                    f"          (to_doc.ref_doc_id == @rid OR to_doc.doc_id == @rid)) "
-                    f"  REMOVE e IN `{relationship_col}` OPTIONS {{ignoreErrors: true}}"
-                ),
-                # 5) ENTITY nodes stamped with this rid (the normalizer stamps
+                # 4) ENTITY nodes stamped with this rid (the normalizer stamps
                 #    relationship endpoints too, so this is now complete).
                 (
                     f"FOR n IN `{entity_col}` "
                     f"  FILTER n.ref_doc_id == @rid OR n.doc_id == @rid "
                     f"  REMOVE n IN `{entity_col}` OPTIONS {{ignoreErrors: true}}"
                 ),
-                # 6) LINKS_TO edges left dangling by the removals above.
+                # 5) LINKS_TO edges left dangling by the removals above.
                 (
                     f"FOR e IN `{relationship_col}` "
                     f"  FILTER DOCUMENT(e._from) == null OR DOCUMENT(e._to) == null "
@@ -207,7 +206,9 @@ class ArangoDBAdapter:
             ]
             for aql in steps:
                 try:
-                    _db.aql.execute(aql, bind_vars={"rid": ref_doc_id})
+                    # ArangoDB rejects a bind variable the query does not use (the dangling
+                    # sweep has none), so bind @rid only where it appears
+                    _db.aql.execute(aql, bind_vars={"rid": ref_doc_id} if "@rid" in aql else {})
                 except Exception as exc:
                     logger.warning("ArangoDB delete step failed: %s — AQL: %s", exc, aql)
         else:

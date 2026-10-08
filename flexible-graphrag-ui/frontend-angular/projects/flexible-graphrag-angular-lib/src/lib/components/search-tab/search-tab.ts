@@ -1,5 +1,6 @@
 import { Component } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
+import { FlexibleGraphragConfigService } from '../../config.service';
 
 interface QueryRequest {
   query: string;
@@ -32,7 +33,7 @@ export class SearchTabComponent {
   isQuerying = false;
   error = '';
 
-  constructor(private http: HttpClient) {}
+  constructor(private http: HttpClient, private fgConfig: FlexibleGraphragConfigService) {}
 
   onTabChange(): void {
     // Clear results when tab changes
@@ -60,7 +61,8 @@ export class SearchTabComponent {
         top_k: 10
       };
       
-      const response = await this.http.post<ApiResponse>('/api/search', request).toPromise();
+      const response = await this.http.post<ApiResponse>(`${this.fgConfig.apiUrl}/search`, request,
+        { headers: this.fgConfig.questionHeaders() }).toPromise();
       
       if (response?.success) {
         this.hasSearched = true;

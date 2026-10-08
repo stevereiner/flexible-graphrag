@@ -266,14 +266,25 @@ async def ingest_source_documents(
         chunk_count = PROCESSING_STATUS.get(processing_id, {}).get("chunk_count")
         logger.info(f"Completion (_direct) — data_source={data_source!r}, file_count={file_count}")
 
+        # The source documents actually ingested (a file can yield several documents, e.g. pages)
+        sources = {(getattr(d, "metadata", None) or {}).get("stable_file_path")
+                   or (getattr(d, "metadata", None) or {}).get("file_path")
+                   or (getattr(d, "metadata", None) or {}).get("file_name") for d in documents} - {None, ""}
         if data_source == "youtube":
             doc_count = 1
+        elif sources:
+            doc_count = len(sources)
         elif file_count and chunk_count and file_count != chunk_count:
             doc_count = file_count
         else:
             doc_count = len(documents)
 
         ui_message = generate_completion_message(system.config, doc_count, skip_graph=skip_graph)
+        if data_source != "youtube" and sources and file_count and file_count > len(sources):
+            # e.g. an unsupported file type: say so instead of counting it as ingested
+            failed = file_count - len(sources)
+            ui_message += (f" {failed} of {file_count} file(s) could not be processed "
+                           "(see the backend log).")
         logger.info(f"Ingestion complete: {ui_message} ({timing_summary})")
         status_callback(
             processing_id=processing_id,

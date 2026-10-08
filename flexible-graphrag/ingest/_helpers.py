@@ -60,6 +60,67 @@ async def warmup_hybrid_retriever(system) -> None:
         logger.debug("Hybrid retriever warmup failed (non-fatal): %s", exc)
 
 
+DB_NAME_MAP = {
+    "opensearch": "OpenSearch",
+    "elasticsearch": "Elasticsearch",
+    "qdrant": "Qdrant",
+    "chroma": "Chroma",
+    "pinecone": "Pinecone",
+    "weaviate": "Weaviate",
+    "milvus": "Milvus",
+    "neo4j": "Neo4j",
+    "ladybug": "LadybugDB",
+    "falkordb": "FalkorDB",
+    "nebula": "NebulaGraph",
+    "neptune": "Neptune",
+    "neptune_analytics": "Neptune Analytics",
+    "memgraph": "Memgraph",
+    "arcadedb": "ArcadeDB",
+    "arangodb": "ArangoDB",
+    "apache_age": "Apache AGE",
+    "cosmos_gremlin": "Azure Cosmos DB for Gremlin",
+    "spanner": "Spanner Graph",
+    "hugegraph": "HugeGraph",
+    "tigergraph": "TigerGraph",
+    "surrealdb": "SurrealDB",
+    "fuseki": "Apache Jena Fuseki",
+    "oxigraph": "Oxigraph",
+    "graphdb": "Ontotext GraphDB",
+    "bm25": "BM25",
+}
+
+
+def db_label(key: str) -> str:
+    """Display name of a configured store type, e.g. "neo4j" -> "Neo4j"."""
+    return DB_NAME_MAP.get(str(key).lower(), str(key).title())
+
+
+def store_labels(config, targets) -> list:
+    """The configured stores behind delete targets ("vector", "search", "graph"), named like the
+    completion message: ["Qdrant vector", "Elasticsearch search", "Neo4j property graph",
+    "Ontotext GraphDB rdf graph"]. A store set to "none" is left out."""
+    def on(name: str) -> bool:
+        value = getattr(config, name, None)
+        return str(getattr(value, "value", value) or "none").lower() not in ("none", "")
+    targets = set(targets)
+    vdb = str(getattr(getattr(config, "vector_db", None), "value", getattr(config, "vector_db", "")))
+    sdb = str(getattr(getattr(config, "search_db", None), "value", getattr(config, "search_db", "")))
+    labels = []
+    if {"vector", "search"} <= targets and vdb.lower() == sdb.lower() == "opensearch":
+        labels.append("OpenSearch hybrid search+vector")
+    else:
+        if "vector" in targets and on("vector_db"):
+            labels.append(f"{db_label(vdb)} vector")
+        if "search" in targets and on("search_db"):
+            labels.append(f"{db_label(sdb)} search")
+    if "graph" in targets:
+        if on("pg_graph_db"):
+            labels.append(f"{db_label(getattr(config, 'pg_graph_db'))} property graph")
+        if on("rdf_graph_db"):
+            labels.append(f"{db_label(getattr(config, 'rdf_graph_db'))} rdf graph")
+    return labels
+
+
 def generate_completion_message(config, doc_count: int, skip_graph: bool = False) -> str:
     """Generate dynamic completion message based on enabled features.
 
@@ -84,37 +145,8 @@ def generate_completion_message(config, doc_count: int, skip_graph: bool = False
         and not skip_graph
     )
 
-    db_name_map = {
-        "opensearch": "OpenSearch",
-        "elasticsearch": "Elasticsearch",
-        "qdrant": "Qdrant",
-        "chroma": "Chroma",
-        "pinecone": "Pinecone",
-        "weaviate": "Weaviate",
-        "milvus": "Milvus",
-        "neo4j": "Neo4j",
-        "ladybug": "LadybugDB",
-        "falkordb": "FalkorDB",
-        "nebula": "NebulaGraph",
-        "neptune": "Neptune",
-        "neptune_analytics": "Neptune Analytics",
-        "memgraph": "Memgraph",
-        "arcadedb": "ArcadeDB",
-        "arangodb": "ArangoDB",
-        "apache_age": "Apache AGE",
-        "cosmos_gremlin": "Azure Cosmos DB for Gremlin",
-        "spanner": "Spanner Graph",
-        "hugegraph": "HugeGraph",
-        "tigergraph": "TigerGraph",
-        "surrealdb": "SurrealDB",
-        "fuseki": "Apache Jena Fuseki",
-        "oxigraph": "Oxigraph",
-        "graphdb": "Ontotext GraphDB",
-        "bm25": "BM25",
-    }
 
-    def _db_label(key: str) -> str:
-        return db_name_map.get(str(key).lower(), str(key).title())
+    _db_label = db_label
 
     features = []
     if _os_hybrid:

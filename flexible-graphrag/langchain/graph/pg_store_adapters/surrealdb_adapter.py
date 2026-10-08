@@ -183,12 +183,74 @@ class SurrealDBAdapter:
         returns an empty result set.
         """
         for doc in graph_documents:
+            # The document's stable id on every relation (and entity): removal and scoped
+            # questions find a document's facts by it (relations had no link to it before)
+            meta = (doc.source.metadata or {}) if getattr(doc, "source", None) else {}
+            rid = meta.get("ref_doc_id") or meta.get("doc_id")
             for node in doc.nodes:
                 node.properties.setdefault("name", node.id)
                 node.properties.setdefault("type", node.type)
+                if rid:
+                    node.properties.setdefault("ref_doc_id", rid)
+            if rid:
+                for rel in doc.relationships:
+                    rel.properties["doc_id"] = rid
         self.lc_graph.add_graph_documents(
             graph_documents, include_source=include_source
         )
+
+    def _tables(self) -> Dict[str, List[str]]:
+        """{"nodes": [graph_* tables], "edges": [relation_* tables]} (the MENTIONS table of
+        source links is neither)."""
+        import json as _json
+        return _json.loads(self.lc_graph.get_schema)
+
+    def scoped_facts(self, doc_ids: List[str]) -> List[tuple]:
+        """(subject, relation, object, doc_id) of the relations extracted from ``doc_ids``."""
+        prefix = getattr(self.lc_graph, "relation_prefix", "relation_")
+        facts: List[tuple] = []
+        for table in self._tables().get("edges", []):
+            rows = self.lc_graph.query(
+                "SELECT in.name AS subj, out.name AS obj, doc_id FROM type::table($t) "
+                "WHERE doc_id IN $ids LIMIT 1000", {"t": table, "ids": list(doc_ids)})
+            rel = table[len(prefix):] if table.startswith(prefix) else table
+            facts += [(r.get("subj"), rel, r.get("obj"), r.get("doc_id")) for r in rows or []]
+        return facts
+
+    def delete(self, ref_doc_id: str) -> None:
+        """Delete one document's graph data: its relations (doc_id), its source record and that
+        record's MENTIONS links, then its entities no relation uses any more -- an entity is
+        shared across documents, so one another document still uses stays."""
+        try:
+            tables = self._tables()
+            for table in tables.get("edges", []):
+                self.lc_graph.query("DELETE type::table($t) WHERE doc_id = $rid RETURN BEFORE",
+                                    {"t": table, "rid": ref_doc_id})
+            source = f"{getattr(self.lc_graph, 'table_prefix', 'graph_')}source"
+            self.lc_graph.query(
+                "DELETE MENTIONS WHERE in.metadata.ref_doc_id = $rid OR in.metadata.doc_id = $rid RETURN BEFORE",
+                {"rid": ref_doc_id})
+            self.lc_graph.query(
+                "DELETE type::table($t) WHERE metadata.ref_doc_id = $rid OR metadata.doc_id = $rid RETURN BEFORE",
+                {"t": source, "rid": ref_doc_id})
+            used = set()
+            for table in tables.get("edges", []) + ["MENTIONS"]:
+                for r in self.lc_graph.query("SELECT in, out FROM type::table($t)", {"t": table}) or []:
+                    used.update(str(r.get(k)) for k in ("in", "out"))
+            gone = 0
+            for table in tables.get("nodes", []):
+                if table == source:
+                    continue
+                for r in self.lc_graph.query(
+                        "SELECT id FROM type::table($t) WHERE ref_doc_id = $rid OR doc_id = $rid",
+                        {"t": table, "rid": ref_doc_id}) or []:
+                    if str(r.get("id")) not in used:
+                        self.lc_graph.query("DELETE $id RETURN BEFORE", {"id": r.get("id")})
+                        gone += 1
+            logger.info("SurrealDB: deleted graph data of ref_doc_id=%s (%d unused entities)",
+                        ref_doc_id, gone)
+        except Exception as exc:
+            logger.warning("SurrealDB delete failed for ref_doc_id=%s: %s", ref_doc_id, exc)
 
     def create_qa_chain(self, llm: Any):
         """Create SurrealQL QA chain (uses the blocking connection)."""

@@ -45,8 +45,9 @@ if sys.version_info >= (3, 14):
 # python-dotenv is already a flexible-graphrag dependency.
 # override=False so explicit env vars (e.g. from the shell) always win.
 try:
-    from dotenv import load_dotenv as _load_dotenv
-    _load_dotenv(override=False)
+    from dotenv import find_dotenv as _find_dotenv, load_dotenv as _load_dotenv
+    # working directory first (wheel installs live in site-packages), then next to the code
+    _load_dotenv(_find_dotenv(usecwd=True) or _find_dotenv(), override=False)
 except ImportError:
     pass
 

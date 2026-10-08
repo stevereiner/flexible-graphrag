@@ -107,28 +107,28 @@
 }
 
 // Already covered by an auto-sync datasource (blue), or only partly / overlapping (amber)
-.coverage-chip {
+.ingest-status-chip {
   cursor: help;
   background-color: #fff3e0 !important;
   color: #8a4b00 !important;
 }
 
-.coverage-chip.coverage-synced {
+.ingest-status-chip.ingest-status-synced {
   background-color: #e3f2fd !important;
   color: #0d47a1 !important;
 }
 
-:host-context(.dark-theme) .coverage-chip {
+:host-context(.dark-theme) .ingest-status-chip {
   background-color: #5d4037 !important;
   color: #ffe0b2 !important;
 }
 
-:host-context(.dark-theme) .coverage-chip.coverage-synced {
+:host-context(.dark-theme) .ingest-status-chip.ingest-status-synced {
   background-color: #1a3a5c !important;
   color: #bbdefb !important;
 }
 
-.coverage-note {
+.ingest-status-note {
   margin: 0 0 8px;
   font-size: 13px;
   opacity: 0.8;
@@ -217,7 +217,9 @@
 // dark text/borders and vanish on the dark background. Force the label white and the
 // unchecked box outline light. These live inside the child mat-checkbox, so pierce
 // encapsulation and drive Material's MDC custom properties.
-:host-context(.dark-theme) ::ng-deep .checkbox-group .mat-mdc-checkbox {
+:host-context(.dark-theme) ::ng-deep .checkbox-group .mat-mdc-checkbox,
+:host-context(.dark-theme) ::ng-deep .store-col .mat-mdc-checkbox,
+:host-context(.dark-theme) ::ng-deep .action-buttons .mat-mdc-checkbox {
   // Unchecked box border (invisible when it inherits a dark color)
   --mdc-checkbox-unselected-icon-color: #ffffff;
   --mdc-checkbox-unselected-hover-icon-color: #ffffff;
@@ -232,8 +234,29 @@
 // directly. Scoped to :not(:checked):not(:indeterminate) so the blue checked fill is
 // left alone.
 :host-context(.dark-theme) ::ng-deep .checkbox-group .mat-mdc-checkbox
+  .mdc-checkbox__native-control:not(:checked):not(:indeterminate) ~ .mdc-checkbox__background,
+:host-context(.dark-theme) ::ng-deep .store-col .mat-mdc-checkbox
+  .mdc-checkbox__native-control:not(:checked):not(:indeterminate) ~ .mdc-checkbox__background,
+:host-context(.dark-theme) ::ng-deep .action-buttons .mat-mdc-checkbox
   .mdc-checkbox__native-control:not(:checked):not(:indeterminate) ~ .mdc-checkbox__background {
   border-color: #ffffff !important;
+}
+
+// Dark theme: the Jobs sub-tab's Refresh / Clear finished (outlined, no color) and its table
+:host-context(.dark-theme) .jobs-actions button:not([disabled]) {
+  color: #ffffff !important;
+  border-color: rgba(255, 255, 255, 0.6) !important;
+}
+
+:host-context(.dark-theme) .jobs-actions button[disabled] {
+  color: rgba(255, 255, 255, 0.4) !important;
+  border-color: rgba(255, 255, 255, 0.25) !important;
+}
+
+:host-context(.dark-theme) .jobs-table,
+:host-context(.dark-theme) .jobs-header h2,
+:host-context(.dark-theme) .jobs-empty {
+  color: #ffffff;
 }
 
 // Remove Selected and Cancel button styling - red outline only (like Vue/React)
@@ -321,4 +344,79 @@
       color: #000000 !important; // Black mixed mark for indeterminate
     }
   }
+}
+.processing-subtabs {
+  margin-top: -8px;
+}
+
+/* Left-aligned, header and rows alike: each row's checkbox sits under its header checkbox */
+.store-col {
+  text-align: left;
+  white-space: nowrap;
+}
+
+.action-buttons mat-checkbox {
+  margin-left: 16px;
+}
+
+.jobs-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin: 16px 0;
+}
+
+.jobs-header h2 {
+  margin: 0;
+}
+
+.jobs-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.jobs-empty {
+  opacity: 0.75;
+}
+
+/* Wide enough for every column; scrolls sideways only when the window is narrower */
+.jobs-table-wrap {
+  overflow-x: auto;
+}
+
+.jobs-table {
+  width: 100%;
+  min-width: 900px;
+  border-collapse: collapse;
+}
+
+.jobs-table th,
+.jobs-table td {
+  text-align: left;
+  padding: 6px 8px;
+  border-bottom: 1px solid rgba(128, 128, 128, 0.25);
+  vertical-align: middle;
+}
+
+.jobs-table .nowrap {
+  white-space: nowrap;
+}
+
+.jobs-table .jobs-progress {
+  min-width: 140px;
+}
+
+.jobs-table .jobs-label {
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The message is what you read here (per pass, with the stores named): wrap it, never cut it */
+.jobs-table .jobs-message {
+  min-width: 320px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.35;
 }

@@ -42,11 +42,14 @@ try:
             lc_store: Any,
             top_k: int = 10,
             store_name: str = "lc_vector",
+            search_kwargs: dict | None = None,
         ) -> None:
             super().__init__()
             self._lc_store = lc_store
             self._top_k = top_k
             self._store_name = store_name
+            # Extra store-specific search args, e.g. a doc-id filter for a scoped question
+            self._search_kwargs = dict(search_kwargs or {})
 
         def _get_relevant_documents(
             self,
@@ -56,7 +59,7 @@ try:
         ) -> List[_LCDoc]:
             try:
                 results = self._lc_store.similarity_search_with_score(
-                    query, k=self._top_k
+                    query, k=self._top_k, **self._search_kwargs
                 )
             except Exception as e:
                 logger.warning(

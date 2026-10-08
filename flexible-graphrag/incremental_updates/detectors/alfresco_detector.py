@@ -1481,6 +1481,10 @@ class AlfrescoDetector(ChangeDetector):
         
         try:
             skip_graph = getattr(self, 'skip_graph', False)
+            # ...or just this document's graph was removed (document_state.skip_graph)
+            if not skip_graph and self.state_manager and self.config_id:
+                skip_graph = await self.state_manager.doc_skip_graph(
+                    config_id=self.config_id, source_id=node_id)
             processing_id = f"incremental_alf_{node_id[:8]}"
             
             # Build nodeDetails like KG Spaces does (this already works in AlfrescoSource)
@@ -1522,7 +1526,7 @@ class AlfrescoDetector(ChangeDetector):
             if self.state_manager:
                 try:
                     await self._create_document_state_from_processing_status(
-                        processing_id, filename, node_id, file_path
+                        processing_id, filename, node_id, file_path, skip_graph=skip_graph
                     )
                 except Exception as e:
                     logger.error(f"Failed to create document_state for {filename}: {e}")
@@ -1532,7 +1536,8 @@ class AlfrescoDetector(ChangeDetector):
             raise
     
     async def _create_document_state_from_processing_status(
-        self, processing_id: str, filename: str, node_id: str, file_path: str
+        self, processing_id: str, filename: str, node_id: str, file_path: str,
+        skip_graph: Optional[bool] = None
     ):
         """Create document_state record after successful processing"""
         from backend import PROCESSING_STATUS
@@ -1604,7 +1609,7 @@ class AlfrescoDetector(ChangeDetector):
             modified_timestamp=modified_timestamp,
             vector_synced_at=now,
             search_synced_at=now,
-            graph_synced_at=now if not getattr(self, 'skip_graph', False) else None
+            graph_synced_at=now if not (getattr(self, 'skip_graph', False) if skip_graph is None else skip_graph) else None
         )
         
         await self.state_manager.save_state(doc_state)

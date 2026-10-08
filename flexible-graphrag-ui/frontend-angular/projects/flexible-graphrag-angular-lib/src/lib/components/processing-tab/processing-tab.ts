@@ -1,10 +1,29 @@
-import { Component, Input, Output, EventEmitter, OnInit, OnChanges, SimpleChanges } from '@angular/core';
+import { Component, Input, Output, EventEmitter, OnInit, OnChanges, OnDestroy, SimpleChanges } from '@angular/core';
 import { MatCheckboxChange } from '@angular/material/checkbox';
 import { ApiService } from '../../services/api.service';
-import { AsyncProcessingResponse, ProcessingStatusResponse, SyncCoverageItem, SyncCoverageRequest } from '../../models/api.models';
+import { FlexibleGraphragConfigService } from '../../config.service';
+import { ProcessingSessionService } from '../../services/processing-session.service';
+import {
+  AsyncProcessingResponse, ConfiguredStores, ProcessingStatusResponse,
+  IngestStatusItem, IngestStatusRequest, ItemAction, ItemActionKind, ProcessingJob,
+} from '../../models/api.models';
 
 // Sources with no auto change sync: the "Enable auto change sync" checkbox is hidden for them
 const NO_AUTO_SYNC_SOURCES = ['upload', 'cmis', 'web', 'wikipedia', 'youtube'];
+
+// What a row is in, or should end up in: Search+Vector, and Graphs (property graph + RDF).
+interface RowStores {
+  sv: boolean;
+  graphs: boolean;
+  sync: boolean;  // Auto Sync: kept up to date with repository changes
+}
+
+type ColumnKind = 'sv' | 'graphs' | 'sync';
+
+const TERMINAL_JOB = ['completed', 'failed', 'cancelled'];
+// Job list refresh: often while a job runs, seldom when idle (still picks up auto sync runs)
+const JOBS_BUSY_MS = 3000;
+const JOBS_IDLE_MS = 15000;
 
 // A file the server refused to store (unsupported extension, bad name, too large)
 interface SkippedFile {
@@ -25,7 +44,7 @@ interface FileItem {
   styleUrls: ['./processing-tab.scss'],
   standalone: false
 })
-export class ProcessingTabComponent implements OnInit, OnChanges {
+export class ProcessingTabComponent implements OnInit, OnChanges, OnDestroy {
   @Input() hasConfiguredSources = false;
   @Input() configuredDataSource = '';
   @Input() configuredFiles: File[] = [];
@@ -58,14 +77,48 @@ export class ProcessingTabComponent implements OnInit, OnChanges {
     return null;
   }
 
-  // Auto-sync coverage of the current rows, by row index (see refreshCoverage)
-  coverage: SyncCoverageItem[] = [];
-  private coverageKey = '';
+  // Ingest status of the current rows, by row index (see refreshIngestStatus)
+  ingestStatus: IngestStatusItem[] = [];
+  private ingestStatusKey = '';
+  private ingestStatusRequest: IngestStatusRequest | null = null;  // the request behind `ingestStatus`
+  // Which stores are configured; any can be "none" in .env (from the ingest-status response)
+  stores: Partial<ConfiguredStores> = {};
 
-  displayedColumns: string[] = ['select', 'name', 'size', 'progress', 'remove', 'status'];
+  // What each row should end up in, by row name, once the user changed it (see wantFor)
+  private wantSearch = new Map<string, boolean>();
+  private wantGraphs = new Map<string, boolean>();
+  private wantSync = new Map<string, boolean>();
+
+  // Run in the background: START returns at once and the job is followed on the Jobs sub-tab
+  runInBackground = false;
+  subTabIndex = 0;  // 0 Processing, 1 Jobs
+  jobs: ProcessingJob[] = [];
+  private watchedJobs = new Set<string>();  // background jobs started here, until they finish
+  private jobsTimer: any = null;
+  private jobsDelay = 0;
+  private pollTimer: any = null;
+
+  /** Search+Vector / Graphs columns: once the ingest-status check answered with `stores`. */
+  get displayedColumns(): string[] {
+    if (!this.columnsMode) return ['select', 'name', 'size', 'progress', 'remove', 'status'];
+    // Auto Sync only for repository sources (uploads are not kept in sync)
+    return this.configuredDataSource === 'upload'
+      ? ['select', 'name', 'size', 'progress', 'searchVector', 'graphs', 'remove', 'status']
+      : ['select', 'name', 'size', 'progress', 'searchVector', 'graphs', 'autoSync', 'remove', 'status'];
+  }
   
   // State
   selectedItems = new Set<number>();
+  // Rows the user checked or unchecked themselves, by row name. autoSelectFiles() runs on every
+  // input change and status poll; without this it put every row back to its default, so a
+  // checked "already ingested" row lost its check, and removing one row cleared them all.
+  private userChecks = new Map<string, boolean>();
+  // Set by removeFile(): the host answers a removed row with a new config, which is not a new
+  // selection, so it must not reset the run state or the user's checks.
+  private removingRow = false;
+  // Between the end of a run and the fresh ingest status: check nothing automatically, so a
+  // second START cannot act on what the rows were before the run
+  private awaitingStatus = false;
   displayFiles: FileItem[] = [];
   isProcessing = false;
   processingProgress = 0;
@@ -81,10 +134,59 @@ export class ProcessingTabComponent implements OnInit, OnChanges {
   // Expose Math to template
   Math = Math;
 
-  constructor(private apiService: ApiService) {}
+  constructor(private apiService: ApiService, public config: FlexibleGraphragConfigService,
+              private session: ProcessingSessionService) {}
 
   ngOnInit(): void {
+    this.restoreSession();
     this.updateDisplayFiles();
+  }
+
+  ngOnDestroy(): void {
+    clearInterval(this.pollTimer);
+    clearTimeout(this.jobsTimer);
+    this.saveSession();
+  }
+
+  /** Names the selection, so saved state is only given back to the same one. */
+  private selectionKey(): string {
+    return JSON.stringify([this.configuredDataSource, this.configuredFolderPath,
+      this.repositoryNodeDetails().map((n: any) => n.id || n.path)]);
+  }
+
+  private saveSession(): void {
+    this.session.tab = {
+      key: this.selectionKey(),
+      isProcessing: this.isProcessing, currentProcessingId: this.currentProcessingId,
+      processingProgress: this.processingProgress, processingStatus: this.processingStatus,
+      statusData: this.statusData, lastStatusData: this.lastStatusData,
+      successMessage: this.successMessage, error: this.error,
+      skipGraph: this.skipGraph, enableSync: this.enableSync, runInBackground: this.runInBackground,
+      subTabIndex: this.subTabIndex, watchedJobs: [...this.watchedJobs],
+      userChecks: [...this.userChecks], wantSearch: [...this.wantSearch], wantGraphs: [...this.wantGraphs],
+      wantSync: [...this.wantSync],
+    };
+  }
+
+  private restoreSession(): void {
+    const t = this.session.tab;
+    if (!t || t.key !== this.selectionKey()) return;
+    Object.assign(this, {
+      isProcessing: t['isProcessing'], currentProcessingId: t['currentProcessingId'],
+      processingProgress: t['processingProgress'], processingStatus: t['processingStatus'],
+      statusData: t['statusData'], lastStatusData: t['lastStatusData'],
+      successMessage: t['successMessage'], error: t['error'],
+      skipGraph: t['skipGraph'], enableSync: t['enableSync'], runInBackground: t['runInBackground'],
+    });
+    this.watchedJobs = new Set(t['watchedJobs']);
+    this.userChecks = new Map(t['userChecks']);
+    this.wantSearch = new Map(t['wantSearch']);
+    this.wantGraphs = new Map(t['wantGraphs']);
+    this.wantSync = new Map(t['wantSync'] || []);
+    if (this.isProcessing && this.currentProcessingId) {
+      this.startStatusPolling();  // the run went on while the tab was gone
+    }
+    this.ensureJobsPolling();
   }
 
   ngOnChanges(changes: SimpleChanges): void {
@@ -102,19 +204,26 @@ export class ProcessingTabComponent implements OnInit, OnChanges {
                                  changes['configuredCloudConfig'] ||
                                  changes['configuredEnterpriseConfig'];
     
-    if (configurationChanged) {
+    const rowRemoved = this.removingRow;
+    this.removingRow = false;
+    if (configurationChanged && !rowRemoved) {
       // Clear old processing messages when configuration changes
       this.successMessage = '';
       this.error = '';
       // ...and the previous run's progress, which otherwise stays on the rows and hides the
-      // "already ingested" check; re-ask coverage even for an identical configuration, since
+      // "already ingested" check; re-ask ingest status even for an identical configuration, since
       // the last run may have just ingested it. Left alone while a run is in flight.
       if (!this.isProcessing) {
         this.processingProgress = 0;
         this.currentProcessingId = null;
         this.statusData = null;
         this.lastStatusData = null;
-        this.coverageKey = '';
+        this.ingestStatusKey = '';
+        this.userChecks.clear();  // a new selection starts from the defaults
+        this.wantSearch.clear();
+        this.wantGraphs.clear();
+        this.wantSync.clear();
+        this.subTabIndex = 0;  // a new selection (e.g. Add to KG Spaces) opens on Processing
       }
     }
     
@@ -148,28 +257,18 @@ export class ProcessingTabComponent implements OnInit, OnChanges {
       // its path -- and never recovered, because lastStatusData still answers after the run
       // finishes. Progress is decorated onto these rows instead: getFileProgress() matches by
       // full path, basename or substring, and falls back to the overall figure for a node the
-      // backend has not reported yet.
+      // backend has not reported yet. A typed path gets one row too, with the overall figure:
+      // swapping it for the per-file list left a folder row showing one of its files after a
+      // run, out of line with the ingest status.
       // No `return` in this branch: autoSelectFiles() runs at the end of this method, and
       // skipping it leaves every row unchecked, which disables Start Processing.
       const nodeDetails = this.repositoryNodeDetails();
-      const individualFiles = (this.isProcessing || this.currentProcessingId) ?
-        (this.statusData?.individual_files || this.lastStatusData?.individual_files || []) : [];
-
       if (nodeDetails.length) {
         this.displayFiles = nodeDetails.map((node: any, index: number) => ({
           index,
           name: node.path || node.name || `Item ${index + 1}`,
           size: 0,
           type: node.isFolder ? 'repository' : 'repository-file'
-        }));
-      } else if (individualFiles.length > 0) {
-        // No per-node detail (a path typed on the Sources tab): the backend's own file list is
-        // the only breakdown available, so use it when there is one.
-        this.displayFiles = individualFiles.map((file: any, index: number) => ({
-          index,
-          name: file.filename || `File ${index + 1}`,
-          size: 0,
-          type: 'repository-file'
         }));
       } else {
         this.displayFiles = [{
@@ -243,7 +342,7 @@ export class ProcessingTabComponent implements OnInit, OnChanges {
     
     // Auto-select files after updating display
     this.autoSelectFiles();
-    this.refreshCoverage();
+    this.refreshIngestStatus();
   }
 
   /**
@@ -252,14 +351,25 @@ export class ProcessingTabComponent implements OnInit, OnChanges {
    * the whole selection, re-made only when the selection changes -- updateDisplayFiles() also
    * runs on every status poll. Quietly does nothing against a backend without the endpoint.
    */
-  private refreshCoverage(): void {
+  private refreshIngestStatus(): void {
+    if (this.configuredDataSource === 'upload') {
+      // Uploaded files: rows by file name (the backend finds them under its upload directory)
+      if (this.isProcessing) return;
+      if (!this.displayFiles.length) { this.ingestStatus = []; this.ingestStatusKey = ''; return; }
+      this.requestIngestStatus({
+        data_source: 'upload',
+        recursive: false,
+        items: this.displayFiles.map((f: any) => ({ path: f.name, is_folder: false })),
+      });
+      return;
+    }
     const cfg = this.pathRepositoryConfig();
-    if (!cfg || this.repositoryItemsHidden || this.isProcessing || this.currentProcessingId) {
-      if (!cfg) { this.coverage = []; this.coverageKey = ''; }
+    if (!cfg || this.repositoryItemsHidden || this.isProcessing) {
+      if (!cfg) { this.ingestStatus = []; this.ingestStatusKey = ''; }
       return;
     }
     const nodes = this.repositoryNodeDetails();
-    const request: SyncCoverageRequest = {
+    const request: IngestStatusRequest = {
       data_source: this.configuredDataSource as 'alfresco' | 'nuxeo',
       url: cfg.url,
       recursive: !!cfg.recursive,
@@ -267,18 +377,24 @@ export class ProcessingTabComponent implements OnInit, OnChanges {
         ? nodes.map((n: any) => ({ path: n.path, id: n.id, is_folder: !!n.isFolder }))
         : [this.pathItem(cfg.path || this.configuredFolderPath || '/')],
     };
-    const key = JSON.stringify(request);
-    if (key === this.coverageKey) return;
-    this.coverageKey = key;
-    this.coverage = [];
+    this.requestIngestStatus(request);
+  }
 
-    this.apiService.checkSyncCoverage(request).subscribe({
+  private requestIngestStatus(request: IngestStatusRequest): void {
+    const key = JSON.stringify(request);
+    if (key === this.ingestStatusKey) return;
+    this.ingestStatusKey = key;
+    this.ingestStatusRequest = request;
+    this.ingestStatus = [];
+
+    this.apiService.checkIngestStatus(request).subscribe({
       next: (res) => {
-        if (key !== this.coverageKey) return;  // the selection changed while this was in flight
-        this.coverage = res.enabled ? res.items : [];
+        if (key !== this.ingestStatusKey) return;  // the selection changed while this was in flight
+        this.ingestStatus = res.enabled ? res.items : [];
+        this.stores = res.stores || {};
         this.autoSelectFiles();
       },
-      error: (err: any) => console.warn('Sync coverage check unavailable:', err),
+      error: (err: any) => console.warn('Ingest status check unavailable:', err),
     });
   }
 
@@ -288,29 +404,30 @@ export class ProcessingTabComponent implements OnInit, OnChanges {
     return { path, is_folder: !/\.[A-Za-z0-9]{1,8}$/.test(last) };
   }
 
-  /** Coverage for a row, when an auto-sync datasource already covers any of it. */
-  coverageFor(index: number): SyncCoverageItem | null {
-    // Rows and coverage line up one-to-one, except after a path-only run, when the rows can
+  /** Ingest status of a row, when an auto-sync datasource already covers any of it. */
+  ingestStatusFor(index: number): IngestStatusItem | null {
+    // Rows and ingest status line up one-to-one, except after a path-only run, when the rows can
     // be the backend's per-file list instead of the one folder that was checked.
-    if (this.coverage.length !== this.displayFiles.length) return null;
-    const c = this.coverage[index];
+    if (this.ingestStatus.length !== this.displayFiles.length) return null;
+    const c = this.ingestStatus[index];
     return c && c.status !== 'none' ? c : null;
   }
 
-  coverageLabel(index: number): string {
-    const c = this.coverageFor(index);
+  ingestStatusLabel(index: number): string {
+    const c = this.ingestStatusFor(index);
     // "synced" only when an auto change sync covers it; otherwise it was ingested once
     const synced = !!c?.datasources.some((m) => m.auto_sync && m.status === c.status);
     switch (c?.status) {
       case 'synced': return synced ? 'already synced' : 'already ingested';
       case 'partial': return synced ? 'synced, no subfolders' : 'ingested, no subfolders';
       case 'overlaps': return synced ? 'contains synced' : 'contains ingested';
+      case 'removed': return 'removed';
       default: return '';
     }
   }
 
-  coverageTooltip(index: number): string {
-    const c = this.coverageFor(index);
+  ingestStatusTooltip(index: number): string {
+    const c = this.ingestStatusFor(index);
     if (!c) return '';
     const lines = c.datasources.map((m) => {
       const how = m.auto_sync ? 'synced by' : 'ingested (no auto sync) by';
@@ -324,13 +441,275 @@ export class ProcessingTabComponent implements OnInit, OnChanges {
       lines.push(`in: ${where.join(', ') || 'none'}`);
     }
     lines.push(c.status === 'synced'
-      ? 'Left unchecked. Check it to ingest again: the earlier copy is replaced, not duplicated.'
-      : 'Part of it is already in the stores; ingesting it again refreshes that part.');
+      ? 'Left unchecked. Check it, set Search+Vector / Graphs, and click START PROCESSING to update it.'
+      : c.status === 'removed'
+        ? 'Removed from the stores and kept out of its auto sync, even when it changes. Ingest it to put it back.'
+        : 'Part of it is already in the stores; ingesting it again refreshes that part.');
     return lines.join('\n');
   }
 
-  get coveredRowCount(): number {
-    return this.displayFiles.filter((_, i) => this.coverageFor(i)?.status === 'synced').length;
+  // ── Search+Vector / Graphs columns ──────────────────────────────────────────────────
+  /** Offered once the ingest-status check answered with `stores` (a 0.8.2 backend has none). */
+  get columnsMode(): boolean {
+    return this.ingestStatus.length > 0 && this.ingestStatusRequest !== null && Object.keys(this.stores).length > 0;
+  }
+
+  /** Kept for hosts/templates that still ask; same as columnsMode. */
+  get canRemove(): boolean {
+    return this.columnsMode;
+  }
+
+  get canSearchVector(): boolean {
+    return !!(this.stores.vector || this.stores.search);
+  }
+
+  get canGraphs(): boolean {
+    return !!this.stores.graph;
+  }
+
+  inStores(index: number): boolean {
+    const status = this.ingestStatusFor(index)?.status;
+    return status === 'synced' || status === 'partial' || status === 'overlaps';
+  }
+
+  /** What a row is in now, from the ingest status. */
+  currentFor(index: number): RowStores {
+    const c = this.ingestStatusFor(index);
+    const sync = !!c?.auto_sync;
+    if (!c || !this.inStores(index)) return { sv: false, graphs: false, sync };
+    if (c.indexed) {
+      return { sv: !!(c.indexed.vector || c.indexed.search), graphs: !!c.indexed.graph, sync };
+    }
+    // No per-document answer: the datasources holding it say whether they build graphs
+    return { sv: true, graphs: c.datasources.some((m) => !m.skip_graph), sync };
+  }
+
+  /** Whether an auto sync already covers the row (so Auto Sync on resumes, not starts, it). */
+  private coveredBySync(index: number): boolean {
+    return !!this.ingestStatusFor(index)?.datasources.some((m) => m.auto_sync);
+  }
+
+  /** What a row should end up in: the user's choice, else what it is in now, else everything. */
+  wantFor(index: number): RowStores {
+    const name = this.displayFiles[index]?.name;
+    const cur = this.currentFor(index);
+    const fresh = !this.inStores(index);
+    const sv = this.wantSearch.get(name) ?? (fresh ? this.canSearchVector : cur.sv);
+    const graphs = this.wantGraphs.get(name) ?? (fresh ? this.canGraphs : cur.graphs);
+    const sync = this.wantSync.get(name) ?? cur.sync;
+    // Graphs and Auto Sync both need Search+Vector: a sync with nothing indexed would only
+    // put the document back on its next change
+    return { sv, graphs: sv && graphs, sync: sv && sync };
+  }
+
+  /** Changing a row's Search+Vector / Graphs / Auto Sync checks the row: START PROCESSING applies it. */
+  setWant(index: number, kind: ColumnKind, value: boolean): void {
+    const name = this.displayFiles[index]?.name;
+    if (!name) return;
+    if (kind === 'sv') {
+      this.wantSearch.set(name, value);
+      if (!value) {  // no graphs and no sync without search + vector
+        this.wantGraphs.set(name, false);
+        this.wantSync.set(name, false);
+      }
+    } else if (kind === 'graphs') {
+      this.wantGraphs.set(name, value);
+      if (value) this.wantSearch.set(name, true);
+    } else {
+      this.wantSync.set(name, value);
+      if (value) this.wantSearch.set(name, true);
+    }
+    this.selectedItems.add(index);
+    this.userChecks.set(name, true);
+  }
+
+  /** Set a column for every row (its header checkbox). */
+  setWantAll(kind: ColumnKind, value: boolean): void {
+    this.displayFiles.forEach((_, i) => this.setWant(i, kind, value));
+  }
+
+  allWant(kind: ColumnKind): boolean {
+    return this.displayFiles.length > 0 && this.displayFiles.every((_, i) => this.wantFor(i)[kind]);
+  }
+
+  someWant(kind: ColumnKind): boolean {
+    const n = this.displayFiles.filter((_, i) => this.wantFor(i)[kind]).length;
+    return n > 0 && n < this.displayFiles.length;
+  }
+
+  /** What START PROCESSING does with a checked row, or null when there is nothing to do. */
+  actionFor(index: number): ItemActionKind | null {
+    const cur = this.currentFor(index);
+    const want = this.wantFor(index);
+    if (!want.sv) return cur.sv || cur.graphs ? 'remove_all' : null;
+    if (want.graphs) return 'ingest';
+    return cur.sv && cur.graphs ? 'remove_graph' : 'ingest_no_graph';
+  }
+
+  /** The Status column in columns mode: which stores the row is in now. */
+  storesLabel(index: number): string {
+    const c = this.ingestStatusFor(index);
+    if (c?.status === 'removed') return 'removed';
+    const cur = this.currentFor(index);
+    if (!cur.sv && !cur.graphs) return 'not ingested';
+    return (cur.graphs ? 'search+vector, graphs' : 'search+vector') + (cur.sync ? ' (synced)' : '');
+  }
+
+  /** A sync change for a checked row: false stops it, true resumes it, null = none. */
+  private syncChange(index: number): boolean | null {
+    const want = this.wantFor(index).sync;
+    return want !== this.currentFor(index).sync ? want : null;
+  }
+
+  /** Auto Sync turned on for a row no sync covers: the backend starts a sync for it. */
+  private needsNewSync(index: number): boolean {
+    return this.syncChange(index) === true && !this.coveredBySync(index);
+  }
+
+  /**
+   * What START PROCESSING sends for the checked rows: per row a store action and/or an Auto
+   * Sync change. A row no sync covers yet, with Auto Sync checked, is ingested with
+   * auto_sync: true: the backend makes this run\'s datasource an auto sync watching it.
+   */
+  private itemActions(): ItemAction[] {
+    const base = this.ingestStatusRequest;
+    const rows: ItemAction[] = [];
+    for (const i of [...this.selectedItems].sort((a, b) => a - b)) {
+      const item = base?.items[i];
+      if (!item) continue;
+      const ref = { path: item.path, id: item.id, is_folder: item.is_folder };
+      if (this.needsNewSync(i)) {
+        rows.push({ ...ref, action: this.actionFor(i) ?? (this.wantFor(i).graphs ? 'ingest' : 'ingest_no_graph'), auto_sync: true });
+        continue;
+      }
+      const action = this.actionFor(i);
+      const sync = this.syncChange(i);
+      if (!action && sync === null) continue;
+      rows.push({ ...ref, action: action ?? 'keep', ...(sync === null ? {} : { auto_sync: sync }) });
+    }
+    return rows;
+  }
+
+  // ── Jobs sub-tab ────────────────────────────────────────────────────────────────────
+  onSubTabChange(index: number): void {
+    this.subTabIndex = index;
+    if (index === 1) this.loadJobs();
+    this.ensureJobsPolling();
+  }
+
+  /**
+   * Refresh the job list while it is shown or a background job started here is still going:
+   * every 3 s while a job runs, every 15 s when none does.
+   */
+  private ensureJobsPolling(): void {
+    const wanted = this.subTabIndex === 1 || this.watchedJobs.size > 0;
+    const delay = this.watchedJobs.size > 0 || this.jobs.some((j) => this.jobRunning(j)) ? JOBS_BUSY_MS : JOBS_IDLE_MS;
+    if (this.jobsTimer && (!wanted || delay < this.jobsDelay)) {  // stop, or a job just started
+      clearTimeout(this.jobsTimer);
+      this.jobsTimer = null;
+    }
+    if (wanted && !this.jobsTimer) {
+      this.jobsDelay = delay;
+      this.jobsTimer = setTimeout(() => {
+        this.jobsTimer = null;
+        this.loadJobs();
+      }, delay);
+    }
+  }
+
+  loadJobs(): void {
+    this.apiService.listJobs().subscribe({
+      next: (res) => {
+        this.jobs = res.jobs || [];
+        for (const job of this.jobs) {
+          if (this.watchedJobs.has(job.processing_id) && TERMINAL_JOB.includes(job.status)) {
+            this.watchedJobs.delete(job.processing_id);
+            this.showFinishedJob(job);
+          }
+        }
+        this.ensureJobsPolling();
+      },
+      error: (err: any) => {
+        console.warn('Job list unavailable:', err);
+        this.ensureJobsPolling();
+      },
+    });
+  }
+
+  /**
+   * A background job started here has finished: show its outcome on the Processing sub-tab
+   * like a foreground run -- per-file status and its message -- unless a foreground run is
+   * going on, then ask the ingest status again once its document_state rows are written.
+   */
+  private showFinishedJob(job: ProcessingJob): void {
+    if (!this.isProcessing) {
+      this.apiService.getProcessingStatus(job.processing_id).subscribe({
+        next: (status) => {
+          if (this.isProcessing) return;
+          this.statusData = null;
+          this.lastStatusData = status;
+          this.processingProgress = status.status === 'completed' ? 100 : status.progress || 0;
+          if (status.status === 'completed') {
+            this.successMessage = status.message || 'Background job finished.';
+          } else {
+            this.error = `Background job ${status.status}: ${status.error || status.message || ''}`;
+          }
+          this.updateDisplayFiles();
+        },
+        error: () => undefined,
+      });
+    }
+    if (!this.isProcessing) this.afterRun();
+  }
+
+  /**
+   * A run is over. The rows' choices go back to their defaults -- rows in the stores unchecked,
+   * columns showing what each row is in now -- so a second START does not repeat the run (a
+   * row whose graphs were removed would otherwise be re-ingested as search + vector). The
+   * ingest status is asked again once the run's document_state rows are written.
+   */
+  private afterRun(): void {
+    this.userChecks.clear();
+    this.wantSearch.clear();
+    this.wantGraphs.clear();
+    this.selectedItems = new Set();
+    this.awaitingStatus = true;
+    setTimeout(() => {
+      this.awaitingStatus = false;
+      this.ingestStatusKey = '';
+      this.refreshIngestStatus();
+      this.autoSelectFiles();
+    }, 4000);
+  }
+
+  clearJobs(): void {
+    this.apiService.clearJobs().subscribe({
+      next: () => this.loadJobs(),
+      error: (err: any) => (this.error = `Clear failed: ${err?.error?.detail || err?.message || err}`),
+    });
+  }
+
+  get finishedJobCount(): number {
+    return this.jobs.filter((j) => !this.jobRunning(j)).length;
+  }
+
+  cancelJob(job: ProcessingJob): void {
+    this.apiService.cancelProcessing(job.processing_id).subscribe({
+      next: () => this.loadJobs(),
+      error: (err: any) => (this.error = `Cancel failed: ${err?.error?.detail || err?.message || err}`),
+    });
+  }
+
+  jobRunning(job: ProcessingJob): boolean {
+    return !TERMINAL_JOB.includes(job.status);
+  }
+
+  get runningJobCount(): number {
+    return this.jobs.filter((j) => this.jobRunning(j)).length;
+  }
+
+  get ingestedRowCount(): number {
+    return this.displayFiles.filter((_, i) => this.ingestStatusFor(i)?.status === 'synced').length;
   }
 
   private autoSelectFiles(): void {
@@ -339,11 +718,12 @@ export class ProcessingTabComponent implements OnInit, OnChanges {
     } else if (this.configuredDataSource === 'cmis' || this.configuredDataSource === 'alfresco' || this.configuredDataSource === 'nuxeo') {
       // Auto-select all repository rows except those auto-sync already covers. Mid-run the
       // selection is left alone: this also runs on every status poll.
-      if (this.isProcessing) return;
+      if (this.isProcessing || this.awaitingStatus) return;
       this.selectedItems = new Set(
         this.displayFiles
           .map((_, index) => index)
-          .filter((index) => this.coverageFor(index)?.status !== 'synced')
+          .filter((index) => this.userChecks.get(this.displayFiles[index].name)
+            ?? this.ingestStatusFor(index)?.status !== 'synced')
       );
     } else if (['web', 'wikipedia', 'youtube', 's3', 'gcs', 'azure_blob', 'onedrive', 'sharepoint', 'box', 'google_drive'].includes(this.configuredDataSource)) {
       // Auto-select the single source item
@@ -525,6 +905,7 @@ export class ProcessingTabComponent implements OnInit, OnChanges {
     } else {
       this.selectedItems.clear();
     }
+    this.displayFiles.forEach((f) => this.userChecks.set(f.name, event.checked));
   }
 
   toggleSelection(index: number, event: MatCheckboxChange): void {
@@ -533,50 +914,27 @@ export class ProcessingTabComponent implements OnInit, OnChanges {
     } else {
       this.selectedItems.delete(index);
     }
+    const row = this.displayFiles[index];
+    if (row) this.userChecks.set(row.name, event.checked);
   }
 
   removeFile(index: number): void {
+    // The host answers with a new config (the row gone), and the checks are put back on the
+    // remaining rows BY NAME (autoSelectFiles + userChecks) -- never shifted by position here:
+    // a host that does not remove the row would then see the checks slide up one row.
+    this.displayFiles.forEach((f, i) => this.userChecks.set(f.name, this.selectedItems.has(i)));
+    this.removingRow = true;
+    setTimeout(() => (this.removingRow = false));  // a host that sends no new config
     if (this.configuredDataSource === 'upload') {
-      // For upload files, emit event to parent to handle removal
       console.log('🗑️ Upload file removal requested for index:', index);
       this.removeUploadFile.emit(index);
-      
-      // Clear selection for the removed item
-      this.selectedItems.delete(index);
     } else if (this.configuredDataSource === 'cmis' || this.configuredDataSource === 'alfresco' || this.configuredDataSource === 'nuxeo') {
-      // For repository files, emit event to parent to handle removal
       console.log('🗑️ Repository file removal requested for index:', index);
       this.removeRepositoryFile.emit(index);
-      
-      // Clear selection
-      this.selectedItems.clear();
     }
   }
 
-  removeSelectedFiles(): void {
-    console.log('Remove selected files:', Array.from(this.selectedItems));
-    
-    if (this.configuredDataSource === 'upload') {
-      // For upload files, emit removal events for each selected file (in reverse order)
-      const indicesToRemove = Array.from(this.selectedItems).sort((a, b) => b - a);
-      indicesToRemove.forEach(index => {
-        console.log('🗑️ Upload bulk removal for index:', index);
-        this.removeUploadFile.emit(index);
-      });
-    } else if (this.configuredDataSource === 'cmis' || this.configuredDataSource === 'alfresco' || this.configuredDataSource === 'nuxeo') {
-      // For repository files, emit event to parent to handle removal
-      console.log('🗑️ Repository bulk removal requested');
-      this.removeRepositoryFile.emit(0); // Emit with index 0 to hide all repository items
-    }
-    
-    // Clear selection
-    this.selectedItems.clear();
-  }
 
-  /**
-   * The nodeDetails whose rows are checked. Rows used to be decoration only -- every node was
-   * sent whatever was ticked -- so unchecking an already-synced row would not have kept it out.
-   */
   private checkedNodeDetails(): any[] {
     return this.repositoryNodeDetails().filter((_: any, index: number) => this.selectedItems.has(index));
   }
@@ -619,6 +977,15 @@ export class ProcessingTabComponent implements OnInit, OnChanges {
       // Prepare processing data
       const processingData: any = {};
       
+      // Search+Vector / Graphs columns: each checked row says what it should end up as
+      const planned = this.columnsMode ? this.itemActions() : null;
+      const actions = planned;
+      if (planned && planned.length === 0) {
+        this.successMessage = 'Nothing to do: the checked rows already match their Search+Vector / Graphs settings.';
+        this.isProcessing = false;
+        return;
+      }
+
       if (this.configuredDataSource === 'upload') {
         // For upload, upload files first then use filesystem processing
         const { paths: uploadedPaths, skipped } = await this.uploadFiles();
@@ -717,8 +1084,10 @@ export class ProcessingTabComponent implements OnInit, OnChanges {
       });
       console.log('Starting processing with data:', processingData);
       
-      // Add skip_graph flag to processing data
-      if (this.skipGraph) {
+      if (planned) {
+        processingData.item_actions = actions;
+      } else if (this.skipGraph) {
+        // Add skip_graph flag to processing data (no columns: one setting for the whole run)
         processingData.skip_graph = true;
         console.log('✓ skip_graph flag set to true - Knowledge graph extraction will be skipped');
       }
@@ -726,16 +1095,23 @@ export class ProcessingTabComponent implements OnInit, OnChanges {
       // Add enable_sync flag to processing data
       // Only for a source that shows the checkbox: the value survives switching sources, so
       // a sync left ticked on Alfresco would otherwise make a later upload a live sync too.
-      if (this.enableSync && !NO_AUTO_SYNC_SOURCES.includes(this.configuredDataSource)) {
+      if (!planned && this.enableSync && !NO_AUTO_SYNC_SOURCES.includes(this.configuredDataSource)) {
         processingData.enable_sync = true;
         console.log('✓ enable_sync flag set to true - Incremental updates will be enabled');
       }
       
+
       this.apiService.ingestDocuments(processingData).subscribe({
         next: (response: AsyncProcessingResponse) => {
           console.log('Processing started:', response);
           
-          if (response.processing_id) {
+          if (response.processing_id && this.runInBackground) {
+            // The job carries on in the backend; this tab is free to start another one
+            this.isProcessing = false;
+            this.watchedJobs.add(response.processing_id);
+            this.successMessage = `Started in the background (job ${response.processing_id}). Follow it on the Jobs tab.`;
+            this.ensureJobsPolling();
+          } else if (response.processing_id) {
             this.currentProcessingId = response.processing_id;
             // Set success message with estimated time like Vue/React
             const estimatedTime = response.estimated_time || '30-60 seconds';
@@ -811,8 +1187,9 @@ export class ProcessingTabComponent implements OnInit, OnChanges {
     
     console.log('Starting status polling for:', this.currentProcessingId);
     
-    // Poll every 2 seconds
-    const pollInterval = setInterval(() => {
+    // Poll every 2 seconds (stopped in ngOnDestroy; restoreSession() picks the run up again)
+    clearInterval(this.pollTimer);
+    const pollInterval = this.pollTimer = setInterval(() => {
       if (!this.currentProcessingId) {
         clearInterval(pollInterval);
         return;
@@ -850,6 +1227,10 @@ export class ProcessingTabComponent implements OnInit, OnChanges {
             this.currentProcessingId = null;
             this.successMessage = 'Processing cancelled successfully';
             clearInterval(pollInterval);
+          }
+          if (!this.isProcessing) {
+            this.afterRun();
+            this.updateDisplayFiles();
           }
         },
         error: (error: any) => {

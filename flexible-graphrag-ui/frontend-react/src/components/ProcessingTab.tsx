@@ -17,8 +17,9 @@ import {
   Chip,
   Alert,
   FormControlLabel,
+  Tabs,
+  Tab,
 } from '@mui/material';
-import DeleteIcon from '@mui/icons-material/Delete';
 import CloseIcon from '@mui/icons-material/Close';
 import { Theme } from '@mui/material/styles';
 import axios from 'axios';
@@ -31,6 +32,19 @@ import {
 
 // Sources with no auto change sync: the "Enable auto change sync" checkbox is hidden for them
 const NO_AUTO_SYNC_SOURCES = ['upload', 'cmis', 'web', 'wikipedia', 'youtube'];
+
+// What a row is in, or should end up in: Search+Vector, and Graphs (property graph + RDF).
+interface RowStores {
+  sv: boolean;
+  graphs: boolean;
+  sync: boolean;  // Auto Sync: kept up to date with repository changes
+}
+type ColumnKind = 'sv' | 'graphs' | 'sync';
+type ItemActionKind = 'ingest' | 'ingest_no_graph' | 'remove_graph' | 'remove_all' | 'keep';
+const TERMINAL_JOB = ['completed', 'failed', 'cancelled'];
+// Job list refresh: often while a job runs, seldom when idle (still picks up auto sync runs)
+const JOBS_BUSY_MS = 3000;
+const JOBS_IDLE_MS = 15000;
 
 // A file the server refused to store (unsupported extension, bad name, too large)
 interface SkippedFile {
@@ -65,7 +79,7 @@ interface ProcessingTabProps {
   lastStatusData: any;
   onGoToSources: () => void;
   onRemoveProcessingFile: (index: number) => void;
-  onRemoveSelectedFiles: () => void;
+  onRemoveSelectedFiles?: () => void;  // unused: the REMOVE SELECTED button is gone
   onSelectAllFiles: (checked: boolean, totalFiles: number) => void;
   onSelectFile: (index: number, checked: boolean) => void;
   onConfiguredFilesChange: (files: File[]) => void;
@@ -106,7 +120,6 @@ export const ProcessingTab: React.FC<ProcessingTabProps> = ({
   lastStatusData,
   onGoToSources,
   onRemoveProcessingFile,
-  onRemoveSelectedFiles,
   onSelectAllFiles,
   onSelectFile,
   onConfiguredFilesChange,
@@ -136,9 +149,26 @@ export const ProcessingTab: React.FC<ProcessingTabProps> = ({
   // Debug state
   const [showDebugPanel, setShowDebugPanel] = useState<boolean>(false);
 
-  // Auto-sync / earlier-ingest coverage of the current rows (see the coverage effect below)
-  const [coverage, setCoverage] = useState<any[]>([]);
-  const coverageKey = useRef('');
+  // Ingest status of the current rows: auto sync or an earlier ingest (see the effect below)
+  const [ingestStatus, setIngestStatus] = useState<any[]>([]);
+  const ingestStatusKey = useRef('');
+  const ingestStatusRequest = useRef<any>(null);  // the request behind `ingestStatus` (rows line up)
+  const [ingestStatusRefresh, setIngestStatusRefresh] = useState<number>(0);
+  // Which stores are configured; any can be "none" in .env (from the ingest-status response)
+  const [stores, setStores] = useState<Record<string, boolean>>({});
+
+  // What each row should end up in, by row name, once the user changed it (see wantFor)
+  const [wantSearch, setWantSearch] = useState<Record<string, boolean>>({});
+  const [wantGraphs, setWantGraphs] = useState<Record<string, boolean>>({});
+  const [wantSync, setWantSync] = useState<Record<string, boolean>>({});
+  // Run in the background: START returns at once and the job is followed on the Jobs sub-tab
+  const [runInBackground, setRunInBackground] = useState<boolean>(false);
+  const [subTab, setSubTab] = useState<number>(0);  // 0 Processing, 1 Jobs
+  const [jobs, setJobs] = useState<any[]>([]);
+  const watchedJobs = useRef<Set<string>>(new Set());  // background jobs started here
+  const [watchedCount, setWatchedCount] = useState<number>(0);
+  // Between the end of a run and the fresh ingest status: check nothing automatically
+  const awaitingStatus = useRef(false);
 
   // File size formatting
   const formatFileSize = (bytes: number): string => {
@@ -198,24 +228,10 @@ export const ProcessingTab: React.FC<ProcessingTabProps> = ({
         return [];
       }
       
-      // Only use individual files from status data if we're currently processing
-      // or if the processing was for the current repository configuration
-      const individualFiles = (isProcessing || currentProcessingId) ? 
-        (statusData?.individual_files || lastStatusData?.individual_files || []) : [];
-      
-      if (individualFiles.length > 0) {
-        return individualFiles.map((file: any, index: number) => {
-          // Show full path instead of extracting just filename
-          const displayName = file.filename || `File ${index + 1}`;
-          
-          return {
-            name: displayName, // Use full path as display name
-            size: 0, // Repository files don't have size info
-            type: 'repository-file' as const
-          };
-        });
-      }
-      // Default to repository path when no individual files yet - show full path
+      // The selection decides the rows, before, during and after a run. The backend's per-file
+      // list used to replace them once a run started, so a folder row could turn into one of
+      // its files (and stay that way), and the rows stopped lining up with the ingest status.
+      // Progress for the folder row is the overall figure (getFileProgressData).
       return [{
         name: folderPath || 'Repository Path',
         size: 0,
@@ -297,33 +313,34 @@ export const ProcessingTab: React.FC<ProcessingTabProps> = ({
     return [];
   };
 
-  // ── Coverage: which rows are already in the stores ───────────────────────────────
+  // ── Ingest status: which rows are already in the stores ──────────────────────────
   // An auto change sync covers them, or an earlier ingest put them there; they start
   // unchecked instead of being ingested again. Quietly nothing on an older backend.
   const looksLikeFile = (path: string): boolean =>
     /\.[A-Za-z0-9]{1,8}$/.test((path || '').split('/').pop() || '');
 
-  const coverageFor = (index: number): any | null => {
-    // Rows and coverage line up one-to-one, except after a run, when the rows can be the
+  const ingestStatusFor = (index: number): any | null => {
+    // Rows and ingest status line up one-to-one, except after a run, when the rows can be the
     // backend's per-file list instead of the one path that was checked.
-    if (coverage.length !== getDisplayFiles().length) return null;
-    const c = coverage[index];
+    if (ingestStatus.length !== getDisplayFiles().length) return null;
+    const c = ingestStatus[index];
     return c && c.status !== 'none' ? c : null;
   };
 
-  const coverageLabel = (index: number): string => {
-    const c = coverageFor(index);
+  const ingestStatusLabel = (index: number): string => {
+    const c = ingestStatusFor(index);
     const synced = !!c?.datasources?.some((m: any) => m.auto_sync && m.status === c.status);
     switch (c?.status) {
       case 'synced': return synced ? 'already synced' : 'already ingested';
       case 'partial': return synced ? 'synced, no subfolders' : 'ingested, no subfolders';
       case 'overlaps': return synced ? 'contains synced' : 'contains ingested';
+      case 'removed': return 'removed';
       default: return '';
     }
   };
 
-  const coverageTooltip = (index: number): string => {
-    const c = coverageFor(index);
+  const ingestStatusTooltip = (index: number): string => {
+    const c = ingestStatusFor(index);
     if (!c) return '';
     const lines = c.datasources.map((m: any) => {
       const how = m.auto_sync ? 'synced by' : 'ingested (no auto sync) by';
@@ -337,52 +354,281 @@ export const ProcessingTab: React.FC<ProcessingTabProps> = ({
       lines.push(`in: ${where.join(', ') || 'none'}`);
     }
     lines.push(c.status === 'synced'
-      ? 'Left unchecked. Check it to ingest again: the earlier copy is replaced, not duplicated.'
-      : 'Part of it is already in the stores; ingesting it again refreshes that part.');
+      ? 'Left unchecked. Check it, set Search+Vector / Graphs, and click START PROCESSING to update it.'
+      : c.status === 'removed'
+        ? 'Removed from the stores and kept out of its auto sync, even when it changes. Ingest it to put it back.'
+        : 'Part of it is already in the stores; ingesting it again refreshes that part.');
     return lines.join('\n');
   };
 
-  const showCoverage = (index: number): boolean =>
-    !!coverageFor(index) && !isProcessing && processingProgress === 0;
+  const showIngestStatus = (index: number): boolean =>
+    !!ingestStatusFor(index) && !isProcessing && processingProgress === 0;
 
-  const coveredRowCount = getDisplayFiles()
-    .filter((_, i) => coverageFor(i)?.status === 'synced').length;
+  const ingestedRowCount = getDisplayFiles()
+    .filter((_, i) => ingestStatusFor(i)?.status === 'synced').length;
+
+  // Uploaded files: rows by file name (the backend finds them under its upload directory)
+  const uploadNames = configuredDataSource === 'upload' ? configuredFiles.map((f) => f.name).join('\n') : '';
 
   useEffect(() => {
     const repoConfig = configuredDataSource === 'alfresco' ? alfrescoConfig
       : configuredDataSource === 'nuxeo' ? nuxeoConfig : null;
-    if (configuredDataSource !== 'alfresco' && configuredDataSource !== 'nuxeo') {
-      setCoverage([]);
-      coverageKey.current = '';
+    const isUpload = configuredDataSource === 'upload';
+    if (!isUpload && configuredDataSource !== 'alfresco' && configuredDataSource !== 'nuxeo') {
+      setIngestStatus([]);
+      ingestStatusKey.current = '';
       return;
     }
-    if (repositoryItemsHidden || isProcessing || currentProcessingId) return;
+    if (isUpload && !uploadNames) {
+      setIngestStatus([]);
+      ingestStatusKey.current = '';
+      return;
+    }
+    if ((!isUpload && repositoryItemsHidden) || isProcessing) return;
     const path = repoConfig?.path || folderPath || '/';
-    const request = {
-      data_source: configuredDataSource,
-      url: repoConfig?.url,
-      recursive: !!repoConfig?.recursive,
-      items: [{ path, is_folder: !looksLikeFile(path) }],
-    };
+    const request = isUpload
+      ? { data_source: 'upload', recursive: false,
+          items: uploadNames.split('\n').map((name) => ({ path: name, is_folder: false })) }
+      : {
+          data_source: configuredDataSource,
+          url: repoConfig?.url,
+          recursive: !!repoConfig?.recursive,
+          items: [{ path, is_folder: !looksLikeFile(path) }],
+        };
     // configurationVersion in the key: re-applying the same configuration (e.g. after a run
     // that just ingested it) must ask again, or the answer from before that run is reused.
-    const key = JSON.stringify(request) + '#' + configurationVersion;
-    if (key === coverageKey.current) return;
-    coverageKey.current = key;
-    setCoverage([]);
-    axios.post('/api/sync/coverage', request)
+    const key = JSON.stringify(request) + '#' + configurationVersion + '#' + ingestStatusRefresh;
+    if (key === ingestStatusKey.current) return;
+    ingestStatusKey.current = key;
+    ingestStatusRequest.current = request;
+    setIngestStatus([]);
+    axios.post('/api/sync/ingest-status', request)
       .then((res) => {
-        if (key !== coverageKey.current) return;  // configuration changed while in flight
+        if (key !== ingestStatusKey.current) return;  // configuration changed while in flight
         const items = res.data?.enabled ? res.data.items : [];
-        setCoverage(items);
+        setIngestStatus(items);
+        setStores(res.data?.stores || {});
         // uncheck rows already in the stores
         items.forEach((c: any, i: number) => {
           if (c?.status === 'synced' && selectedFileIndices.has(i)) onSelectFile(i, false);
         });
       })
-      .catch((err) => console.warn('Sync coverage check unavailable:', err));
+      .catch((err) => console.warn('Ingest status check unavailable:', err));
   }, [configuredDataSource, alfrescoConfig, nuxeoConfig, folderPath, repositoryItemsHidden,
-      isProcessing, currentProcessingId, configurationVersion]);
+      isProcessing, currentProcessingId, configurationVersion, ingestStatusRefresh, uploadNames]);
+
+  // Auto Sync only for repository sources (uploads are not kept in sync)
+  const showAutoSync = configuredDataSource !== 'upload';
+
+  // ── Search+Vector / Graphs columns ──────────────────────────────────────────────────
+  // Offered once the ingest-status check answered with `stores` (a 0.8.2 backend has none).
+  const columnsMode = ingestStatus.length > 0 && ingestStatusRequest.current !== null && Object.keys(stores).length > 0;
+  const canSearchVector = !!(stores.vector || stores.search);
+  const canGraphs = !!stores.graph;
+  const inStores = (index: number): boolean =>
+    ['synced', 'partial', 'overlaps'].includes(ingestStatusFor(index)?.status);
+
+  /** What a row is in now, from the ingest status. */
+  const currentFor = (index: number): RowStores => {
+    const c = ingestStatusFor(index);
+    const sync = !!c?.auto_sync;
+    if (!c || !inStores(index)) return { sv: false, graphs: false, sync };
+    if (c.indexed) return { sv: !!(c.indexed.vector || c.indexed.search), graphs: !!c.indexed.graph, sync };
+    return { sv: true, graphs: (c.datasources || []).some((m: any) => !m.skip_graph), sync };
+  };
+
+  /** Whether an auto sync already covers the row (so Auto Sync on resumes, not starts, it). */
+  const coveredBySync = (index: number): boolean =>
+    !!(ingestStatusFor(index)?.datasources || []).some((m: any) => m.auto_sync);
+
+  /** What a row should end up in: the user's choice, else what it is in now, else everything. */
+  const wantFor = (index: number): RowStores => {
+    const name = getDisplayFiles()[index]?.name;
+    const cur = currentFor(index);
+    const fresh = !inStores(index);
+    const sv = wantSearch[name] ?? (fresh ? canSearchVector : cur.sv);
+    const graphs = wantGraphs[name] ?? (fresh ? canGraphs : cur.graphs);
+    const sync = wantSync[name] ?? cur.sync;
+    // Graphs and Auto Sync both need Search+Vector: a sync with nothing indexed would only
+    // put the document back on its next change
+    return { sv, graphs: sv && graphs, sync: sv && sync };
+  };
+
+  /** Changing a row's Search+Vector / Graphs checks the row: START PROCESSING applies it. */
+  const setWant = (indices: number[], kind: ColumnKind, value: boolean) => {
+    const names = indices.map((i) => getDisplayFiles()[i]?.name).filter(Boolean);
+    const all = (v: boolean) => (w: Record<string, boolean>) => ({ ...w, ...Object.fromEntries(names.map((n) => [n, v])) });
+    if (kind === 'sv') {
+      setWantSearch(all(value));
+      if (!value) {  // no graphs and no sync without search + vector
+        setWantGraphs(all(false));
+        setWantSync(all(false));
+      }
+    } else if (kind === 'graphs') {
+      setWantGraphs(all(value));
+      if (value) setWantSearch(all(true));
+    } else {
+      setWantSync(all(value));
+      if (value) setWantSearch(all(true));
+    }
+    indices.forEach((i) => { if (!selectedFileIndices.has(i)) onSelectFile(i, true); });
+  };
+  const allRows = (): number[] => getDisplayFiles().map((_, i) => i);
+  const countWant = (kind: ColumnKind): number => allRows().filter((i) => wantFor(i)[kind]).length;
+
+  /** What START PROCESSING does with a checked row, or null when there is nothing to do. */
+  const actionFor = (index: number): ItemActionKind | null => {
+    const cur = currentFor(index);
+    const want = wantFor(index);
+    if (!want.sv) return cur.sv || cur.graphs ? 'remove_all' : null;
+    if (want.graphs) return 'ingest';
+    return cur.sv && cur.graphs ? 'remove_graph' : 'ingest_no_graph';
+  };
+
+  /** The Status column in columns mode: which stores the row is in now. */
+  const storesLabel = (index: number): string => {
+    const c = ingestStatusFor(index);
+    if (c?.status === 'removed') return 'removed';
+    const cur = currentFor(index);
+    if (!cur.sv && !cur.graphs) return 'not ingested';
+    return (cur.graphs ? 'search+vector, graphs' : 'search+vector') + (cur.sync ? ' (synced)' : '');
+  };
+
+  /** A sync change for a checked row: false stops it, true resumes it, null = none. */
+  const syncChange = (index: number): boolean | null => {
+    const want = wantFor(index).sync;
+    return want !== currentFor(index).sync ? want : null;
+  };
+
+  /**
+   * What START PROCESSING sends for the checked rows: per row a store action and/or an Auto
+   * Sync change. A row no sync covers yet, with Auto Sync checked, is ingested with
+   * auto_sync: true: the backend makes this run\'s datasource an auto sync watching it.
+   */
+  const itemActions = () => {
+    const base = ingestStatusRequest.current;
+    const rows: any[] = [];
+    for (const i of Array.from(selectedFileIndices).sort((a, b) => a - b)) {
+      const item = base?.items?.[i];
+      if (!item) continue;
+      const ref = { path: item.path, id: item.id, is_folder: !!item.is_folder };
+      const sync = syncChange(i);
+      if (sync === true && !coveredBySync(i)) {
+        rows.push({ ...ref, action: actionFor(i) ?? (wantFor(i).graphs ? 'ingest' : 'ingest_no_graph'), auto_sync: true });
+        continue;
+      }
+      const action = actionFor(i);
+      if (!action && sync === null) continue;
+      rows.push({ ...ref, action: action ?? 'keep', ...(sync === null ? {} : { auto_sync: sync }) });
+    }
+    return rows;
+  };
+
+  /**
+   * A run is over. The rows' choices go back to their defaults -- rows in the stores unchecked,
+   * columns showing what each row is in now -- so a second START does not repeat the run. The
+   * ingest status is asked again once the run's document_state rows are written.
+   */
+  const afterRun = () => {
+    setWantSearch({});
+    setWantGraphs({});
+    setWantSync({});
+    awaitingStatus.current = true;
+    allRows().forEach((i) => { if (selectedFileIndices.has(i)) onSelectFile(i, false); });
+    setTimeout(() => {
+      awaitingStatus.current = false;
+      setIngestStatusRefresh((n) => n + 1);
+    }, 4000);
+  };
+
+  const wasProcessing = useRef(false);
+  useEffect(() => {
+    if (wasProcessing.current && !isProcessing) afterRun();
+    wasProcessing.current = isProcessing;
+  }, [isProcessing]);
+
+  // ── Jobs sub-tab ────────────────────────────────────────────────────────────────────
+  const showFinishedJob = async (job: any) => {
+    if (!isProcessing) {
+      try {
+        const res = await axios.get(`/api/processing-status/${job.processing_id}`);
+        const status = res.data;
+        onStatusDataChange(null);
+        onLastStatusDataChange(status);
+        onProcessingProgressChange(status.status === 'completed' ? 100 : status.progress || 0);
+        if (status.status === 'completed') onSuccessMessage(status.message || 'Background job finished.');
+        else onError(`Background job ${status.status}: ${status.error || status.message || ''}`);
+      } catch { /* the job may have been cleared */ }
+    }
+    afterRun();
+  };
+
+  const loadJobs = async (): Promise<any[]> => {
+    try {
+      const res = await axios.get('/api/processing-status');
+      const list = res.data?.jobs || [];
+      setJobs(list);
+      for (const job of list) {
+        if (watchedJobs.current.has(job.processing_id) && TERMINAL_JOB.includes(job.status)) {
+          watchedJobs.current.delete(job.processing_id);
+          setWatchedCount(watchedJobs.current.size);
+          showFinishedJob(job);
+        }
+      }
+      return list;
+    } catch (err) {
+      console.warn('Job list unavailable:', err);
+      return [];
+    }
+  };
+
+  // Refresh the job list while it is shown or a background job started here is still going:
+  // every 3 s while a job runs, every 15 s when none does
+  useEffect(() => {
+    if (subTab !== 1 && watchedCount === 0) return;
+    let timer: any = null;
+    let stopped = false;
+    const tick = async () => {
+      const list = await loadJobs();
+      if (stopped) return;
+      const busy = watchedJobs.current.size > 0 || list.some((j) => !TERMINAL_JOB.includes(j.status));
+      timer = setTimeout(tick, busy ? JOBS_BUSY_MS : JOBS_IDLE_MS);
+    };
+    tick();
+    return () => {
+      stopped = true;
+      clearTimeout(timer);
+    };
+  }, [subTab, watchedCount]);
+
+  const clearJobs = async () => {
+    try {
+      await axios.delete('/api/processing-status');
+    } catch (err: any) {
+      onError(`Clear failed: ${err?.response?.data?.detail || err?.message || err}`);
+    }
+    loadJobs();
+  };
+
+  const cancelJob = async (job: any) => {
+    try {
+      await axios.post(`/api/cancel-processing/${job.processing_id}`, {});
+    } catch (err: any) {
+      onError(`Cancel failed: ${err?.response?.data?.detail || err?.message || err}`);
+    }
+    loadJobs();
+  };
+
+  const jobRunning = (job: any): boolean => !TERMINAL_JOB.includes(job.status);
+  const runningJobCount = jobs.filter(jobRunning).length;
+
+  // A new selection opens on the Processing sub-tab
+  useEffect(() => {
+    setSubTab(0);
+    setWantSearch({});
+    setWantGraphs({});
+    setWantSync({});
+  }, [configurationVersion]);
 
   // Get file progress data
   const getFileProgressData = (filename: string) => {
@@ -570,8 +816,17 @@ export const ProcessingTab: React.FC<ProcessingTabProps> = ({
         data_source: configuredDataSource
       };
 
-      // Add skip_graph flag if checked
-      if (skipGraph) {
+      // Search+Vector / Graphs columns: each checked row says what it should end up as
+      const planned = columnsMode ? itemActions() : null;
+      const actions = planned;
+      if (planned && planned.length === 0) {
+        onSuccessMessage('Nothing to do: the checked rows already match their Search+Vector / Graphs settings.');
+        onProcessingStateChange(false);
+        return;
+      }
+      if (planned) {
+        (request as any).item_actions = actions;
+      } else if (skipGraph) {
         request.skip_graph = true;
         console.log('✓ skip_graph flag set to true - Knowledge graph extraction will be skipped');
       }
@@ -579,7 +834,7 @@ export const ProcessingTab: React.FC<ProcessingTabProps> = ({
       // Add enable_sync flag if checked
       // Only for a source that shows the checkbox: the value survives switching sources, so
       // a sync left ticked on Alfresco would otherwise make a later upload a live sync too.
-      if (enableSync && !NO_AUTO_SYNC_SOURCES.includes(configuredDataSource)) {
+      if (!planned && enableSync && !NO_AUTO_SYNC_SOURCES.includes(configuredDataSource)) {
         request.enable_sync = true;
         console.log('✓ enable_sync flag set to true - Incremental updates will be enabled');
       }
@@ -645,9 +900,17 @@ export const ProcessingTab: React.FC<ProcessingTabProps> = ({
         }
       }
 
+
       const response = await axios.post<AsyncProcessingResponse>('/api/ingest', request);
       
-      if (response.data.status === 'started') {
+      if (response.data.status === 'started' && runInBackground) {
+        // The job carries on in the backend; this tab is free to start another one
+        watchedJobs.current.add(response.data.processing_id);
+        setWatchedCount(watchedJobs.current.size);
+        wasProcessing.current = false;  // not a foreground run: no reset when the flag drops
+        onProcessingStateChange(false);
+        onSuccessMessage(`Started in the background (job ${response.data.processing_id}). Follow it on the Jobs tab.`);
+      } else if (response.data.status === 'started') {
         onProcessingStatusChange(response.data.message);
         onProcessingProgressChange(0);
         onCurrentProcessingIdChange(response.data.processing_id);
@@ -694,16 +957,12 @@ export const ProcessingTab: React.FC<ProcessingTabProps> = ({
     onSelectFile(index, checked);
   };
 
-  const removeSelectedFiles = () => {
-    onRemoveSelectedFiles();
-  };
-
   const removeProcessingFile = (index: number) => {
     onRemoveProcessingFile(index);
   };
 
   // Auto-select files when they are configured for single-source data types.
-  // Applied only when the rows themselves (or their coverage) change -- NOT on every selection
+  // Applied only when the rows themselves (or their ingest status) change -- NOT on every selection
   // change: that re-ran this on each click and forced the selection straight back, so a row
   // left unchecked as "already ingested" could never be checked to ingest it again.
   const autoSelectKey = useRef('');
@@ -712,18 +971,19 @@ export const ProcessingTab: React.FC<ProcessingTabProps> = ({
         configuredDataSource === 'web' || configuredDataSource === 'wikipedia' ||
         configuredDataSource === 'youtube' ||
         ['s3', 'gcs', 'azure_blob', 'google_drive', 'onedrive', 'sharepoint', 'box'].includes(configuredDataSource)) {
+      if (awaitingStatus.current) return;  // a run just ended: wait for the fresh ingest status
       const displayFiles = getDisplayFiles();
       const rowsKey = JSON.stringify([
         configuredDataSource, configurationVersion, displayFiles.map((f) => f.name),
-        coverage.map((c: any) => c?.status),
+        ingestStatus.map((c: any) => c?.status),
       ]);
       if (rowsKey === autoSelectKey.current) return;
       autoSelectKey.current = rowsKey;
       // Auto-select all files (both repository path and individual files when discovered),
-      // except rows already in the stores (see the coverage effect)
+      // except rows already in the stores (see the ingest-status effect)
       const newSelection = new Set<number>();
       displayFiles.forEach((_, index) => {
-        if (coverageFor(index)?.status !== 'synced') newSelection.add(index);
+        if (ingestStatusFor(index)?.status !== 'synced') newSelection.add(index);
       });
       
       // Only update if selection has actually changed
@@ -749,13 +1009,18 @@ export const ProcessingTab: React.FC<ProcessingTabProps> = ({
         }
       }
     }
-  }, [statusData, lastStatusData, configuredDataSource, selectedFileIndices, onSelectFile, coverage,
+  }, [statusData, lastStatusData, configuredDataSource, selectedFileIndices, onSelectFile, ingestStatus,
       configurationVersion]);
 
   // Note: File selection is now handled by parent component
 
   return (
     <Box sx={{ p: 3 }}>
+      <Tabs value={subTab} onChange={(_, v) => setSubTab(v)} sx={{ mb: 2 }}>
+        <Tab label="Processing" />
+        <Tab label={runningJobCount ? `Jobs (${runningJobCount} running)` : 'Jobs'} />
+      </Tabs>
+      {subTab === 0 && (<>
       {/* Header with Skip Graph Checkbox */}
       <Box sx={{ 
         display: 'flex', 
@@ -766,6 +1031,7 @@ export const ProcessingTab: React.FC<ProcessingTabProps> = ({
         <Typography variant="h6">
           File Processing
         </Typography>
+        {!columnsMode && (
         <FormControlLabel
           control={
             <Checkbox
@@ -776,9 +1042,11 @@ export const ProcessingTab: React.FC<ProcessingTabProps> = ({
           }
           label="Skip graph (search + vector only)"
         />
+        )}
         {/* Only show Enable Sync for datasources that support auto-sync */}
         {/* Hidden for: upload, cmis, webpage, wikipedia, youtube */}
-        {configuredDataSource !== 'upload' &&
+        {!columnsMode &&
+         configuredDataSource !== 'upload' &&
          configuredDataSource !== 'cmis' &&
          configuredDataSource !== 'web' &&
          configuredDataSource !== 'wikipedia' &&
@@ -822,10 +1090,13 @@ export const ProcessingTab: React.FC<ProcessingTabProps> = ({
       )}
       
       {/* File Table - Show for all configured sources */}
-      {hasConfiguredSources && coveredRowCount > 0 && !isProcessing && processingProgress === 0 && (
+      {hasConfiguredSources && ingestedRowCount > 0 && !isProcessing && processingProgress === 0 && (
         <Typography variant="body2" sx={{ mb: 1, opacity: 0.8 }}>
-          {coveredRowCount} of {getDisplayFiles().length} already in the stores, so left unchecked.
-          Hover the status for details; checking a row ingests it again, replacing the earlier copy.
+          {ingestedRowCount} of {getDisplayFiles().length} already in the stores, so left unchecked.
+          {columnsMode
+            ? ' Check rows, set Search+Vector / Graphs, and click START PROCESSING to update them.'
+            : ' Check rows and click START PROCESSING to update them.'}
+          Hover the status for details.
         </Typography>
       )}
 
@@ -844,6 +1115,52 @@ export const ProcessingTab: React.FC<ProcessingTabProps> = ({
                 <TableCell sx={{ width: 200 }}>Filename</TableCell>
                 <TableCell sx={{ width: 100 }}>File Size</TableCell>
                 <TableCell sx={{ minWidth: 400 }}>Progress</TableCell>
+                {columnsMode && (
+                  <TableCell padding="checkbox" sx={{ whiteSpace: 'nowrap', pr: 2 }} title="Vector and full-text search stores, for every row">
+                    <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                      <Checkbox
+                        // the cell strips its direct child's padding; this one sits in a Box,
+                        // so drop it here too or it sits 9px right of the row checkboxes
+                        sx={{ p: 0, mr: 1 }}
+                        checked={countWant('sv') === getDisplayFiles().length && getDisplayFiles().length > 0}
+                        indeterminate={countWant('sv') > 0 && countWant('sv') < getDisplayFiles().length}
+                        disabled={isProcessing || !canSearchVector}
+                        onChange={(e) => setWant(allRows(), 'sv', e.target.checked)}
+                      />
+                      Search+Vector
+                    </Box>
+                  </TableCell>
+                )}
+                {columnsMode && (
+                  <TableCell padding="checkbox" sx={{ whiteSpace: 'nowrap', pr: 2 }} title={canGraphs ? 'Property graph and RDF, for every row' : 'No graph store configured in .env'}>
+                    <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                      <Checkbox
+                        // the cell strips its direct child's padding; this one sits in a Box,
+                        // so drop it here too or it sits 9px right of the row checkboxes
+                        sx={{ p: 0, mr: 1 }}
+                        checked={countWant('graphs') === getDisplayFiles().length && getDisplayFiles().length > 0}
+                        indeterminate={countWant('graphs') > 0 && countWant('graphs') < getDisplayFiles().length}
+                        disabled={isProcessing || !canGraphs}
+                        onChange={(e) => setWant(allRows(), 'graphs', e.target.checked)}
+                      />
+                      Graphs
+                    </Box>
+                  </TableCell>
+                )}
+                {columnsMode && showAutoSync && (
+                  <TableCell padding="checkbox" sx={{ whiteSpace: 'nowrap', pr: 2 }} title="Keep every row up to date with repository changes">
+                    <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                      <Checkbox
+                        sx={{ p: 0, mr: 1 }}
+                        checked={countWant('sync') === getDisplayFiles().length && getDisplayFiles().length > 0}
+                        indeterminate={countWant('sync') > 0 && countWant('sync') < getDisplayFiles().length}
+                        disabled={isProcessing}
+                        onChange={(e) => setWant(allRows(), 'sync', e.target.checked)}
+                      />
+                      Auto Sync
+                    </Box>
+                  </TableCell>
+                )}
                 <TableCell sx={{ width: 50 }}></TableCell>
                 <TableCell sx={{ width: 100 }}>Status</TableCell>
               </TableRow>
@@ -910,24 +1227,63 @@ export const ProcessingTab: React.FC<ProcessingTabProps> = ({
                         </Typography>
                       </Box>
                     </TableCell>
-                    <TableCell>
+                    {columnsMode && (
+                      <TableCell padding="checkbox">
+                        <Checkbox
+                          checked={wantFor(index).sv}
+                          disabled={isProcessing || !canSearchVector}
+                          onChange={(e) => setWant([index], 'sv', e.target.checked)}
+                        />
+                      </TableCell>
+                    )}
+                    {columnsMode && (
+                      <TableCell padding="checkbox">
+                        <Checkbox
+                          checked={wantFor(index).graphs}
+                          disabled={isProcessing || !canGraphs}
+                          onChange={(e) => setWant([index], 'graphs', e.target.checked)}
+                        />
+                      </TableCell>
+                    )}
+                    {columnsMode && showAutoSync && (
+                      <TableCell padding="checkbox">
+                        <Checkbox
+                          checked={wantFor(index).sync}
+                          disabled={isProcessing}
+                          onChange={(e) => setWant([index], 'sync', e.target.checked)}
+                          title="Unchecking stops this row's auto sync; for a datasource's own root it also stops watching it"
+                        />
+                      </TableCell>
+                    )}
+                    <TableCell sx={{ whiteSpace: 'nowrap' }}>
                       <IconButton
                         size="small"
                         onClick={() => removeProcessingFile(index)}
                         color="error"
+                        title="Take this row off the list (the stores are not touched)"
                       >
                         <CloseIcon fontSize="small" />
                       </IconButton>
                     </TableCell>
                     <TableCell>
-                      {showCoverage(index) ? (
-                        // Before a run: say when this row is already in the stores
+                      {columnsMode && !isProcessing && processingProgress === 0 ? (
+                        // Before a run: which stores the row is in now
                         <Chip
-                          label={coverageLabel(index)}
+                          label={storesLabel(index)}
                           size="small"
                           variant="outlined"
-                          color={coverageFor(index)?.status === 'synced' ? 'info' : 'warning'}
-                          title={coverageTooltip(index)}
+                          color={inStores(index) ? 'info' : 'default'}
+                          title={ingestStatusTooltip(index)}
+                          sx={{ cursor: 'help' }}
+                        />
+                      ) : showIngestStatus(index) ? (
+                        // Before a run: say when this row is already in the stores
+                        <Chip
+                          label={ingestStatusLabel(index)}
+                          size="small"
+                          variant="outlined"
+                          color={ingestStatusFor(index)?.status === 'synced' ? 'info' : 'warning'}
+                          title={ingestStatusTooltip(index)}
                           sx={{ cursor: 'help' }}
                         />
                       ) : (
@@ -949,6 +1305,7 @@ export const ProcessingTab: React.FC<ProcessingTabProps> = ({
           </Table>
         </TableContainer>
       )}
+
       
       {/* Upload Progress */}
       {isUploading && (
@@ -1010,17 +1367,18 @@ export const ProcessingTab: React.FC<ProcessingTabProps> = ({
            !hasFilesToProcess() ? 'Select Files to Process' :
            'Start Processing'}
         </Button>
-        
-        {selectedFileIndices.size > 0 && getDisplayFiles().length > 0 && (
-          <Button
-            variant="outlined"
-            color="error"
-            startIcon={<DeleteIcon />}
-            onClick={removeSelectedFiles}
-          >
-            Remove Selected ({selectedFileIndices.size})
-          </Button>
-        )}
+
+        <FormControlLabel
+          title="Start the job and keep this tab free; follow it on the Jobs tab"
+          control={
+            <Checkbox
+              checked={runInBackground}
+              onChange={(e) => setRunInBackground(e.target.checked)}
+              disabled={isProcessing}
+            />
+          }
+          label="Run in background"
+        />
         
         {/* Debug toggle */}
         <Button
@@ -1098,6 +1456,85 @@ export const ProcessingTab: React.FC<ProcessingTabProps> = ({
         </Box>
       )}
 
+      </>)}
+
+      {subTab === 1 && (
+        <Box>
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+            <Typography variant="h6">Jobs</Typography>
+            <Box sx={{ display: 'flex', gap: 1 }}>
+              <Button variant="outlined" size="small" onClick={loadJobs}>Refresh</Button>
+              <Button
+                variant="outlined"
+                size="small"
+                disabled={jobs.every(jobRunning)}
+                onClick={clearJobs}
+                title="Remove finished jobs from the list (running ones stay)"
+              >
+                Clear finished
+              </Button>
+            </Box>
+          </Box>
+          {jobs.length === 0 ? (
+            <Typography variant="body2" sx={{ opacity: 0.75 }}>
+              No jobs yet. Jobs started from the Processing tab -- and auto sync runs -- are listed
+              here, oldest first. The backend keeps them until it restarts.
+            </Typography>
+          ) : (
+            <TableContainer component={Paper}>
+              <Table size="small" sx={{ minWidth: 900 }}>
+                <TableHead>
+                  <TableRow>
+                    <TableCell>Started</TableCell>
+                    <TableCell>Job</TableCell>
+                    <TableCell>Source</TableCell>
+                    <TableCell>Status</TableCell>
+                    <TableCell sx={{ minWidth: 140 }}>Progress</TableCell>
+                    <TableCell>Message</TableCell>
+                    <TableCell></TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {jobs.map((job) => (
+                    <TableRow key={job.processing_id}>
+                      <TableCell sx={{ whiteSpace: 'nowrap' }}>
+                        {job.started_at ? new Date(job.started_at).toLocaleString() : ''}
+                      </TableCell>
+                      <TableCell title={job.label || job.processing_id}
+                                 sx={{ maxWidth: 260, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {job.kind === 'sync' ? ('auto sync ' + (job.sync_action || '') + (job.label ? ': ' + job.label : '')) : (job.label || job.processing_id)}
+                      </TableCell>
+                      <TableCell>{job.data_source}</TableCell>
+                      <TableCell>
+                        <Chip
+                          label={job.status}
+                          size="small"
+                          color={job.status === 'completed' ? 'success' : job.status === 'failed' ? 'error'
+                            : jobRunning(job) ? 'primary' : 'default'}
+                        />
+                      </TableCell>
+                      <TableCell>
+                        <LinearProgress variant="determinate" value={job.progress || 0} />
+                        <Typography variant="caption">{job.progress || 0}%</Typography>
+                      </TableCell>
+                      <TableCell sx={{ minWidth: 320, whiteSpace: 'normal', overflowWrap: 'anywhere' }}>
+                        {job.message}
+                      </TableCell>
+                      <TableCell>
+                        {jobRunning(job) && job.kind === 'ingest' && (
+                          <Button variant="outlined" color="error" size="small" onClick={() => cancelJob(job)}>
+                            Cancel
+                          </Button>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </TableContainer>
+          )}
+        </Box>
+      )}
     </Box>
   );
 };
