@@ -118,3 +118,12 @@ def test_scoped_lc_graph_rows_from_cypher_stores():
         def query(self, q, params=None):
             raise RuntimeError("down")
     assert ScopedLCGraphRetriever(system("neo4j", Broken()), ["d1"]).retrieve("x") == []
+
+
+def test_facts_grouped_into_one_node_per_document():
+    from scope_filter import facts_per_document, node_doc_id
+    nodes = facts_per_document([(0.5, "A -> R -> B", "c:1"), (0.9, "C -> R -> D", "c:2"),
+                                (0.7, "E -> R -> F", "c:1")])
+    assert [node_doc_id(n) for n in nodes] == ["c:2", "c:1"]
+    assert nodes[1].node.text == "A -> R -> B\nE -> R -> F" and nodes[1].score == 0.7
+    assert facts_per_document([]) == []

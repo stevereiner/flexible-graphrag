@@ -17,4 +17,12 @@ export class ProcessingSessionService {
   tab: ({ key: string } & Record<string, any>) | null = null;
   /** The host page's last configured source and tab, for a host whose page is a route. */
   hostSelection: Record<string, any> | null = null;
+  /**
+   * The search and chat tabs' questions, results and answers, kept the same way -- opening a
+   * result's document in ACA's viewer leaves the page, and closing the viewer comes back to it.
+   * ``owner`` is the signed-in user's request headers (their ticket in ACA): ACA signs out
+   * without reloading, so another user must not get the previous one's answers back.
+   */
+  searchTab: ({ owner: string } & Record<string, any>) | null = null;
+  chatTab: ({ owner: string; scopeKey: string } & Record<string, any>) | null = null;
 }

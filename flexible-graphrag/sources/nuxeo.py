@@ -19,6 +19,19 @@ from .filesystem import is_docling_supported
 logger = logging.getLogger(__name__)
 
 
+def _nuxeo_error_text(e: Exception, path: str = "") -> str:
+    """A Nuxeo client error as one readable line. The client's HTTPError text carries the
+    server's whole Java stack trace, which then filled the Jobs list's message column."""
+    status = getattr(e, "status", None)
+    if status is None or not hasattr(e, "stacktrace"):
+        return str(e)
+    if status == 404:
+        return f"Nuxeo: no document at path '{path}' (404) - check the path" if path else "Nuxeo: document not found (404)"
+    if status in (401, 403):
+        return f"Nuxeo: not allowed ({status}) - check the user name / password or token"
+    return f"Nuxeo error {status}: {getattr(e, 'message', '') or type(e).__name__}"
+
+
 def _ensure_nuxeo_jwt_compat() -> None:
     """Let ``nuxeo.auth`` import when PyJWT (not the GehirnInc ``jwt`` package) owns the ``jwt`` module.
 
@@ -507,7 +520,7 @@ class NuxeoSource(BaseDataSource):
             doc = self.nuxeo.documents.get(path=path)
         except Exception as e:
             logger.error(f"Failed to get Nuxeo document at path '{path}': {str(e)}", exc_info=True)
-            raise
+            raise RuntimeError(_nuxeo_error_text(e, path)) from e
 
         entry = {
             "uid": doc.uid,

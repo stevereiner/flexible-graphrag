@@ -18,7 +18,7 @@ import LightModeIcon from '@mui/icons-material/LightMode';
 import Alert from '@mui/material/Alert';
 
 import { SourcesTab, ProcessingTab, SearchTab, ChatTab } from './components';
-import { ChatMessage } from './types/api';
+import { ChatMessage, SourceDocument } from './types/api';
 
 // Theme definitions
 const lightTheme = createTheme({
@@ -182,6 +182,7 @@ const App: React.FC = () => {
   const [searchQuestion, setSearchQuestion] = useState<string>('');
   const [searchResults, setSearchResults] = useState<any[]>([]);
   const [qaAnswer, setQaAnswer] = useState<string>('');
+  const [qaSources, setQaSources] = useState<SourceDocument[]>([]);
   const [hasSearched, setHasSearched] = useState<boolean>(false);
   const [lastSearchQuery, setLastSearchQuery] = useState<string>('');
   const [isQuerying, setIsQuerying] = useState<boolean>(false);
@@ -575,6 +576,7 @@ const App: React.FC = () => {
                 question={searchQuestion}
                 searchResults={searchResults}
                 qaAnswer={qaAnswer}
+                qaSources={qaSources}
                 hasSearched={hasSearched}
                 lastSearchQuery={lastSearchQuery}
                 isQuerying={isQuerying}
@@ -582,6 +584,7 @@ const App: React.FC = () => {
                 onQuestionChange={setSearchQuestion}
                 onSearchResultsChange={setSearchResults}
                 onQaAnswerChange={setQaAnswer}
+                onQaSourcesChange={setQaSources}
                 onHasSearchedChange={setHasSearched}
                 onLastSearchQueryChange={setLastSearchQuery}
                 onIsQueryingChange={setIsQuerying}

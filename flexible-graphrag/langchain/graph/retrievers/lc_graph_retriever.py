@@ -401,6 +401,7 @@ try:
                             "query_type": detect_query_type(generated_query),
                             "original_query": query,
                             "source_files": self._source_files,
+                            "result_iris": result.get("result_iris") or [],
                         },
                     ))
 

@@ -259,7 +259,7 @@ services:
     image: alfresco/alfresco-content-app:8.0.0
     mem_limit: 128m
     environment:
-      APP_BASE_SHARE_URL: "http://localhost:8080/aca/#/preview/s"
+      APP_BASE_SHARE_URL: "http://localhost:8080/content-app/#/preview/s"  # the proxy serves ACA at /content-app
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/"]
       interval: 10s

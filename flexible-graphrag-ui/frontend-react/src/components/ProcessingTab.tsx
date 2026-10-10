@@ -23,6 +23,25 @@ import {
 import CloseIcon from '@mui/icons-material/Close';
 import { Theme } from '@mui/material/styles';
 import axios from 'axios';
+
+/**
+ * A failed request as a message the user can act on. The backend is not reachable when there is
+ * no response, a gateway error (502/503/504), or a 500 without the backend's JSON `detail` --
+ * Vite's dev proxy answers 500 with an empty body when nothing listens on :8000. Otherwise the
+ * backend's own error.
+ */
+const backendError = (err: unknown, what: string): string => {
+  if (axios.isAxiosError(err)) {
+    const status = err.response?.status;
+    const data: any = err.response?.data;
+    const detail = data && typeof data === 'object' ? data.detail || data.error : '';
+    if (!err.response || status === 502 || status === 503 || status === 504 || (status === 500 && !detail)) {
+      return `${what}: the Flexible GraphRAG backend is not reachable (not started, or still starting up). Start it, wait until it has finished starting up, then try again.`;
+    }
+    if (detail) return `${what}: ${typeof detail === 'string' ? detail : JSON.stringify(detail)}`;
+  }
+  return err instanceof Error && err.message ? `${what}: ${err.message}` : what;
+};
 import { 
   IngestRequest, 
   AsyncProcessingResponse, 
@@ -154,6 +173,8 @@ export const ProcessingTab: React.FC<ProcessingTabProps> = ({
   const ingestStatusKey = useRef('');
   const ingestStatusRequest = useRef<any>(null);  // the request behind `ingestStatus` (rows line up)
   const [ingestStatusRefresh, setIngestStatusRefresh] = useState<number>(0);
+  // Set when the ingest-status check failed (e.g. the backend is not running): shown with Retry
+  const [ingestStatusError, setIngestStatusError] = useState<string>('');
   // Which stores are configured; any can be "none" in .env (from the ingest-status response)
   const [stores, setStores] = useState<Record<string, boolean>>({});
 
@@ -402,6 +423,7 @@ export const ProcessingTab: React.FC<ProcessingTabProps> = ({
     ingestStatusKey.current = key;
     ingestStatusRequest.current = request;
     setIngestStatus([]);
+    setIngestStatusError('');
     axios.post('/api/sync/ingest-status', request)
       .then((res) => {
         if (key !== ingestStatusKey.current) return;  // configuration changed while in flight
@@ -413,7 +435,13 @@ export const ProcessingTab: React.FC<ProcessingTabProps> = ({
           if (c?.status === 'synced' && selectedFileIndices.has(i)) onSelectFile(i, false);
         });
       })
-      .catch((err) => console.warn('Ingest status check unavailable:', err));
+      .catch((err) => {
+        console.warn('Ingest status check unavailable:', err);
+        // Without it there are no Search+Vector / Graphs / Auto Sync columns: say why
+        if (key === ingestStatusKey.current) {
+          setIngestStatusError(backendError(err, 'Could not check which rows are already ingested'));
+        }
+      });
   }, [configuredDataSource, alfrescoConfig, nuxeoConfig, folderPath, repositoryItemsHidden,
       isProcessing, currentProcessingId, configurationVersion, ingestStatusRefresh, uploadNames]);
 
@@ -927,10 +955,7 @@ export const ProcessingTab: React.FC<ProcessingTabProps> = ({
       }
     } catch (err) {
       console.error('Error processing documents:', err);
-      const errorMessage = axios.isAxiosError(err)
-        ? err.response?.data?.detail || err.response?.data?.error || 'Error processing documents'
-        : 'An unknown error occurred';
-      onError(errorMessage);
+      onError(backendError(err, 'Processing could not start'));
       onProcessingStateChange(false);
       onCurrentProcessingIdChange(null);
     }
@@ -1089,6 +1114,14 @@ export const ProcessingTab: React.FC<ProcessingTabProps> = ({
         </Paper>
       )}
       
+      {hasConfiguredSources && ingestStatusError && !isProcessing && (
+        <Alert severity="warning" sx={{ mb: 1 }}
+               action={<Button color="inherit" size="small"
+                               onClick={() => setIngestStatusRefresh((n) => n + 1)}>RETRY</Button>}>
+          {ingestStatusError}
+        </Alert>
+      )}
+
       {/* File Table - Show for all configured sources */}
       {hasConfiguredSources && ingestedRowCount > 0 && !isProcessing && processingProgress === 0 && (
         <Typography variant="body2" sx={{ mb: 1, opacity: 0.8 }}>

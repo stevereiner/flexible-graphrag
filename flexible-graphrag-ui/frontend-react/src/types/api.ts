@@ -66,12 +66,24 @@ export interface QueryRequest {
   top_k?: number;
 }
 
+/** A document a search result or an answer came from (backend doc_refs.py). */
+export interface SourceDocument {
+  doc_id: string;
+  name: string;
+  path: string;
+  source_type: string;  // 'alfresco' | 'nuxeo' | '' (other sources)
+  node_id: string;      // repository node id (Alfresco / Nuxeo)
+  parent_id?: string;   // an Alfresco document's folder id ('' when unknown)
+  open_url: string;     // link to the document (Alfresco Share, Nuxeo Web UI); '' when none
+}
+
 export interface ApiResponse {
   success?: boolean;  // Used by search endpoint
   status?: string;    // Used by ingest endpoint
   message?: string;
   error?: string;
   answer?: string;
+  sources?: SourceDocument[];  // the documents an answer came from
   results?: any[];
 }
 
@@ -120,6 +132,7 @@ export interface ChatMessage {
   timestamp: Date;
   queryType?: 'search' | 'qa';
   results?: any[];
+  sources?: SourceDocument[];
   isLoading?: boolean;
 }
 

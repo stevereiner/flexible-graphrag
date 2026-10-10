@@ -25,6 +25,7 @@ import { SourcesTabComponent } from './components/sources-tab/sources-tab';
 import { ProcessingTabComponent } from './components/processing-tab/processing-tab';
 import { SearchTabComponent } from './components/search-tab/search-tab';
 import { ChatTabComponent } from './components/chat-tab/chat-tab';
+import { SourceDocsComponent } from './components/source-docs/source-docs';
 import {
   BaseSourceFormComponent,
   FileUploadFormComponent,
@@ -49,6 +50,7 @@ const COMPONENTS = [
   ProcessingTabComponent,
   SearchTabComponent,
   ChatTabComponent,
+  SourceDocsComponent,
   BaseSourceFormComponent,
   FileUploadFormComponent,
   WebSourceFormComponent,

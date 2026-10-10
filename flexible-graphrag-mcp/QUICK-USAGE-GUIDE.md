@@ -51,7 +51,7 @@ python main.py
    ```bash
    flexible-graphrag-mcp --http --port 3001
    ```
-   Use config: `mcp-inspector/pipx-http-config.json`
+   Use config: `mcp-inspector/pipx-http-config.json` (connects to the server started above, at `http://localhost:3001/mcp`)
 
 ### Option 3: No Installation (uvx)
 
@@ -72,7 +72,7 @@ Use config: `mcp-inspector/uvx-stdio-config.json`
 ```bash
 uvx flexible-graphrag-mcp --http --port 3001
 ```
-Use config: `mcp-inspector/uvx-http-config.json`
+Use config: `mcp-inspector/uvx-http-config.json` (connects to the server started above, at `http://localhost:3001/mcp`)
 
 ## Available Tools
 

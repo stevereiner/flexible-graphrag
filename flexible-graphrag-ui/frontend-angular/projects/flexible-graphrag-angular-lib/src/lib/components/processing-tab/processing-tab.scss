@@ -95,6 +95,15 @@
   font-size: 11px;
 }
 
+// Keep a status ("not ingested", "search+vector, graphs (synced)") on one line. ACA's theme sets
+// white-space: normal on the chip label with `.mat-mdc-chip.mdc-evolution-chip.mat-mdc-standard-chip
+// .mdc-evolution-chip__text-label`, which outranked a plain `.status-chip` selector and wrapped
+// it in ACA only -- hence the chip's own classes here, to weigh more.
+.status-chip,
+.status-chip.mat-mdc-chip.mdc-evolution-chip.mat-mdc-standard-chip ::ng-deep .mdc-evolution-chip__text-label {
+  white-space: nowrap;
+}
+
 // Custom success color for completed status chips (Angular Material doesn't have 'success' by default)
 .status-chip.mat-mdc-chip-success {
   background-color: #4caf50 !important; // Green background
@@ -200,6 +209,12 @@
   background-color: var(--error-bg, #f8d7da);
   color: var(--error-text, #721c24);
   border: 1px solid var(--error-border, #f5c6cb);
+}
+
+.ingest-status-error {
+  margin: 0 0 12px 0;
+  justify-content: space-between;
+  gap: 12px;
 }
 
 // Dark theme support

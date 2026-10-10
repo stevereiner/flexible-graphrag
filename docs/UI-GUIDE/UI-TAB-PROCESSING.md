@@ -39,6 +39,8 @@ column shows that: *search+vector, graphs*, *search+vector*, *not ingested*, or 
 *(synced)* when an auto change sync holds it. A header checkbox sets a column for every row. A
 column whose stores are set to `none` in `.env` is disabled.
 
+![Processing sub-tab — Search+Vector, Graphs and Auto Sync per row](screen-shots/react/react-processing-rows.png)
+
 Rows already in the stores start unchecked. Changing a row's Search+Vector or Graphs checks the
 row; **START PROCESSING** then does, for each checked row:
 
@@ -87,6 +89,8 @@ start time, what was selected, source, status, progress and the full message (wh
 stores, e.g. *Removed 5 document(s) from Neo4j property graph and Ontotext GraphDB rdf graph.*).
 Running ingest jobs can be cancelled; **Clear finished** removes finished ones from the list. The
 backend keeps the list in memory until it restarts.
+
+![Jobs sub-tab](screen-shots/react/react-processing-jobs.png)
 
 With **Run in background**, START returns at once and the Processing sub-tab is free; when the
 job finishes, its per-file result and message are shown there like a foreground run. In KG

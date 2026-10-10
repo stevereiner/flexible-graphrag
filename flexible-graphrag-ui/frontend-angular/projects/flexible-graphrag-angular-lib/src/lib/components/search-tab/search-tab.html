@@ -30,7 +30,11 @@
           <mat-card *ngFor="let result of searchResults; let i = index" class="result-card">
             <mat-card-content>
               <div class="result-meta">
-                <strong>Source:</strong> {{ result.file_name || result.metadata?.source || result.source || 'Unknown' }} | 
+                <strong>Source:</strong>
+                <ng-container *ngIf="result.documents?.length; else sourceText">
+                  <app-source-docs [docs]="result.documents"></app-source-docs><ng-container *ngIf="storeLabel(result)"> | {{ storeLabel(result) }}</ng-container>
+                </ng-container>
+                <ng-template #sourceText>{{ result.file_name || result.metadata?.source || result.source || 'Unknown' }}</ng-template> | 
                 <strong> Score:</strong> {{ result.score?.toFixed(3) || 'N/A' }}
               </div>
               <p class="result-content">{{ result.text || result.content || 'No content available' }}</p>
@@ -79,6 +83,9 @@
           <mat-card-content>
             <div class="answer-content">
               <strong>Answer:</strong> {{ qaAnswer }}
+            </div>
+            <div *ngIf="qaSources.length" class="answer-sources">
+              <app-source-docs [docs]="qaSources" label="Sources:"></app-source-docs>
             </div>
           </mat-card-content>
         </mat-card>

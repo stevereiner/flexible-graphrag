@@ -34,6 +34,14 @@ _KNOWN_SPARQL_PREFIXES = {
 }
 
 
+def _result_iris(raw_results: Any, limit: int = 100) -> list:
+    """The entity IRIs (kg: namespace) in a SPARQL result, so the answer built from it can be
+    traced to the documents those entities came from (the triples' onto:ref_doc_id)."""
+    import re
+    found = re.findall(re.escape(_KG_NS) + r"[^\s'\"<>(),]+", str(raw_results or ""))
+    return list(dict.fromkeys(found))[:limit]
+
+
 _SPARQL_STOPWORDS = frozenset({
     # question words
     "who", "what", "where", "when", "how", "why", "which",
@@ -440,6 +448,7 @@ SPARQL query:"""
             return {
                 self.output_key: qa_result[self.qa_chain.output_key],
                 "generated_sparql": generated_sparql,
+                "result_iris": _result_iris(raw_results),
             }
 
     return _NeptuneSparqlQAChain.from_llm(
@@ -618,6 +627,7 @@ def build_sparql_graphdb(graph: Any, llm: Any, include_intermediate: bool, commo
             return {
                 self.output_key: qa_result[self.qa_chain.output_key],
                 "generated_sparql": generated_sparql,
+                "result_iris": _result_iris(raw_results),
             }
 
     return _GraphDBQAChain.from_llm(**common)
@@ -757,6 +767,7 @@ SPARQL query:"""
             generated_sparql = _fix_sparql_structure(generated_sparql)
             _logger.debug("Generated SPARQL:\n%s", generated_sparql)
 
+            result_iris: list = []
             if intent == "SELECT":
                 try:
                     raw_results = self.graph.query(generated_sparql)
@@ -811,6 +822,7 @@ SPARQL query:"""
                     config={"callbacks": callbacks},
                 )
                 res = result[self.qa_chain.output_key]
+                result_iris = _result_iris(raw_results)
             elif intent == "UPDATE":
                 # Should never reach here — intent is always forced to SELECT above.
                 # Kept as a safety net: try SELECT, ignore any error.
@@ -827,7 +839,8 @@ SPARQL query:"""
             else:
                 raise ValueError("Unsupported SPARQL query type.")
 
-            chain_result = {self.output_key: res, "generated_sparql": generated_sparql}
+            chain_result = {self.output_key: res, "generated_sparql": generated_sparql,
+                            "result_iris": result_iris}
             if self.return_sparql_query:
                 chain_result[self.sparql_query_key] = generated_sparql
             return chain_result

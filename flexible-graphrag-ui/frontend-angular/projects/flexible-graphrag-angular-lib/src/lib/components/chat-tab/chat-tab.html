@@ -46,6 +46,9 @@
               <!-- Message Content -->
               <div *ngIf="!message.isLoading">
                 <p class="message-text">{{ message.content }}</p>
+                <div *ngIf="message.sources?.length" class="message-sources">
+                  <app-source-docs [docs]="message.sources" label="Sources:"></app-source-docs>
+                </div>
                 <div class="message-time">
                   {{ formatTime(message.timestamp) }}
                 </div>

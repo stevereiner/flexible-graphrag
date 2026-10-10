@@ -45,7 +45,11 @@
             variant="outlined"
           >
             <div class="text-caption text-medium-emphasis mb-2">
-              <strong>Source:</strong> {{ result.file_name || result.metadata?.source || result.source || 'Unknown' }} | 
+              <strong>Source:</strong>
+              <template v-if="result.documents?.length">
+                <SourceDocs :docs="result.documents" /><template v-if="storeLabel(result.source)"> | {{ storeLabel(result.source) }}</template>
+              </template>
+              <template v-else>{{ result.file_name || result.metadata?.source || result.source || 'Unknown' }}</template> | 
               <strong> Score:</strong> {{ result.score?.toFixed(3) || 'N/A' }}
             </div>
             <p>{{ result.text || result.content || 'No content available' }}</p>
@@ -74,6 +78,9 @@
           <div>
             <strong>Answer:</strong> {{ qaAnswer }}
           </div>
+          <div v-if="qaSources.length" class="text-body-2 text-medium-emphasis mt-3">
+            <SourceDocs :docs="qaSources" label="Sources:" />
+          </div>
         </v-card>
       </v-window-item>
     </v-window>
@@ -94,6 +101,7 @@
 <script lang="ts">
 import { defineComponent, ref, watch } from 'vue';
 import axios from 'axios';
+import SourceDocs, { SourceDocument, storeLabel } from './SourceDocs.vue';
 
 interface QueryRequest {
   query: string;
@@ -107,17 +115,20 @@ interface ApiResponse {
   message?: string;
   error?: string;
   answer?: string;
+  sources?: SourceDocument[];
   results?: any[];
 }
 
 export default defineComponent({
   name: 'SearchTab',
+  components: { SourceDocs },
   setup() {
     // State
     const activeTab = ref('search');
     const question = ref('');
     const searchResults = ref<any[]>([]);
     const qaAnswer = ref('');
+    const qaSources = ref<SourceDocument[]>([]);
     const hasSearched = ref(false);
     const lastSearchQuery = ref('');
     const isQuerying = ref(false);
@@ -132,6 +143,7 @@ export default defineComponent({
         error.value = '';
         searchResults.value = [];
         qaAnswer.value = '';
+        qaSources.value = [];
         lastSearchQuery.value = question.value;
         
         const queryType = activeTab.value === 'search' ? 'hybrid' : 'qa';
@@ -149,6 +161,7 @@ export default defineComponent({
             searchResults.value = response.data.results;
           } else if (activeTab.value === 'qa' && response.data.answer) {
             qaAnswer.value = response.data.answer;
+            qaSources.value = response.data.sources || [];
           }
         } else {
           hasSearched.value = true;
@@ -170,6 +183,7 @@ export default defineComponent({
     watch(activeTab, () => {
       searchResults.value = [];
       qaAnswer.value = '';
+      qaSources.value = [];
       error.value = '';
       hasSearched.value = false;
       lastSearchQuery.value = '';
@@ -180,6 +194,8 @@ export default defineComponent({
       question,
       searchResults,
       qaAnswer,
+      qaSources,
+      storeLabel,
       hasSearched,
       lastSearchQuery,
       isQuerying,

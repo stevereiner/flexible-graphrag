@@ -100,6 +100,15 @@ def _try_build_lc_ensemble(retrievers) -> "tuple[object, bool]":
     return ensemble, True
 
 
+def _rdf_doc_lookup(config):
+    """(entity IRIs) -> doc ids: an RDF answer names the documents its SPARQL rows came from
+    (their triples' onto:ref_doc_id), not every file this backend happens to have ingested."""
+    def lookup(iris):
+        from scope_filter import rdf_doc_ids_for_iris
+        return rdf_doc_ids_for_iris(config, iris)
+    return lookup
+
+
 def create_rdf_graph_retriever(config, lc_graph_override=None, source_files=None):
     """Create LangChain-based RDF graph retriever if configured.
 
@@ -133,8 +142,9 @@ def create_rdf_graph_retriever(config, lc_graph_override=None, source_files=None
             return TextToGraphQueryRetriever(
                 langchain_graph=lc_graph_override,
                 llm=lc_llm,
-                source_files=source_files or [],
+                source_files=[],
                 config=config,
+                doc_lookup=_rdf_doc_lookup(config),
             )
 
         if rdf_store_type == "graphdb":
@@ -228,7 +238,8 @@ def create_rdf_graph_retriever(config, lc_graph_override=None, source_files=None
             llm=get_langchain_llm(config),
             top_k=getattr(config, "rdf_retrieval_top_k", 5),
             include_intermediate_steps=True,
-            source_files=source_files or [],
+            source_files=[],
+            doc_lookup=_rdf_doc_lookup(config),
         )
         logger.info(f"Created LangChain RDF graph retriever for {rdf_store_type}")
         return retriever

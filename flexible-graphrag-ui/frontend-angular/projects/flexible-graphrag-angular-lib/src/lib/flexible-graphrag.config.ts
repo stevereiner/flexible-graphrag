@@ -1,4 +1,5 @@
 import { InjectionToken } from '@angular/core';
+import type { SourceDocument } from './models/api.models';
 
 /**
  * Host-supplied configuration for the shared Flexible GraphRAG UI.
@@ -50,6 +51,14 @@ export interface FlexibleGraphragConfig {
    * that user may read.
    */
   requestHeaders?: () => Record<string, string>;
+  /**
+   * Open a result's / answer's source document in the host's own viewer. Return true when
+   * handled; otherwise the document's `open_url` (if any) opens in a new tab. KG Spaces opens
+   * Alfresco nodes in ACA's viewer.
+   */
+  openDocument?: (doc: SourceDocument) => boolean;
+  /** Whether `openDocument` can open this document (shows it as a link without an open_url). */
+  canOpenDocument?: (doc: SourceDocument) => boolean;
 }
 
 export const FLEXIBLE_GRAPHRAG_CONFIG = new InjectionToken<FlexibleGraphragConfig>(
@@ -57,7 +66,7 @@ export const FLEXIBLE_GRAPHRAG_CONFIG = new InjectionToken<FlexibleGraphragConfi
 );
 
 /** Defaults for anything the host leaves unset. */
-export const FLEXIBLE_GRAPHRAG_DEFAULTS: Required<Omit<FlexibleGraphragConfig, 'enabledSources' | 'requestHeaders'>> = {
+export const FLEXIBLE_GRAPHRAG_DEFAULTS: Required<Omit<FlexibleGraphragConfig, 'enabledSources' | 'requestHeaders' | 'openDocument' | 'canOpenDocument'>> = {
   apiUrl: '/api',
   defaultFolderPath: '/Shared/GraphRAG',
   cmisBaseUrl: 'http://localhost:8080',

@@ -48,6 +48,10 @@
 
   <!-- File Processing Table -->
   <mat-card *ngIf="hasConfiguredSources" class="processing-card">
+    <div *ngIf="ingestStatusError && !isProcessing" class="message error-message ingest-status-error">
+      <span>{{ ingestStatusError }}</span>
+      <button mat-stroked-button class="retry-button" (click)="retryIngestStatus()">RETRY</button>
+    </div>
     <p *ngIf="ingestedRowCount > 0 && !isProcessing && processingProgress === 0" class="ingest-status-note">
       {{ ingestedRowCount }} of {{ displayFiles.length }} already in the stores, so left unchecked.
       <ng-container *ngIf="columnsMode; else plainNote">

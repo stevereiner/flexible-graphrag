@@ -80,6 +80,8 @@ export class ProcessingTabComponent implements OnInit, OnChanges, OnDestroy {
   // Ingest status of the current rows, by row index (see refreshIngestStatus)
   ingestStatus: IngestStatusItem[] = [];
   private ingestStatusKey = '';
+  /** Set when the ingest-status check failed (e.g. the backend is not running): shown with Retry. */
+  ingestStatusError = '';
   private ingestStatusRequest: IngestStatusRequest | null = null;  // the request behind `ingestStatus`
   // Which stores are configured; any can be "none" in .env (from the ingest-status response)
   stores: Partial<ConfiguredStores> = {};
@@ -386,6 +388,7 @@ export class ProcessingTabComponent implements OnInit, OnChanges, OnDestroy {
     this.ingestStatusKey = key;
     this.ingestStatusRequest = request;
     this.ingestStatus = [];
+    this.ingestStatusError = '';
 
     this.apiService.checkIngestStatus(request).subscribe({
       next: (res) => {
@@ -394,8 +397,37 @@ export class ProcessingTabComponent implements OnInit, OnChanges, OnDestroy {
         this.stores = res.stores || {};
         this.autoSelectFiles();
       },
-      error: (err: any) => console.warn('Ingest status check unavailable:', err),
+      error: (err: any) => {
+        console.warn('Ingest status check unavailable:', err);
+        if (key !== this.ingestStatusKey) return;
+        // Without it there are no Search+Vector / Graphs / Auto Sync columns: say why
+        this.ingestStatusError = this.backendError(err, 'Could not check which rows are already ingested');
+      },
     });
+  }
+
+  /** Ask the backend again what the rows are in (the ingest-status note's Retry). */
+  retryIngestStatus(): void {
+    const request = this.ingestStatusRequest;
+    this.ingestStatusKey = '';
+    if (request) this.requestIngestStatus(request);
+  }
+
+  /**
+   * A failed request as a message the user can act on. The backend is not reachable when there
+   * is no response (status 0), a gateway error (502/503/504, e.g. KG Spaces' nginx), or a 500
+   * without the backend's JSON `detail` (a dev server's proxy answers 500 when nothing listens).
+   * Otherwise the backend's own error.
+   */
+  backendError(err: any, what: string): string {
+    const status = err?.status;
+    const body = err?.error;
+    const detail = body && typeof body === 'object' ? body.detail || body.error : '';
+    if (status === 0 || status === 502 || status === 503 || status === 504 || (status === 500 && !detail)) {
+      return `${what}: the Flexible GraphRAG backend is not reachable at ${this.config.apiUrl} (not started, or still starting up). Start it, wait until it has finished starting up, then try again.`;
+    }
+    const text = detail || err?.message || '';
+    return text ? `${what}: ${typeof text === 'string' ? text : JSON.stringify(text)}` : what;
   }
 
   /** A typed repository path can name a file as well as a folder; an extension means file. */
@@ -1122,12 +1154,14 @@ export class ProcessingTabComponent implements OnInit, OnChanges, OnDestroy {
         error: (error: any) => {
           console.error('Error starting processing:', error);
           this.isProcessing = false;
+          this.error = this.backendError(error, 'Processing could not start');
         }
       });
       
     } catch (error) {
       console.error('Error in startProcessing:', error);
       this.isProcessing = false;
+      this.error = this.backendError(error, 'Processing could not start');
     }
   }
 

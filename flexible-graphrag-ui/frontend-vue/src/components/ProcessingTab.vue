@@ -57,6 +57,13 @@
 
     <!-- File Processing Table -->
     <v-card v-if="hasConfiguredSources" class="mb-4" variant="outlined">
+      <v-alert v-if="ingestStatusError && !isProcessing" type="warning" variant="tonal" density="compact"
+               class="mx-4 mt-3">
+        {{ ingestStatusError }}
+        <template #append>
+          <v-btn size="small" variant="text" @click="retryIngestStatus">RETRY</v-btn>
+        </template>
+      </v-alert>
       <p v-if="ingestedRowCount > 0 && !isProcessing && processingProgress === 0"
          class="text-body-2 px-4 pt-3 mb-0" style="opacity: 0.8;">
         {{ ingestedRowCount }} of {{ displayFiles.length }} already in the stores, so left unchecked.
@@ -432,6 +439,24 @@
 <script lang="ts">
 import { defineComponent, ref, computed, watch, onBeforeUnmount } from 'vue';
 import axios from 'axios';
+
+/**
+ * A failed request as a message the user can act on. The backend is not reachable when there is
+ * no response, a gateway error (502/503/504), or a 500 without the backend's JSON `detail` --
+ * Vite's dev proxy answers 500 with an empty body when nothing listens on :8000. Otherwise the
+ * backend's own error.
+ */
+const backendError = (err: any, what: string): string => {
+  const status = err?.response?.status;
+  const data: any = err?.response?.data;
+  const detail = data && typeof data === 'object' ? data.detail || data.error : '';
+  if (axios.isAxiosError(err)
+      && (!err.response || status === 502 || status === 503 || status === 504 || (status === 500 && !detail))) {
+    return `${what}: the Flexible GraphRAG backend is not reachable (not started, or still starting up). Start it, wait until it has finished starting up, then try again.`;
+  }
+  const text = detail || err?.message;
+  return text ? `${what}: ${typeof text === 'string' ? text : JSON.stringify(text)}` : what;
+};
 
 // Sources with no auto change sync: the "Enable auto change sync" checkbox is hidden for them
 const NO_AUTO_SYNC_SOURCES = ['upload', 'cmis', 'web', 'wikipedia', 'youtube'];
@@ -1102,8 +1127,7 @@ export default defineComponent({
         
       } catch (err: any) {
         console.error('Error processing documents:', err);
-        const errorMessage = err?.response?.data?.detail || err?.response?.data?.error || 'Error processing documents';
-        error.value = errorMessage;
+        error.value = backendError(err, 'Processing could not start');
         isProcessing.value = false;
         currentProcessingId.value = null;
       }
@@ -1169,6 +1193,8 @@ export default defineComponent({
     // ingested again. One call per configuration; quietly nothing on an older backend.
     const ingestStatus = ref<any[]>([]);
     let ingestStatusKey = '';
+    // Set when the ingest-status check failed (e.g. the backend is not running): shown with Retry
+    const ingestStatusError = ref('');
     let ingestStatusRequest: any = null;  // the request behind `ingestStatus` (rows line up)
     // Which stores are configured; any can be "none" in .env (from the ingest-status response)
     const stores = ref<Record<string, boolean>>({});
@@ -1255,6 +1281,7 @@ export default defineComponent({
       ingestStatusKey = key;
       ingestStatusRequest = request;
       ingestStatus.value = [];
+      ingestStatusError.value = '';
       axios.post('/api/sync/ingest-status', request)
         .then((res) => {
           if (key !== ingestStatusKey) return;  // configuration changed while this was in flight
@@ -1264,7 +1291,18 @@ export default defineComponent({
             selectedItems.value = selectedItems.value.filter((i) => ingestStatusFor(i)?.status !== 'synced');
           }
         })
-        .catch((err) => console.warn('Ingest status check unavailable:', err));
+        .catch((err) => {
+          console.warn('Ingest status check unavailable:', err);
+          // Without it there are no Search+Vector / Graphs / Auto Sync columns: say why
+          if (key === ingestStatusKey) {
+            ingestStatusError.value = backendError(err, 'Could not check which rows are already ingested');
+          }
+        });
+    };
+
+    const retryIngestStatus = () => {
+      ingestStatusKey = '';
+      refreshIngestStatus();
     };
 
     watch(
@@ -1613,6 +1651,8 @@ export default defineComponent({
     // Note: Removed the hasConfiguredSources watcher since we now use timestamp-based detection
 
     return {
+      ingestStatusError,
+      retryIngestStatus,
       selectedItems,
       isProcessing,
       isUploading,

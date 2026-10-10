@@ -55,6 +55,32 @@ PROCESSING_PHASES = {
     "indexing": {"weight": 0.1, "name": "Building indexes"}
 }
 
+_JOB_MESSAGE_LIMIT = 600
+
+
+def _job_message(message: Any) -> Any:
+    """A job's status message as the Jobs list shows it: without a server's stack trace (a
+    client error such as nuxeo's HTTPError puts the whole Java trace in its text) and capped,
+    so the column stays readable. The full error is in the backend log."""
+    if not isinstance(message, str):
+        return message
+    for marker in (", server trace:", "\n\tat ", "\nTraceback (most recent call last)"):
+        cut = message.find(marker)
+        if cut > 0:
+            message = message[:cut]
+    if len(message) > _JOB_MESSAGE_LIMIT:
+        message = message[:_JOB_MESSAGE_LIMIT].rstrip() + "... (full error in the backend log)"
+    return message
+
+
+def _flow_sources(sources: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """A flow-mode answer's chunk sources ({file, score, text}) as one entry per document, the
+    shape doc_refs.answer_sources gives the direct pipeline (no repository id in flow mode)."""
+    names = list(dict.fromkeys(s.get("file") for s in sources or [] if s.get("file")))
+    return [{"doc_id": "", "name": n, "path": "", "source_type": "", "node_id": "", "parent_id": "", "open_url": ""}
+            for n in names]
+
+
 class FlexibleGraphRAGBackend:
     """Shared backend core for both REST API and MCP server"""
     
@@ -268,7 +294,7 @@ class FlexibleGraphRAGBackend:
         status_update = {
             "processing_id": processing_id,
             "status": status,
-            "message": message,
+            "message": _job_message(message),
             "progress": progress,
             "updated_at": current_time.isoformat(),
             "started_at": started_at if isinstance(started_at, str) else started_at.isoformat()
@@ -1891,7 +1917,7 @@ class FlexibleGraphRAGBackend:
                 fsvc = await self._get_flow_service()
                 qa = await fsvc.run_aiquery_flow(query)
                 duration = (datetime.now() - start_time).total_seconds()
-                return {"success": True, "answer": qa["answer"], "sources": qa["sources"],
+                return {"success": True, "answer": qa["answer"], "sources": _flow_sources(qa["sources"]),
                         "query_time": f"{duration:.3f}s"}
 
             # Ensure Weaviate async client is connected before Q&A query
@@ -1958,6 +1984,8 @@ class FlexibleGraphRAGBackend:
             if scope_doc_ids is not None and answer.strip() in ("Empty Response", ""):
                 answer = "I found nothing about that in the selected document or folder."
             logger.info(f"Q&A query completed in {duration:.3f}s - Answer length: {len(answer)} characters")
+            from doc_refs import answer_sources
+            sources = await answer_sources(getattr(response, "source_nodes", None))
             
             # Record LLM generation metrics for observability
             if hasattr(self.system, '_observability_enabled') and self.system._observability_enabled:
@@ -1989,7 +2017,7 @@ class FlexibleGraphRAGBackend:
                 except Exception as e:
                     logger.warning(f"Failed to record LLM metrics: {e}")
             
-            return {"success": True, "answer": answer, "query_time": f"{duration:.3f}s"}
+            return {"success": True, "answer": answer, "sources": sources, "query_time": f"{duration:.3f}s"}
         except Exception as e:
             end_time = datetime.now()
             duration = (end_time - start_time).total_seconds()
@@ -2024,7 +2052,7 @@ class FlexibleGraphRAGBackend:
                 fsvc = await self._get_flow_service()
                 qa = await fsvc.run_aiquery_flow(query)
                 duration = (datetime.now() - start_time).total_seconds()
-                return {"success": True, "answer": qa["answer"], "sources": qa["sources"],
+                return {"success": True, "answer": qa["answer"], "sources": _flow_sources(qa["sources"]),
                         "query_time": f"{duration:.3f}s"}
 
             query_engine = self.system.get_query_engine(scope_doc_ids=scope_doc_ids)
@@ -2107,6 +2135,8 @@ class FlexibleGraphRAGBackend:
             if scope_doc_ids is not None and answer.strip() in ("Empty Response", ""):
                 answer = "I found nothing about that in the selected document or folder."
             logger.info(f"Document query completed in {duration:.3f}s - Answer length: {len(answer)} characters")
+            from doc_refs import answer_sources
+            sources = await answer_sources(getattr(response, "source_nodes", None))
             
             # Record LLM generation metrics for observability
             if hasattr(self.system, '_observability_enabled') and self.system._observability_enabled:
@@ -2138,7 +2168,7 @@ class FlexibleGraphRAGBackend:
                 except Exception as e:
                     logger.warning(f"Failed to record LLM metrics: {e}")
             
-            return {"success": True, "answer": answer, "query_time": f"{duration:.3f}s"}
+            return {"success": True, "answer": answer, "sources": sources, "query_time": f"{duration:.3f}s"}
         except Exception as e:
             end_time = datetime.now()
             duration = (end_time - start_time).total_seconds()

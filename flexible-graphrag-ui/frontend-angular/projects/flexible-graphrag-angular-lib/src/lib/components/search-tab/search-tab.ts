@@ -1,6 +1,8 @@
-import { Component } from '@angular/core';
+import { Component, OnDestroy, OnInit } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { FlexibleGraphragConfigService } from '../../config.service';
+import { SourceDocument } from '../../models/api.models';
+import { ProcessingSessionService } from '../../services/processing-session.service';
 
 interface QueryRequest {
   query: string;
@@ -14,6 +16,7 @@ interface ApiResponse {
   message?: string;
   error?: string;
   answer?: string;
+  sources?: SourceDocument[];
   results?: any[];
 }
 
@@ -23,22 +26,59 @@ interface ApiResponse {
   styleUrls: ['./search-tab.scss'],
   standalone: false
 })
-export class SearchTabComponent {
+export class SearchTabComponent implements OnInit, OnDestroy {
   activeTabIndex = 0;
   question = '';
   searchResults: any[] = [];
   qaAnswer = '';
+  qaSources: SourceDocument[] = [];
   hasSearched = false;
   lastSearchQuery = '';
   isQuerying = false;
   error = '';
 
-  constructor(private http: HttpClient, private fgConfig: FlexibleGraphragConfigService) {}
+  /** The store part of a result's source label ("a.txt | Neo4j property graph" -> "Neo4j property graph"). */
+  storeLabel(result: any): string {
+    const source: string = result.source || '';
+    const i = source.lastIndexOf(' | ');
+    return i >= 0 ? source.slice(i + 3) : '';
+  }
+
+  constructor(private http: HttpClient, private fgConfig: FlexibleGraphragConfigService,
+              private session: ProcessingSessionService) {}
+
+  /** Back on the page (e.g. after closing a result's document in ACA's viewer): take the
+   * question and results back, if they are this user's. */
+  ngOnInit(): void {
+    const saved = this.session.searchTab;
+    if (saved && saved.owner === this.owner()) {
+      const { owner, ...state } = saved;
+      Object.assign(this, state);
+    }
+  }
+
+  ngOnDestroy(): void {
+    this.session.searchTab = {
+      owner: this.owner(),
+      activeTabIndex: this.activeTabIndex,
+      question: this.question,
+      searchResults: this.searchResults,
+      qaAnswer: this.qaAnswer,
+      qaSources: this.qaSources,
+      hasSearched: this.hasSearched,
+      lastSearchQuery: this.lastSearchQuery,
+    };
+  }
+
+  private owner(): string {
+    return JSON.stringify(this.fgConfig.questionHeaders());
+  }
 
   onTabChange(): void {
     // Clear results when tab changes
     this.searchResults = [];
     this.qaAnswer = '';
+    this.qaSources = [];
     this.error = '';
     this.hasSearched = false;
     this.lastSearchQuery = '';
@@ -52,6 +92,7 @@ export class SearchTabComponent {
       this.error = '';
       this.searchResults = [];
       this.qaAnswer = '';
+      this.qaSources = [];
       this.lastSearchQuery = this.question;
       
       const queryType = this.activeTabIndex === 0 ? 'hybrid' : 'qa';
@@ -70,6 +111,7 @@ export class SearchTabComponent {
           this.searchResults = response.results;
         } else if (this.activeTabIndex === 1 && response.answer) {
           this.qaAnswer = response.answer;
+          this.qaSources = response.sources || [];
         }
       } else {
         this.hasSearched = true;

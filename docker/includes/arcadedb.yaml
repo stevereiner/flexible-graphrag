@@ -1,22 +1,20 @@
 # ArcadeDB Graph Database
 services:
   arcadedb:
-    #image: arcadedata/arcadedb:26.2.1
-    image: arcadedata/arcadedb:26.3.2
-    #image: arcadedata/arcadedb:latest
+    image: arcadedata/arcadedb:26.10.1
     container_name: flexible-graphrag-arcadedb
     ports:
       - "2480:2480"  # HTTP API (and ArcadeDB Studio browser console)
       - "2424:2424"  # Binary protocol
       # Bolt (GRAPH_BACKEND=langchain only): host 7689 → container 7687
-      # WARNING: enabling Bolt plugin breaks ArcadeDB Studio — use only without Studio
-      # Also conflicts with Neo4j (7687) and MemGraph (7688) on the host
+      # 7687:7687 changed to not conflict with Neo4j (7687), have MemGraph on (7688)
       - "7689:7687"
     environment:
-      # LangChain (GRAPH_BACKEND=langchain): Bolt enabled — Studio will NOT work
-      - JAVA_OPTS=-Darcadedb.server.rootPassword=playwithdata -Darcadedb.server.mode=development -Darcadedb.server.plugins=Bolt:com.arcadedb.bolt.BoltProtocolPlugin
-      # Default (GRAPH_BACKEND=llamaindex): no Bolt — Studio works, LI adapter uses HTTP port 2480
-      #- JAVA_OPTS=-Darcadedb.server.rootPassword=playwithdata -Darcadedb.server.mode=development
+      JAVA_OPTS: >-
+        -Darcadedb.server.rootPassword=playwithdata
+        -Darcadedb.server.mode=development
+        -Darcadedb.server.plugins=Bolt:com.arcadedb.bolt.BoltProtocolPlugin
+        -Darcadedb.server.httpSessionExpireTimeout=300
     volumes:
       - arcadedb_data:/home/arcadedb/databases
     stdin_open: true

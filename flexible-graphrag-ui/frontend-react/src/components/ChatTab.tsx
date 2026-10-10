@@ -18,6 +18,7 @@ import { Theme } from '@mui/material/styles';
 import axios from 'axios';
 import { QueryRequest, ApiResponse, ChatMessage } from '../types/api';
 import agentIcon from '../agent.png';
+import { SourceDocs } from './SourceDocs';
 
 interface ChatTabProps {
   currentTheme: Theme;
@@ -104,6 +105,7 @@ export const ChatTab: React.FC<ChatTabProps> = ({
           id: (Date.now() + 2).toString(),
           type: 'assistant',
           content: response.data.answer || 'No answer provided',
+          sources: response.data.sources || [],
           timestamp: new Date(),
           queryType: 'qa'
         };
@@ -251,6 +253,11 @@ export const ChatTab: React.FC<ChatTabProps> = ({
                         <Typography variant="body1" sx={{ mb: 1 }}>
                           {message.content}
                         </Typography>
+                        {message.sources && message.sources.length > 0 && (
+                          <Typography variant="body2" component="div" sx={{ mb: 1, color: currentTheme.palette.text.secondary }}>
+                            <SourceDocs docs={message.sources} label="Sources:" />
+                          </Typography>
+                        )}
                         
                         <Typography variant="caption" sx={{ display: 'block', mt: 1, color: currentTheme.palette.text.secondary, fontWeight: 500 }}>
                           {message.timestamp.toLocaleTimeString()}

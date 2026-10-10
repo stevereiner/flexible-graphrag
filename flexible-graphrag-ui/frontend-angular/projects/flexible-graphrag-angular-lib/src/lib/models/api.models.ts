@@ -90,6 +90,21 @@ export interface QueryRequest {
   top_k?: number;
 }
 
+/** A document a search result or an answer came from (backend doc_refs.py). */
+export interface SourceDocument {
+  doc_id: string;
+  name: string;
+  path: string;
+  /** 'alfresco' | 'nuxeo' | '' (other sources) */
+  source_type: string;
+  /** Repository node id (Alfresco / Nuxeo), for a host's own viewer. */
+  node_id: string;
+  /** An Alfresco document's folder id ('' when unknown), so a viewer can open over that folder. */
+  parent_id?: string;
+  /** A plain link to the document (Alfresco Share, Nuxeo Web UI); '' when there is none. */
+  open_url: string;
+}
+
 export interface SearchResult {
   rank: number;
   content: string;
@@ -97,6 +112,7 @@ export interface SearchResult {
   source: string;
   file_type: string;
   file_name: string;
+  documents?: SourceDocument[];
   metadata?: {
     source?: string;
   };
@@ -106,6 +122,8 @@ export interface ApiResponse<T = any> {
   status: string;
   message?: string;
   answer?: string;
+  /** The documents an answer came from. */
+  sources?: SourceDocument[];
   results?: SearchResult[];
   system_status?: any;
   success?: boolean;  // For legacy compatibility

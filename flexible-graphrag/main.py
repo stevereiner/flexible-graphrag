@@ -556,6 +556,17 @@ incremental_manager = None
 cocoindex_bridge = None   # CocoIndexBridge instance (set when PIPELINE_BACKEND=cocoindex)
 
 
+def _state_pool():
+    """The incremental registry's pool, for naming the documents results came from (doc_refs)."""
+    if incremental_manager and incremental_manager.is_initialized():
+        return getattr(incremental_manager.state_manager, "pool", None)
+    return None
+
+
+import doc_refs as _doc_refs  # noqa: E402
+_doc_refs.set_pool_provider(_state_pool)
+
+
 def _log_cocoindex_pipeline_config() -> None:
     """Emit the structured CocoIndex LLM / DB / framework config block to the log."""
     try:
@@ -741,43 +752,54 @@ async def _startup_incremental_manager(backend) -> None:
         logger.warning("   Incremental updates disabled - set POSTGRES_INCREMENTAL_URL in .env")
         return
 
-    try:
-        from incremental_system import IncrementalSystemManager
-        incremental_manager = IncrementalSystemManager.get_instance()
-        await incremental_manager.initialize(
-            postgres_url=postgres_url,
-            vector_index=backend.system.vector_index,
-            graph_index=backend.system.graph_index,
-            search_index=None,
-            doc_processor=backend.system.document_processor,
-            app_config=backend.system.config,
-            hybrid_system=backend.system,
-            backend=backend,
-        )
-        await incremental_manager.start_monitoring()
-        logger.info("SUCCESS: Incremental updates enabled and monitoring started")
-    except Exception as e:
-        error_msg = str(e)
-        logger.error(f"ERROR: Failed to initialize incremental updates: {error_msg}")
-        _db_missing = "does not exist" in error_msg
-        _server_down = (
-            "refused" in error_msg.lower()
-            or "WinError" in error_msg
-            or "could not connect" in error_msg.lower()
-            or "connect call failed" in error_msg.lower()
-        )
-        if _db_missing:
-            logger.info("  The incremental updates database does not exist yet.")
-            logger.info("  Recreate the PostgreSQL container and volume so the init scripts run fresh:")
-            logger.info("    docker compose -p flexible-graphrag down postgres-pgvector pgadmin")
-            logger.info("    docker volume rm flexible-graphrag_postgres_data flexible-graphrag_pgadmin_data")
-            logger.info("    docker compose -p flexible-graphrag up -d postgres-pgvector pgadmin")
-        elif _server_down:
-            logger.info("  PostgreSQL is not running. Start the containers:")
-            logger.info("    docker compose -p flexible-graphrag up -d postgres-pgvector pgadmin")
-        else:
-            import traceback
-            traceback.print_exc()
+    def _is_connection_error(msg: str) -> bool:
+        return ("refused" in msg.lower() or "WinError" in msg or "could not connect" in msg.lower()
+                or "connect call failed" in msg.lower())
+
+    # A connection error at startup can be a passing one (Docker Desktop's port forwarding has
+    # failed once with WinError 64 while the container was up): without a retry the whole run
+    # went on with no incremental system -- ingests not recorded, "ask about" refused.
+    attempts = 3
+    for attempt in range(1, attempts + 1):
+        try:
+            from incremental_system import IncrementalSystemManager
+            incremental_manager = IncrementalSystemManager.get_instance()
+            await incremental_manager.initialize(
+                postgres_url=postgres_url,
+                vector_index=backend.system.vector_index,
+                graph_index=backend.system.graph_index,
+                search_index=None,
+                doc_processor=backend.system.document_processor,
+                app_config=backend.system.config,
+                hybrid_system=backend.system,
+                backend=backend,
+            )
+            await incremental_manager.start_monitoring()
+            logger.info("SUCCESS: Incremental updates enabled and monitoring started")
+            return
+        except Exception as e:
+            last_error, error_msg = e, str(e)
+            if attempt < attempts and _is_connection_error(error_msg):
+                logger.warning(f"Incremental updates: PostgreSQL connection failed ({error_msg}); "
+                               f"retrying in 5s (attempt {attempt} of {attempts})")
+                await asyncio.sleep(5)
+                continue
+            break
+    # Every attempt failed
+    logger.error(f"ERROR: Failed to initialize incremental updates: {error_msg}")
+    _db_missing = "does not exist" in error_msg
+    _server_down = _is_connection_error(error_msg)
+    if _db_missing:
+        logger.info("  The incremental updates database does not exist yet.")
+        logger.info("  Recreate the PostgreSQL container and volume so the init scripts run fresh:")
+        logger.info("    docker compose -p flexible-graphrag down postgres-pgvector pgadmin")
+        logger.info("    docker volume rm flexible-graphrag_postgres_data flexible-graphrag_pgadmin_data")
+        logger.info("    docker compose -p flexible-graphrag up -d postgres-pgvector pgadmin")
+    elif _server_down:
+        logger.info("  PostgreSQL is not running. Start the containers:")
+        logger.info("    docker compose -p flexible-graphrag up -d postgres-pgvector pgadmin")
+    else:
+        logger.error("Incremental updates initialization error", exc_info=last_error)
 
 
 @asynccontextmanager
@@ -2879,6 +2901,11 @@ async def _scope_doc_ids(scope: "AskScope") -> List[str]:
             raise HTTPException(status_code=400, detail=(
                 "asking about one document or folder is not available with PIPELINE_BACKEND=cocoindex "
                 "(it needs the incremental registry, which CocoIndex replaces with its own state)"))
+        if os.getenv("ENABLE_INCREMENTAL_UPDATES", "").lower() == "true" and os.getenv("POSTGRES_INCREMENTAL_URL"):
+            raise HTTPException(status_code=503, detail=(
+                "asking about one document or folder needs the incremental system, which did not start "
+                "(it could not connect to PostgreSQL at backend startup -- see the backend log). "
+                "Check PostgreSQL is up, then restart the backend"))
         raise HTTPException(status_code=400,
                             detail="asking about one document or folder needs ENABLE_INCREMENTAL_UPDATES=true "
                                    "and POSTGRES_INCREMENTAL_URL")
@@ -2978,7 +3005,7 @@ async def search(request: QueryRequest, x_alfresco_ticket: Optional[str] = Heade
             result = await backend_instance.qa_query(request.query, scope_doc_ids=scope_ids)
             if result["success"]:
                 logger.info("Q&A query completed successfully")
-                return {"success": True, "answer": result["answer"]}
+                return {"success": True, "answer": result["answer"], "sources": result.get("sources", [])}
             else:
                 raise HTTPException(500, result["error"])
         else:
@@ -3006,7 +3033,7 @@ async def query_graph(request: QueryRequest, x_alfresco_ticket: Optional[str] = 
         
         if result["success"]:
             logger.info("Query processing completed successfully")
-            return {"status": "success", "answer": result["answer"]}
+            return {"status": "success", "answer": result["answer"], "sources": result.get("sources", [])}
         else:
             raise HTTPException(500, result["error"])
     except HTTPException:

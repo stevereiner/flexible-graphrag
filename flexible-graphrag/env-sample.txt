@@ -1225,6 +1225,14 @@ ALFRESCO_PASSWORD=admin
 # already holds is passed per request instead (alfresco_config.ticket), not configured here:
 # it expires, so it does not belong in a config file.
 #ALFRESCO_AUTH_METHOD=basic
+# Where a search result's / answer's Alfresco document opens in the Flexible GraphRAG UIs
+# (in a new browser tab): aca (default, the Alfresco Content App viewer) or share (Alfresco
+# Share's document page). KG Spaces in ACA always opens it in its own ACA viewer.
+#ALFRESCO_VIEWER=aca
+# Where the browser reaches ACA (default: ALFRESCO_URL + /content-app, the docker/includes/alfresco.yaml proxy)
+#ALFRESCO_ACA_URL=http://localhost:8080/content-app
+# ...or the ACA that runs KG Spaces (kg-spaces-aca, e.g. its dev server)
+#ALFRESCO_ACA_URL=http://localhost:4200
 # Service account used when a caller enables auto-sync while holding only a login ticket
 # (e.g. an ACA/ADF extension, which has no durable credential to offer). The ticket is never
 # stored -- it expires -- so the sync row gets these credentials instead. Falls back to

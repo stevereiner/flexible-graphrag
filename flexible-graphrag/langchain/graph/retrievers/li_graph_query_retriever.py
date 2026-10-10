@@ -48,6 +48,9 @@ class GraphQueryRetriever(LCBackedLIRetriever):
                                     additional context nodes.
         source_files:              File names to embed in result metadata
                                    for source attribution in the UI.
+        doc_lookup:                Optional ``(entity IRIs) -> doc ids``: names the
+                                   documents an RDF answer came from (``doc_ids``
+                                   metadata) from the IRIs in its SPARQL result.
     """
 
     def __init__(
@@ -59,9 +62,11 @@ class GraphQueryRetriever(LCBackedLIRetriever):
         include_intermediate_steps: bool = True,
         source_files: Optional[List[str]] = None,
         config: Any = None,
+        doc_lookup: Optional[Any] = None,
         **kwargs,
     ):
         super().__init__(**kwargs)
+        self._doc_lookup = doc_lookup
         if qa_chain_factory is not None:
             chain = qa_chain_factory(langchain_graph, llm)
             self._lc_retriever = LCGraphQARetriever(
@@ -97,6 +102,7 @@ class GraphQueryRetriever(LCBackedLIRetriever):
             return []
         nodes = self._docs_to_nodes(docs, fallback_score=1.0, source_tag="langchain_graph")
         self._apply_intermediate_scores(nodes)
+        self._attach_doc_ids(nodes)
         return nodes[: self._lc_retriever._top_k]
 
     async def _aretrieve(self, query_bundle: QueryBundle) -> List[NodeWithScore]:
@@ -107,7 +113,21 @@ class GraphQueryRetriever(LCBackedLIRetriever):
             return []
         nodes = self._docs_to_nodes(docs, fallback_score=1.0, source_tag="langchain_graph")
         self._apply_intermediate_scores(nodes)
+        if self._doc_lookup is not None:
+            import asyncio
+            await asyncio.get_running_loop().run_in_executor(None, self._attach_doc_ids, nodes)
         return nodes[: self._lc_retriever._top_k]
+
+    def _attach_doc_ids(self, nodes: List[NodeWithScore]) -> None:
+        """Tag each answer node with the documents its SPARQL result rows came from."""
+        if self._doc_lookup is None:
+            return
+        for nws in nodes:
+            iris = nws.node.metadata.pop("result_iris", None)
+            if iris:
+                doc_ids = self._doc_lookup(iris)
+                if doc_ids:
+                    nws.node.metadata["doc_ids"] = doc_ids
 
     @staticmethod
     def _apply_intermediate_scores(nodes: List[NodeWithScore]) -> None:

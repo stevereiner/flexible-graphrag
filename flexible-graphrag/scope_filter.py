@@ -31,6 +31,21 @@ def node_doc_id(n: Any) -> Optional[str]:
     return meta.get("doc_id") or meta.get("ref_doc_id") or meta.get("document_id")
 
 
+def facts_per_document(facts: Iterable[tuple]) -> List[NodeWithScore]:
+    """One node per document from ``(score, "A -> REL -> B", doc_id)`` facts, best first --
+    the shape an unscoped graph retriever returns. Separate one-fact nodes would each count
+    against the hybrid fusion's top-k (crowding out the chunks) and are then dropped from
+    search results as bare relation links."""
+    from llama_index.core.schema import TextNode
+    groups: dict = {}
+    for score, text, doc_id in facts:
+        g = groups.setdefault(doc_id, [0.0, []])
+        g[0] = max(g[0], float(score or 0.0))
+        g[1].append(text)
+    return [NodeWithScore(node=TextNode(text="\n".join(texts), metadata={"doc_id": d}), score=s)
+            for d, (s, texts) in sorted(groups.items(), key=lambda kv: kv[1][0], reverse=True)]
+
+
 class ScopedRetriever(BaseRetriever):
     """Keeps only nodes from the scope's documents (see the module docstring)."""
 
@@ -180,20 +195,18 @@ class ScopedGraphRetriever(BaseRetriever):
         return str(getattr(v, "value", v)).lower()
 
     def _nodes(self, facts) -> List[NodeWithScore]:
-        from llama_index.core.schema import TextNode
         out, seen = [], set()
         for subj, rel, obj, doc_id, score in facts:
             text = f"{subj} -> {rel} -> {obj}"
             if text in seen or doc_id not in self._doc_ids:
                 continue
             seen.add(text)
-            out.append(NodeWithScore(node=TextNode(text=text, metadata={"doc_id": doc_id}),
-                                     score=float(score or 0.0)))
+            out.append((score, text, doc_id))
             if len(out) >= self._top_k:
                 break
         logger.info(f"[scoped graph({self._store_type()})] {len(out)} fact(s) from "
                     f"{len(self._doc_ids)} document(s)")
-        return out
+        return facts_per_document(out)
 
     def _neo4j_facts(self, embedding):
         rows = self._store().structured_query(
@@ -467,11 +480,10 @@ class ScopedLCGraphRetriever(BaseRetriever):
             seen.add(text)
             scored.append((len(q & _words(text)) / max(len(q), 1), text, doc_id))
         scored.sort(key=lambda x: x[0], reverse=True)
-        out = [NodeWithScore(node=TextNode(text=t, metadata={"doc_id": d}), score=s)
-               for s, t, d in scored[: self._top_k]]
+        out = scored[: self._top_k]
         logger.info(f"[scoped lc graph({self._store_type()})] {len(out)} fact(s) of {len(rows)} "
                     f"from {len(self._doc_ids)} document(s)")
-        return out
+        return facts_per_document(out)
 
     async def _aretrieve(self, query_bundle: QueryBundle) -> List[NodeWithScore]:
         import asyncio
@@ -491,6 +503,30 @@ def _words(text: str) -> Set[str]:
 def _iri_name(value: str) -> str:
     tail = (value or "").rsplit("#", 1)[-1].rsplit("/", 1)[-1]
     return tail.replace("_", " ")
+
+
+_DOCS_FOR_IRIS = """PREFIX onto: <https://integratedsemantics.org/flexible-graphrag/ontology#>
+SELECT ?d (COUNT(*) AS ?n) WHERE {
+  VALUES ?x { %s }
+  { GRAPH ?g { << ?x ?p ?o >> onto:ref_doc_id ?d } } UNION { GRAPH ?g { << ?s ?p ?x >> onto:ref_doc_id ?d } }
+} GROUP BY ?d ORDER BY DESC(?n) LIMIT %d"""
+
+
+def rdf_doc_ids_for_iris(config, iris: Iterable[str], limit: int = 10) -> List[str]:
+    """The documents RDF entities came from, most facts first: the onto:ref_doc_id annotation on
+    the triples they take part in. Names the sources of an unscoped text-to-SPARQL answer."""
+    from rdf.store.rdf_store_factory import RDFStoreFactory
+    iris = [i for i in dict.fromkeys(iris) if i and ">" not in i and " " not in i]
+    cfg = config.get_rdf_store_config() if iris else None
+    if not cfg:
+        return []
+    try:
+        adapter = RDFStoreFactory.create(cfg.get("type", cfg.get("name")), cfg.get("config", {}))
+        rows = adapter.query_sparql(_DOCS_FOR_IRIS % (" ".join(f"<{i}>" for i in iris), limit)) or []
+    except Exception as e:
+        logger.warning(f"[rdf sources] lookup failed, the answer is shown without its documents: {e}")
+        return []
+    return [r["d"] for r in rows if r.get("d")]
 
 
 class ScopedRdfRetriever(BaseRetriever):
@@ -546,10 +582,9 @@ SELECT ?s ?p ?o ?sl ?ol ?d WHERE {
             if overlap:
                 scored.append((overlap / max(len(q), 1), text, r.get("d")))
         scored.sort(key=lambda x: x[0], reverse=True)
-        out = [NodeWithScore(node=TextNode(text=t, metadata={"doc_id": d}), score=s)
-               for s, t, d in scored[: self._top_k]]
+        out = scored[: self._top_k]
         logger.info(f"[scoped rdf] {len(out)} fact(s) of {len(rows)} from {len(self._doc_ids)} document(s)")
-        return out
+        return facts_per_document(out)
 
     async def _aretrieve(self, query_bundle: QueryBundle) -> List[NodeWithScore]:
         import asyncio

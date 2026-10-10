@@ -173,7 +173,7 @@ uvx flexible-graphrag-mcp --http --port 3001
 flexible-graphrag-mcp --http --port 8080
 ```
 
-The HTTP mode is automatically configured in the `mcp-inspector/` config files and works better than stdio for debugging complex MCP interactions.
+The `mcp-inspector/*-http-config.json` files connect to a server started this way, at `http://localhost:3001/mcp` (streamable HTTP; change the URL for another port). HTTP mode works better than stdio for debugging complex MCP interactions. The `*-stdio-config.json` files start the server themselves, with `PYTHONIOENCODING=utf-8` as the Claude Desktop configs do.
 
 ## Securing the MCP transport (OAuth2 bearer)
 

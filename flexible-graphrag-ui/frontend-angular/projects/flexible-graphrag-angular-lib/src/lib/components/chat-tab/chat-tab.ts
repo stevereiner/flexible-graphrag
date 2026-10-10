@@ -1,8 +1,9 @@
 import { Component, ViewChild, ElementRef, AfterViewChecked, AfterViewInit, ChangeDetectorRef, Renderer2, inject,
-         Input, Output, EventEmitter, OnChanges, SimpleChanges } from '@angular/core';
+         Input, Output, EventEmitter, OnChanges, OnDestroy, OnInit, SimpleChanges } from '@angular/core';
 import { FlexibleGraphragConfigService } from '../../config.service';
 import { HttpClient } from '@angular/common/http';
-import { AskScope } from '../../models/api.models';
+import { AskScope, SourceDocument } from '../../models/api.models';
+import { ProcessingSessionService } from '../../services/processing-session.service';
 
 interface ChatMessage {
   id: string;
@@ -11,6 +12,7 @@ interface ChatMessage {
   timestamp: Date;
   queryType?: 'search' | 'qa';
   results?: any[];
+  sources?: SourceDocument[];
   isLoading?: boolean;
 }
 
@@ -27,6 +29,7 @@ interface ApiResponse {
   message?: string;
   error?: string;
   answer?: string;
+  sources?: SourceDocument[];
   results?: any[];
 }
 
@@ -36,8 +39,9 @@ interface ApiResponse {
   styleUrls: ['./chat-tab.scss'],
   standalone: false
 })
-export class ChatTabComponent implements AfterViewChecked, AfterViewInit, OnChanges {
+export class ChatTabComponent implements AfterViewChecked, AfterViewInit, OnChanges, OnInit, OnDestroy {
   private readonly fgConfig = inject(FlexibleGraphragConfigService);
+  private readonly session = inject(ProcessingSessionService);
   @ViewChild('chatContainer') chatContainer!: ElementRef;
 
   /** Ask about this document or folder only; null = all content. */
@@ -56,6 +60,27 @@ export class ChatTabComponent implements AfterViewChecked, AfterViewInit, OnChan
   error = '';
 
   constructor(private http: HttpClient, private cdr: ChangeDetectorRef, private renderer: Renderer2) {}
+
+  /** Back on the page (e.g. after closing an answer's document in ACA's viewer): take the
+   * conversation back, if it is this user's and about the same document / folder. */
+  ngOnInit(): void {
+    const saved = this.session.chatTab;
+    if (saved && saved.owner === this.owner() && saved.scopeKey === JSON.stringify(this.scope)) {
+      this.chatMessages = saved['messages'] || [];
+    }
+  }
+
+  ngOnDestroy(): void {
+    this.session.chatTab = {
+      owner: this.owner(),
+      scopeKey: JSON.stringify(this.scope),
+      messages: this.chatMessages.filter((m) => !m.isLoading),
+    };
+  }
+
+  private owner(): string {
+    return JSON.stringify(this.fgConfig.questionHeaders());
+  }
 
   ngOnChanges(changes: SimpleChanges): void {
     // A new scope is a new conversation: earlier answers came from other documents
@@ -178,6 +203,7 @@ export class ChatTabComponent implements AfterViewChecked, AfterViewInit, OnChan
           id: (Date.now() + 2).toString(),
           type: 'assistant',
           content: response.answer || 'No answer provided',
+          sources: response.sources || [],
           timestamp: new Date(),
           queryType: 'qa'
         };

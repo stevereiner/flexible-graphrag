@@ -12,7 +12,8 @@ import {
 import { TabContext, TabPanel } from '@mui/lab';
 import { Theme } from '@mui/material/styles';
 import axios from 'axios';
-import { QueryRequest, ApiResponse } from '../types/api';
+import { QueryRequest, ApiResponse, SourceDocument } from '../types/api';
+import { SourceDocs, storeLabel } from './SourceDocs';
 
 interface SearchTabProps {
   currentTheme: Theme;
@@ -20,6 +21,7 @@ interface SearchTabProps {
   question: string;
   searchResults: any[];
   qaAnswer: string;
+  qaSources: SourceDocument[];
   hasSearched: boolean;
   lastSearchQuery: string;
   isQuerying: boolean;
@@ -27,6 +29,7 @@ interface SearchTabProps {
   onQuestionChange: (question: string) => void;
   onSearchResultsChange: (results: any[]) => void;
   onQaAnswerChange: (answer: string) => void;
+  onQaSourcesChange: (sources: SourceDocument[]) => void;
   onHasSearchedChange: (hasSearched: boolean) => void;
   onLastSearchQueryChange: (query: string) => void;
   onIsQueryingChange: (isQuerying: boolean) => void;
@@ -38,6 +41,7 @@ export const SearchTab: React.FC<SearchTabProps> = ({
   question,
   searchResults,
   qaAnswer,
+  qaSources,
   hasSearched,
   lastSearchQuery,
   isQuerying,
@@ -45,6 +49,7 @@ export const SearchTab: React.FC<SearchTabProps> = ({
   onQuestionChange,
   onSearchResultsChange,
   onQaAnswerChange,
+  onQaSourcesChange,
   onHasSearchedChange,
   onLastSearchQueryChange,
   onIsQueryingChange,
@@ -61,6 +66,7 @@ export const SearchTab: React.FC<SearchTabProps> = ({
       setError('');
       onSearchResultsChange([]);
       onQaAnswerChange('');
+      onQaSourcesChange([]);
       onLastSearchQueryChange(question);
       
       const queryType = activeTab === 'search' ? 'hybrid' : 'qa';
@@ -78,6 +84,7 @@ export const SearchTab: React.FC<SearchTabProps> = ({
           onSearchResultsChange(response.data.results);
         } else if (activeTab === 'qa' && response.data.answer) {
           onQaAnswerChange(response.data.answer);
+          onQaSourcesChange(response.data.sources || []);
         }
       } else {
         onHasSearchedChange(true);
@@ -99,6 +106,7 @@ export const SearchTab: React.FC<SearchTabProps> = ({
     onActiveTabChange(newValue);
     onSearchResultsChange([]);
     onQaAnswerChange('');
+    onQaSourcesChange([]);
     setError('');
     onHasSearchedChange(false);
     onLastSearchQueryChange('');
@@ -162,7 +170,13 @@ export const SearchTab: React.FC<SearchTabProps> = ({
               {searchResults.map((result, index) => (
                 <Paper key={index} sx={{ p: 2, mb: 2 }} elevation={1}>
                   <Typography variant="body2" color="text.secondary" gutterBottom>
-                    <strong>Source:</strong> {result.file_name || result.metadata?.source || result.source || 'Unknown'} | 
+                    <strong>Source:</strong>{' '}
+                    {result.documents?.length ? (
+                      <>
+                        <SourceDocs docs={result.documents} />
+                        {storeLabel(result.source) && ` | ${storeLabel(result.source)}`}
+                      </>
+                    ) : (result.file_name || result.metadata?.source || result.source || 'Unknown')} | 
                     <strong> Score:</strong> {result.score?.toFixed(3) || 'N/A'}
                   </Typography>
                   <Typography variant="body1">
@@ -190,6 +204,11 @@ export const SearchTab: React.FC<SearchTabProps> = ({
               <Typography variant="body1" component="div">
                 <strong>Answer:</strong> {qaAnswer}
               </Typography>
+              {qaSources.length > 0 && (
+                <Typography variant="body2" color="text.secondary" component="div" sx={{ mt: 1.5 }}>
+                  <SourceDocs docs={qaSources} label="Sources:" />
+                </Typography>
+              )}
             </Paper>
           )}
         </TabPanel>

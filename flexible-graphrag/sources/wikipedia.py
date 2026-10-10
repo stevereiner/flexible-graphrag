@@ -389,6 +389,12 @@ class WikipediaSource(BaseDataSource):
                 "source_type": "wikipedia_article",
                 "resolution_strategy": strategy
             })
+            # LlamaIndex's WikipediaReader gives only id_=<page id> and the text: add the page's
+            # URL and a file name (keys other sources already use -- LanceDB fixes its metadata
+            # schema at the first insert), which search results and answer sources show
+            if not doc.metadata.get("url") and str(doc.id_).isdigit():
+                doc.metadata["url"] = f"https://{self.language}.wikipedia.org/?curid={doc.id_}"
+            doc.metadata.setdefault("file_name", doc.metadata.get("title") or self.query)
         
         # Apply limit if specified
         limited_docs = documents[:self.max_docs] if self.max_docs else documents

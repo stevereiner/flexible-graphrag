@@ -1411,9 +1411,13 @@ def cleanup_graph_store():
 
         elif graph_db.lower() == 'falkordb':
             # FalkorDB — delete all nodes and relationships via Cypher
-            host     = config.get('host', 'localhost')
-            port     = int(config.get('port', 6379))
-            password = config.get('password') or config.get('pwd') or None
+            # The app's config is usually {"url": "falkor://host:6379"}; host/port keys also work.
+            # 6379 is the Redis protocol port (the browser UI on 3001 is not a database port).
+            from urllib.parse import urlparse
+            _u = urlparse(config.get('url') or '')
+            host     = config.get('host') or _u.hostname or 'localhost'
+            port     = int(config.get('port') or _u.port or 6379)
+            password = config.get('password') or config.get('pwd') or _u.password or None
             graph    = config.get('database', 'knowledge_graph')
             print(f"  Connecting to FalkorDB: {host}:{port} (graph: {graph})")
             try:

@@ -2,6 +2,30 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2026-10-10] — v0.8.4: results and answers name their source documents, with links to open them (ACA viewer, Share, Nuxeo, web, Wikipedia, YouTube); fuller KG Spaces search results; ArcadeDB 26.10.1
+
+### Added
+
+- **Source documents on every result and answer** (React, Vue, Angular, KG Spaces): hybrid search results name their document, graph and RDF results included, and AI query and AI chat answers list their **Sources:**. API: search results gain `documents`; `POST /api/search` (qa) and `POST /api/query` return `sources`.
+- **Open the source document**: Alfresco documents open in the Alfresco Content App viewer over their folder (default; `ALFRESCO_VIEWER=share` for Share, `ALFRESCO_ACA_URL`, `ALFRESCO_OPEN_URL`), Nuxeo documents in the Nuxeo Web UI, web pages and Wikipedia articles at their URL, and YouTube transcript segments at their start time. In KG Spaces, Alfresco documents open in ACA's viewer in the same tab, and closing it returns to KG Spaces with its search results and chat.
+
+### Changed
+
+- ArcadeDB Docker image 26.10.1 (Bolt and ArcadeDB Studio now work together).
+- RDF answers are attributed to the documents their facts came from, not to the files the backend ingested last.
+- Job messages leave out server stack traces and are capped in length; Nuxeo errors read as one line (e.g. a wrong path).
+- The incremental system retries its PostgreSQL connection at startup.
+
+### Fixed
+
+- KG Spaces hybrid search returned too few results (2 instead of 6 for one document's question, 8 with other documents in the stores): scoped graph and RDF facts now come back one result per document.
+- Wikipedia articles had no name or link in results; new ingests store their URL, and existing ones are linked by page id.
+- `docker/includes/alfresco.yaml`: ACA's share-link base URL used `/aca` (404); it is `/content-app`.
+- `scripts/cleanup.py` reads FalkorDB's host and port from its configured URL.
+- MCP Inspector config files (`flexible-graphrag-mcp/mcp-inspector/`): the HTTP ones now connect to the running server at `http://localhost:3001/mcp`, and the stdio ones set `PYTHONIOENCODING=utf-8`; they work with MCP Inspector v2.
+- KG Spaces: the Processing tab status no longer wraps onto two lines in ACA.
+- Processing tab when the backend is not running or still starting: it now says so — a note with **Retry** where the Search+Vector / Graphs / Auto Sync columns would be, and a clear message when START PROCESSING fails (React and Vue said only "Error processing documents"; Angular and KG Spaces showed nothing).
+
 ## [2026-10-08] — v0.8.3: per-row Search+Vector / Graphs / Auto Sync on the Processing tab, Jobs sub-tab, Ask KG Spaces about a document or folder, answers only from documents the user may read
 
 ### Added

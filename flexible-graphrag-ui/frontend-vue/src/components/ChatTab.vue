@@ -71,6 +71,9 @@
               <!-- Message Content -->
               <div v-else>
                 <p class="mb-2">{{ message.content }}</p>
+                <div v-if="message.sources?.length" class="text-caption mb-2">
+                  <SourceDocs :docs="message.sources" label="Sources:" />
+                </div>
                 <div class="text-caption" style="color: #333333; font-weight: 500;">
                   {{ formatTime(message.timestamp) }}
                 </div>
@@ -136,6 +139,7 @@
 import { defineComponent, ref, nextTick, watch } from 'vue';
 import axios from 'axios';
 import agentIcon from '../assets/agent.png';
+import SourceDocs, { SourceDocument } from './SourceDocs.vue';
 
 interface ChatMessage {
   id: string;
@@ -144,6 +148,7 @@ interface ChatMessage {
   timestamp: Date;
   queryType?: 'search' | 'qa';
   results?: any[];
+  sources?: SourceDocument[];
   isLoading?: boolean;
 }
 
@@ -159,11 +164,13 @@ interface ApiResponse {
   message?: string;
   error?: string;
   answer?: string;
+  sources?: SourceDocument[];
   results?: any[];
 }
 
 export default defineComponent({
   name: 'ChatTab',
+  components: { SourceDocs },
   setup() {
     // State
     const chatMessages = ref<ChatMessage[]>([]);
@@ -239,6 +246,7 @@ export default defineComponent({
             id: (Date.now() + 2).toString(),
             type: 'assistant',
             content: response.data.answer || 'No answer provided',
+            sources: response.data.sources || [],
             timestamp: new Date(),
             queryType: 'qa'
           };

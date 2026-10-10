@@ -2,9 +2,13 @@
   "mcpServers": {
     "flexible-graphrag": {
       "command": "uvx",
-      "args": ["flexible-graphrag-mcp"],
+      "args": [
+        "flexible-graphrag-mcp"
+      ],
       "env": {
-        "FLEXIBLE_GRAPHRAG_URL": "http://localhost:8000"
+        "FLEXIBLE_GRAPHRAG_URL": "http://localhost:8000",
+        "PYTHONIOENCODING": "utf-8",
+        "PYTHONLEGACYWINDOWSSTDIO": "1"
       }
     }
   }

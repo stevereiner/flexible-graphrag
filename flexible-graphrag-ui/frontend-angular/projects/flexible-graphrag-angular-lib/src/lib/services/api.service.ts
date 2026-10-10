@@ -125,6 +125,11 @@ export class ApiService {
       errorMessage = error.error?.detail || error.message || 'Server error';
     }
     console.error('API Error:', error);
-    return throwError(() => new Error(errorMessage));
+    // Keep the HTTP status and body with the message: callers tell "backend not reachable"
+    // (status 0 / 502-504, or a 500 from a dev proxy) from the backend's own errors by them.
+    const wrapped: Error & { status?: number; error?: any } = new Error(errorMessage);
+    wrapped.status = error.status;
+    wrapped.error = error.error;
+    return throwError(() => wrapped);
   }
 }

@@ -1,6 +1,6 @@
 [project]
 name = "flexible-graphrag"
-version = "0.8.3"
+version = "0.8.4"
 description = "Open source AI context platform: document processing, knowledge graph auto-building, ontologies, GraphRAG/RAG, hybrid search (vector, property graph, RDF/SPARQL, fulltext), 13 LLM providers, 15 property graph DBs, 4 RDF triple stores, 10 vector DBs, LlamaIndex + LangChain, FastAPI, MCP server"
 readme = "README.md"
 requires-python = ">=3.12,<3.15"
@@ -455,6 +455,7 @@ only-include = [
     # loose top-level modules
     "backend.py",
     "config.py",
+    "doc_refs.py",            # result / answer source documents (name, node id, open link)
     "factories.py",
     "flow_service.py",   # Langflow flow-mode REST client (backend imports it when ENABLE_LANGFLOW_FLOWS)
     "hybrid_system.py",

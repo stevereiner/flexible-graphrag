@@ -309,6 +309,13 @@ def _retriever_label_to_display(label: str, config: Any) -> str:
     return ""
 
 
+def _names_label(names: List[str]) -> str:
+    """'a.txt', 'a.txt, b.txt' or 'a.txt, b.txt (+3 more)' for a result's source label."""
+    names = [n for n in dict.fromkeys(names) if n]
+    label = ", ".join(names[:2])
+    return f"{label} (+{len(names) - 2} more)" if len(names) > 2 else label
+
+
 def _is_graph_intermediate_step(txt: str) -> bool:
     """True for raw query strings and context dicts from intermediate_steps.
 
@@ -623,8 +630,13 @@ async def search(system, query: str, top_k: int = 10, scope_doc_ids=None) -> Lis
             for _i, _r in enumerate(deduplicated_results):
                 _r.score = round(1.0 - (_i / max(_n - 1, 1)) * 0.80, 3) if _n > 1 else 1.0
 
+    # The documents each result came from: graph / RDF facts carry only doc ids (doc_refs.py)
+    from doc_refs import chunk_refs, describe, node_doc_ids
+    _shown = deduplicated_results[:top_k]
+    _doc_refs = await describe((d for r in _shown for d in node_doc_ids(r)), chunk_refs(raw_results))
+
     formatted_results = []
-    for i, result in enumerate(deduplicated_results[:top_k]):
+    for i, result in enumerate(_shown):
         display_text = extract_core_content(result.text)
         logger.debug(
             "Format result[%d]: raw_text=%r -> display_text=%r",
@@ -645,6 +657,8 @@ async def search(system, query: str, top_k: int = 10, scope_doc_ids=None) -> Lis
 
         # Build a human-readable DB type string from the retriever label when available.
         _db_type_str = _retriever_label_to_display(_retriever_label, system.config)
+        _docs = [_doc_refs[d] for d in node_doc_ids(result) if d in _doc_refs]
+        _doc_names = _names_label([d["name"] for d in _docs])
 
         # Determine whether this is a graph / RDF result that has no standalone filename
         # (LC SPARQL QA chain results) vs a text chunk that happens to carry graph metadata.
@@ -653,6 +667,8 @@ async def search(system, query: str, top_k: int = 10, scope_doc_ids=None) -> Lis
         if _db_type_str:
             # LoggingRetriever tagged this node — combine filename (if any) with DB type.
             _fn_clean = _file_name if _file_name and _file_name not in ("Unknown", "") else ""
+            if not _fn_clean:
+                _fn_clean = _doc_names
             if not _fn_clean:
                 # Graph/RDF QA chain results have no file_name but do carry source_files.
                 _src_files = _meta.get("source_files", [])
@@ -665,7 +681,9 @@ async def search(system, query: str, top_k: int = 10, scope_doc_ids=None) -> Lis
             # LC graph QA chain result without a retriever label — use graph class name.
             _graph_label = _graph_type_label(_graph_type)
             _src_files = _meta.get("source_files", [])
-            if _src_files:
+            if _doc_names:
+                display_source = f"{_doc_names} | {_graph_label}"
+            elif _src_files:
                 _files_str = ", ".join(_src_files[:2])
                 if len(_src_files) > 2:
                     _files_str += f" (+{len(_src_files) - 2} more)"
@@ -674,6 +692,8 @@ async def search(system, query: str, top_k: int = 10, scope_doc_ids=None) -> Lis
                 display_source = _graph_label
         elif _file_name and _file_name not in ("Unknown", ""):
             display_source = _file_name
+        elif _doc_names:
+            display_source = _doc_names
         elif _src_tag and _src_tag not in ("Unknown", ""):
             display_source = _src_tag
         else:
@@ -695,6 +715,7 @@ async def search(system, query: str, top_k: int = 10, scope_doc_ids=None) -> Lis
             "source": display_source,
             "file_type": _meta.get("file_type", ""),
             "file_name": _resp_file_name,
+            "documents": _docs,
         })
 
     logger.info(f"Deduplication: {len(results)} -> {len(deduplicated_results)} -> {len(formatted_results)} final results")
