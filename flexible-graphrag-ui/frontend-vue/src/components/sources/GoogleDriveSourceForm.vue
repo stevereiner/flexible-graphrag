@@ -3,6 +3,16 @@
     title="Google Drive"
     description="Connect to Google Drive using service account credentials"
   >
+    <v-text-field
+      v-model="folderId"
+      label="Folder ID (Optional)"
+      variant="outlined"
+      class="mb-4"
+      placeholder="1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms"
+      hint="Optional: Google Drive folder ID to process specific folder. Leave empty to process all accessible files."
+      persistent-hint
+      autocomplete="off"
+    />
     <v-textarea
       :model-value="credentials"
       @update:model-value="handleCredentialsChange"
@@ -19,7 +29,7 @@
 </template>
 
 <script lang="ts">
-import { defineComponent, computed, watch } from 'vue';
+import { defineComponent, computed, watch, ref } from 'vue';
 import BaseSourceForm from './BaseSourceForm.vue';
 
 export default defineComponent({
@@ -35,12 +45,15 @@ export default defineComponent({
   },
   emits: ['update:credentials', 'configuration-change', 'validation-change'],
   setup(props, { emit }) {
+    const folderId = ref('');
+
     const isValid = computed(() => {
       return props.credentials.trim() !== '';
     });
 
     const config = computed(() => ({
-      credentials: props.credentials
+      credentials: props.credentials,
+      folder_id: folderId.value.trim() || undefined
     }));
 
     // Emit validation and configuration changes
@@ -54,6 +67,7 @@ export default defineComponent({
     };
 
     return {
+      folderId,
       handleCredentialsChange,
     };
   },

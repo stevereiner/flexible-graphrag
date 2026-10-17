@@ -93,12 +93,16 @@ def chunk_refs(nodes: Iterable[Any]) -> Dict[str, Dict[str, str]]:
 
 
 def _split(doc_id: str):
-    """(config_id, source_type, node_id) for a repository doc id, else (None, None, None)."""
+    """(config_id, source_type, node_id) for a repository doc id, else (None, None, None).
+    ``<config_id>:alfresco://<id>`` with the incremental registry; plain ``alfresco://<id>`` without
+    it (ingest_from_source._assign_repository_doc_ids), where config_id is None."""
     for mark in _REPO_MARKS:
         sep = f":{mark}://"
         if sep in doc_id:
             config_id, node_id = doc_id.split(sep, 1)
             return config_id, mark, node_id
+        if doc_id.startswith(f"{mark}://"):
+            return None, mark, doc_id[len(mark) + 3:]
     return None, None, None
 
 

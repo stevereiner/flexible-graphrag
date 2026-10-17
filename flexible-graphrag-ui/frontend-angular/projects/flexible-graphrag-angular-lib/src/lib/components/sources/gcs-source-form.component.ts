@@ -15,7 +15,7 @@ export interface GCSSourceConfig {
       description="Connect to Google Cloud Storage buckets">
       
       <mat-form-field appearance="outline" class="full-width">
-        <mat-label>Bucket Name *</mat-label>
+        <mat-label>Bucket Name</mat-label>
         <input matInput
                [(ngModel)]="bucketName"
                (ngModelChange)="onBucketNameChange()"
@@ -34,7 +34,7 @@ export interface GCSSourceConfig {
       </mat-form-field>
 
       <mat-form-field appearance="outline" class="full-width">
-        <mat-label>Service Account Credentials (JSON) *</mat-label>
+        <mat-label>Service Account Credentials (JSON)</mat-label>
         <textarea matInput
                   [(ngModel)]="credentials"
                   (ngModelChange)="onCredentialsChange()"

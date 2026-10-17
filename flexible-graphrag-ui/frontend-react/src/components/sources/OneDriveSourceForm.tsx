@@ -55,7 +55,7 @@ export const OneDriveSourceForm: React.FC<OneDriveSourceFormProps> = ({
       <Box sx={{ display: 'flex', gap: 2, mb: 2 }}>
         <TextField
           fullWidth
-          label="User Principal Name *"
+          label="User Principal Name"
           variant="outlined"
           value={userPrincipalName}
           onChange={(e) => onUserPrincipalNameChange(e.target.value)}
@@ -66,7 +66,7 @@ export const OneDriveSourceForm: React.FC<OneDriveSourceFormProps> = ({
         />
         <TextField
           fullWidth
-          label="Client ID *"
+          label="Client ID"
           variant="outlined"
           value={clientId}
           onChange={(e) => onClientIdChange(e.target.value)}
@@ -78,17 +78,18 @@ export const OneDriveSourceForm: React.FC<OneDriveSourceFormProps> = ({
       <Box sx={{ display: 'flex', gap: 2, mb: 2 }}>
         <TextField
           fullWidth
-          label="Client Secret *"
+          label="Client Secret"
           variant="outlined"
           value={clientSecret}
           onChange={(e) => onClientSecretChange(e.target.value)}
           size="small"
           type="password"
+        autoComplete="new-password"
           required
         />
         <TextField
           fullWidth
-          label="Tenant ID *"
+          label="Tenant ID"
           variant="outlined"
           value={tenantId}
           onChange={(e) => onTenantIdChange(e.target.value)}

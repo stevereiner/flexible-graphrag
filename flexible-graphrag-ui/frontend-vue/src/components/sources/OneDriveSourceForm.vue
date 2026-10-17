@@ -36,6 +36,7 @@
           label="Client Secret *"
           variant="outlined"
           type="password"
+          autocomplete="new-password"
           required
         />
       </v-col>

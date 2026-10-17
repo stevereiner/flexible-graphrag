@@ -66,19 +66,46 @@ def _fmt_error(e: Exception) -> str:
     return f"{type(e).__name__}: {e}" if str(e) else type(e).__name__
 
 
-async def make_api_call(method: str, endpoint: str, data: Optional[Dict] = None) -> Dict[str, Any]:
+def _ticket_headers(alfresco_ticket: Optional[str]) -> Optional[Dict[str, str]]:
+    """The asking user's Alfresco ticket as the header the backend's permission filter reads."""
+    return {"X-Alfresco-Ticket": alfresco_ticket.strip()} if alfresco_ticket and alfresco_ticket.strip() else None
+
+
+def _parse_obj(value: Optional[Union[str, dict]], name: str) -> Optional[dict]:
+    """An object argument (dict, or a JSON string from LLM clients); raises ValueError if invalid."""
+    if not value:
+        return None
+    if isinstance(value, dict):
+        return value
+    import json
+    parsed = json.loads(value)
+    if not isinstance(parsed, dict):
+        raise ValueError(f"{name} must be a JSON object")
+    return parsed
+
+
+async def make_api_call(method: str, endpoint: str, data: Optional[Dict] = None,
+                        headers: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
     """Make HTTP API call to the flexible-graphrag backend"""
     async with httpx.AsyncClient(timeout=httpx.Timeout(_API_TIMEOUT)) as client:
         url = f"{BACKEND_URL}{endpoint}"
-        
+
         if method.upper() == "GET":
-            response = await client.get(url)
+            response = await client.get(url, headers=headers)
         elif method.upper() == "POST":
-            response = await client.post(url, json=data or {})
+            response = await client.post(url, json=data or {}, headers=headers)
         else:
             raise ValueError(f"Unsupported HTTP method: {method}")
-        
-        response.raise_for_status()
+
+        if response.is_error:
+            # Pass on the backend's reason (FastAPI "detail"), not just the status line --
+            # e.g. a refused ticket (401) or a scope that needs the incremental registry (400)
+            try:
+                detail = response.json().get("detail")
+            except Exception:
+                detail = response.text[:300]
+            raise httpx.HTTPStatusError(f"{response.status_code} from {endpoint}: {detail}",
+                                        request=response.request, response=response)
         return response.json()
 
 @mcp.tool()
@@ -108,17 +135,26 @@ async def ingest_documents(
     onedrive_config: Optional[Union[str, dict]] = None,
     sharepoint_config: Optional[Union[str, dict]] = None,
     box_config: Optional[Union[str, dict]] = None,
-    google_drive_config: Optional[Union[str, dict]] = None
+    google_drive_config: Optional[Union[str, dict]] = None,
+    alfresco_ticket: Optional[str] = None
 ) -> Dict[str, Any]:
     """
     Ingest documents from filesystem, web, or cloud sources.
-    
+
     Args:
         data_source: Source type (filesystem, cmis, alfresco, nuxeo, web, wikipedia, youtube, s3, gcs, azure_blob, etc.)
         paths: File path(s) as JSON array for filesystem source
         enable_sync: Enable automatic change detection and incremental updates
         skip_graph: Skip knowledge graph extraction (faster, vector+search only)
-        *_config: JSON configuration string for the selected data source
+        *_config: JSON configuration string for the selected data source. Required for
+            data_source="alfresco": alfresco_config with url, path and credentials
+            (username/password, or alfresco_ticket below); the server's own Alfresco settings
+            are never used for an ingest.
+        alfresco_ticket: For data_source="alfresco": an Alfresco login ticket (TICKET_...) the
+            caller already holds, used as the whole credential -- no username/password needed.
+            alfresco_config still gives url and path, e.g. {"url": "http://localhost:8080/alfresco",
+            "path": "/Shared/GraphRAG"}. A ticket expires, so it cannot be combined with enable_sync
+            (auto-sync needs a stored username/password).
     """
     try:
         import json
@@ -203,7 +239,14 @@ async def ingest_documents(
                             "message": f"Invalid JSON in {config_key}: {str(e)}",
                             "progress": 0
                         }
-            
+
+        if alfresco_ticket and alfresco_ticket.strip():
+            # The caller's ticket replaces username/password for this one ingest
+            alf = request_data.setdefault("alfresco_config", {})
+            alf["ticket"] = alfresco_ticket.strip()
+            if not alf.get("username"):
+                alf["auth_method"] = "ticket"
+
         result = await make_api_call("POST", "/api/ingest", request_data)
         return result  # Return the async processing response directly
     except Exception as e:
@@ -214,37 +257,92 @@ async def ingest_documents(
             "progress": 0
         }
 
-@mcp.tool()
-async def search_documents(query: str, top_k: int = 10) -> Dict[str, Any]:
-    """
-    Search documents using hybrid search
-    
-    Args:
-        query: Search query string
-        top_k: Number of results to return
-    """
+async def _ask(endpoint: str, query: str, top_k: int, alfresco_ticket, source_auth, scope) -> Dict[str, Any]:
+    """search_documents / query_documents: the question plus who is asking and where."""
     try:
         request_data = {"query": query, "top_k": top_k}
-        result = await make_api_call("POST", "/api/search", request_data)
+        if scope:
+            request_data["scope"] = _parse_obj(scope, "scope")
+        if source_auth:
+            request_data["source_auth"] = _parse_obj(source_auth, "source_auth")
+        result = await make_api_call("POST", endpoint, request_data, headers=_ticket_headers(alfresco_ticket))
         return {"success": True, "data": result}
     except Exception as e:
         return {"success": False, "error": _fmt_error(e)}
 
+
 @mcp.tool()
-async def query_documents(query: str, top_k: int = 10) -> Dict[str, Any]:
+async def get_auth_requirements() -> Dict[str, Any]:
+    """
+    Which sign-ins the stored content needs before search_documents / query_documents.
+
+    Returns {"required": bool, "providers": [{"source": "alfresco", "url": ..., "methods": [...],
+    "documents": n}]}. An empty providers list means no sign-in is needed. When required is true,
+    documents of a listed source are only used if the call passes that user's identity
+    (alfresco_ticket or source_auth); ask the user for it rather than guessing.
+    """
+    try:
+        return {"success": True, "data": await make_api_call("GET", "/api/auth/requirements")}
+    except Exception as e:
+        return {"success": False, "error": _fmt_error(e)}
+
+
+@mcp.tool()
+async def search_documents(query: str, top_k: int = 10, alfresco_ticket: Optional[str] = None,
+                           source_auth: Optional[Union[str, dict]] = None,
+                           scope: Optional[Union[str, dict]] = None) -> Dict[str, Any]:
+    """
+    Search documents using hybrid search
+
+    Alfresco documents are only searched when the caller says who they are (alfresco_ticket or
+    source_auth); results then include only the Alfresco documents that user may read,
+    checked against Alfresco at query time. Documents from other sources are always searched.
+
+    Args:
+        query: Search query string
+        top_k: Number of results to return
+        alfresco_ticket: The asking user's Alfresco login ticket (TICKET_...)
+        source_auth: The asking user's identity per data source, e.g.
+            {"alfresco": {"auth_method": "basic", "username": "...", "password": "..."}},
+            {"alfresco": {"ticket": "TICKET_..."}} or
+            {"alfresco": {"auth_method": "oauth2", "oauth2": {"access_token": "..."}}}.
+            Optional "url" names the Alfresco server. get_auth_requirements tells whether the
+            stored content needs one.
+        scope: Limit to one repository document or folder, as a JSON object:
+            {"data_source": "alfresco", "path": "/Shared/GraphRAG", "is_folder": true}
+            or {"data_source": "alfresco", "node_id": "<node id>"}. A folder covers everything
+            below it. Optional "url" picks one repository; "name" is used in messages.
+    """
+    return await _ask("/api/search", query, top_k, alfresco_ticket, source_auth, scope)
+
+
+@mcp.tool()
+async def query_documents(query: str, top_k: int = 10, alfresco_ticket: Optional[str] = None,
+                          source_auth: Optional[Union[str, dict]] = None,
+                          scope: Optional[Union[str, dict]] = None) -> Dict[str, Any]:
     """
     Query documents with AI-generated answers
-    
+
+    Alfresco documents are only used when the caller says who they are (alfresco_ticket or
+    source_auth); the answer then draws only on the Alfresco documents that user may read,
+    checked against Alfresco at query time. Documents from other sources are always used.
+
     Args:
         query: Question to ask
         top_k: Number of source documents to consider
+        alfresco_ticket: The asking user's Alfresco login ticket (TICKET_...)
+        source_auth: The asking user's identity per data source, e.g.
+            {"alfresco": {"auth_method": "basic", "username": "...", "password": "..."}},
+            {"alfresco": {"ticket": "TICKET_..."}} or
+            {"alfresco": {"auth_method": "oauth2", "oauth2": {"access_token": "..."}}}.
+            Optional "url" names the Alfresco server. get_auth_requirements tells whether the
+            stored content needs one.
+        scope: Limit to one repository document or folder, as a JSON object:
+            {"data_source": "alfresco", "path": "/Shared/GraphRAG", "is_folder": true}
+            or {"data_source": "alfresco", "node_id": "<node id>"}. A folder covers everything
+            below it. Optional "url" picks one repository; "name" is used in messages.
     """
-    try:
-        request_data = {"query": query, "top_k": top_k}
-        result = await make_api_call("POST", "/api/query", request_data)
-        return {"success": True, "data": result}
-    except Exception as e:
-        return {"success": False, "error": _fmt_error(e)}
+    return await _ask("/api/query", query, top_k, alfresco_ticket, source_auth, scope)
 
 @mcp.tool()
 async def test_with_sample(skip_graph: bool = False) -> Dict[str, Any]:
@@ -356,7 +454,8 @@ def main():
     sys.stderr.write("🛠️  Available tools:\n")
     sys.stderr.write("   • get_system_status\n")
     sys.stderr.write("   • ingest_documents (supports paths, skip_graph, enable_sync, nodeDetails, all 14 data sources)\n")
-    sys.stderr.write("   • search_documents\n") 
+    sys.stderr.write("   • get_auth_requirements\n")
+    sys.stderr.write("   • search_documents\n")
     sys.stderr.write("   • query_documents\n")
     sys.stderr.write("   • test_with_sample\n")
     sys.stderr.write("   • ingest_text\n")

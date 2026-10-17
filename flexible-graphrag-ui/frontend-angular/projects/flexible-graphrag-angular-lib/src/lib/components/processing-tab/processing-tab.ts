@@ -1049,12 +1049,11 @@ export class ProcessingTabComponent implements OnInit, OnChanges, OnDestroy {
         processingData.paths = this.configuredFiles.map(f => f.name);
       } else if (this.configuredDataSource === 'cmis') {
         processingData.paths = [this.configuredFolderPath || '/Sites/swsdp/documentLibrary']; // Use configured path
-        processingData.cmis_config = {
-          url: 'http://localhost:8080/alfresco/api/-default-/public/cmis/versions/1.1/atom',
-          username: 'admin',
-          password: 'admin',
-          folder_path: this.configuredFolderPath || '/Sites/swsdp/documentLibrary'
-        };
+        // Send what the CMIS form configured (this was a hardcoded localhost admin/admin literal
+        // that silently ignored the form)
+        processingData.cmis_config = this.configuredCmisConfig
+          ? { ...this.configuredCmisConfig, folder_path: this.configuredCmisConfig.folder_path || this.configuredFolderPath || '/Sites/swsdp/documentLibrary' }
+          : undefined;
       } else if (this.configuredDataSource === 'alfresco') {
         const alfrescoPath = this.configuredAlfrescoConfig?.path
           || this.configuredFolderPath
@@ -1070,15 +1069,11 @@ export class ProcessingTabComponent implements OnInit, OnChanges, OnDestroy {
         // url/username/password literal, so every edit made in the form -- credentials, auth
         // method, ticket -- was silently discarded and every ingest ran as admin/admin against
         // http://localhost:8080. The literals remain only as a fallback for when nothing has
-        // been configured at all.
+        // been configured at all -- and then no credentials are sent (no admin/admin literals):
+        // the backend answers 400 "alfresco_config is required", shown as the job's error.
         processingData.alfresco_config = this.configuredAlfrescoConfig
           ? this.withCheckedNodes({ ...this.configuredAlfrescoConfig, path: alfrescoPath })
-          : {
-              url: 'http://localhost:8080',
-              username: 'admin',
-              password: 'admin',
-              path: alfrescoPath
-            };
+          : undefined;
       } else if (this.configuredDataSource === 'nuxeo') {
         processingData.nuxeo_config = this.configuredNuxeoConfig
           ? this.withCheckedNodes({ ...this.configuredNuxeoConfig })

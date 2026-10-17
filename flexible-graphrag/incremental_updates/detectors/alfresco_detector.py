@@ -9,7 +9,7 @@ Detects changes in Alfresco repositories through:
 import asyncio
 import logging
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, Optional, AsyncGenerator, List
 from asyncio import Queue
 
@@ -742,7 +742,7 @@ class AlfrescoDetector(ChangeDetector):
             path = f"alfresco://node/{node_id}"
             logger.info(f"   Path: {path}")
             
-            ordinal = int(datetime.utcnow().timestamp() * 1_000_000)
+            ordinal = int(datetime.now(timezone.utc).timestamp() * 1_000_000)
             logger.info(f"   Ordinal: {ordinal}")
             
             metadata = FileMetadata(
@@ -760,7 +760,7 @@ class AlfrescoDetector(ChangeDetector):
             event = ChangeEvent(
                 metadata=metadata,
                 change_type=change_type,
-                timestamp=datetime.utcnow()
+                timestamp=datetime.now(timezone.utc)
             )
             
             # Queue the event
@@ -883,7 +883,7 @@ class AlfrescoDetector(ChangeDetector):
                         metadata = FileMetadata(
                             source_type='alfresco',
                             path=file_path,
-                            ordinal=int(datetime.utcnow().timestamp() * 1_000_000),
+                            ordinal=int(datetime.now(timezone.utc).timestamp() * 1_000_000),
                             size_bytes=event_data.get('size_bytes', 0),
                             mime_type=event_data.get('mime_type'),
                             modified_timestamp=event_data.get('modified_at'),
@@ -1102,7 +1102,7 @@ class AlfrescoDetector(ChangeDetector):
                         yield event
                 
                 # Update last check time
-                self._last_check_time = datetime.utcnow()
+                self._last_check_time = datetime.now(timezone.utc)
                 
                 # Yield None to allow other processing
                 yield None
@@ -1134,6 +1134,7 @@ class AlfrescoDetector(ChangeDetector):
         """Verify connection to Alfresco server"""
         logger.info(f"Verifying Alfresco connection to {self.url}")
 
+        core_client = None
         try:
             # Import here to avoid dependency issues if not installed
             from python_alfresco_api import ClientFactory
@@ -1175,7 +1176,11 @@ class AlfrescoDetector(ChangeDetector):
 
         except Exception as e:
             raise ConnectionError(f"Failed to connect to Alfresco at {self.url}: {e}")
-        
+
+        finally:
+            from sources.alfresco import close_alfresco_client
+            close_alfresco_client(core_client)
+
         # Resolve monitored folder path to node ID for event filtering
         await self._resolve_monitored_folder_id()
     
@@ -1186,7 +1191,8 @@ class AlfrescoDetector(ChangeDetector):
             return
         
         logger.info(f"Resolving monitored folder path to node ID: {self.path}")
-        
+
+        core_client = None
         try:
             from python_alfresco_api import ClientFactory
             
@@ -1249,7 +1255,11 @@ class AlfrescoDetector(ChangeDetector):
         except Exception as e:
             logger.error(f"Failed to resolve monitored folder ID: {e}", exc_info=True)
             logger.warning(f"Event filtering disabled - will accept all events")
-    
+
+        finally:
+            from sources.alfresco import close_alfresco_client
+            close_alfresco_client(core_client)
+
     async def _initialize_baseline(self) -> None:
         """Get initial state of all documents in the monitored path"""
         logger.info("Initializing baseline state...")
@@ -1284,9 +1294,12 @@ class AlfrescoDetector(ChangeDetector):
         
         loop = asyncio.get_event_loop()
         source = await loop.run_in_executor(None, lambda: AlfrescoSource(source_config))
-        
+
         # List all files
-        files = await loop.run_in_executor(None, source.list_files)
+        try:
+            files = await loop.run_in_executor(None, source.list_files)
+        finally:
+            source.close()
         
         # Build state dict
         current_state = {}
@@ -1333,7 +1346,7 @@ class AlfrescoDetector(ChangeDetector):
                 # New document
                 logger.info(f"New document detected: {current_meta['path']}")
                 
-                ordinal = int(datetime.utcnow().timestamp() * 1_000_000)
+                ordinal = int(datetime.now(timezone.utc).timestamp() * 1_000_000)
                 
                 # Get modified timestamp if available
                 modified_timestamp = str(current_meta.get('modified', '')) if current_meta.get('modified') else None
@@ -1354,7 +1367,7 @@ class AlfrescoDetector(ChangeDetector):
                 event = ChangeEvent(
                     metadata=metadata,
                     change_type=ChangeType.CREATE,
-                    timestamp=datetime.utcnow()
+                    timestamp=datetime.now(timezone.utc)
                 )
                 
                 yield event
@@ -1369,7 +1382,7 @@ class AlfrescoDetector(ChangeDetector):
                     
                     logger.info(f"Modified document detected: {current_meta['path']}")
                     
-                    ordinal = int(datetime.utcnow().timestamp() * 1_000_000)
+                    ordinal = int(datetime.now(timezone.utc).timestamp() * 1_000_000)
                     
                     # Get modified timestamp if available
                     modified_timestamp = str(current_meta.get('modified', '')) if current_meta.get('modified') else None
@@ -1390,7 +1403,7 @@ class AlfrescoDetector(ChangeDetector):
                     event = ChangeEvent(
                         metadata=metadata,
                         change_type=ChangeType.UPDATE,
-                        timestamp=datetime.utcnow()
+                        timestamp=datetime.now(timezone.utc)
                     )
                     
                     yield event
@@ -1400,7 +1413,7 @@ class AlfrescoDetector(ChangeDetector):
             if node_id not in current_state:
                 logger.info(f"Deleted document detected: {known_meta['path']}")
                 
-                ordinal = int(datetime.utcnow().timestamp() * 1_000_000)
+                ordinal = int(datetime.now(timezone.utc).timestamp() * 1_000_000)
                 metadata = FileMetadata(
                     source_type='alfresco',
                     path=known_meta['path'],
@@ -1414,7 +1427,7 @@ class AlfrescoDetector(ChangeDetector):
                 event = ChangeEvent(
                     metadata=metadata,
                     change_type=ChangeType.DELETE,
-                    timestamp=datetime.utcnow()
+                    timestamp=datetime.now(timezone.utc)
                 )
                 
                 yield event
@@ -1444,7 +1457,7 @@ class AlfrescoDetector(ChangeDetector):
                 file_metadata = FileMetadata(
                     source_type='alfresco',
                     path=metadata['path'],
-                    ordinal=int(datetime.utcnow().timestamp() * 1_000_000),
+                    ordinal=int(datetime.now(timezone.utc).timestamp() * 1_000_000),
                     size_bytes=metadata.get('size', 0),
                     mime_type=metadata.get('content_type'),
                     modified_timestamp=modified_timestamp,

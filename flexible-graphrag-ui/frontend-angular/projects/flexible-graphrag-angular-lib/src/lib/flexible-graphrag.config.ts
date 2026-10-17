@@ -52,6 +52,13 @@ export interface FlexibleGraphragConfig {
    */
   requestHeaders?: () => Record<string, string>;
   /**
+   * Alfresco sign-in for search / AI chat (planning/SOURCE-AUTH-LOGIN.md): before a question,
+   * when the stores hold Alfresco documents, ask the user to sign in (same ticket API as ACA) so
+   * answers come only from what they may read. Default true. Skipped automatically when
+   * requestHeaders already supplies X-Alfresco-Ticket (KG Spaces passes ACA's own).
+   */
+  sourceSignIn?: boolean;
+  /**
    * Open a result's / answer's source document in the host's own viewer. Return true when
    * handled; otherwise the document's `open_url` (if any) opens in a new tab. KG Spaces opens
    * Alfresco nodes in ACA's viewer.
@@ -76,6 +83,7 @@ export const FLEXIBLE_GRAPHRAG_DEFAULTS: Required<Omit<FlexibleGraphragConfig, '
   agentIconUrl: 'assets/agent.png',
   noSourcesMessage: 'Please go to the Sources tab to configure your data source first.',
   goToSourcesLabel: '← Go to Sources',
+  sourceSignIn: true,
   chatWelcomeTitle: 'Welcome to Flexible GraphRAG Chat',
   chatWelcomeLines: [
     'Ask questions about your documents and get conversational answers.',

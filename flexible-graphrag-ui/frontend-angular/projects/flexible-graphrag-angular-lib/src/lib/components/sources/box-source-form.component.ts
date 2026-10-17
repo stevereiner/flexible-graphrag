@@ -31,10 +31,10 @@ export interface BoxSourceConfig {
       <div *ngIf="authMode === 'developer_token'">
         <mat-form-field appearance="outline" class="full-width">
           <mat-label>Developer Token</mat-label>
-          <input matInput
+          <input required matInput
                  type="password"
                  [(ngModel)]="developerToken"
-                 (ngModelChange)="onDeveloperTokenChange()" />
+                 (ngModelChange)="onDeveloperTokenChange()" autocomplete="new-password" />
           <mat-hint>Temporary token for testing (expires after 1 hour)</mat-hint>
         </mat-form-field>
       </div>
@@ -43,24 +43,24 @@ export interface BoxSourceConfig {
         <div class="d-flex gap-2 mb-3">
           <mat-form-field appearance="outline" class="flex-1">
             <mat-label>App Client ID</mat-label>
-            <input matInput
+            <input required matInput
                    [(ngModel)]="clientId"
                    (ngModelChange)="onClientIdChange()" />
           </mat-form-field>
 
           <mat-form-field appearance="outline" class="flex-1">
             <mat-label>App Client Secret</mat-label>
-            <input matInput
+            <input required matInput
                    type="password"
                    [(ngModel)]="clientSecret"
-                   (ngModelChange)="onClientSecretChange()" />
+                   (ngModelChange)="onClientSecretChange()" autocomplete="new-password" />
           </mat-form-field>
         </div>
 
         <mat-form-field *ngIf="authMode === 'ccg_user' || authMode === 'ccg_both'" 
                         appearance="outline" class="full-width">
           <mat-label>Box User ID</mat-label>
-          <input matInput
+          <input required matInput
                  [(ngModel)]="userId"
                  (ngModelChange)="onUserIdChange()"
                  placeholder="12345678" />
@@ -70,7 +70,7 @@ export interface BoxSourceConfig {
         <mat-form-field *ngIf="authMode === 'ccg_enterprise' || authMode === 'ccg_both'" 
                         appearance="outline" class="full-width">
           <mat-label>Box Enterprise ID</mat-label>
-          <input matInput
+          <input required matInput
                  [(ngModel)]="enterpriseId"
                  (ngModelChange)="onEnterpriseIdChange()"
                  placeholder="987654321" />
@@ -83,8 +83,8 @@ export interface BoxSourceConfig {
         <input matInput
                [(ngModel)]="folderId"
                (ngModelChange)="onFolderIdChange()"
-               placeholder="0" />
-        <mat-hint>Leave empty for root folder</mat-hint>
+               placeholder="e.g., 123456789" />
+        <mat-hint>Leave empty for the root folder (All Files, ID 0)</mat-hint>
       </mat-form-field>
     </app-base-source-form>
   `,

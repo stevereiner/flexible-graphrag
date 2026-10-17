@@ -48,7 +48,7 @@
       placeholder="https://sqs.us-east-2.amazonaws.com/123456789/my-queue"
       hint="Optional: SQS queue URL for real-time event-based sync (leave empty for periodic polling)"
       persistent-hint
-      autocomplete="url"
+      autocomplete="off"
       data-lpignore="true"
       data-form-type="other"
       data-1p-ignore="true"
@@ -63,7 +63,7 @@
           variant="outlined"
           type="password"
           required
-          autocomplete="off"
+          autocomplete="new-password"
         />
       </v-col>
       <v-col cols="6">
@@ -74,7 +74,7 @@
           variant="outlined"
           type="password"
           required
-          autocomplete="off"
+          autocomplete="new-password"
         />
       </v-col>
     </v-row>
@@ -104,7 +104,7 @@ export default defineComponent({
   setup(props, { emit }) {
     const bucketName = ref('');
     const prefix = ref('');
-    const regionName = ref('us-east-1');
+    const regionName = ref('');  // starts empty; placeholder shows e.g. us-east-1
     const sqsQueueUrl = ref('');
 
     const isValid = computed(() => {

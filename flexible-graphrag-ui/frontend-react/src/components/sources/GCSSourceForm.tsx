@@ -76,6 +76,7 @@ export const GCSSourceForm: React.FC<GCSSourceFormProps> = ({
       <TextField
         fullWidth
         label="Bucket Name"
+        required
         variant="outlined"
         value={bucketName}
         onChange={(e) => onBucketNameChange(e.target.value)}
@@ -97,6 +98,7 @@ export const GCSSourceForm: React.FC<GCSSourceFormProps> = ({
       <TextField
         fullWidth
         label="Service Account Credentials (JSON)"
+        required
         variant="outlined"
         value={credentials}
         onChange={(e) => onCredentialsChange(e.target.value)}

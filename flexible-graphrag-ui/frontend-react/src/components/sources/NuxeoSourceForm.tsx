@@ -37,8 +37,9 @@ export const NuxeoSourceForm: React.FC<NuxeoSourceFormProps> = ({
   const [path, setPath] = useState<string>(value?.path ?? defaultPath);
 
   // Basic auth
-  const [username, setUsername] = useState<string>(value?.username ?? 'Administrator');
-  const [password, setPassword] = useState<string>(value?.password ?? 'Administrator');
+  // no pre-filled credentials (were Administrator/Administrator)
+  const [username, setUsername] = useState<string>(value?.username ?? '');
+  const [password, setPassword] = useState<string>(value?.password ?? '');
 
   // OAuth2
   const [clientId, setClientId] = useState<string>(value?.oauth2?.client_id ?? '');
@@ -90,6 +91,7 @@ export const NuxeoSourceForm: React.FC<NuxeoSourceFormProps> = ({
       <TextField
         fullWidth
         label="Nuxeo Base URL"
+        required
         variant="outlined"
         value={url}
         onChange={(e) => setUrl(e.target.value)}
@@ -116,7 +118,9 @@ export const NuxeoSourceForm: React.FC<NuxeoSourceFormProps> = ({
         <Box sx={{ display: 'flex', gap: 2, mb: 2 }}>
           <TextField
             fullWidth
-            label="Username"
+            autoComplete="off"
+        label="Username"
+        required
             variant="outlined"
             value={username}
             onChange={(e) => setUsername(e.target.value)}
@@ -125,7 +129,9 @@ export const NuxeoSourceForm: React.FC<NuxeoSourceFormProps> = ({
           <TextField
             fullWidth
             label="Password"
+            required
             type="password"
+        autoComplete="new-password"
             variant="outlined"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
@@ -140,6 +146,7 @@ export const NuxeoSourceForm: React.FC<NuxeoSourceFormProps> = ({
             <TextField
               fullWidth
               label="Client ID"
+              required
               variant="outlined"
               value={clientId}
               onChange={(e) => setClientId(e.target.value)}
@@ -148,7 +155,10 @@ export const NuxeoSourceForm: React.FC<NuxeoSourceFormProps> = ({
             <TextField
               fullWidth
               label="Client Secret"
+              required={accessToken.trim() === ''}
+              helperText="Required unless an access token is given"
               type="password"
+        autoComplete="new-password"
               variant="outlined"
               value={clientSecret}
               onChange={(e) => setClientSecret(e.target.value)}
@@ -158,8 +168,9 @@ export const NuxeoSourceForm: React.FC<NuxeoSourceFormProps> = ({
           <Box sx={{ display: 'flex', gap: 2, mb: 2 }}>
             <TextField
               fullWidth
-              label="Access Token"
+              label="Access Token (optional)"
               type="password"
+        autoComplete="new-password"
               variant="outlined"
               value={accessToken}
               onChange={(e) => setAccessToken(e.target.value)}
@@ -168,8 +179,9 @@ export const NuxeoSourceForm: React.FC<NuxeoSourceFormProps> = ({
             />
             <TextField
               fullWidth
-              label="Refresh Token"
+              label="Refresh Token (optional)"
               type="password"
+        autoComplete="new-password"
               variant="outlined"
               value={refreshToken}
               onChange={(e) => setRefreshToken(e.target.value)}
@@ -191,6 +203,7 @@ export const NuxeoSourceForm: React.FC<NuxeoSourceFormProps> = ({
       <TextField
         fullWidth
         label="Path"
+        required
         variant="outlined"
         value={path}
         onChange={(e) => setPath(e.target.value)}

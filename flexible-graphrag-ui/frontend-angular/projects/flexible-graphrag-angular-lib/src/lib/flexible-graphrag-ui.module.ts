@@ -5,6 +5,7 @@ import { MatButtonModule } from '@angular/material/button';
 import { MatCardModule } from '@angular/material/card';
 import { MatCheckboxModule } from '@angular/material/checkbox';
 import { MatChipsModule } from '@angular/material/chips';
+import { MatDialogModule } from '@angular/material/dialog';
 import { MatDividerModule } from '@angular/material/divider';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
@@ -26,6 +27,7 @@ import { ProcessingTabComponent } from './components/processing-tab/processing-t
 import { SearchTabComponent } from './components/search-tab/search-tab';
 import { ChatTabComponent } from './components/chat-tab/chat-tab';
 import { SourceDocsComponent } from './components/source-docs/source-docs';
+import { SourceSignInComponent, SourceSignInDialogComponent } from './components/source-sign-in/source-sign-in';
 import {
   BaseSourceFormComponent,
   FileUploadFormComponent,
@@ -51,6 +53,8 @@ const COMPONENTS = [
   SearchTabComponent,
   ChatTabComponent,
   SourceDocsComponent,
+  SourceSignInComponent,
+  SourceSignInDialogComponent,
   BaseSourceFormComponent,
   FileUploadFormComponent,
   WebSourceFormComponent,
@@ -79,7 +83,7 @@ const COMPONENTS = [
   declarations: [...COMPONENTS],
   imports: [
     CommonModule, FormsModule, ReactiveFormsModule,
-    MatButtonModule, MatCardModule, MatCheckboxModule, MatChipsModule, MatDividerModule,
+    MatButtonModule, MatCardModule, MatCheckboxModule, MatChipsModule, MatDialogModule, MatDividerModule,
     MatFormFieldModule, MatIconModule, MatInputModule, MatListModule, MatMenuModule,
     MatProgressBarModule, MatProgressSpinnerModule, MatSelectModule, MatSlideToggleModule,
     MatSnackBarModule, MatTableModule, MatTabsModule, MatToolbarModule, TextFieldModule

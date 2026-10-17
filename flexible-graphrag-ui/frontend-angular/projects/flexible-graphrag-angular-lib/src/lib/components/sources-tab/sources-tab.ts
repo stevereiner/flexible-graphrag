@@ -1,4 +1,5 @@
 import { Component, EventEmitter, Output, inject, OnInit } from '@angular/core';
+import { SourceAuthService } from '../../services/source-auth.service';
 import { FlexibleGraphragConfigService } from '../../config.service';
 
 @Component({
@@ -9,6 +10,7 @@ import { FlexibleGraphragConfigService } from '../../config.service';
 })
 export class SourcesTabComponent implements OnInit {
   private readonly fgConfig = inject(FlexibleGraphragConfigService);
+  private readonly sourceAuth = inject(SourceAuthService);
   @Output() configureProcessing = new EventEmitter<void>();
   @Output() sourcesConfigured = new EventEmitter<any>();
 
@@ -51,8 +53,9 @@ export class SourcesTabComponent implements OnInit {
 
   // CMIS state
   cmisUrl = `${this.fgConfig.cmisBaseUrl}/alfresco/api/-default-/public/cmis/versions/1.1/atom`;
-  cmisUsername = 'admin';
-  cmisPassword = 'admin';
+  // CMIS credentials: no pre-filled credentials (were admin/admin)
+  cmisUsername = '';
+  cmisPassword = '';
 
   // Single-object form state for the self-contained Nuxeo/Alfresco forms (persists across tabs).
   nuxeoFormValue: any = {};
@@ -135,6 +138,8 @@ export class SourcesTabComponent implements OnInit {
       case 'alfresco':
         sourceConfig.alfrescoConfig = this.currentConfig;
         sourceConfig.folderPath = this.currentConfig?.path || '';
+        // Credentials typed into the form also sign in for search / chat (if not signed in)
+        this.sourceAuth.signInFromSourceConfig(this.currentConfig);
         break;
       case 'nuxeo':
         sourceConfig.nuxeoConfig = this.currentConfig;

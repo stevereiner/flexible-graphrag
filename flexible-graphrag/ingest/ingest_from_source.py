@@ -128,6 +128,21 @@ def _assign_stable_doc_ids(documents: List, config_id: str) -> None:
         logger.info(f"  Set stable doc_id: {stable_doc_id}")
 
 
+def _assign_repository_doc_ids(documents: List) -> None:
+    """Without a config_id, still give repository documents their repository id as doc_id.
+
+    Query-time permission filtering (permission_filter.py) and scoped questions recognise an
+    Alfresco document by the ``alfresco://<node id>`` in its doc_id. A run without the incremental
+    registry (ENABLE_INCREMENTAL_UPDATES off, no auto sync) has no config_id, and its documents
+    would otherwise keep a bare node id -- then every caller sees them, whatever ticket they send.
+    """
+    for doc in documents:
+        stable_fp = (getattr(doc, 'metadata', None) or {}).get('stable_file_path', '')
+        if stable_fp.startswith(('alfresco://', 'nuxeo://')):
+            doc.id_ = stable_fp
+            doc.metadata['doc_id'] = stable_fp
+
+
 # ---------------------------------------------------------------------------
 # ingest_source_documents
 # ---------------------------------------------------------------------------
@@ -180,6 +195,8 @@ async def ingest_source_documents(
         from ingest.replace_existing import delete_previous_versions
         _update_progress("Removing the previous version…", 42, current_phase="indexing")
         await delete_previous_versions(system, documents, replace_doc_ids)
+    else:
+        _assign_repository_doc_ids(documents)
 
     system._last_ingested_documents = documents
     logger.info(f"=== PRE-CHUNKING: {len(documents)} Documents ===")

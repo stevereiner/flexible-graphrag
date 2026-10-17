@@ -31,6 +31,7 @@
           :model-value="username"
           @update:model-value="(v: string) => username = v"
           label="Username *"
+          autocomplete="off"
           variant="outlined"
           required
         />
@@ -41,6 +42,7 @@
           @update:model-value="(v: string) => password = v"
           label="Password *"
           type="password"
+          autocomplete="new-password"
           variant="outlined"
           required
         />
@@ -62,8 +64,11 @@
           <v-text-field
             :model-value="clientSecret"
             @update:model-value="(v: string) => clientSecret = v"
-            label="Client Secret"
+            hint="Required unless an access token is given"
+            persistent-hint
+            :label="accessToken.trim() ? 'Client Secret' : 'Client Secret *'"
             type="password"
+          autocomplete="new-password"
             variant="outlined"
           />
         </v-col>
@@ -73,8 +78,9 @@
           <v-text-field
             :model-value="accessToken"
             @update:model-value="(v: string) => accessToken = v"
-            label="Access Token"
+            label="Access Token (optional)"
             type="password"
+          autocomplete="new-password"
             variant="outlined"
             hint="Obtain out-of-band (authorization code + PKCE)"
             persistent-hint
@@ -84,8 +90,9 @@
           <v-text-field
             :model-value="refreshToken"
             @update:model-value="(v: string) => refreshToken = v"
-            label="Refresh Token"
+            label="Refresh Token (optional)"
             type="password"
+          autocomplete="new-password"
             variant="outlined"
           />
         </v-col>
@@ -137,8 +144,9 @@ export default defineComponent({
     // backend's .env, so NUXEO_PATH there does not reach this dialog.
     const path = ref(v.path ?? (import.meta.env.VITE_NUXEO_PATH || '/default-domain/workspaces/GraphRAG'));
 
-    const username = ref(v.username ?? 'Administrator');
-    const password = ref(v.password ?? 'Administrator');
+    // no pre-filled credentials (were Administrator/Administrator)
+    const username = ref(v.username ?? '');
+    const password = ref(v.password ?? '');
 
     const clientId = ref(v.oauth2?.client_id ?? '');
     const clientSecret = ref(v.oauth2?.client_secret ?? '');

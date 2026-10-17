@@ -19,7 +19,7 @@ export interface SharePointSourceConfig {
       
       <div class="form-row">
         <mat-form-field appearance="outline" class="half-width">
-          <mat-label>Client ID *</mat-label>
+          <mat-label>Client ID</mat-label>
           <input matInput
                  [(ngModel)]="clientId"
                  (ngModelChange)="onClientIdChange()"
@@ -30,7 +30,7 @@ export interface SharePointSourceConfig {
         </mat-form-field>
 
         <mat-form-field appearance="outline" class="half-width">
-          <mat-label>Tenant ID *</mat-label>
+          <mat-label>Tenant ID</mat-label>
           <input matInput
                  [(ngModel)]="tenantId"
                  (ngModelChange)="onTenantIdChange()"
@@ -42,18 +42,18 @@ export interface SharePointSourceConfig {
       </div>
 
       <mat-form-field appearance="outline" class="full-width">
-        <mat-label>Client Secret *</mat-label>
+        <mat-label>Client Secret</mat-label>
         <input matInput
                type="password"
                [(ngModel)]="clientSecret"
                (ngModelChange)="onClientSecretChange()"
                required
-               autocomplete="off" />
+               autocomplete="new-password" />
         <mat-hint>Azure app registration client secret</mat-hint>
       </mat-form-field>
 
       <mat-form-field appearance="outline" class="full-width">
-        <mat-label>Site Name *</mat-label>
+        <mat-label>Site Name</mat-label>
         <input matInput
                [(ngModel)]="siteName"
                (ngModelChange)="onSiteNameChange()"
@@ -64,21 +64,21 @@ export interface SharePointSourceConfig {
 
       <div class="form-row">
         <mat-form-field appearance="outline" class="half-width">
-          <mat-label>Folder Path</mat-label>
+          <mat-label>Folder Path (Optional)</mat-label>
           <input matInput
                  [(ngModel)]="folderPath"
                  (ngModelChange)="onFolderPathChange()"
                  placeholder="/Shared Documents/Reports" />
-          <mat-hint>Optional: folder path within site</mat-hint>
+          <mat-hint>Optional: specific folder path within site</mat-hint>
         </mat-form-field>
 
         <mat-form-field appearance="outline" class="half-width">
-          <mat-label>Folder ID</mat-label>
+          <mat-label>Folder ID (Optional)</mat-label>
           <input matInput
                  [(ngModel)]="folderId"
                  (ngModelChange)="onFolderIdChange()"
                  placeholder="01BYE5RZ6QN6OWWLQZC5FK2GWWDURNZHIL" />
-          <mat-hint>Optional: SharePoint folder ID</mat-hint>
+          <mat-hint>Optional: specific folder ID (replaces document library)</mat-hint>
         </mat-form-field>
       </div>
 

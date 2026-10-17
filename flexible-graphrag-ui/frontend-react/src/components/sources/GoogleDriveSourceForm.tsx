@@ -49,6 +49,7 @@ export const GoogleDriveSourceForm: React.FC<GoogleDriveSourceFormProps> = ({
       <TextField
         fullWidth
         label="Service Account Credentials (JSON)"
+        required
         variant="outlined"
         value={credentials}
         onChange={(e) => onCredentialsChange(e.target.value)}

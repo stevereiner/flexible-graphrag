@@ -1267,14 +1267,20 @@ class FlexibleGraphRAGBackend:
                 else:
                     # Use environment variables
                     import os
+                    # Like python-alfresco-mcp-server: ALFRESCO_AUTH_METHOD=ticket uses
+                    # ALFRESCO_TICKET as-is, or fetches a ticket from ALFRESCO_USERNAME/PASSWORD;
+                    # an ALFRESCO_TICKET with no auth method set means ticket mode too.
+                    env_ticket = os.getenv("ALFRESCO_TICKET", "")
+                    env_method = os.getenv("ALFRESCO_AUTH_METHOD") or (
+                        "ticket" if env_ticket and not os.getenv("ALFRESCO_USERNAME") else "basic")
+                    pass_through = env_method.lower() == "ticket" and bool(env_ticket)
                     config = {
                         "url": os.getenv("ALFRESCO_URL", "http://localhost:8080/alfresco"),
-                        "auth_method": os.getenv("ALFRESCO_AUTH_METHOD", "basic"),
-                        "username": os.getenv("ALFRESCO_USERNAME", "admin"),
-                        "password": os.getenv("ALFRESCO_PASSWORD", "admin"),
-                        # Pre-obtained login ticket; with auth_method=ticket it replaces
-                        # username/password rather than being fetched from them.
-                        "ticket": os.getenv("ALFRESCO_TICKET", ""),
+                        "auth_method": env_method,
+                        # No admin/admin defaults when a ticket is the whole credential
+                        "username": "" if pass_through else os.getenv("ALFRESCO_USERNAME", "admin"),
+                        "password": "" if pass_through else os.getenv("ALFRESCO_PASSWORD", "admin"),
+                        "ticket": env_ticket,
                         "path": os.getenv("ALFRESCO_PATH", "/")
                     }
                     # Optional OAuth2 config from env (auth_method=oauth2)

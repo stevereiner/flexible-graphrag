@@ -7,7 +7,7 @@ Detects file creates, modifications, and deletions.
 
 import asyncio
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Dict, Optional, AsyncGenerator, List
 
@@ -48,7 +48,7 @@ if WATCHDOG_AVAILABLE:
             
             # For deletions, use current timestamp since file doesn't exist
             if change_type == ChangeType.DELETE:
-                ordinal = int(datetime.utcnow().timestamp() * 1_000_000)
+                ordinal = int(datetime.now(timezone.utc).timestamp() * 1_000_000)
                 size_bytes = None
             else:
                 # For creates/updates, use file's modification time
@@ -57,7 +57,7 @@ if WATCHDOG_AVAILABLE:
                     size_bytes = path.stat().st_size
                 except Exception:
                     # Fallback if file doesn't exist anymore
-                    ordinal = int(datetime.utcnow().timestamp() * 1_000_000)
+                    ordinal = int(datetime.now(timezone.utc).timestamp() * 1_000_000)
                     size_bytes = None
             
             metadata = FileMetadata(
@@ -70,7 +70,7 @@ if WATCHDOG_AVAILABLE:
             return ChangeEvent(
                 metadata=metadata,
                 change_type=change_type,
-                timestamp=datetime.utcnow()
+                timestamp=datetime.now(timezone.utc)
             )
         
         def on_created(self, event):
@@ -88,7 +88,7 @@ if WATCHDOG_AVAILABLE:
                 try:
                     # Track this event for deduplication
                     if self.detector:
-                        self.detector.recent_events[event.src_path] = (ChangeType.CREATE, datetime.utcnow())
+                        self.detector.recent_events[event.src_path] = (ChangeType.CREATE, datetime.now(timezone.utc))
                     
                     self.event_queue.put_nowait(self._create_event(event.src_path, ChangeType.CREATE))
                     logger.info(f"WATCHDOG: Event queued successfully")
@@ -109,7 +109,7 @@ if WATCHDOG_AVAILABLE:
                 # If so, skip this UPDATE to avoid duplicate processing
                 if event.src_path in self.detector.recent_events:
                     event_type, timestamp = self.detector.recent_events[event.src_path]
-                    time_since = (datetime.utcnow() - timestamp).total_seconds()
+                    time_since = (datetime.now(timezone.utc) - timestamp).total_seconds()
                     if event_type == ChangeType.CREATE and time_since < 1.0:
                         logger.info(f"WATCHDOG: Skipping UPDATE event (CREATE just processed {time_since:.2f}s ago): {event.src_path}")
                         return
@@ -366,7 +366,7 @@ class FilesystemDetector(ChangeDetector):
                         continue
                     
                     # Check if we should ignore this event (quiet period after processing)
-                    if self._ignore_changes_until and datetime.utcnow() < self._ignore_changes_until:
+                    if self._ignore_changes_until and datetime.now(timezone.utc) < self._ignore_changes_until:
                         logger.debug(f"Ignoring event during quiet period: {event.metadata.path}")
                         continue
                     
@@ -437,7 +437,7 @@ class FilesystemDetector(ChangeDetector):
         
         Useful to ignore events triggered by our own file operations.
         """
-        self._ignore_changes_until = datetime.utcnow() + timedelta(seconds=seconds)
+        self._ignore_changes_until = datetime.now(timezone.utc) + timedelta(seconds=seconds)
         logger.debug(f"Quiet period set for {seconds}s (until {self._ignore_changes_until})")
     
     async def _process_via_backend(self, full_path: str, relative_path: str):

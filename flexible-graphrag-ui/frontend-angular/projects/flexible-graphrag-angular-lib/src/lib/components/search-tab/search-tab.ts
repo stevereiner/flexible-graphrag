@@ -1,8 +1,9 @@
-import { Component, OnDestroy, OnInit } from '@angular/core';
+import { Component, OnDestroy, OnInit, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { FlexibleGraphragConfigService } from '../../config.service';
 import { SourceDocument } from '../../models/api.models';
 import { ProcessingSessionService } from '../../services/processing-session.service';
+import { SourceAuthService } from '../../services/source-auth.service';
 
 interface QueryRequest {
   query: string;
@@ -36,6 +37,10 @@ export class SearchTabComponent implements OnInit, OnDestroy {
   lastSearchQuery = '';
   isQuerying = false;
   error = '';
+  // Why a search found nothing, when the backend says (e.g. the matches are in Alfresco and the
+  // user continued without signing in)
+  emptyMessage = '';
+  private readonly sourceAuth = inject(SourceAuthService);
 
   /** The store part of a result's source label ("a.txt | Neo4j property graph" -> "Neo4j property graph"). */
   storeLabel(result: any): string {
@@ -90,6 +95,7 @@ export class SearchTabComponent implements OnInit, OnDestroy {
     try {
       this.isQuerying = true;
       this.error = '';
+      this.emptyMessage = '';
       this.searchResults = [];
       this.qaAnswer = '';
       this.qaSources = [];
@@ -102,11 +108,22 @@ export class SearchTabComponent implements OnInit, OnDestroy {
         top_k: 10
       };
       
-      const response = await this.http.post<ApiResponse>(`${this.fgConfig.apiUrl}/search`, request,
+      // Ask for an Alfresco sign-in first when the stores need one; on a 401 with our ticket
+      // (expired, or signed out elsewhere) sign in again and ask once more
+      await this.sourceAuth.beforeQuestion();
+      const post = () => this.http.post<ApiResponse>(`${this.fgConfig.apiUrl}/search`, request,
         { headers: this.fgConfig.questionHeaders() }).toPromise();
+      let response: ApiResponse | undefined;
+      try {
+        response = await post();
+      } catch (err: any) {
+        if (err?.status === 401 && await this.sourceAuth.afterUnauthorized()) response = await post();
+        else throw err;
+      }
       
       if (response?.success) {
         this.hasSearched = true;
+        this.emptyMessage = response.message || '';
         if (this.activeTabIndex === 0 && response.results) {
           this.searchResults = response.results;
         } else if (this.activeTabIndex === 1 && response.answer) {

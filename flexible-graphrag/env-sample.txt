@@ -1221,10 +1221,22 @@ ALFRESCO_URL=http://localhost:8080
 ALFRESCO_USERNAME=admin
 ALFRESCO_PASSWORD=admin
 # ALFRESCO_AUTH_METHOD: basic | ticket | oauth2  (default: basic)
-# With "ticket", a ticket is fetched from the username/password above. A ticket the caller
-# already holds is passed per request instead (alfresco_config.ticket), not configured here:
-# it expires, so it does not belong in a config file.
+# With "ticket" (as in python-alfresco-mcp-server): ALFRESCO_TICKET is used as-is when set,
+# otherwise a ticket is fetched from the username/password above. Usually a ticket the caller
+# already holds is passed per request instead (alfresco_config.ticket in the ingest/search/query
+# body, the X-Alfresco-Ticket header KG Spaces sends, or the MCP tools' alfresco_ticket): it expires,
+# so it seldom belongs in a config file. ALFRESCO_TICKET alone (no auth method) means ticket mode.
 #ALFRESCO_AUTH_METHOD=basic
+#ALFRESCO_TICKET=
+# Search / AI query over Alfresco documents (query-time permissions):
+#   required (default) - Alfresco documents are used only when the request says who is asking
+#                        (alfresco_config with basic / ticket / oauth2, or the X-Alfresco-Ticket
+#                        header); results then include only what that user may read, checked
+#                        against Alfresco. Without credentials, Alfresco documents are left out.
+#   optional           - no credentials = every document is visible (only for a backend that
+#                        nothing but trusted callers can reach)
+# Documents from other data sources are not affected either way.
+#ALFRESCO_QUERY_AUTH=required
 # Where a search result's / answer's Alfresco document opens in the Flexible GraphRAG UIs
 # (in a new browser tab): aca (default, the Alfresco Content App viewer) or share (Alfresco
 # Share's document page). KG Spaces in ACA always opens it in its own ACA viewer.

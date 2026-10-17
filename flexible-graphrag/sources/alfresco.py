@@ -21,6 +21,28 @@ except ImportError:
     logging.warning("python-alfresco-api not installed - the Alfresco data source will not work")
 
 
+def close_alfresco_client(client) -> None:
+    """Close a python-alfresco-api client's HTTP connection.
+
+    The high-level clients (AlfrescoCoreClient, ...) hold an httpx.Client but have no close(), so a
+    discarded client leaves its keep-alive socket to Alfresco for the garbage collector
+    ("ResourceWarning: unclosed <socket ... raddr=('::1', 8080 ...)>"). Uses close() if the library
+    gains one, otherwise closes the underlying generated client.
+    """
+    if client is None:
+        return
+    try:
+        close = getattr(client, "close", None)
+        if callable(close):
+            close()
+            return
+        raw = getattr(client, "_raw_client", None)
+        if raw is not None:
+            raw.__exit__(None, None, None)
+    except Exception as e:
+        logger.debug(f"Ignoring error while closing Alfresco client: {e}")
+
+
 class AlfrescoSource(BaseDataSource):
     """Data source for Alfresco repositories"""
     
@@ -98,6 +120,18 @@ class AlfrescoSource(BaseDataSource):
         logger.info(f"Final core_client available: {self.core_client is not None}")
         
         logger.info("=== ALFRESCO SOURCE INITIALIZATION COMPLETE ===")
+
+    def close(self) -> None:
+        """Release the Alfresco HTTP connection. Safe to call more than once."""
+        client, self.core_client = getattr(self, "core_client", None), None
+        close_alfresco_client(client)
+
+    def __del__(self):
+        # Sources are usually just dropped after use; close here so the socket isn't left to the GC
+        try:
+            self.close()
+        except Exception:
+            pass
         logger.info(f"Summary: use_api={self.use_api}, has_core_client={self.core_client is not None}")
     
     def _build_auth_util(self, api_base_url):
@@ -142,8 +176,31 @@ class AlfrescoSource(BaseDataSource):
 
         return True
     
+    def _check_supplied_ticket(self) -> None:
+        """A caller-supplied ticket that Alfresco no longer accepts (it expired, or the user signed
+        out -- Alfresco keeps one ticket per user, so signing out anywhere ends it everywhere)
+        makes every node lookup fail as "Node -root- not found". Say what is wrong instead."""
+        if self.auth_method != "ticket" or not self.ticket or getattr(self, "_ticket_checked", False):
+            return
+        import base64
+        import httpx
+        base = self.url.rstrip('/')
+        base = base[:-9] if base.endswith('/alfresco') else base
+        auth = "Basic " + base64.b64encode(self.ticket.encode()).decode()
+        try:
+            r = httpx.get(f"{base}/alfresco/api/-default-/public/alfresco/versions/1/people/-me-",
+                          params={"fields": "id"}, headers={"Authorization": auth}, timeout=15.0)
+        except Exception as e:
+            logger.warning(f"Could not check the Alfresco ticket: {e}")
+            return  # let the real call report the connection problem
+        if r.status_code in (401, 403):
+            raise PermissionError("The Alfresco ticket is no longer valid (it expired, or the user "
+                                  "signed out). Sign in to Alfresco again.")
+        self._ticket_checked = True
+
     def list_files(self) -> List[dict]:
         """List all documents from the Alfresco path or get specific file"""
+        self._check_supplied_ticket()
         try:
             # NEW: Process specific files/folders using nodeDetails
             if self.node_details:

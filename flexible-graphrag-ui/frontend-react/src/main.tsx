@@ -3,6 +3,10 @@ import ReactDOM from 'react-dom/client';
 import { ThemeProvider, createTheme } from '@mui/material/styles';
 import CssBaseline from '@mui/material/CssBaseline';
 import App from './App';
+import { installSourceAuth } from './auth/sourceAuth';
+
+// Alfresco sign-in for search / AI chat (attaches the ticket, asks when the stores need it)
+installSourceAuth();
 
 const theme = createTheme({
   palette: {

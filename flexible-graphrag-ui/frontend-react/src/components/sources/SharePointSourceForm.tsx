@@ -56,7 +56,7 @@ export const SharePointSourceForm: React.FC<SharePointSourceFormProps> = ({
     >
       <TextField
         fullWidth
-        label="Site Name *"
+        label="Site Name"
         variant="outlined"
         value={siteName}
         onChange={(e) => onSiteNameChange(e.target.value)}
@@ -81,7 +81,7 @@ export const SharePointSourceForm: React.FC<SharePointSourceFormProps> = ({
       />
       <TextField
         fullWidth
-        label="Client ID *"
+        label="Client ID"
         variant="outlined"
         value={clientId}
         onChange={(e) => onClientIdChange(e.target.value)}
@@ -93,17 +93,18 @@ export const SharePointSourceForm: React.FC<SharePointSourceFormProps> = ({
       <Box sx={{ display: 'flex', gap: 2, mb: 2 }}>
         <TextField
           fullWidth
-          label="Client Secret *"
+          label="Client Secret"
           variant="outlined"
           value={clientSecret}
           onChange={(e) => onClientSecretChange(e.target.value)}
           size="small"
           type="password"
+        autoComplete="new-password"
           required
         />
         <TextField
           fullWidth
-          label="Tenant ID *"
+          label="Tenant ID"
           variant="outlined"
           value={tenantId}
           onChange={(e) => onTenantIdChange(e.target.value)}

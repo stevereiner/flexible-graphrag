@@ -2,6 +2,35 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2026-10-17] — Alfresco sign-in for search and ingest, answers only from documents the user may read, data-source form credential cleanup
+
+### Added
+
+- **Sign in to Alfresco** (React, Vue, Angular): a header sign-in and dialog, using the same ticket API as ACA. Search and AI chat ask for it when the stores hold Alfresco documents, with a server picker when there are several Alfresco servers. The Alfresco data-source form can use the sign-in for ingest, and typed credentials also sign in. A stored ticket is re-checked on load and on focus, and sign-out is local only (it doesn't end the shared Alfresco ticket for ACA or other tabs).
+- API: `GET /api/auth/requirements`, `POST /api/auth/alfresco/login`, `GET /api/auth/alfresco/me`, `POST /api/auth/alfresco/logout`. Search and query accept `source_auth.alfresco` (basic, ticket or oauth2) or `X-Alfresco-Ticket` + `X-Alfresco-Url`.
+- `ALFRESCO_QUERY_AUTH=required|optional` (default `required`): with `required`, Alfresco documents are only used when the asker signs in.
+- MCP: `alfresco_ticket` on `ingest_documents`; `alfresco_ticket`, `source_auth` and `scope` on `search_documents` / `query_documents`; new `get_auth_requirements` tool. MCP errors include the backend's reason.
+- Google Drive: Folder ID field in Vue and Angular (React had it).
+
+### Changed
+
+- An Alfresco ingest without `alfresco_config` now returns 400, instead of using the backend's own settings (which ingested `ALFRESCO_PATH`, default the whole repository, as the service account).
+- Data-source forms no longer pre-fill credentials (`admin`/`admin`, Nuxeo `Administrator`), and the S3 region starts empty. Credential fields are marked so the browser's password manager doesn't autofill them.
+- Required and optional markers are consistent across the three UIs: one `*` per required field; Box, Alfresco/Nuxeo OAuth2 and SharePoint fields are marked correctly.
+- KG Spaces: Other Sources can ingest from another Alfresco server, using the credentials entered in the Alfresco form. ACA's own server still uses the ACA sign-in, with no credential fields. Search and chat in KG Spaces stay limited to what ACA's sign-in can read; the standalone Flexible GraphRAG UIs can switch their sign-in to search a different Alfresco server.
+
+### Fixed
+
+- Permission filtering didn't apply to Alfresco documents ingested without the incremental registry; they were visible to every caller.
+- A ticket from one Alfresco server failed the whole search when the stores held documents from another server; those documents are now just left out.
+- A dead Alfresco ticket made ingest fail as "Node -root- not found"; it now says to sign in again.
+- Source-document links were missing for Alfresco documents ingested without the incremental registry.
+- Vue and Angular CMIS ingest ignored the CMIS form (it always sent `admin`/`admin` to localhost).
+- Filesystem and upload ingests stored an empty-content hash, so change detection compared against the wrong value.
+- Change-detector ordinals were offset by the local UTC offset (`datetime.utcnow()`); 29 calls replaced.
+- Unclosed Alfresco HTTP connections (ResourceWarnings); `/api/processing-events` streamed full document text; uvicorn startup and shutdown lines printed `%d` / `%s` in a console; Pydantic `.dict()` deprecations in `main.py`.
+- Angular dark mode: hint text, the sign-in dialog and the toolbar sign-in button were hard to read.
+
 ## [2026-10-10] — v0.8.4: results and answers name their source documents, with links to open them (ACA viewer, Share, Nuxeo, web, Wikipedia, YouTube); fuller KG Spaces search results; ArcadeDB 26.10.1
 
 ### Added

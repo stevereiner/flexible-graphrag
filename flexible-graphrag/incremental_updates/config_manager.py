@@ -156,6 +156,14 @@ class ConfigManager:
             )
             return [self._row_to_config(row) for row in rows]
 
+    async def count_documents_by_config(self) -> Dict[str, int]:
+        """How many documents each datasource has in the stores (document_state rows)."""
+        async with self.pool.acquire() as conn:
+            rows = await conn.fetch(
+                "SELECT config_id, COUNT(*) AS n FROM document_state GROUP BY config_id"
+            )
+            return {row["config_id"]: row["n"] for row in rows}
+
     async def get_all_active_configs(self) -> List[DataSourceConfig]:
         """Get all active datasource configs"""
         async with self.pool.acquire() as conn:

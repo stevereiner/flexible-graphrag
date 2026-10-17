@@ -2,6 +2,7 @@ import { Component, Input, Output, EventEmitter, OnInit, OnDestroy } from '@angu
 
 export interface GoogleDriveSourceConfig {
   credentials: string;
+  folder_id?: string;
 }
 
 @Component({
@@ -12,7 +13,14 @@ export interface GoogleDriveSourceConfig {
       description="Connect to Google Drive using service account credentials">
       
       <mat-form-field appearance="outline" class="full-width">
-        <mat-label>Service Account Credentials (JSON) *</mat-label>
+        <mat-label>Folder ID (Optional)</mat-label>
+        <input matInput [(ngModel)]="folderId" (ngModelChange)="updateValidationAndConfig()"
+               placeholder="1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms" autocomplete="off" />
+        <mat-hint>Optional: Google Drive folder ID to process specific folder. Leave empty to process all accessible files.</mat-hint>
+      </mat-form-field>
+
+      <mat-form-field appearance="outline" class="full-width">
+        <mat-label>Service Account Credentials (JSON)</mat-label>
         <textarea matInput
                   [(ngModel)]="credentials"
                   (ngModelChange)="onCredentialsChange()"
@@ -33,6 +41,7 @@ export interface GoogleDriveSourceConfig {
 })
 export class GoogleDriveSourceFormComponent implements OnInit, OnDestroy {
   @Input() credentials: string = '';
+  folderId: string = '';
   
   @Output() credentialsChange = new EventEmitter<string>();
   @Output() configurationChange = new EventEmitter<GoogleDriveSourceConfig>();
@@ -46,11 +55,12 @@ export class GoogleDriveSourceFormComponent implements OnInit, OnDestroy {
     // Cleanup if needed
   }
 
-  private updateValidationAndConfig() {
+  updateValidationAndConfig() {
     const isValid = this.credentials.trim() !== '';
     
     const config: GoogleDriveSourceConfig = {
-      credentials: this.credentials
+      credentials: this.credentials,
+      folder_id: this.folderId.trim() || undefined
     };
     
     this.validationChange.emit(isValid);

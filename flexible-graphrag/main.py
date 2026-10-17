@@ -41,7 +41,7 @@ load_dotenv(find_dotenv(usecwd=True) or find_dotenv())
 from fastapi import FastAPI, HTTPException, Depends, status, UploadFile, File, Header
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 from typing import Any, Dict, List, Optional
 import asyncio
 import uvicorn
@@ -73,6 +73,19 @@ class _QuietStatusPolls(logging.Filter):
 
 
 logging.getLogger("uvicorn.access").addFilter(_QuietStatusPolls())
+
+
+class _DropStaleUvicornColorMessage(logging.Filter):
+    """litellm's SecretRedactionFilter (attached to "uvicorn.error" when litellm is imported)
+    pre-formats the message and sets record.args = None, but leaves uvicorn's `color_message`
+    template behind. In a terminal uvicorn formats that template against the now-empty args and
+    prints "Uvicorn running on %s://%s:%d". Dropping the template makes uvicorn fall back to the
+    already-formatted, redacted message. Must run after litellm's filter (added at module end)."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if record.args is None and "color_message" in record.__dict__:
+            del record.__dict__["color_message"]
+        return True
 
 # Initialize observability if enabled
 try:
@@ -922,6 +935,14 @@ class AlfrescoConfig(BaseModel):
     recursive: Optional[bool] = False  # Whether to recursively process subfolders (default: False)
     stomp_port: Optional[int] = None  # ActiveMQ STOMP port for real-time events (default: 61613, or set via ALFRESCO_STOMP_PORT env var)
 
+    @model_validator(mode="after")
+    def _ticket_alone_means_ticket_auth(self):
+        # A caller that only has a ticket (an ADF/ACA front end, an MCP client) need not also know
+        # to set auth_method: without a username, the default "basic" would ignore the ticket.
+        if self.ticket and not self.username and (self.auth_method or "basic").lower() == "basic":
+            self.auth_method = "ticket"
+        return self
+
 class NuxeoOAuth2Config(BaseModel):
     client_id: Optional[str] = None
     client_secret: Optional[str] = None
@@ -1077,11 +1098,33 @@ class AskScope(BaseModel):
     name: Optional[str] = None     # for messages
 
 
+class AlfrescoQueryAuth(BaseModel):
+    """Who is asking, for Alfresco's permission check: the same credentials ingest takes
+    (basic / ticket / oauth2). No path -- a question is not tied to one folder."""
+    url: Optional[str] = None  # the Alfresco server to check on; omitted = the document's own datasource (or ALFRESCO_URL)
+    auth_method: Optional[str] = None  # basic | ticket | oauth2; omitted = ticket if only a ticket is given, else basic
+    username: Optional[str] = None
+    password: Optional[str] = None
+    ticket: Optional[str] = None
+    oauth2: Optional[AlfrescoOAuth2Config] = None
+
+
+class SourceAuth(BaseModel):
+    """The asker's identity per data source, for that source's query-time permission check.
+    Only Alfresco is checked so far; other repositories (Nuxeo, SharePoint/OneDrive, Drive, Box)
+    get their own entry here when their checker exists."""
+    alfresco: Optional[AlfrescoQueryAuth] = None
+
+
 class QueryRequest(BaseModel):
     query: str
     top_k: int = 10
     query_type: Optional[str] = "hybrid"  # hybrid, qa
     scope: Optional[AskScope] = None  # answer only from this document / folder
+    # Who is asking, per data source (planning/SOURCE-AUTH-LOGIN.md). Alfresco documents are only
+    # answered from when an Alfresco identity is given (here or as X-Alfresco-Ticket) unless
+    # ALFRESCO_QUERY_AUTH=optional.
+    source_auth: Optional["SourceAuth"] = None
 
 class TextIngestRequest(BaseModel):
     content: str
@@ -1164,14 +1207,14 @@ def _build_ingest_kwargs(request) -> dict:
     ]:
         val = getattr(request, attr, None)
         if val:
-            kwargs[key] = val.dict()
+            kwargs[key] = val.model_dump()
 
     # Nuxeo uses exclude_none so unset auth fields don't override source defaults.
     if request.nuxeo_config:
-        kwargs['nuxeo_config'] = request.nuxeo_config.dict(exclude_none=True)
+        kwargs['nuxeo_config'] = request.nuxeo_config.model_dump(exclude_none=True)
 
     if request.box_config:
-        box_dict = request.box_config.dict()
+        box_dict = request.box_config.model_dump()
         # Map UI parameter names to BoxSource expected names
         if 'folder_id' in box_dict and box_dict['folder_id']:
             box_dict['box_folder_id'] = box_dict.pop('folder_id')
@@ -1280,9 +1323,9 @@ def _coco_connection_params_for_request(data_source: str, request) -> Dict[str, 
     """
     cp: Dict[str, Any] = {}
     if data_source == "s3" and request.s3_config:
-        cp = request.s3_config.dict(exclude_none=True)
+        cp = request.s3_config.model_dump(exclude_none=True)
     elif data_source == "alfresco" and request.alfresco_config:
-        cp = request.alfresco_config.dict(exclude_none=True)
+        cp = request.alfresco_config.model_dump(exclude_none=True)
         if "stomp_port" not in cp:
             _sp = os.getenv("ALFRESCO_STOMP_PORT")
             if _sp:
@@ -1290,27 +1333,27 @@ def _coco_connection_params_for_request(data_source: str, request) -> Dict[str, 
     elif data_source == "nuxeo" and request.nuxeo_config:
         # exclude_none so unset auth fields don't override source defaults,
         # matching how _build_ingest_kwargs passes nuxeo_config.
-        cp = request.nuxeo_config.dict(exclude_none=True)
+        cp = request.nuxeo_config.model_dump(exclude_none=True)
     elif data_source == "cmis" and request.cmis_config:
-        cp = request.cmis_config.dict(exclude_none=True)
+        cp = request.cmis_config.model_dump(exclude_none=True)
     elif data_source == "gcs" and request.gcs_config:
-        cp = request.gcs_config.dict(exclude_none=True)
+        cp = request.gcs_config.model_dump(exclude_none=True)
     elif data_source == "azure_blob" and request.azure_blob_config:
-        cp = request.azure_blob_config.dict(exclude_none=True)
+        cp = request.azure_blob_config.model_dump(exclude_none=True)
     elif data_source == "box" and request.box_config:
-        cp = request.box_config.dict(exclude_none=True)
+        cp = request.box_config.model_dump(exclude_none=True)
     elif data_source == "onedrive" and request.onedrive_config:
-        cp = request.onedrive_config.dict(exclude_none=True)
+        cp = request.onedrive_config.model_dump(exclude_none=True)
     elif data_source == "sharepoint" and request.sharepoint_config:
-        cp = request.sharepoint_config.dict(exclude_none=True)
+        cp = request.sharepoint_config.model_dump(exclude_none=True)
     elif data_source == "google_drive" and request.google_drive_config:
-        cp = request.google_drive_config.dict(exclude_none=True)
+        cp = request.google_drive_config.model_dump(exclude_none=True)
     elif data_source == "web" and request.web_config:
-        cp = request.web_config.dict(exclude_none=True)
+        cp = request.web_config.model_dump(exclude_none=True)
     elif data_source == "wikipedia" and request.wikipedia_config:
-        cp = request.wikipedia_config.dict(exclude_none=True)
+        cp = request.wikipedia_config.model_dump(exclude_none=True)
     elif data_source == "youtube" and request.youtube_config:
-        cp = request.youtube_config.dict(exclude_none=True)
+        cp = request.youtube_config.model_dump(exclude_none=True)
     return cp
 
 
@@ -1335,7 +1378,7 @@ def _build_sync_connection_params(
             source_path = uploads_dir
 
     elif data_source == "s3" and request.s3_config:
-        connection_params = request.s3_config.dict(exclude_none=True)
+        connection_params = request.s3_config.model_dump(exclude_none=True)
         if not connection_params.get('region_name'):
             connection_params['region_name'] = os.getenv('S3_REGION_NAME', 'us-east-1')
             logger.info(f"Set S3 region_name to: {connection_params['region_name']}")
@@ -1354,7 +1397,7 @@ def _build_sync_connection_params(
         source_path = f"s3://{connection_params.get('bucket_name', 'unknown')}"
 
     elif data_source == "alfresco" and request.alfresco_config:
-        connection_params = request.alfresco_config.dict(exclude_none=True)
+        connection_params = request.alfresco_config.model_dump(exclude_none=True)
         # A pass-through login ticket must never become the stored sync credential. This row is
         # durable and re-read on every future sync, but an Alfresco ticket expires and cannot be
         # renewed from itself -- persisting one writes a config that looks fine and is already
@@ -1396,31 +1439,31 @@ def _build_sync_connection_params(
                 logger.info(f"Added ALFRESCO_STOMP_PORT={stomp_port} to datasource config")
 
     elif data_source == "nuxeo" and request.nuxeo_config:
-        connection_params = request.nuxeo_config.dict(exclude_none=True)
+        connection_params = request.nuxeo_config.model_dump(exclude_none=True)
         source_path = connection_params.get('path', '/unknown')
 
     elif data_source == "google_drive" and request.google_drive_config:
-        connection_params = request.google_drive_config.dict(exclude_none=True)
+        connection_params = request.google_drive_config.model_dump(exclude_none=True)
         source_path = f"google_drive://{connection_params.get('folder_id', 'root')}"
 
     elif data_source == "gcs" and request.gcs_config:
-        connection_params = request.gcs_config.dict(exclude_none=True)
+        connection_params = request.gcs_config.model_dump(exclude_none=True)
         source_path = f"gs://{connection_params.get('bucket_name', 'unknown')}"
 
     elif data_source == "azure_blob" and request.azure_blob_config:
-        connection_params = request.azure_blob_config.dict(exclude_none=True)
+        connection_params = request.azure_blob_config.model_dump(exclude_none=True)
         source_path = f"azure://{connection_params.get('container_name', 'unknown')}"
 
     elif data_source == "box" and request.box_config:
-        connection_params = request.box_config.dict(exclude_none=True)
+        connection_params = request.box_config.model_dump(exclude_none=True)
         source_path = f"box://{connection_params.get('folder_id', '0')}"
 
     elif data_source == "onedrive" and request.onedrive_config:
-        connection_params = request.onedrive_config.dict(exclude_none=True)
+        connection_params = request.onedrive_config.model_dump(exclude_none=True)
         source_path = f"onedrive://{connection_params.get('user_principal_name', 'unknown')}"
 
     elif data_source == "sharepoint" and request.sharepoint_config:
-        connection_params = request.sharepoint_config.dict(exclude_none=True)
+        connection_params = request.sharepoint_config.model_dump(exclude_none=True)
         source_path = f"sharepoint://{connection_params.get('site_name', 'unknown')}"
 
     return connection_params, source_path
@@ -2574,11 +2617,21 @@ async def _start_item_actions(data_source: str, request, paths, kwargs: dict, ac
 async def ingest(request: IngestRequest):
     try:
         from flow_service import redact_config_for_log
-        logger.info("Starting async document ingestion: %s", redact_config_for_log(request.dict()))
+        logger.info("Starting async document ingestion: %s", redact_config_for_log(request.model_dump()))
         logger.info(f"Data source: {request.data_source}, Paths: {request.paths}")
 
         data_source = request.data_source or str(settings.data_source)
         paths = request.paths
+
+        if data_source == "alfresco" and not request.alfresco_config:
+            # Never fall back to the backend's own ALFRESCO_* settings for someone else's ingest:
+            # that fallback ignores `paths` (ALFRESCO_PATH, default "/" = the whole repository)
+            # and authenticates as the service account (admin/admin when unset).
+            raise HTTPException(
+                status_code=400,
+                detail="alfresco_config is required for an Alfresco ingest: url, path and the "
+                       "caller's credentials (username/password, ticket, or oauth2)",
+            )
 
         actions = None
         row_sync = None
@@ -2942,9 +2995,71 @@ async def _candidate_doc_ids(query: str) -> List[str]:
     return list(dict.fromkeys(d for d in (node_doc_id(n) for n in nodes) if d))
 
 
-async def _readable(doc_ids: List[str], ticket: str) -> List[str]:
-    """``doc_ids`` the ticket's Alfresco user may read (permission_filter.py). Each document is
-    checked on the Alfresco server its datasource ingested it from (ALFRESCO_URL otherwise)."""
+_auth_providers_cache: Dict[str, Any] = {"at": 0.0, "value": None}
+
+
+async def _auth_providers(max_age: float = 30.0) -> List[Dict[str, Any]]:
+    """The sign-ins the stored content needs (planning/SOURCE-AUTH-LOGIN.md): one entry per
+    Alfresco server that has documents in the stores. With the incremental registry this is exact
+    (document_state counts); without it nothing records what is stored, so a configured
+    ALFRESCO_URL is listed with ``documents: None`` (unknown). Cached for ``max_age`` seconds."""
+    import time as _time
+    now = _time.monotonic()
+    if _auth_providers_cache["value"] is not None and now - _auth_providers_cache["at"] < max_age:
+        return _auth_providers_cache["value"]
+    methods = ["basic"] + (["oauth2"] if os.getenv("ALFRESCO_OAUTH2_CLIENT_ID") else [])
+    providers: List[Dict[str, Any]] = []
+    if incremental_manager and incremental_manager.is_initialized():
+        from incremental_updates.ingest_status import Datasource
+        await ensure_config_manager_ready()
+        cm = incremental_manager.config_manager
+        counts = await cm.count_documents_by_config()
+        per_url: Dict[str, int] = {}
+        for ds in map(Datasource.from_config, await cm.get_ingest_status_configs()):
+            if ds.source_type == "alfresco" and counts.get(ds.config_id):
+                url = ds.url or os.getenv("ALFRESCO_URL", "")
+                per_url[url] = per_url.get(url, 0) + counts[ds.config_id]
+        providers = [{"source": "alfresco", "url": u, "methods": methods, "documents": n}
+                     for u, n in per_url.items()]
+    elif os.getenv("ALFRESCO_URL"):
+        providers = [{"source": "alfresco", "url": os.getenv("ALFRESCO_URL"),
+                      "methods": methods, "documents": None}]
+    _auth_providers_cache.update(at=now, value=providers)
+    return providers
+
+
+def _alfresco_query_auth_required() -> bool:
+    """ALFRESCO_QUERY_AUTH=required (default): a question with no Alfresco identity is answered
+    without Alfresco documents. optional: such a question sees every document (the pre-0.8.5
+    behaviour, for a backend only trusted callers can reach)."""
+    return os.getenv("ALFRESCO_QUERY_AUTH", "required").strip().lower() != "optional"
+
+
+async def _alfresco_authorization(request: "QueryRequest", ticket: Optional[str]) -> Optional[str]:
+    """The asker's Alfresco identity as an Authorization header value: the X-Alfresco-Ticket
+    header (KG Spaces), else the request's source_auth.alfresco (basic / ticket / oauth2), else None."""
+    from sources.alfresco_auth import alfresco_authorization
+    if ticket and ticket.strip():
+        return alfresco_authorization("", "ticket", ticket=ticket.strip())
+    ac = request.source_auth.alfresco if request.source_auth else None
+    if not ac:
+        return None
+    try:
+        return await asyncio.to_thread(
+            alfresco_authorization,
+            (ac.url or os.getenv("ALFRESCO_URL") or "").rstrip("/").removesuffix("/alfresco"),
+            ac.auth_method, ac.username or "", ac.password or "", ac.ticket,
+            ac.oauth2.model_dump(exclude_none=True) if ac.oauth2 else None,
+        )
+    except PermissionError as e:
+        raise HTTPException(status_code=401, detail=str(e))
+
+
+async def _readable(doc_ids: List[str], authorization: str,
+                    default_url: Optional[str] = None) -> List[str]:
+    """``doc_ids`` the asker may read (permission_filter.py), ``authorization`` being their
+    Alfresco identity. Each document is checked on the Alfresco server its datasource ingested it
+    from (the request's source_auth.alfresco.url, else ALFRESCO_URL, otherwise)."""
     from permission_filter import readable_doc_ids
     from incremental_updates.ingest_status import Datasource
     urls: Dict[str, str] = {}
@@ -2959,26 +3074,44 @@ async def _readable(doc_ids: List[str], ticket: str) -> List[str]:
         return urls.get(doc_id.split(":alfresco://", 1)[0])
 
     try:
-        return await readable_doc_ids(doc_ids, ticket, repo_url, os.getenv("ALFRESCO_URL"))
+        return await readable_doc_ids(doc_ids, authorization, repo_url,
+                                      default_url or os.getenv("ALFRESCO_URL"))
     except PermissionError as e:
         raise HTTPException(status_code=401, detail=str(e))
 
 
-async def _question_scope(request: "QueryRequest", ticket: Optional[str]):
+async def _question_scope(request: "QueryRequest", ticket: Optional[str], ticket_url: Optional[str] = None):
     """The doc ids a question may be answered from, or None for everything: the request's scope,
-    narrowed to what the ticket's user may read when a ticket came with it. Returns
-    (doc_ids or None, message when nothing is left)."""
+    narrowed to what the asker may read when they gave an Alfresco identity (X-Alfresco-Ticket or
+    source_auth.alfresco), or to the non-Alfresco documents when they gave none, the stores hold
+    Alfresco documents and ALFRESCO_QUERY_AUTH=required. Returns (doc_ids or None, message when
+    nothing is left)."""
+    from permission_filter import alfresco_node_id, without_alfresco
     scope_ids = None
     if request.scope:
         scope_ids = await _scope_doc_ids(request.scope)
         if not scope_ids:
             return [], _nothing_in_scope(request.scope)
-    if ticket:
+    authorization = await _alfresco_authorization(request, ticket)
+    if authorization:
         candidates = scope_ids if scope_ids is not None else await _candidate_doc_ids(request.query)
-        scope_ids = await _readable(candidates, ticket)
+        ac = request.source_auth.alfresco if request.source_auth else None
+        # The Alfresco server the credential belongs to: source_auth.alfresco.url, or the
+        # X-Alfresco-Url sent with an X-Alfresco-Ticket (else ALFRESCO_URL). Only a refusal from
+        # that server means "sign in again"; other servers' documents are just left out.
+        url = (ac.url if ac and ac.url else None) or (ticket_url.strip() if ticket and ticket_url else None)
+        scope_ids = await _readable(candidates, authorization, url)
         if not scope_ids:
             return [], ("You don't have access to any document that answers this."
                         if candidates else "Nothing in the stores matches this question.")
+    elif _alfresco_query_auth_required() and await _auth_providers():
+        candidates = scope_ids if scope_ids is not None else await _candidate_doc_ids(request.query)
+        scope_ids = without_alfresco(candidates)
+        if not scope_ids:
+            if any(alfresco_node_id(d) for d in candidates):
+                return [], ("The documents that answer this are in Alfresco. "
+                            "Sign in to Alfresco to see the ones you may read.")
+            return [], "Nothing in the stores matches this question."
     return scope_ids, None
 
 
@@ -2988,13 +3121,79 @@ def _nothing_in_scope(scope: "AskScope") -> str:
             f"then ask again.")
 
 
+class AlfrescoLoginRequest(BaseModel):
+    url: Optional[str] = None  # the Alfresco server; omitted = ALFRESCO_URL
+    username: str
+    password: str
+
+
+def _alfresco_url(url: Optional[str]) -> str:
+    url = (url or os.getenv("ALFRESCO_URL") or "").strip()
+    if not url:
+        raise HTTPException(status_code=400, detail="no Alfresco URL: pass url or set ALFRESCO_URL")
+    return url
+
+
+@app.get("/api/auth/requirements")
+async def auth_requirements():
+    """Which sign-ins the stored content needs before search / AI chat (planning/SOURCE-AUTH-LOGIN.md).
+    An empty ``providers`` list means no sign-in is needed. ``required`` is ALFRESCO_QUERY_AUTH:
+    when false, a question without sign-in still sees Alfresco documents."""
+    return {"required": _alfresco_query_auth_required(),
+            "providers": await _auth_providers(max_age=0)}
+
+
+@app.post("/api/auth/alfresco/login")
+async def alfresco_login_endpoint(body: AlfrescoLoginRequest):
+    """Sign in to Alfresco the way ACA does (POST tickets): returns ``{ticket, user_id, url}``.
+    Stateless -- the ticket is not stored here. Send it back as X-Alfresco-Ticket or
+    source_auth.alfresco.ticket on search / query / ingest."""
+    from sources.alfresco_auth import alfresco_login
+    url = _alfresco_url(body.url)
+    try:
+        result = await alfresco_login(url, body.username, body.password)
+    except PermissionError as e:
+        raise HTTPException(status_code=401, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"could not reach Alfresco at {url}: {e}")
+    return {**result, "url": url}
+
+
+@app.get("/api/auth/alfresco/me")
+async def alfresco_me_endpoint(url: Optional[str] = None,
+                               x_alfresco_ticket: Optional[str] = Header(default=None)):
+    """Whether the X-Alfresco-Ticket is still valid, and whose it is: ``{user_id, url}`` or 401."""
+    from sources.alfresco_auth import alfresco_ticket_user
+    if not x_alfresco_ticket:
+        raise HTTPException(status_code=401, detail="no X-Alfresco-Ticket header")
+    url = _alfresco_url(url)
+    try:
+        return {"user_id": await alfresco_ticket_user(url, x_alfresco_ticket.strip()), "url": url}
+    except PermissionError as e:
+        raise HTTPException(status_code=401, detail=str(e))
+
+
+@app.post("/api/auth/alfresco/logout")
+async def alfresco_logout_endpoint(url: Optional[str] = None,
+                                   x_alfresco_ticket: Optional[str] = Header(default=None)):
+    """Sign out: invalidate the X-Alfresco-Ticket on Alfresco (as ACA's logout does)."""
+    from sources.alfresco_auth import alfresco_authorization, alfresco_logout
+    from permission_filter import forget
+    if x_alfresco_ticket:
+        ticket = x_alfresco_ticket.strip()
+        forget(alfresco_authorization("", "ticket", ticket=ticket))  # no cached "readable" answers
+        await alfresco_logout(_alfresco_url(url), ticket)
+    return {"success": True}
+
+
 @app.post("/api/search")
-async def search(request: QueryRequest, x_alfresco_ticket: Optional[str] = Header(default=None)):
+async def search(request: QueryRequest, x_alfresco_ticket: Optional[str] = Header(default=None),
+                 x_alfresco_url: Optional[str] = Header(default=None)):
     try:
         logger.info(f"Processing {request.query_type} query: {request.query}"
                     + (f" (scope: {request.scope.path or request.scope.node_id})" if request.scope else ""))
-        # A scope, and/or the asking user's Alfresco permissions (X-Alfresco-Ticket)
-        scope_ids, nothing = await _question_scope(request, x_alfresco_ticket)
+        # A scope, and/or the asking user's Alfresco permissions (X-Alfresco-Ticket [+ X-Alfresco-Url])
+        scope_ids, nothing = await _question_scope(request, x_alfresco_ticket, x_alfresco_url)
         if nothing:
             if request.query_type == "qa":
                 return {"success": True, "answer": nothing}
@@ -3023,10 +3222,11 @@ async def search(request: QueryRequest, x_alfresco_ticket: Optional[str] = Heade
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/query")
-async def query_graph(request: QueryRequest, x_alfresco_ticket: Optional[str] = Header(default=None)):
+async def query_graph(request: QueryRequest, x_alfresco_ticket: Optional[str] = Header(default=None),
+                      x_alfresco_url: Optional[str] = Header(default=None)):
     try:
         logger.info(f"Processing query: {request.query}")
-        scope_ids, nothing = await _question_scope(request, x_alfresco_ticket)
+        scope_ids, nothing = await _question_scope(request, x_alfresco_ticket, x_alfresco_url)
         if nothing:
             return {"status": "success", "answer": nothing}
         result = await backend_instance.query_documents(request.query, request.top_k, scope_doc_ids=scope_ids)
@@ -3256,12 +3456,15 @@ async def processing_events(processing_id: str):
     import json
     import time
     
+    from job_retention import public_view
+
     def event_stream():
         while True:
             result = backend_instance.get_processing_status(processing_id)
             if result["success"]:
                 status_data = result["processing"]
-                yield f"data: {json.dumps(status_data)}\n\n"
+                # Without the job's ingested documents, like /api/processing-status/{id}
+                yield f"data: {json.dumps(public_view(status_data), default=str)}\n\n"
                 
                 # Stop streaming if completed or failed
                 if status_data["status"] in ["completed", "failed"]:
@@ -4462,6 +4665,9 @@ async def root():
         "info": "/api/info",
         "note": "Backend API only - use separate dev servers for UIs"
     }
+
+# After all imports, so it runs after the redaction filter litellm adds to this logger
+logging.getLogger("uvicorn.error").addFilter(_DropStaleUvicornColorMessage())
 
 if __name__ == "__main__":
     # Disable uvicorn's default logging to prevent duplicate messages

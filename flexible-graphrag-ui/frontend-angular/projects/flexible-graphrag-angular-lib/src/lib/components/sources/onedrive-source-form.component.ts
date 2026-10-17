@@ -18,7 +18,7 @@ export interface OneDriveSourceConfig {
       
       <div class="form-row">
         <mat-form-field appearance="outline" class="half-width">
-          <mat-label>User Principal Name *</mat-label>
+          <mat-label>User Principal Name</mat-label>
           <input matInput
                  [(ngModel)]="userPrincipalName"
                  (ngModelChange)="onUserPrincipalNameChange()"
@@ -28,7 +28,7 @@ export interface OneDriveSourceConfig {
         </mat-form-field>
 
         <mat-form-field appearance="outline" class="half-width">
-          <mat-label>Client ID *</mat-label>
+          <mat-label>Client ID</mat-label>
           <input matInput
                  [(ngModel)]="clientId"
                  (ngModelChange)="onClientIdChange()"
@@ -39,16 +39,16 @@ export interface OneDriveSourceConfig {
 
       <div class="form-row">
         <mat-form-field appearance="outline" class="half-width">
-          <mat-label>Client Secret *</mat-label>
+          <mat-label>Client Secret</mat-label>
           <input matInput
                  type="password"
                  [(ngModel)]="clientSecret"
                  (ngModelChange)="onClientSecretChange()"
-                 required />
+                 required autocomplete="new-password" />
         </mat-form-field>
 
         <mat-form-field appearance="outline" class="half-width">
-          <mat-label>Tenant ID *</mat-label>
+          <mat-label>Tenant ID</mat-label>
           <input matInput
                  [(ngModel)]="tenantId"
                  (ngModelChange)="onTenantIdChange()"

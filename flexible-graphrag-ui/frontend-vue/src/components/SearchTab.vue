@@ -63,7 +63,7 @@
         >
           <h3 class="text-medium-emphasis mb-2">No results found</h3>
           <p class="text-medium-emphasis">
-            No results found for "{{ lastSearchQuery }}". Try different search terms.
+            {{ emptyMessage || `No results found for "${lastSearchQuery}". Try different search terms.` }}
           </p>
         </v-card>
       </v-window-item>
@@ -133,6 +133,9 @@ export default defineComponent({
     const lastSearchQuery = ref('');
     const isQuerying = ref(false);
     const error = ref('');
+    // Why a search found nothing, when the backend says (e.g. the matches are in Alfresco and
+    // the user continued without signing in)
+    const emptyMessage = ref('');
 
     // Methods
     const handleSearch = async () => {
@@ -141,6 +144,7 @@ export default defineComponent({
       try {
         isQuerying.value = true;
         error.value = '';
+        emptyMessage.value = '';
         searchResults.value = [];
         qaAnswer.value = '';
         qaSources.value = [];
@@ -157,6 +161,7 @@ export default defineComponent({
         
         if (response.data.success) {
           hasSearched.value = true;
+          emptyMessage.value = response.data.message || '';
           if (activeTab.value === 'search' && response.data.results) {
             searchResults.value = response.data.results;
           } else if (activeTab.value === 'qa' && response.data.answer) {
@@ -191,6 +196,7 @@ export default defineComponent({
 
     return {
       activeTab,
+      emptyMessage,
       question,
       searchResults,
       qaAnswer,

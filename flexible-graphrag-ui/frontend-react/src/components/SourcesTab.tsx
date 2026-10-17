@@ -9,6 +9,7 @@ import {
   MenuItem,
 } from '@mui/material';
 import { Theme } from '@mui/material/styles';
+import { signInFromSourceConfig } from '../auth/sourceAuth';
 import {
   FileUploadForm,
   AlfrescoSourceForm,
@@ -200,6 +201,8 @@ export const SourcesTab: React.FC<SourcesTabProps> = ({
 
 
   const handleConfigureProcessing = () => {
+    // Credentials typed into the Alfresco form also sign in for search / chat (if not signed in)
+    if (dataSource === 'alfresco') signInFromSourceConfig(currentConfig);
     // Build configuration data based on current source and config
     console.log('Configure processing - dataSource:', dataSource, 'currentConfig:', currentConfig);
     const configData = {

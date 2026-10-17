@@ -4,6 +4,7 @@ import { FlexibleGraphragConfigService } from '../../config.service';
 import { HttpClient } from '@angular/common/http';
 import { AskScope, SourceDocument } from '../../models/api.models';
 import { ProcessingSessionService } from '../../services/processing-session.service';
+import { SourceAuthService } from '../../services/source-auth.service';
 
 interface ChatMessage {
   id: string;
@@ -42,6 +43,7 @@ interface ApiResponse {
 export class ChatTabComponent implements AfterViewChecked, AfterViewInit, OnChanges, OnInit, OnDestroy {
   private readonly fgConfig = inject(FlexibleGraphragConfigService);
   private readonly session = inject(ProcessingSessionService);
+  private readonly sourceAuth = inject(SourceAuthService);
   @ViewChild('chatContainer') chatContainer!: ElementRef;
 
   /** Ask about this document or folder only; null = all content. */
@@ -189,8 +191,18 @@ export class ChatTabComponent implements AfterViewChecked, AfterViewInit, OnChan
         ...(this.scope ? { scope: this.scope } : {}),
       };
       
-      const response = await this.http.post<ApiResponse>(`${this.fgConfig.apiUrl}/search`, request,
+      // Ask for an Alfresco sign-in first when the stores need one; on a 401 with our ticket
+      // (expired, or signed out elsewhere) sign in again and ask once more
+      await this.sourceAuth.beforeQuestion();
+      const post = () => this.http.post<ApiResponse>(`${this.fgConfig.apiUrl}/search`, request,
         { headers: this.fgConfig.questionHeaders() }).toPromise();
+      let response: ApiResponse | undefined;
+      try {
+        response = await post();
+      } catch (err: any) {
+        if (err?.status === 401 && await this.sourceAuth.afterUnauthorized()) response = await post();
+        else throw err;
+      }
       
       // Remove loading message
       const messageIndex = this.chatMessages.findIndex(msg => msg.id === loadingMessage.id);

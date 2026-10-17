@@ -8,7 +8,7 @@ Supports both event-based (real-time) and periodic (polling) modes.
 import asyncio
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, Optional, AsyncGenerator, List
 
 from .base import ChangeDetector, ChangeType, ChangeEvent, FileMetadata
@@ -385,7 +385,7 @@ class S3Detector(ChangeDetector):
                                     
                                     logger.info(f"ObjectCreated event for {key}: is_new={is_new}")
                                     
-                                    ordinal = int(datetime.utcnow().timestamp() * 1_000_000)
+                                    ordinal = int(datetime.now(timezone.utc).timestamp() * 1_000_000)
                                     if is_new:
                                         # Truly new object - CREATE
                                         logger.info(f"EVENT: CREATE detected for {key}")
@@ -413,7 +413,7 @@ class S3Detector(ChangeDetector):
                                             yield ChangeEvent(
                                                 metadata=create_metadata,
                                                 change_type=ChangeType.CREATE,
-                                                timestamp=datetime.utcnow()
+                                                timestamp=datetime.now(timezone.utc)
                                             )
                                     else:
                                         # Already known - treat as MODIFY (DELETE + ADD)
@@ -439,7 +439,7 @@ class S3Detector(ChangeDetector):
                                             yield ChangeEvent(
                                                 metadata=delete_metadata,
                                                 change_type=ChangeType.DELETE,
-                                                timestamp=datetime.utcnow(),
+                                                timestamp=datetime.now(timezone.utc),
                                                 is_modify_delete=True,
                                                 modify_callback=add_callback
                                             )
@@ -461,12 +461,12 @@ class S3Detector(ChangeDetector):
                                             yield ChangeEvent(
                                                 metadata=coco_meta,
                                                 change_type=ChangeType.DELETE,
-                                                timestamp=datetime.utcnow()
+                                                timestamp=datetime.now(timezone.utc)
                                             )
                                             yield ChangeEvent(
                                                 metadata=coco_meta,
                                                 change_type=ChangeType.CREATE,
-                                                timestamp=datetime.utcnow()
+                                                timestamp=datetime.now(timezone.utc)
                                             )
                                 
                                 elif 'ObjectRemoved' in event_name:
@@ -474,7 +474,7 @@ class S3Detector(ChangeDetector):
                                     if path_with_bucket in self.known_object_keys:
                                         self.known_object_keys.discard(path_with_bucket)
                                     
-                                    ordinal = int(datetime.utcnow().timestamp() * 1_000_000)
+                                    ordinal = int(datetime.now(timezone.utc).timestamp() * 1_000_000)
                                     metadata = FileMetadata(
                                         source_type='s3',
                                         path=path_with_bucket,  # Use bucket/key format
@@ -489,7 +489,7 @@ class S3Detector(ChangeDetector):
                                     event = ChangeEvent(
                                         metadata=metadata,
                                         change_type=ChangeType.DELETE,
-                                        timestamp=datetime.utcnow()
+                                        timestamp=datetime.now(timezone.utc)
                                     )
                                     
                                     logger.info(f"S3 event: DELETE - {key} ({event_name})")
@@ -521,7 +521,7 @@ class S3Detector(ChangeDetector):
                                             except Exception as e:
                                                 logger.error(f"ERROR: Failed to process ADD for {key}: {e}")
                                         
-                                        ordinal = int(datetime.utcnow().timestamp() * 1_000_000)
+                                        ordinal = int(datetime.now(timezone.utc).timestamp() * 1_000_000)
                                         delete_metadata = FileMetadata(
                                             source_type='s3',
                                             path=path_with_bucket,  # Use bucket/key format
@@ -531,7 +531,7 @@ class S3Detector(ChangeDetector):
                                         delete_event = ChangeEvent(
                                             metadata=delete_metadata,
                                             change_type=ChangeType.DELETE,
-                                            timestamp=datetime.utcnow(),
+                                            timestamp=datetime.now(timezone.utc),
                                             is_modify_delete=True,
                                             modify_callback=add_callback
                                         )

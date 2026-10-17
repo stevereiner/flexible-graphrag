@@ -39,6 +39,7 @@
             <v-text-field
               v-model="cmisUsername"
               label="Username"
+              autocomplete="off"
               variant="outlined"
               :disabled="isProcessing"
               class="mb-4"
@@ -48,6 +49,7 @@
             <v-text-field
               v-model="cmisPassword"
               label="Password"
+              autocomplete="new-password"
               type="password"
               variant="outlined"
               :disabled="isProcessing"
@@ -80,6 +82,7 @@
             <v-text-field
               v-model="alfrescoUsername"
               label="Username"
+              autocomplete="off"
               variant="outlined"
               :disabled="isProcessing"
               class="mb-4"
@@ -89,6 +92,7 @@
             <v-text-field
               v-model="alfrescoPassword"
               label="Password"
+              autocomplete="new-password"
               type="password"
               variant="outlined"
               :disabled="isProcessing"
@@ -211,13 +215,14 @@ const folderPath = ref(defaultFolderPath);
 
 // CMIS fields - use environment variables with fallback
 const cmisUrl = ref(`${import.meta.env.VITE_CMIS_BASE_URL || 'http://localhost:8080'}/alfresco/api/-default-/public/cmis/versions/1.1/atom`);
-const cmisUsername = ref('admin');
-const cmisPassword = ref('admin');
+// no pre-filled credentials (were admin/admin)
+const cmisUsername = ref('');
+const cmisPassword = ref('');
 
 // Alfresco fields - use environment variables with fallback
 const alfrescoUrl = ref(`${import.meta.env.VITE_ALFRESCO_BASE_URL || 'http://localhost:8080'}/alfresco`);
-const alfrescoUsername = ref('admin');
-const alfrescoPassword = ref('admin');
+const alfrescoUsername = ref('');
+const alfrescoPassword = ref('');
 
 // UI state
 const isProcessing = ref(false);

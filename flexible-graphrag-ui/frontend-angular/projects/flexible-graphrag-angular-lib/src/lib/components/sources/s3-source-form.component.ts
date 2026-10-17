@@ -17,7 +17,7 @@ export interface S3SourceConfig {
       description="Connect to Amazon S3 buckets using bucket name and credentials">
       
       <mat-form-field appearance="outline" class="full-width">
-        <mat-label>Bucket Name *</mat-label>
+        <mat-label>Bucket Name</mat-label>
         <input matInput
                [(ngModel)]="bucketName"
                (ngModelChange)="onBucketNameChange()"
@@ -38,7 +38,7 @@ export interface S3SourceConfig {
       </mat-form-field>
 
       <mat-form-field appearance="outline" class="full-width">
-        <mat-label>AWS Region *</mat-label>
+        <mat-label>AWS Region</mat-label>
         <input matInput
                [(ngModel)]="regionName"
                (ngModelChange)="onRegionNameChange()"
@@ -56,7 +56,7 @@ export interface S3SourceConfig {
                [(ngModel)]="sqsQueueUrl"
                (ngModelChange)="onSqsQueueUrlChange()"
                placeholder="https://sqs.us-east-2.amazonaws.com/123456789/my-queue"
-               autocomplete="url"
+               autocomplete="off"
                data-lpignore="true"
                data-form-type="other"
                data-1p-ignore="true" />
@@ -65,23 +65,23 @@ export interface S3SourceConfig {
 
       <div class="form-row">
         <mat-form-field appearance="outline" class="half-width">
-          <mat-label>Access Key *</mat-label>
+          <mat-label>Access Key</mat-label>
           <input matInput
                  type="password"
                  [(ngModel)]="accessKey"
                  (ngModelChange)="onAccessKeyChange()"
                  required
-                 autocomplete="off" />
+                 autocomplete="new-password" />
         </mat-form-field>
 
         <mat-form-field appearance="outline" class="half-width">
-          <mat-label>Secret Key *</mat-label>
+          <mat-label>Secret Key</mat-label>
           <input matInput
                  type="password"
                  [(ngModel)]="secretKey"
                  (ngModelChange)="onSecretKeyChange()"
                  required
-                 autocomplete="off" />
+                 autocomplete="new-password" />
         </mat-form-field>
       </div>
     </app-base-source-form>
@@ -115,7 +115,7 @@ export class S3SourceFormComponent implements OnInit, OnDestroy {
 
   bucketName: string = '';
   prefix: string = '';
-  regionName: string = 'us-east-1';
+  regionName: string = '';  // starts empty; placeholder shows e.g. us-east-1
   sqsQueueUrl: string = '';
 
   ngOnInit() {

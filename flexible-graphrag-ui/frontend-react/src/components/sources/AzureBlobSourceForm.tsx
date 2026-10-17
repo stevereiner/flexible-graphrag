@@ -63,7 +63,7 @@ export const AzureBlobSourceForm: React.FC<AzureBlobSourceFormProps> = ({
     >
       <TextField
         fullWidth
-        label="Account URL *"
+        label="Account URL"
         variant="outlined"
         value={accountUrl}
         onChange={(e) => setAccountUrl(e.target.value)}
@@ -75,7 +75,7 @@ export const AzureBlobSourceForm: React.FC<AzureBlobSourceFormProps> = ({
       />
       <TextField
         fullWidth
-        label="Container Name *"
+        label="Container Name"
         variant="outlined"
         value={containerName}
         onChange={(e) => onContainerNameChange(e.target.value)}
@@ -108,7 +108,7 @@ export const AzureBlobSourceForm: React.FC<AzureBlobSourceFormProps> = ({
       />
       <TextField
         fullWidth
-        label="Account Name *"
+        label="Account Name"
         variant="outlined"
         value={accountName}
         onChange={(e) => onAccountNameChange(e.target.value)}
@@ -120,13 +120,14 @@ export const AzureBlobSourceForm: React.FC<AzureBlobSourceFormProps> = ({
       />
       <TextField
         fullWidth
-        label="Account Key *"
+        label="Account Key"
         variant="outlined"
         value={accountKey}
         onChange={(e) => onAccountKeyChange(e.target.value)}
         size="small"
         sx={{ mb: 2 }}
         type="password"
+        autoComplete="new-password"
         placeholder="account-key-here"
         helperText="Azure Storage account key (required)"
         required

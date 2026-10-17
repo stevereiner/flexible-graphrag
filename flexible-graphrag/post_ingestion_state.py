@@ -619,17 +619,25 @@ class PostIngestionStateManager:
         if data_source == "filesystem" and paths:
             # For filesystem, read local file to compute hash
             file_to_read = None
-            for input_path in paths:
-                input_path_obj = Path(input_path)
-                if input_path_obj.is_dir():
-                    # Check if file is in this directory
-                    potential_file = input_path_obj / filename
-                    if potential_file.exists():
-                        file_to_read = potential_file
+            filename_path = Path(filename)
+            if filename_path.is_file() and (
+                filename_path.is_absolute() or any(Path(p) == filename_path for p in paths)
+            ):
+                # filename is usually the path itself (the filesystem source_id): absolute, or
+                # exactly one of the (possibly relative) input paths -- not a bare name
+                file_to_read = filename_path
+            else:
+                for input_path in paths:
+                    input_path_obj = Path(input_path)
+                    if input_path_obj.is_dir():
+                        # Check if file is in this directory
+                        potential_file = input_path_obj / filename
+                        if potential_file.exists():
+                            file_to_read = potential_file
+                            break
+                    elif input_path_obj.is_file() and input_path_obj.name == filename:
+                        file_to_read = input_path_obj
                         break
-                elif input_path_obj.is_file() and input_path_obj.name == filename:
-                    file_to_read = input_path_obj
-                    break
             
             if file_to_read and file_to_read.exists():
                 # Read file content to compute hash

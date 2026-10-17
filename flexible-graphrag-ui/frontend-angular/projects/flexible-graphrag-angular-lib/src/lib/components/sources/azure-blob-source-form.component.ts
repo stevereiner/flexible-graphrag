@@ -17,7 +17,7 @@ export interface AzureBlobSourceConfig {
       description="Connect to Azure Blob Storage using Account Key Authentication (Method 1)">
       
       <mat-form-field appearance="outline" class="full-width">
-        <mat-label>Account URL *</mat-label>
+        <mat-label>Account URL</mat-label>
         <input matInput
                [(ngModel)]="accountUrl"
                (ngModelChange)="onAccountUrlChange()"
@@ -27,7 +27,7 @@ export interface AzureBlobSourceConfig {
       </mat-form-field>
 
       <mat-form-field appearance="outline" class="full-width">
-        <mat-label>Container Name *</mat-label>
+        <mat-label>Container Name</mat-label>
         <input matInput
                [(ngModel)]="containerName"
                (ngModelChange)="onContainerNameChange()"
@@ -54,7 +54,7 @@ export interface AzureBlobSourceConfig {
       </mat-form-field>
 
       <mat-form-field appearance="outline" class="full-width">
-        <mat-label>Account Name *</mat-label>
+        <mat-label>Account Name</mat-label>
         <input matInput
                [(ngModel)]="accountName"
                (ngModelChange)="onAccountNameChange()"
@@ -64,13 +64,13 @@ export interface AzureBlobSourceConfig {
       </mat-form-field>
 
       <mat-form-field appearance="outline" class="full-width">
-        <mat-label>Account Key *</mat-label>
+        <mat-label>Account Key</mat-label>
         <input matInput
                type="password"
                [(ngModel)]="accountKey"
                (ngModelChange)="onAccountKeyChange()"
                placeholder="account-key-here"
-               required />
+               required autocomplete="new-password" />
         <mat-hint>Azure Storage account key (required)</mat-hint>
       </mat-form-field>
     </app-base-source-form>

@@ -44,6 +44,7 @@
         label="Client Secret *"
         variant="outlined"
         type="password"
+          autocomplete="new-password"
         placeholder="client-secret-here"
         hint="Azure app registration client secret (required)"
         persistent-hint

@@ -1,5 +1,12 @@
-import { Component, Input, Output, EventEmitter, OnInit, inject } from '@angular/core';
+import { Component, Input, Output, EventEmitter, OnDestroy, OnInit, inject } from '@angular/core';
+import { Subscription } from 'rxjs';
 import { FlexibleGraphragConfigService } from '../../config.service';
+import { AlfrescoSession, SourceAuthService } from '../../services/source-auth.service';
+
+// Same Alfresco server? (an /alfresco suffix and trailing slashes don't matter)
+const sameServer = (a: string, b: string) =>
+  a.trim().replace(/\/+$/, '').replace(/\/alfresco$/i, '').toLowerCase() ===
+  b.trim().replace(/\/+$/, '').replace(/\/alfresco$/i, '').toLowerCase();
 
 export interface AlfrescoOAuth2Config {
   client_id?: string;
@@ -28,12 +35,34 @@ export interface AlfrescoSourceConfig {
       description="Connect to an Alfresco content management system">
 
       <mat-form-field appearance="outline" class="full-width">
-        <mat-label>Alfresco Base URL *</mat-label>
+        <mat-label>Alfresco Base URL</mat-label>
         <input matInput [(ngModel)]="url" (ngModelChange)="update()"
                [placeholder]="'e.g., ' + defaultUrl" required />
       </mat-form-field>
 
-      <mat-form-field appearance="outline" class="full-width">
+      <!-- The library's Alfresco sign-in (inactive in KG Spaces, which supplies ACA's ticket) -->
+      <div class="sign-in-row" *ngIf="auth.active">
+        <ng-container *ngIf="signedInHere; else notSignedIn">
+          <span>Signed in to Alfresco as <strong>{{ session?.user_id }}</strong>{{ usingSignIn ? ' (used for this ingest)' : '' }}</span>
+          <button mat-button type="button" (click)="auth.signOut()">Sign out</button>
+          <mat-checkbox [(ngModel)]="useOther" (ngModelChange)="update()">Use other credentials (e.g. for Auto Sync)</mat-checkbox>
+        </ng-container>
+        <ng-template #notSignedIn>
+          <button mat-stroked-button type="button" (click)="signInHere()">Sign in to Alfresco</button>
+          <span class="hint">or enter credentials below</span>
+        </ng-template>
+      </div>
+
+      <!-- In a host that signs the user in itself (KG Spaces in ACA), an ingest to that host's own
+           Alfresco server uses the host's sign-in: the credential fields would be ignored -->
+      <div class="sign-in-row" *ngIf="usingHostSignIn">
+        <span>This ingest uses your Alfresco Content App sign-in &mdash; no username or password needed.</span>
+      </div>
+      <div class="sign-in-row" *ngIf="fgConfig.hostSuppliesAlfrescoTicket && !usingHostSignIn">
+        <span class="hint">A different Alfresco server than the one you are signed in to: enter its credentials.</span>
+      </div>
+
+      <mat-form-field appearance="outline" class="full-width" *ngIf="!credentialsHidden">
         <mat-label>Authentication</mat-label>
         <mat-select [(ngModel)]="authMethod" (ngModelChange)="update()">
           <mat-option value="basic">Basic (username / password)</mat-option>
@@ -49,34 +78,37 @@ export interface AlfrescoSourceConfig {
       <mat-form-field appearance="outline" class="full-width" *ngIf="authMethod === 'ticket' && showTicketField">
         <mat-label>Login ticket</mat-label>
         <input matInput type="password" [(ngModel)]="ticket" (ngModelChange)="update()"
-               placeholder="e.g., TICKET_xxxxxxxx" />
+               placeholder="e.g., TICKET_xxxxxxxx" autocomplete="new-password" />
         <mat-hint>Leave empty to fetch a ticket from the username and password below</mat-hint>
       </mat-form-field>
 
-      <div class="form-row" *ngIf="authMethod === 'basic' || (authMethod === 'ticket' && !(showTicketField && ticket.trim()))">
+      <div class="form-row" *ngIf="!credentialsHidden && (authMethod === 'basic' || (authMethod === 'ticket' && !(showTicketField && ticket.trim())))">
         <mat-form-field appearance="outline" class="half-width">
-          <mat-label>Username *</mat-label>
-          <input matInput [(ngModel)]="username" (ngModelChange)="update()" required />
+          <mat-label>Username</mat-label>
+          <!-- repository credentials, not a login to this page: no password-manager autofill -->
+          <input matInput [(ngModel)]="username" (ngModelChange)="update()" required autocomplete="off" />
         </mat-form-field>
         <mat-form-field appearance="outline" class="half-width">
-          <mat-label>Password *</mat-label>
-          <input matInput type="password" [(ngModel)]="password" (ngModelChange)="update()" required />
+          <mat-label>Password</mat-label>
+          <input matInput type="password" [(ngModel)]="password" (ngModelChange)="update()" required autocomplete="new-password" />
         </mat-form-field>
       </div>
 
-      <ng-container *ngIf="authMethod === 'oauth2'">
+      <ng-container *ngIf="!credentialsHidden && authMethod === 'oauth2'">
         <div class="form-row">
           <mat-form-field appearance="outline" class="half-width">
-            <mat-label>Client ID *</mat-label>
-            <input matInput [(ngModel)]="clientId" (ngModelChange)="update()" required />
+            <mat-label>Client ID</mat-label>
+            <input matInput [(ngModel)]="clientId" (ngModelChange)="update()" required autocomplete="off" />
           </mat-form-field>
           <mat-form-field appearance="outline" class="half-width">
             <mat-label>Client Secret</mat-label>
-            <input matInput type="password" [(ngModel)]="clientSecret" (ngModelChange)="update()" />
+            <input matInput type="password" [(ngModel)]="clientSecret" (ngModelChange)="update()" autocomplete="new-password"
+                   [required]="!accessToken.trim()" />
+            <mat-hint>Required unless an access token is given</mat-hint>
           </mat-form-field>
         </div>
         <mat-form-field appearance="outline" class="full-width">
-          <mat-label>Token Endpoint</mat-label>
+          <mat-label>Token Endpoint (optional)</mat-label>
           <input matInput [(ngModel)]="tokenEndpoint" (ngModelChange)="update()"
                  placeholder="e.g., https://<keycloak>/realms/alfresco/protocol/openid-connect/token" />
         </mat-form-field>
@@ -87,18 +119,18 @@ export interface AlfrescoSourceConfig {
         <div class="form-row">
           <mat-form-field appearance="outline" class="half-width">
             <mat-label>Access Token (optional)</mat-label>
-            <input matInput type="password" [(ngModel)]="accessToken" (ngModelChange)="update()" />
+            <input matInput type="password" [(ngModel)]="accessToken" (ngModelChange)="update()" autocomplete="new-password" />
             <mat-hint>Provide a pre-obtained token instead of client_credentials</mat-hint>
           </mat-form-field>
           <mat-form-field appearance="outline" class="half-width">
             <mat-label>Refresh Token (optional)</mat-label>
-            <input matInput type="password" [(ngModel)]="refreshToken" (ngModelChange)="update()" />
+            <input matInput type="password" [(ngModel)]="refreshToken" (ngModelChange)="update()" autocomplete="new-password" />
           </mat-form-field>
         </div>
       </ng-container>
 
       <mat-form-field appearance="outline" class="full-width">
-        <mat-label>Path *</mat-label>
+        <mat-label>Path</mat-label>
         <input matInput [(ngModel)]="path" (ngModelChange)="update()"
                placeholder="e.g., /Shared/GraphRAG" required />
       </mat-form-field>
@@ -108,19 +140,44 @@ export interface AlfrescoSourceConfig {
     .full-width { width: 100%; margin-bottom: 16px; }
     .form-row { display: flex; gap: 16px; margin-bottom: 16px; }
     .half-width { flex: 1; }
+    .sign-in-row { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin-bottom: 16px; }
+    .sign-in-row .hint { opacity: 0.7; }
   `],
   standalone: false
 })
-export class AlfrescoSourceFormComponent implements OnInit {
-  private readonly fgConfig = inject(FlexibleGraphragConfigService);
+export class AlfrescoSourceFormComponent implements OnInit, OnDestroy {
+  readonly fgConfig = inject(FlexibleGraphragConfigService);
+  readonly auth = inject(SourceAuthService);
+
+  // The Alfresco sign-in (planning/SOURCE-AUTH-LOGIN.md). When signed in to this server, the
+  // ingest uses that session's ticket -- nobody types a ticket. "Use other credentials" falls
+  // back to the fields (e.g. a service account for Auto Sync, which needs durable credentials).
+  session: AlfrescoSession | null = null;
+  useOther = false;
+  private sessionSub?: Subscription;
+
+  get signedInHere(): boolean {
+    return this.auth.active && !!this.session && sameServer(this.session.url, this.url);
+  }
+  get usingSignIn(): boolean { return this.signedInHere && !this.useOther; }
+  /** Host-signed-in (KG Spaces): an ingest to the host's own Alfresco server uses its ticket. */
+  get usingHostSignIn(): boolean {
+    return this.fgConfig.hostSuppliesAlfrescoTicket && sameServer(this.url, this.fgConfig.alfrescoBaseUrl);
+  }
+  get credentialsHidden(): boolean { return this.usingSignIn || this.usingHostSignIn; }
+
+  signInHere(): void {
+    this.auth.promptSignIn({ source: 'alfresco', url: this.url, methods: ['basic'], documents: null }, 'ingest');
+  }
   defaultUrl = this.fgConfig.alfrescoBaseUrl;
 
   url: string = this.defaultUrl;
   authMethod: string = 'basic';
   path: string = '/Shared/GraphRAG';
 
-  username: string = 'admin';
-  password: string = 'admin';
+  // No pre-filled credentials (they were admin/admin): sign in, or type a username/password
+  username: string = '';
+  password: string = '';
   // A ticket obtained elsewhere (e.g. one an ADF front end already holds). When set it
   // replaces username/password entirely rather than being fetched from them.
   ticket: string = '';
@@ -157,11 +214,18 @@ export class AlfrescoSourceFormComponent implements OnInit {
     if (o.scope !== undefined) this.scope = o.scope;
     if (o.access_token !== undefined) this.accessToken = o.access_token;
     if (o.refresh_token !== undefined) this.refreshToken = o.refresh_token;
-    this.update();
+    // re-emit when the user signs in / out, so the ingest config follows
+    this.sessionSub = this.auth.session$.subscribe((s) => { this.session = s; this.update(); });
+    this.auth.validateSession(true);  // a kept ticket may be dead by now
+  }
+
+  ngOnDestroy(): void {
+    this.sessionSub?.unsubscribe();
   }
 
   private isValid(): boolean {
     if (this.url.trim() === '' || this.path.trim() === '') return false;
+    if (this.credentialsHidden) return true;
     if (this.authMethod === 'oauth2') {
       return this.clientId.trim() !== '' && (this.accessToken.trim() !== '' || this.clientSecret.trim() !== '');
     }
@@ -170,6 +234,13 @@ export class AlfrescoSourceFormComponent implements OnInit {
   }
 
   private buildConfig(): AlfrescoSourceConfig {
+    if (this.usingHostSignIn) {
+      // the host adds its signed-in user's ticket (KG Spaces: withAcaTicket)
+      return { url: this.url, path: this.path, auth_method: 'ticket' };
+    }
+    if (this.usingSignIn && this.session) {
+      return { url: this.url, path: this.path, auth_method: 'ticket', ticket: this.session.ticket };
+    }
     const config: AlfrescoSourceConfig = { url: this.url, auth_method: this.authMethod, path: this.path };
     if (this.authMethod === 'oauth2') {
       config.oauth2 = {

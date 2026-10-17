@@ -64,6 +64,7 @@
       variant="outlined"
       class="mb-2"
       type="password"
+          autocomplete="new-password"
       placeholder="account-key-here"
       hint="Azure Storage account key (required)"
       persistent-hint

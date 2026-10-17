@@ -49,7 +49,7 @@
                 matInput 
                 formControlName="cmisUsername"
                 placeholder="Enter CMIS username"
-                [disabled]="isProcessing"
+                [disabled]="isProcessing" autocomplete="off"
               >
             </mat-form-field>
           </div>
@@ -61,7 +61,7 @@
                 type="password"
                 formControlName="cmisPassword"
                 placeholder="Enter CMIS password"
-                [disabled]="isProcessing"
+                [disabled]="isProcessing" autocomplete="new-password"
               >
             </mat-form-field>
           </div>
@@ -99,7 +99,7 @@
                 matInput 
                 formControlName="alfrescoUsername"
                 placeholder="Enter Alfresco username"
-                [disabled]="isProcessing"
+                [disabled]="isProcessing" autocomplete="off"
               >
             </mat-form-field>
           </div>
@@ -111,7 +111,7 @@
                 type="password"
                 formControlName="alfrescoPassword"
                 placeholder="Enter Alfresco password"
-                [disabled]="isProcessing"
+                [disabled]="isProcessing" autocomplete="new-password"
               >
             </mat-form-field>
           </div>

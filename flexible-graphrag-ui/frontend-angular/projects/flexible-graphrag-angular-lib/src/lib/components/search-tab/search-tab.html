@@ -48,7 +48,7 @@
           class="no-results-card">
           <mat-card-content>
             <h3>No results found</h3>
-            <p>No results found for "{{ lastSearchQuery }}". Try different search terms.</p>
+            <p>{{ emptyMessage || 'No results found for "' + lastSearchQuery + '". Try different search terms.' }}</p>
           </mat-card-content>
         </mat-card>
       </div>

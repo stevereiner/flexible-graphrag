@@ -16,7 +16,7 @@ export interface CMISSourceConfig {
       description="Connect to a CMIS-compliant content management system">
       
       <mat-form-field appearance="outline" class="full-width">
-        <mat-label>CMIS Repository URL *</mat-label>
+        <mat-label>CMIS Repository URL</mat-label>
         <input matInput
                [(ngModel)]="url"
                (ngModelChange)="onUrlChange()"
@@ -26,25 +26,25 @@ export interface CMISSourceConfig {
 
       <div class="form-row">
         <mat-form-field appearance="outline" class="half-width">
-          <mat-label>Username *</mat-label>
+          <mat-label>Username</mat-label>
           <input matInput
                  [(ngModel)]="username"
                  (ngModelChange)="onUsernameChange()"
-                 required />
+                 required autocomplete="off" />
         </mat-form-field>
 
         <mat-form-field appearance="outline" class="half-width">
-          <mat-label>Password *</mat-label>
+          <mat-label>Password</mat-label>
           <input matInput
                  type="password"
                  [(ngModel)]="password"
                  (ngModelChange)="onPasswordChange()"
-                 required />
+                 required autocomplete="new-password" />
         </mat-form-field>
       </div>
 
       <mat-form-field appearance="outline" class="full-width">
-        <mat-label>Folder Path *</mat-label>
+        <mat-label>Folder Path</mat-label>
         <input matInput
                [(ngModel)]="folderPath"
                (ngModelChange)="onFolderPathChange()"
@@ -75,8 +75,9 @@ export interface CMISSourceConfig {
 export class CMISSourceFormComponent implements OnInit, OnDestroy {
   private readonly fgConfig = inject(FlexibleGraphragConfigService);
   @Input() url: string = '';
-  @Input() username: string = 'admin';
-  @Input() password: string = 'admin';
+  // no pre-filled credentials (were admin/admin)
+  @Input() username: string = '';
+  @Input() password: string = '';
   @Input() folderPath: string = '/Shared/GraphRAG';
   
   @Output() urlChange = new EventEmitter<string>();

@@ -1046,26 +1046,22 @@ export default defineComponent({
           request.data_source = 'filesystem'; // Use filesystem processing for uploaded files
         } else if (props.configuredDataSource === 'cmis') {
           request.paths = [props.configuredFolderPath || '/Shared/GraphRAG']; // Use configured path
-          request.cmis_config = {
-            url: 'http://localhost:8080/alfresco/api/-default-/public/cmis/versions/1.1/atom',
-            username: 'admin',
-            password: 'admin',
-            folder_path: props.configuredFolderPath || '/Shared/GraphRAG'
-          };
+          // Send what the CMIS form configured (this was a hardcoded localhost admin/admin literal
+          // that silently ignored the form)
+          request.cmis_config = props.configuredCmisConfig
+            ? { ...props.configuredCmisConfig, folder_path: props.configuredCmisConfig.folder_path || props.configuredFolderPath || '/Shared/GraphRAG' }
+            : undefined;
         } else if (props.configuredDataSource === 'alfresco') {
           const alfrescoPath = props.configuredAlfrescoConfig?.path || props.configuredFolderPath || '/Shared/GraphRAG';
           request.paths = [alfrescoPath];
           // Send what the Sources tab configured. This used to be a hardcoded admin/admin
           // literal, so the form's credentials, auth method and URL were silently discarded
           // (and the URL differed from the form's, so the datasource never matched ingest status).
+          // Nothing configured: send no credentials (no admin/admin literals); the backend then
+          // answers 400 "alfresco_config is required", shown as the job's error.
           request.alfresco_config = props.configuredAlfrescoConfig
             ? { ...props.configuredAlfrescoConfig, path: alfrescoPath }
-            : {
-                url: 'http://localhost:8080',
-                username: 'admin',
-                password: 'admin',
-                path: alfrescoPath
-              };
+            : undefined;
         } else if (props.configuredDataSource === 'nuxeo') {
           request.nuxeo_config = props.configuredNuxeoConfig;
         } else if (props.configuredDataSource === 'web') {

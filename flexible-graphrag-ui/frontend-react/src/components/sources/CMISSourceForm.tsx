@@ -58,6 +58,7 @@ export const CMISSourceForm: React.FC<CMISSourceFormProps> = ({
       <TextField
         fullWidth
         label="CMIS Repository URL"
+        required
         variant="outlined"
         value={url}
         onChange={(e) => onUrlChange(e.target.value)}
@@ -68,7 +69,9 @@ export const CMISSourceForm: React.FC<CMISSourceFormProps> = ({
       <Box sx={{ display: 'flex', gap: 2, mb: 2 }}>
         <TextField
           fullWidth
-          label="Username"
+          autoComplete="off"
+        label="Username"
+        required
           variant="outlined"
           value={username}
           onChange={(e) => onUsernameChange(e.target.value)}
@@ -77,7 +80,9 @@ export const CMISSourceForm: React.FC<CMISSourceFormProps> = ({
         <TextField
           fullWidth
           label="Password"
+          required
           type="password"
+        autoComplete="new-password"
           variant="outlined"
           value={password}
           onChange={(e) => onPasswordChange(e.target.value)}
@@ -87,6 +92,7 @@ export const CMISSourceForm: React.FC<CMISSourceFormProps> = ({
       <TextField
         fullWidth
         label="Folder Path"
+        required
         variant="outlined"
         value={folderPath}
         onChange={(e) => onFolderPathChange(e.target.value)}

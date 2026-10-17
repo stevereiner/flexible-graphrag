@@ -19,6 +19,7 @@
           :model-value="username"
           @update:model-value="handleUsernameChange"
           label="Username *"
+          autocomplete="off"
           variant="outlined"
           required
         />
@@ -29,6 +30,7 @@
           @update:model-value="handlePasswordChange"
           label="Password *"
           type="password"
+          autocomplete="new-password"
           variant="outlined"
           required
         />

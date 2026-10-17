@@ -1,8 +1,14 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { TextField, Box, FormControl, InputLabel, Select, MenuItem } from '@mui/material';
+import { TextField, Box, FormControl, InputLabel, Select, MenuItem, Button, Typography, FormControlLabel, Checkbox } from '@mui/material';
 import { BaseSourceForm, BaseSourceFormProps } from './BaseSourceForm';
+import { AlfrescoSession, getAlfrescoSession, onAuthChange, openSignIn, signOut, validateSession } from '../../auth/sourceAuth';
 
 type AuthMethod = 'basic' | 'ticket' | 'oauth2';
+
+// Same Alfresco server? (an /alfresco suffix and trailing slashes don't matter)
+const sameServer = (a: string, b: string) =>
+  a.trim().replace(/\/+$/, '').replace(/\/alfresco$/i, '').toLowerCase() ===
+  b.trim().replace(/\/+$/, '').replace(/\/alfresco$/i, '').toLowerCase();
 
 interface AlfrescoSourceFormProps extends BaseSourceFormProps {
   // Single-object persistence (see NuxeoSourceForm): seeds on mount, emits full config on edit,
@@ -37,8 +43,20 @@ export const AlfrescoSourceForm: React.FC<AlfrescoSourceFormProps> = ({
   const [path, setPath] = useState<string>(value?.path ?? defaultPath);
 
   // Basic / ticket auth
-  const [username, setUsername] = useState<string>(value?.username ?? 'admin');
-  const [password, setPassword] = useState<string>(value?.password ?? 'admin');
+  // No pre-filled credentials (they were admin/admin): sign in, or type a username/password
+  const [username, setUsername] = useState<string>(value?.username ?? '');
+  const [password, setPassword] = useState<string>(value?.password ?? '');
+
+  // The Alfresco sign-in (header / dialog, planning/SOURCE-AUTH-LOGIN.md). When signed in to this
+  // server, the ingest uses that session's ticket -- nobody types a ticket. "Use other
+  // credentials" falls back to the fields below (e.g. a service account for Auto Sync, which
+  // needs durable credentials, never a ticket).
+  const [session, setSession] = useState<AlfrescoSession | null>(getAlfrescoSession());
+  const [useOther, setUseOther] = useState<boolean>(false);
+  useEffect(() => onAuthChange(() => setSession(getAlfrescoSession())), []);
+  useEffect(() => { validateSession(true); }, []);  // a kept ticket may be dead by now
+  const signedInHere = !!session && sameServer(session.url, url);
+  const usingSignIn = signedInHere && !useOther;
 
   // OAuth2
   const [clientId, setClientId] = useState<string>(value?.oauth2?.client_id ?? '');
@@ -50,14 +68,18 @@ export const AlfrescoSourceForm: React.FC<AlfrescoSourceFormProps> = ({
 
   const isValid = useMemo(() => {
     if (url.trim() === '' || path.trim() === '') return false;
+    if (usingSignIn) return true;
     if (authMethod === 'oauth2') {
       return clientId.trim() !== '' && (accessToken.trim() !== '' || clientSecret.trim() !== '');
     }
     // basic or ticket
     return username.trim() !== '' && password.trim() !== '';
-  }, [url, path, authMethod, username, password, clientId, clientSecret, accessToken]);
+  }, [url, path, usingSignIn, authMethod, username, password, clientId, clientSecret, accessToken]);
 
   const config = useMemo(() => {
+    if (usingSignIn && session) {
+      return { url, path, auth_method: 'ticket', ticket: session.ticket };
+    }
     const base: any = { url, auth_method: authMethod, path };
     if (authMethod === 'oauth2') {
       base.oauth2 = {
@@ -73,7 +95,7 @@ export const AlfrescoSourceForm: React.FC<AlfrescoSourceFormProps> = ({
       base.password = password;
     }
     return base;
-  }, [url, authMethod, path, username, password, clientId, clientSecret, tokenEndpoint, scope, accessToken, refreshToken]);
+  }, [url, authMethod, path, usingSignIn, session, username, password, clientId, clientSecret, tokenEndpoint, scope, accessToken, refreshToken]);
 
   useEffect(() => {
     onValidationChange(isValid);
@@ -89,6 +111,7 @@ export const AlfrescoSourceForm: React.FC<AlfrescoSourceFormProps> = ({
       <TextField
         fullWidth
         label="Alfresco Base URL"
+        required
         variant="outlined"
         value={url}
         onChange={(e) => setUrl(e.target.value)}
@@ -97,6 +120,33 @@ export const AlfrescoSourceForm: React.FC<AlfrescoSourceFormProps> = ({
         placeholder={`e.g., ${defaultUrl}`}
       />
 
+      <Box sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
+        {signedInHere ? (
+          <>
+            <Typography variant="body2">
+              Signed in to Alfresco as <strong>{session!.user_id}</strong>
+              {usingSignIn ? ' (used for this ingest)' : ''}
+            </Typography>
+            <Button size="small" onClick={() => { signOut(); }}>Sign out</Button>
+            <FormControlLabel
+              control={<Checkbox size="small" checked={useOther} onChange={(e) => setUseOther(e.target.checked)} />}
+              label="Use other credentials (e.g. for Auto Sync)"
+            />
+          </>
+        ) : (
+          <>
+            <Button
+              variant="outlined" size="small"
+              onClick={() => openSignIn({ source: 'alfresco', url, methods: ['basic'], documents: null }, 'ingest')}
+            >
+              Sign in to Alfresco
+            </Button>
+            <Typography variant="body2" color="text.secondary">or enter credentials below</Typography>
+          </>
+        )}
+      </Box>
+
+      {!usingSignIn && (
       <FormControl fullWidth size="small" sx={{ mb: 2 }}>
         <InputLabel>Authentication</InputLabel>
         <Select
@@ -109,13 +159,18 @@ export const AlfrescoSourceForm: React.FC<AlfrescoSourceFormProps> = ({
           <MenuItem value="oauth2">OAuth2 (Bearer, via Identity Service)</MenuItem>
         </Select>
       </FormControl>
+      )}
 
-      {(authMethod === 'basic' || authMethod === 'ticket') && (
+      {!usingSignIn && (authMethod === 'basic' || authMethod === 'ticket') && (
         <Box sx={{ display: 'flex', gap: 2, mb: 2 }}>
           <TextField
             fullWidth
             label="Username"
+            required
             variant="outlined"
+            // repository credentials, not a login to this page: keep the browser's password
+            // manager from filling them with a saved localhost login
+            autoComplete="off"
             value={username}
             onChange={(e) => setUsername(e.target.value)}
             size="small"
@@ -123,8 +178,10 @@ export const AlfrescoSourceForm: React.FC<AlfrescoSourceFormProps> = ({
           <TextField
             fullWidth
             label="Password"
+            required
             type="password"
             variant="outlined"
+            autoComplete="new-password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             size="small"
@@ -132,12 +189,14 @@ export const AlfrescoSourceForm: React.FC<AlfrescoSourceFormProps> = ({
         </Box>
       )}
 
-      {authMethod === 'oauth2' && (
+      {!usingSignIn && authMethod === 'oauth2' && (
         <Box sx={{ mb: 2 }}>
           <Box sx={{ display: 'flex', gap: 2, mb: 2 }}>
             <TextField
               fullWidth
               label="Client ID"
+              required
+              autoComplete="off"
               variant="outlined"
               value={clientId}
               onChange={(e) => setClientId(e.target.value)}
@@ -146,7 +205,10 @@ export const AlfrescoSourceForm: React.FC<AlfrescoSourceFormProps> = ({
             <TextField
               fullWidth
               label="Client Secret"
+              required={accessToken.trim() === ''}
+              helperText="Required unless an access token is given"
               type="password"
+              autoComplete="new-password"
               variant="outlined"
               value={clientSecret}
               onChange={(e) => setClientSecret(e.target.value)}
@@ -155,7 +217,7 @@ export const AlfrescoSourceForm: React.FC<AlfrescoSourceFormProps> = ({
           </Box>
           <TextField
             fullWidth
-            label="Token Endpoint"
+            label="Token Endpoint (optional)"
             variant="outlined"
             value={tokenEndpoint}
             onChange={(e) => setTokenEndpoint(e.target.value)}
@@ -177,6 +239,7 @@ export const AlfrescoSourceForm: React.FC<AlfrescoSourceFormProps> = ({
               fullWidth
               label="Access Token (optional)"
               type="password"
+              autoComplete="new-password"
               variant="outlined"
               value={accessToken}
               onChange={(e) => setAccessToken(e.target.value)}
@@ -187,6 +250,7 @@ export const AlfrescoSourceForm: React.FC<AlfrescoSourceFormProps> = ({
               fullWidth
               label="Refresh Token (optional)"
               type="password"
+              autoComplete="new-password"
               variant="outlined"
               value={refreshToken}
               onChange={(e) => setRefreshToken(e.target.value)}
@@ -199,6 +263,7 @@ export const AlfrescoSourceForm: React.FC<AlfrescoSourceFormProps> = ({
       <TextField
         fullWidth
         label="Path"
+        required
         variant="outlined"
         value={path}
         onChange={(e) => setPath(e.target.value)}

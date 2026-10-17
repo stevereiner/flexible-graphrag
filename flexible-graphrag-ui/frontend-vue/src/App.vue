@@ -3,6 +3,7 @@
     <v-app-bar app :color="isDarkMode ? 'grey-darken-3' : 'primary'" dark>
       <v-toolbar-title>Flexible GraphRAG (Vue)</v-toolbar-title>
       <v-spacer></v-spacer>
+      <SourceSignIn />
       <div class="d-flex align-center ga-3">
         <v-switch
           v-model="isLightMode"
@@ -93,6 +94,7 @@ import SourcesTab from './components/SourcesTab.vue';
 import ProcessingTab from './components/ProcessingTab.vue';
 import SearchTab from './components/SearchTab.vue';
 import ChatTab from './components/ChatTab.vue';
+import SourceSignIn from './auth/SourceSignIn.vue';
 
 export default defineComponent({
   name: 'App',
@@ -101,6 +103,7 @@ export default defineComponent({
     ProcessingTab,
     SearchTab,
     ChatTab,
+    SourceSignIn,
   },
   setup() {
     const mainTab = ref('sources');

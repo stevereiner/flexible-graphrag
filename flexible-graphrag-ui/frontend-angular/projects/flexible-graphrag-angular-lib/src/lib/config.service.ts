@@ -1,4 +1,5 @@
 import { Inject, Injectable, Optional } from '@angular/core';
+import { readAlfrescoSession } from './services/source-auth.storage';
 import {
   FLEXIBLE_GRAPHRAG_CONFIG,
   FLEXIBLE_GRAPHRAG_DEFAULTS,
@@ -31,6 +32,13 @@ export class FlexibleGraphragConfigService {
   get chatWelcomeTitle(): string { return this.cfg.chatWelcomeTitle!; }
   get chatWelcomeLines(): string[] { return this.cfg.chatWelcomeLines!; }
   get showChatScope(): boolean { return !!this.cfg.showChatScope; }
+  /** The library's own Alfresco sign-in is in use: enabled, and the host supplies no ticket. */
+  /** The host passes its own signed-in user's Alfresco ticket with every question (KG Spaces in
+   *  ACA): Alfresco ingests to that host's server use it too, so no credentials are asked for. */
+  get hostSuppliesAlfrescoTicket(): boolean { return !!this.hostHeaders()['X-Alfresco-Ticket']; }
+  get sourceSignIn(): boolean {
+    return this.cfg.sourceSignIn !== false && !this.hostHeaders()['X-Alfresco-Ticket'];
+  }
   /** Open a source document in the host's viewer; false when the host does not handle it. */
   openDocument(doc: SourceDocument): boolean {
     try {
@@ -46,8 +54,19 @@ export class FlexibleGraphragConfigService {
       return false;
     }
   }
-  /** Headers for a search / chat question (e.g. the user's Alfresco ticket); {} when none. */
+  /** Headers for a search / chat question (e.g. the user's Alfresco ticket); {} when none.
+   *  The host's own headers win; otherwise the ticket from the library's sign-in, if any. */
   questionHeaders(): Record<string, string> {
+    const headers = this.hostHeaders();
+    if (!headers['X-Alfresco-Ticket'] && this.cfg.sourceSignIn !== false) {
+      const session = readAlfrescoSession();
+      // the ticket plus the Alfresco server it belongs to (several servers can be in the stores)
+      if (session?.ticket) return { ...headers, 'X-Alfresco-Ticket': session.ticket, 'X-Alfresco-Url': session.url };
+    }
+    return headers;
+  }
+
+  private hostHeaders(): Record<string, string> {
     try {
       return this.cfg.requestHeaders?.() || {};
     } catch {

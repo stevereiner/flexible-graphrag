@@ -57,6 +57,9 @@ export const SearchTab: React.FC<SearchTabProps> = ({
   // Local state (only for UI-specific state that doesn't need persistence)
   // Search state now comes from props for persistence
   const [error, setError] = useState<string>(''); // Error doesn't need persistence
+  // Why a search found nothing, when the backend says (e.g. the matches are in Alfresco and
+  // the user continued without signing in)
+  const [emptyMessage, setEmptyMessage] = useState<string>('');
 
   const handleSearch = async (): Promise<void> => {
     if (!question.trim() || isQuerying) return;
@@ -64,6 +67,7 @@ export const SearchTab: React.FC<SearchTabProps> = ({
     try {
       onIsQueryingChange(true);
       setError('');
+      setEmptyMessage('');
       onSearchResultsChange([]);
       onQaAnswerChange('');
       onQaSourcesChange([]);
@@ -80,6 +84,7 @@ export const SearchTab: React.FC<SearchTabProps> = ({
       
       if (response.data.success) {
         onHasSearchedChange(true);
+        setEmptyMessage(response.data.message || '');
         if (activeTab === 'search' && response.data.results) {
           onSearchResultsChange(response.data.results);
         } else if (activeTab === 'qa' && response.data.answer) {
@@ -192,7 +197,7 @@ export const SearchTab: React.FC<SearchTabProps> = ({
                 No results found
               </Typography>
               <Typography variant="body1" color="text.secondary">
-                No results found for "{lastSearchQuery}". Try different search terms.
+                {emptyMessage || `No results found for "${lastSearchQuery}". Try different search terms.`}
               </Typography>
             </Paper>
           )}

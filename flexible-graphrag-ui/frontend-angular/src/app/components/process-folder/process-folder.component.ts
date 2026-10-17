@@ -42,8 +42,9 @@ export class ProcessFolderComponent implements OnInit, OnDestroy {
       folderPath: [''],
       // CMIS fields
       cmisUrl: [`${this.envService.cmisBaseUrl}/alfresco/api/-default-/public/cmis/versions/1.1/atom`],
-      cmisUsername: ['admin'],
-      cmisPassword: ['admin'],
+      // no pre-filled credentials (were admin/admin)
+      cmisUsername: [''],
+      cmisPassword: [''],
       // Alfresco fields
       alfrescoUrl: [`${this.envService.alfrescoBaseUrl}/alfresco`],
       alfrescoUsername: ['admin'],

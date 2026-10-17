@@ -15,10 +15,11 @@
       <v-text-field
         :model-value="developerToken"
         @update:model-value="handleDeveloperTokenChange"
-        label="Developer Token"
+        label="Developer Token *"
         variant="outlined"
         class="mb-2"
         type="password"
+          autocomplete="new-password"
         hint="Temporary token for testing (expires after 1 hour)"
         persistent-hint
       />
@@ -29,15 +30,16 @@
         <v-text-field
           :model-value="clientId"
           @update:model-value="handleClientIdChange"
-          label="App Client ID"
+          label="App Client ID *"
           variant="outlined"
         />
         <v-text-field
           :model-value="clientSecret"
           @update:model-value="handleClientSecretChange"
-          label="App Client Secret"
+          label="App Client Secret *"
           variant="outlined"
           type="password"
+          autocomplete="new-password"
         />
       </div>
 
@@ -45,7 +47,7 @@
         v-if="authMode === 'ccg_user' || authMode === 'ccg_both'"
         :model-value="userId"
         @update:model-value="handleUserIdChange"
-        label="Box User ID"
+        label="Box User ID *"
         variant="outlined"
         class="mb-2"
         placeholder="12345678"
@@ -57,7 +59,7 @@
         v-if="authMode === 'ccg_enterprise' || authMode === 'ccg_both'"
         :model-value="enterpriseId"
         @update:model-value="handleEnterpriseIdChange"
-        label="Box Enterprise ID"
+        label="Box Enterprise ID *"
         variant="outlined"
         class="mb-2"
         placeholder="987654321"
@@ -71,8 +73,8 @@
       label="Folder ID (Optional)"
       variant="outlined"
       class="mb-2"
-      placeholder="0"
-      hint="Leave empty for root folder"
+      placeholder="e.g., 123456789"
+      hint="Leave empty for the root folder (All Files, ID 0)"
       persistent-hint
     />
   </BaseSourceForm>

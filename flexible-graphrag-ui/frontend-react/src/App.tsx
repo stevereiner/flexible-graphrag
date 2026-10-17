@@ -10,6 +10,7 @@ import Tab from '@mui/material/Tab';
 import TabPanel from '@mui/lab/TabPanel';
 import TabContext from '@mui/lab/TabContext';
 import AppBar from '@mui/material/AppBar';
+import { SourceSignIn } from './auth/SourceSignIn';
 import Toolbar from '@mui/material/Toolbar';
 import Switch from '@mui/material/Switch';
 import FormControlLabel from '@mui/material/FormControlLabel';
@@ -126,8 +127,9 @@ const App: React.FC = () => {
   // dialog and shadowed this fallback.
   const [sourcesfolderPath, setSourcesFolderPath] = useState<string>(import.meta.env.VITE_CMIS_PATH || '/Shared/GraphRAG');
   const [cmisUrl, setCmisUrl] = useState<string>(`${import.meta.env.VITE_CMIS_BASE_URL || 'http://localhost:8080'}/alfresco/api/-default-/public/cmis/versions/1.1/atom`);
-  const [cmisUsername, setCmisUsername] = useState<string>('admin');
-  const [cmisPassword, setCmisPassword] = useState<string>('admin');
+  // CMIS credentials: no pre-filled credentials (were admin/admin)
+  const [cmisUsername, setCmisUsername] = useState<string>('');
+  const [cmisPassword, setCmisPassword] = useState<string>('');
   // Single-object form state (persists across Sources<->Processing tab switches) for the
   // self-contained Nuxeo/Alfresco forms — replaces per-field lifting.
   const [nuxeoFormValue, setNuxeoFormValue] = useState<any>({});
@@ -400,6 +402,7 @@ const App: React.FC = () => {
           <Typography variant="h6" component="div" sx={{ flexGrow: 1 }}>
             Flexible GraphRAG (React)
           </Typography>
+          <SourceSignIn />
           <FormControlLabel
             control={
               <Switch

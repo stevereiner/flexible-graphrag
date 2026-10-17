@@ -20,7 +20,7 @@ export const S3SourceForm: React.FC<S3SourceFormProps> = ({
 }) => {
   const [bucketName, setBucketName] = useState('');
   const [prefix, setPrefix] = useState('');
-  const [regionName, setRegionName] = useState('us-east-1');
+  const [regionName, setRegionName] = useState('');  // starts empty; placeholder shows e.g. us-east-1
   const [sqsQueueUrl, setSqsQueueUrl] = useState('');
 
   const isValid = useMemo(() => {
@@ -48,7 +48,7 @@ export const S3SourceForm: React.FC<S3SourceFormProps> = ({
     >
       <TextField
         fullWidth
-        label="Bucket Name *"
+        label="Bucket Name"
         variant="outlined"
         value={bucketName}
         onChange={(e) => setBucketName(e.target.value)}
@@ -78,7 +78,7 @@ export const S3SourceForm: React.FC<S3SourceFormProps> = ({
       />
       <TextField
         fullWidth
-        label="AWS Region *"
+        label="AWS Region"
         variant="outlined"
         value={regionName}
         onChange={(e) => setRegionName(e.target.value)}
@@ -99,11 +99,11 @@ export const S3SourceForm: React.FC<S3SourceFormProps> = ({
         sx={{ mb: 2 }}
         placeholder="https://sqs.us-east-2.amazonaws.com/123456789/my-queue"
         helperText="Optional: SQS queue URL for real-time event-based sync (leave empty for periodic polling)"
-        autoComplete="url"
+        autoComplete="off"
         type="url"
         name="sqs-endpoint-url"
         inputProps={{
-          autoComplete: 'url',
+          autoComplete: 'off',
           name: 'sqs-endpoint-url',
           'data-lpignore': 'true',
           'data-form-type': 'other',
@@ -113,25 +113,25 @@ export const S3SourceForm: React.FC<S3SourceFormProps> = ({
       <Box sx={{ display: 'flex', gap: 2, mb: 2 }}>
         <TextField
           fullWidth
-          label="Access Key *"
+          label="Access Key"
           variant="outlined"
           value={accessKey}
           onChange={(e) => onAccessKeyChange(e.target.value)}
           size="small"
           type="password"
           required
-          autoComplete="off"
+          autoComplete="new-password"
         />
         <TextField
           fullWidth
-          label="Secret Key *"
+          label="Secret Key"
           variant="outlined"
           value={secretKey}
           onChange={(e) => onSecretKeyChange(e.target.value)}
           size="small"
           type="password"
           required
-          autoComplete="off"
+          autoComplete="new-password"
         />
       </Box>
     </BaseSourceForm>

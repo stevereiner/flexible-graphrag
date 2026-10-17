@@ -87,12 +87,14 @@ export const BoxSourceForm: React.FC<BoxSourceFormProps> = ({
         <TextField
           fullWidth
           label="Developer Token"
+          required
           variant="outlined"
           value={developerToken}
           onChange={(e) => onDeveloperTokenChange(e.target.value)}
           size="small"
           sx={{ mb: 2 }}
           type="password"
+        autoComplete="new-password"
           helperText="Temporary token for testing (expires after 1 hour)"
         />
       )}
@@ -103,6 +105,7 @@ export const BoxSourceForm: React.FC<BoxSourceFormProps> = ({
             <TextField
               fullWidth
               label="App Client ID"
+              required
               variant="outlined"
               value={clientId}
               onChange={(e) => onClientIdChange(e.target.value)}
@@ -111,17 +114,20 @@ export const BoxSourceForm: React.FC<BoxSourceFormProps> = ({
             <TextField
               fullWidth
               label="App Client Secret"
+              required
               variant="outlined"
               value={clientSecret}
               onChange={(e) => onClientSecretChange(e.target.value)}
               size="small"
               type="password"
+        autoComplete="new-password"
             />
           </Box>
           {(authMode === 'ccg_user' || authMode === 'ccg_both') && (
             <TextField
               fullWidth
               label="Box User ID"
+              required
               variant="outlined"
               value={userId}
               onChange={(e) => onUserIdChange(e.target.value)}
@@ -135,6 +141,7 @@ export const BoxSourceForm: React.FC<BoxSourceFormProps> = ({
             <TextField
               fullWidth
               label="Box Enterprise ID"
+              required
               variant="outlined"
               value={enterpriseId}
               onChange={(e) => onEnterpriseIdChange(e.target.value)}
@@ -155,8 +162,8 @@ export const BoxSourceForm: React.FC<BoxSourceFormProps> = ({
         onChange={(e) => setFolderId(e.target.value)}
         size="small"
         sx={{ mb: 2 }}
-        placeholder="0"
-        helperText="Leave empty for root folder"
+        placeholder="e.g., 123456789"
+        helperText="Leave empty for the root folder (All Files, ID 0)"
       />
     </BaseSourceForm>
   );

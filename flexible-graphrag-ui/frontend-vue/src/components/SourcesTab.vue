@@ -41,6 +41,7 @@
 
 <script lang="ts">
 import { defineComponent, ref, computed, watch } from 'vue';
+import { signInFromSourceConfig } from '../auth/sourceAuth';
 import axios from 'axios';
 import {
   FileUploadForm,
@@ -98,8 +99,9 @@ export default defineComponent({
 
     // CMIS state
     const cmisUrl = ref(`${import.meta.env.VITE_CMIS_BASE_URL || 'http://localhost:8080'}/alfresco/api/-default-/public/cmis/versions/1.1/atom`);
-    const cmisUsername = ref('admin');
-    const cmisPassword = ref('admin');
+    // CMIS credentials: no pre-filled credentials (were admin/admin)
+    const cmisUsername = ref('');
+    const cmisPassword = ref('');
 
     // Web sources state
     const webUrl = ref('');
@@ -309,6 +311,8 @@ export default defineComponent({
           break;
         case 'alfresco':
           sourceConfig.alfrescoConfig = currentConfig.value;
+          // Credentials typed into the form also sign in for search / chat (if not signed in)
+          signInFromSourceConfig(currentConfig.value);
           sourceConfig.folderPath = currentConfig.value?.path || '';
           break;
         case 'nuxeo':

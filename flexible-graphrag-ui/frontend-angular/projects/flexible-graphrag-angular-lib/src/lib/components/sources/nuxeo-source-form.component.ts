@@ -27,7 +27,7 @@ export interface NuxeoSourceConfig {
       description="Connect to a Nuxeo content management system">
 
       <mat-form-field appearance="outline" class="full-width">
-        <mat-label>Nuxeo Base URL *</mat-label>
+        <mat-label>Nuxeo Base URL</mat-label>
         <input matInput
                [(ngModel)]="url"
                (ngModelChange)="update()"
@@ -47,35 +47,37 @@ export interface NuxeoSourceConfig {
 
       <div class="form-row" *ngIf="authMethod === 'basic' || authMethod === 'token'">
         <mat-form-field appearance="outline" class="half-width">
-          <mat-label>Username *</mat-label>
-          <input matInput [(ngModel)]="username" (ngModelChange)="update()" required />
+          <mat-label>Username</mat-label>
+          <input matInput [(ngModel)]="username" (ngModelChange)="update()" required autocomplete="off" />
         </mat-form-field>
         <mat-form-field appearance="outline" class="half-width">
-          <mat-label>Password *</mat-label>
-          <input matInput type="password" [(ngModel)]="password" (ngModelChange)="update()" required />
+          <mat-label>Password</mat-label>
+          <input matInput type="password" [(ngModel)]="password" (ngModelChange)="update()" required autocomplete="new-password" />
         </mat-form-field>
       </div>
 
       <ng-container *ngIf="authMethod === 'oauth2'">
         <div class="form-row">
           <mat-form-field appearance="outline" class="half-width">
-            <mat-label>Client ID *</mat-label>
+            <mat-label>Client ID</mat-label>
             <input matInput [(ngModel)]="clientId" (ngModelChange)="update()" required />
           </mat-form-field>
           <mat-form-field appearance="outline" class="half-width">
             <mat-label>Client Secret</mat-label>
-            <input matInput type="password" [(ngModel)]="clientSecret" (ngModelChange)="update()" />
+            <input matInput type="password" [(ngModel)]="clientSecret" (ngModelChange)="update()" autocomplete="new-password"
+                   [required]="!accessToken.trim()" />
+            <mat-hint>Required unless an access token is given</mat-hint>
           </mat-form-field>
         </div>
         <div class="form-row">
           <mat-form-field appearance="outline" class="half-width">
-            <mat-label>Access Token</mat-label>
-            <input matInput type="password" [(ngModel)]="accessToken" (ngModelChange)="update()" />
+            <mat-label>Access Token (optional)</mat-label>
+            <input matInput type="password" [(ngModel)]="accessToken" (ngModelChange)="update()" autocomplete="new-password" />
             <mat-hint>Obtain out-of-band (authorization code + PKCE)</mat-hint>
           </mat-form-field>
           <mat-form-field appearance="outline" class="half-width">
-            <mat-label>Refresh Token</mat-label>
-            <input matInput type="password" [(ngModel)]="refreshToken" (ngModelChange)="update()" />
+            <mat-label>Refresh Token (optional)</mat-label>
+            <input matInput type="password" [(ngModel)]="refreshToken" (ngModelChange)="update()" autocomplete="new-password" />
           </mat-form-field>
         </div>
         <mat-form-field appearance="outline" class="full-width">
@@ -86,7 +88,7 @@ export interface NuxeoSourceConfig {
       </ng-container>
 
       <mat-form-field appearance="outline" class="full-width">
-        <mat-label>Path *</mat-label>
+        <mat-label>Path</mat-label>
         <input matInput [(ngModel)]="path" (ngModelChange)="update()"
                placeholder="e.g., /default-domain/workspaces/GraphRAG" required />
         <mat-hint>Path to the folder or document to process</mat-hint>
@@ -108,8 +110,9 @@ export class NuxeoSourceFormComponent implements OnInit {
   // your own workspace.  The backend's .env NUXEO_PATH cannot reach the browser.
   path: string = this.fgConfig.nuxeoPath;
 
-  username: string = 'Administrator';
-  password: string = 'Administrator';
+  // no pre-filled credentials (were Administrator/Administrator)
+  username: string = '';
+  password: string = '';
   token: string = '';
 
   clientId: string = '';
