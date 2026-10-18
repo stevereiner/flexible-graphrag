@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2026-10-18] — v0.8.5 release
+
+Releases the [2026-10-17] changes below as v0.8.5.
+
+### Changed
+
+- Version 0.8.5 for the backend and MCP server (`flexible-graphrag`, `flexible-graphrag-mcp` on PyPI), the React, Vue and Angular apps, the `@flexible-graphrag/angular-ui` library (npm), the Langflow components and the bundled Langflow flows.
+- README and docs: v0.8.5 release notes.
+
 ## [2026-10-17] — Alfresco sign-in for search and ingest, answers only from documents the user may read, data-source form credential cleanup
 
 ### Added

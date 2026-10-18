@@ -394,7 +394,7 @@
                 "dependencies": [
                   {
                     "name": "langflow_components",
-                    "version": "0.8.4"
+                    "version": "0.8.5"
                   },
                   {
                     "name": "langflow",
