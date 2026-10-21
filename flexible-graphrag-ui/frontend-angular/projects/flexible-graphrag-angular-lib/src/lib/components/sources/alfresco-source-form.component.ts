@@ -1,12 +1,8 @@
 import { Component, Input, Output, EventEmitter, OnDestroy, OnInit, inject } from '@angular/core';
-import { Subscription } from 'rxjs';
 import { FlexibleGraphragConfigService } from '../../config.service';
-import { AlfrescoSession, SourceAuthService } from '../../services/source-auth.service';
-
-// Same Alfresco server? (an /alfresco suffix and trailing slashes don't matter)
-const sameServer = (a: string, b: string) =>
-  a.trim().replace(/\/+$/, '').replace(/\/alfresco$/i, '').toLowerCase() ===
-  b.trim().replace(/\/+$/, '').replace(/\/alfresco$/i, '').toLowerCase();
+import { SourceAuthService } from '../../services/source-auth.service';
+import { FormSignIn } from '../source-sign-in/source-sign-in';
+import { UiDefaultsService } from '../../services/ui-defaults.service';
 
 export interface AlfrescoOAuth2Config {
   client_id?: string;
@@ -25,6 +21,7 @@ export interface AlfrescoSourceConfig {
   ticket?: string;
   oauth2?: AlfrescoOAuth2Config;
   path?: string;
+  recursive?: boolean;  // Deep: include subfolders, in the ingest and its auto sync
 }
 
 @Component({
@@ -40,25 +37,17 @@ export interface AlfrescoSourceConfig {
                [placeholder]="'e.g., ' + defaultUrl" required />
       </mat-form-field>
 
-      <!-- The library's Alfresco sign-in (inactive in KG Spaces, which supplies ACA's ticket) -->
-      <div class="sign-in-row" *ngIf="auth.active">
-        <ng-container *ngIf="signedInHere; else notSignedIn">
-          <span>Signed in to Alfresco as <strong>{{ session?.user_id }}</strong>{{ usingSignIn ? ' (used for this ingest)' : '' }}</span>
-          <button mat-button type="button" (click)="auth.signOut()">Sign out</button>
-          <mat-checkbox [(ngModel)]="useOther" (ngModelChange)="update()">Use other credentials (e.g. for Auto Sync)</mat-checkbox>
-        </ng-container>
-        <ng-template #notSignedIn>
-          <button mat-stroked-button type="button" (click)="signInHere()">Sign in to Alfresco</button>
-          <span class="hint">or enter credentials below</span>
-        </ng-template>
-      </div>
+      <!-- The library's sign-in (not for KG Spaces' own server, which uses ACA's ticket) -->
+      <app-source-sign-in-section source="alfresco" [url]="url"
+          [useOther]="signin.useOther" (useOtherChange)="signin.useOther = $event; update()">
+      </app-source-sign-in-section>
 
       <!-- In a host that signs the user in itself (KG Spaces in ACA), an ingest to that host's own
            Alfresco server uses the host's sign-in: the credential fields would be ignored -->
       <div class="sign-in-row" *ngIf="usingHostSignIn">
         <span>This ingest uses your Alfresco Content App sign-in &mdash; no username or password needed.</span>
       </div>
-      <div class="sign-in-row" *ngIf="fgConfig.hostSuppliesAlfrescoTicket && !usingHostSignIn">
+      <div class="sign-in-row" *ngIf="fgConfig.hostSuppliesAlfrescoTicket && !usingHostSignIn && !auth.active">
         <span class="hint">A different Alfresco server than the one you are signed in to: enter its credentials.</span>
       </div>
 
@@ -129,11 +118,15 @@ export interface AlfrescoSourceConfig {
         </div>
       </ng-container>
 
-      <mat-form-field appearance="outline" class="full-width">
-        <mat-label>Path</mat-label>
-        <input matInput [(ngModel)]="path" (ngModelChange)="update()"
-               placeholder="e.g., /Shared/GraphRAG" required />
-      </mat-form-field>
+      <div class="path-row">
+        <mat-form-field appearance="outline" class="full-width">
+          <mat-label>Path</mat-label>
+          <input matInput [(ngModel)]="path" (ngModelChange)="update()"
+                 placeholder="e.g., /Shared/GraphRAG" required />
+        </mat-form-field>
+        <mat-checkbox class="deep" [checked]="recursive" (change)="ownDeep = $event.checked; update()"
+                    title="Include subfolders, at every depth, in the ingest and its auto sync">Deep</mat-checkbox>
+      </div>
     </app-base-source-form>
   `,
   styles: [`
@@ -142,6 +135,9 @@ export interface AlfrescoSourceConfig {
     .half-width { flex: 1; }
     .sign-in-row { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin-bottom: 16px; }
     .sign-in-row .hint { opacity: 0.7; }
+    .path-row { display: flex; align-items: flex-start; gap: 8px; }
+    .path-row .full-width { flex: 1; }
+    .path-row .deep { margin-top: 12px; white-space: nowrap; }
   `],
   standalone: false
 })
@@ -152,28 +148,21 @@ export class AlfrescoSourceFormComponent implements OnInit, OnDestroy {
   // The Alfresco sign-in (planning/SOURCE-AUTH-LOGIN.md). When signed in to this server, the
   // ingest uses that session's ticket -- nobody types a ticket. "Use other credentials" falls
   // back to the fields (e.g. a service account for Auto Sync, which needs durable credentials).
-  session: AlfrescoSession | null = null;
-  useOther = false;
-  private sessionSub?: Subscription;
+  readonly signin = new FormSignIn(this.auth, this.fgConfig, 'alfresco');
 
-  get signedInHere(): boolean {
-    return this.auth.active && !!this.session && sameServer(this.session.url, this.url);
-  }
-  get usingSignIn(): boolean { return this.signedInHere && !this.useOther; }
+  get usingSignIn(): boolean { return this.signin.using(this.url); }
   /** Host-signed-in (KG Spaces): an ingest to the host's own Alfresco server uses its ticket. */
-  get usingHostSignIn(): boolean {
-    return this.fgConfig.hostSuppliesAlfrescoTicket && sameServer(this.url, this.fgConfig.alfrescoBaseUrl);
-  }
+  get usingHostSignIn(): boolean { return this.fgConfig.hostCovers('alfresco', this.url); }
   get credentialsHidden(): boolean { return this.usingSignIn || this.usingHostSignIn; }
-
-  signInHere(): void {
-    this.auth.promptSignIn({ source: 'alfresco', url: this.url, methods: ['basic'], documents: null }, 'ingest');
-  }
   defaultUrl = this.fgConfig.alfrescoBaseUrl;
 
   url: string = this.defaultUrl;
   authMethod: string = 'basic';
   path: string = '/Shared/GraphRAG';
+  // Deep: include subfolders (recursive). Unset: the backend's DEFAULT_RECURSIVE, else off
+  private readonly uiDefaults = inject(UiDefaultsService);
+  ownDeep: boolean | undefined = undefined;
+  get recursive(): boolean { return this.ownDeep ?? this.uiDefaults.defaults.recursive ?? false; }
 
   // No pre-filled credentials (they were admin/admin): sign in, or type a username/password
   username: string = '';
@@ -204,6 +193,7 @@ export class AlfrescoSourceFormComponent implements OnInit, OnDestroy {
     if (v.url !== undefined) this.url = v.url;
     if (v.auth_method) this.authMethod = v.auth_method;
     if (v.path !== undefined) this.path = v.path;
+    if (typeof v.recursive === 'boolean') this.ownDeep = v.recursive;
     if (v.username !== undefined) this.username = v.username;
     if (v.password !== undefined) this.password = v.password;
     if (v.ticket !== undefined) this.ticket = v.ticket;
@@ -215,12 +205,12 @@ export class AlfrescoSourceFormComponent implements OnInit, OnDestroy {
     if (o.access_token !== undefined) this.accessToken = o.access_token;
     if (o.refresh_token !== undefined) this.refreshToken = o.refresh_token;
     // re-emit when the user signs in / out, so the ingest config follows
-    this.sessionSub = this.auth.session$.subscribe((s) => { this.session = s; this.update(); });
-    this.auth.validateSession(true);  // a kept ticket may be dead by now
+    this.signin.start(() => this.update());
+    this.uiDefaults.load().then(() => this.update());  // the Deep default may have changed
   }
 
   ngOnDestroy(): void {
-    this.sessionSub?.unsubscribe();
+    this.signin.stop();
   }
 
   private isValid(): boolean {
@@ -236,12 +226,14 @@ export class AlfrescoSourceFormComponent implements OnInit, OnDestroy {
   private buildConfig(): AlfrescoSourceConfig {
     if (this.usingHostSignIn) {
       // the host adds its signed-in user's ticket (KG Spaces: withAcaTicket)
-      return { url: this.url, path: this.path, auth_method: 'ticket' };
+      return { url: this.url, path: this.path, recursive: this.recursive, auth_method: 'ticket' };
     }
-    if (this.usingSignIn && this.session) {
-      return { url: this.url, path: this.path, auth_method: 'ticket', ticket: this.session.ticket };
+    const signedIn = this.signin.credential(this.url);
+    if (signedIn) {
+      return { url: this.url, path: this.path, recursive: this.recursive, ...signedIn } as AlfrescoSourceConfig;
     }
-    const config: AlfrescoSourceConfig = { url: this.url, auth_method: this.authMethod, path: this.path };
+    const config: AlfrescoSourceConfig = { url: this.url, auth_method: this.authMethod, path: this.path,
+                                           recursive: this.recursive };
     if (this.authMethod === 'oauth2') {
       config.oauth2 = {
         client_id: this.clientId,
@@ -276,6 +268,7 @@ export class AlfrescoSourceFormComponent implements OnInit, OnDestroy {
       url: this.url,
       auth_method: this.authMethod,
       path: this.path,
+      recursive: this.ownDeep,
       username: this.username,
       password: this.password,
       ticket: this.ticket,

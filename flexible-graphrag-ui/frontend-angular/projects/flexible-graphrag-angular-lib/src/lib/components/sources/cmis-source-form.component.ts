@@ -1,11 +1,17 @@
 import { Component, Input, Output, EventEmitter, OnInit, OnDestroy, inject } from '@angular/core';
 import { FlexibleGraphragConfigService } from '../../config.service';
+import { SourceAuthService } from '../../services/source-auth.service';
+import { FormSignIn } from '../source-sign-in/source-sign-in';
 
 export interface CMISSourceConfig {
   url: string;
-  username: string;
-  password: string;
+  username?: string;
+  password?: string;
   folder_path: string;
+  // from the CMIS sign-in: an Alfresco server's ticket or a Nuxeo server's token
+  auth_method?: string;
+  ticket?: string;
+  token?: string;
 }
 
 @Component({
@@ -24,7 +30,12 @@ export interface CMISSourceConfig {
                required />
       </mat-form-field>
 
-      <div class="form-row">
+      <!-- The CMIS sign-in: an Alfresco / Nuxeo CMIS server's ticket / token instead of a password -->
+      <app-source-sign-in-section source="cmis" [url]="url"
+          [useOther]="signin.useOther" (useOtherChange)="signin.useOther = $event; updateValidationAndConfig()">
+      </app-source-sign-in-section>
+
+      <div class="form-row" *ngIf="!usingSignIn">
         <mat-form-field appearance="outline" class="half-width">
           <mat-label>Username</mat-label>
           <input matInput
@@ -74,6 +85,9 @@ export interface CMISSourceConfig {
 })
 export class CMISSourceFormComponent implements OnInit, OnDestroy {
   private readonly fgConfig = inject(FlexibleGraphragConfigService);
+  private readonly auth = inject(SourceAuthService);
+  readonly signin = new FormSignIn(this.auth, this.fgConfig, 'cmis');
+  get usingSignIn(): boolean { return this.signin.using(this.url); }
   @Input() url: string = '';
   // no pre-filled credentials (were admin/admin)
   @Input() username: string = '';
@@ -94,24 +108,21 @@ export class CMISSourceFormComponent implements OnInit, OnDestroy {
 
   ngOnInit() {
     this.updateValidationAndConfig();
+    this.signin.start(() => this.updateValidationAndConfig());  // re-emit when the user signs in / out
   }
 
   ngOnDestroy() {
-    // Cleanup if needed
+    this.signin.stop();
   }
 
-  private updateValidationAndConfig() {
-    const isValid = this.url.trim() !== '' && 
-                   this.username.trim() !== '' && 
-                   this.password.trim() !== '' && 
-                   this.folderPath.trim() !== '';
-    
-    const config: CMISSourceConfig = {
-      url: this.url,
-      username: this.username,
-      password: this.password,
-      folder_path: this.folderPath
-    };
+  updateValidationAndConfig() {
+    const signedIn = this.signin.credential(this.url);
+    const isValid = this.url.trim() !== '' && this.folderPath.trim() !== '' &&
+                   (!!signedIn || (this.username.trim() !== '' && this.password.trim() !== ''));
+
+    const config: CMISSourceConfig = signedIn
+      ? { url: this.url, folder_path: this.folderPath, ...signedIn }
+      : { url: this.url, username: this.username, password: this.password, folder_path: this.folderPath };
     
     this.validationChange.emit(isValid);
     this.configurationChange.emit(config);

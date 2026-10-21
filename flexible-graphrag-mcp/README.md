@@ -1,6 +1,6 @@
 # Flexible GraphRAG
 
-Flexible GraphRAG is an open source AI context platform supporting a document processing pipeline (Docling, LlamaParse, or LiteParse), knowledge graph auto-building, ontologies, schemas, many LLM providers, GraphRAG and RAG, hybrid semantic search (fulltext, vector, property graph, RDF/SPARQL), AI query, and AI chat. The backend is Python with LlamaIndex and LangChain as peer frameworks. LlamaIndex is the default for each pipeline stage; LangChain can be selected per stage in environment configuration. The API is a REST FastAPI service. Angular, React, and Vue TypeScript frontends and an MCP server are included. The stack supports 14 data sources (10 with incremental auto-sync), 15 property graph databases, 4 RDF triple stores (Apache Jena Fuseki, Ontotext GraphDB, Oxigraph, Amazon Neptune RDF), 10 vector databases, OpenSearch / Elasticsearch / BM25 search, Alfresco, and Nuxeo. Databases and dashboards can be enabled with the provided Docker Compose layout. Optionally, the ingest pipeline, hybrid search, and AI query can run through customizable **Langflow** visual flows (12 custom Langflow components). As a further option, ingest can run on a **CocoIndex** (Rust engine) pipeline (`PIPELINE_BACKEND=cocoindex`) that reuses the same sources, targets, parsers and KG extractors, adding step-level memoization, automatic delete reconciliation, custom KG extractors, and entity resolution. A meeting-notes example is included.
+Flexible GraphRAG is an open source AI context platform supporting a document processing pipeline (Docling, LlamaParse, or LiteParse), knowledge graph auto-building, ontologies, schemas, many LLM providers, GraphRAG and RAG, hybrid semantic search (fulltext, vector, property graph, RDF/SPARQL), AI query, and AI chat. The backend is Python with LlamaIndex and LangChain as peer frameworks. LlamaIndex is the default for each pipeline stage; LangChain can be selected per stage in environment configuration. The API is a REST FastAPI service. Angular, React, and Vue TypeScript frontends and an MCP server are included. The stack supports 14 data sources: 10 with incremental auto-sync (Alfresco, Nuxeo, SharePoint, OneDrive, Box, Google Drive, Amazon S3, Google Cloud Storage, Azure Blob Storage, Filesystem) and 4 without (CMIS, Web Pages, Wikipedia, YouTube); 15 property graph databases, 4 RDF triple stores (Apache Jena Fuseki, Ontotext GraphDB, Oxigraph, Amazon Neptune RDF), 10 vector databases, OpenSearch / Elasticsearch / BM25 search, Alfresco, and Nuxeo. With per-user sign-in, search and AI answers use only the documents each user may read. Databases and dashboards can be enabled with the provided Docker Compose layout. Optionally, the ingest pipeline, hybrid search, and AI query can run through customizable **Langflow** visual flows (12 custom Langflow components). As a further option, ingest can run on a **CocoIndex** (Rust engine) pipeline (`PIPELINE_BACKEND=cocoindex`) that reuses the same sources, targets, parsers and KG extractors, adding step-level memoization, automatic delete reconciliation, custom KG extractors, and entity resolution. A meeting-notes example is included.
 
 This package is the MCP server — it connects to the Flexible GraphRAG FastAPI backend (status, ingest, hybrid search, AI Q&A) for Claude Desktop and other MCP clients.
 
@@ -202,13 +202,44 @@ Env vars: `MCP_TRANSPORT_AUTH` (default `false`), `MCP_AUTH_JWKS_URI`, `MCP_AUTH
 MCP SDK requires an **HTTPS** issuer, so leave unset for a local http Keycloak; the JWKS signature check
 still gates access), `MCP_AUTH_AUDIENCE` (optional).
 
+## Permission filtering: three levels
+
+Search and query through the MCP server can answer from everything, or only from what a given user
+may read ([Sign-In guide](https://stevereiner.github.io/flexible-graphrag/DATA-SOURCES/SIGN-IN-GUIDE/)):
+
+| Level | How | Result |
+| --- | --- | --- |
+| **1** (default) | `search_documents` / `query_documents` with no credentials | No filtering: every document in the stores |
+| **2** | the same tools with `source_auth` (or `alfresco_ticket`), e.g. from `sign_in` | The sources you pass credentials for are filtered to what that user may read; the others stay unfiltered |
+| **3** | `MCP_BROWSER_SIGN_IN=true` | Also the `start_sign_in` / `finish_sign_in` tools: sign in to Microsoft 365, Box, Google or Azure Storage in your browser, then pass the credential as in level 2 |
+
+**Level 1 needs the backend to trust this server**, because by default the backend leaves out a
+governed source's documents from a question that brings no sign-in (`SOURCE_QUERY_AUTH=required`).
+Set the same random value on both sides:
+
+- backend `.env`: `TRUSTED_CLIENT_KEY=<random>`
+- MCP server env (e.g. the `env` block of its Claude Desktop config): `FLEXIBLE_GRAPHRAG_TRUSTED_KEY=<random>`
+
+Keep the key secret: anything that sends it gets unfiltered answers. Without it, the backend's own
+`SOURCE_QUERY_AUTH` rules apply to MCP questions as to any other caller.
+
+`sign_in` (username / password for `alfresco`, `nuxeo`, `cmis`; the IAM access key for `s3`) is
+always available. At level 3, `start_sign_in(source)` returns a link to open in your browser; after
+signing in, tell the assistant, and `finish_sign_in(handoff_id)` collects the credential (it returns
+at once; `wait_seconds` makes it wait). `AUTH_HANDOFF_CONFIRM_CODE=true` on the backend adds a code
+to compare first, for a shared backend.
+
 ## Available Tools
 
 - **`get_system_status()`** - System status and configuration
 - **`ingest_documents()`** - Ingest documents from 14 data sources (all support `skip_graph`; filesystem/Alfresco/CMIS use `paths`; Alfresco also supports `nodeDetails` list)
 - **`ingest_text(content, source_name)`** - Ingest custom text content
-- **`search_documents(query, top_k)`** - Hybrid search for document retrieval
-- **`query_documents(query, top_k)`** - AI-generated answers from documents
+- **`search_documents(query, top_k, source_auth, sources)`** - Hybrid search for document retrieval
+- **`query_documents(query, top_k, source_auth, sources)`** - AI-generated answers from documents
+- **`list_sources()`** - The sources in the stores, for `sources`
+- **`get_auth_requirements()`** - Which sign-ins the stored content needs
+- **`sign_in(source, username, password, url)`** - Alfresco, Nuxeo, CMIS sign-in, or S3 with an IAM access key
+- **`start_sign_in(source)`** / **`finish_sign_in(handoff_id)`** - Microsoft 365, Box, Google or Azure Storage sign-in in a browser (only with `MCP_BROWSER_SIGN_IN=true`)
 - **`test_with_sample()`** - Quick test with sample text
 - **`check_processing_status(processing_id)`** - Check async operation status
 - **`get_python_info()`** - Python environment information

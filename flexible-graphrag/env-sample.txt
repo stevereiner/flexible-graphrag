@@ -1228,15 +1228,70 @@ ALFRESCO_PASSWORD=admin
 # so it seldom belongs in a config file. ALFRESCO_TICKET alone (no auth method) means ticket mode.
 #ALFRESCO_AUTH_METHOD=basic
 #ALFRESCO_TICKET=
-# Search / AI query over Alfresco documents (query-time permissions):
-#   required (default) - Alfresco documents are used only when the request says who is asking
-#                        (alfresco_config with basic / ticket / oauth2, or the X-Alfresco-Ticket
-#                        header); results then include only what that user may read, checked
-#                        against Alfresco. Without credentials, Alfresco documents are left out.
-#   optional           - no credentials = every document is visible (only for a backend that
-#                        nothing but trusted callers can reach)
-# Documents from other data sources are not affected either way.
+# Search / AI query over repository documents (query-time permissions) -- Alfresco, Nuxeo, and
+# CMIS on Alfresco / Nuxeo servers:
+#   required (default) - a repository's documents are used only when the request says who is
+#                        asking on that server (source_auth.alfresco / .nuxeo / .cmis -- one
+#                        credential or a list, one per server -- or the X-Alfresco-Ticket header);
+#                        results then include only what that user may read, checked against the
+#                        repository. Without credentials for a server, its documents are left out.
+#   optional           - no credentials = that source's documents are visible (only for a backend
+#                        that nothing but trusted callers can reach)
+# SOURCE_QUERY_AUTH sets all of them; ALFRESCO_QUERY_AUTH / NUXEO_QUERY_AUTH / CMIS_QUERY_AUTH
+# override it per source. Documents from other data sources are not affected either way.
+#SOURCE_QUERY_AUTH=required
 #ALFRESCO_QUERY_AUTH=required
+#NUXEO_QUERY_AUTH=required
+#CMIS_QUERY_AUTH=required
+# Microsoft 365 sign-in (SharePoint + OneDrive permission-aware search; opt-in): the UIs' "Sign in
+# with Microsoft" popup. Setting MICROSOFT_AUTH_CLIENT_ID is what turns SharePoint / OneDrive
+# permission filtering on -- without it their documents stay visible to everyone. Entra setup
+# (Web redirect URI <backend>/api/auth/microsoft/callback, delegated Files.Read.All +
+# Sites.Read.All): docs/DATA-SOURCES/README-microsoft-sign-in.md
+#MICROSOFT_AUTH_CLIENT_ID=
+#MICROSOFT_AUTH_CLIENT_SECRET=
+#MICROSOFT_AUTH_TENANT_ID=
+#MICROSOFT_AUTH_REDIRECT_URI=
+#MICROSOFT_QUERY_AUTH=required
+# Box sign-in (Box permission-aware search; opt-in): the UIs' "Sign in with Box" popup. Needs its
+# own Box Platform App of type User (OAuth 2.0) -- not the data source's Client Credentials app --
+# with redirect URI <backend>/api/auth/box/callback and the "Read all files and folders" scope:
+# docs/DATA-SOURCES/README-box-sign-in.md
+#BOX_AUTH_CLIENT_ID=
+#BOX_AUTH_CLIENT_SECRET=
+#BOX_AUTH_REDIRECT_URI=
+#BOX_QUERY_AUTH=required
+# Google sign-in (Google Drive + Cloud Storage permission-aware search; opt-in): the UIs' "Sign in
+# with Google" popup. An OAuth client of type Web application with redirect URI
+# <backend>/api/auth/google/callback; consent-screen scopes drive.readonly + devstorage.read_only:
+# docs/DATA-SOURCES/README-google-sign-in.md
+#GOOGLE_AUTH_CLIENT_ID=
+#GOOGLE_AUTH_CLIENT_SECRET=
+#GOOGLE_AUTH_REDIRECT_URI=
+#GOOGLE_QUERY_AUTH=required
+# Azure Storage sign-in (Azure Blob permission-aware search; opt-in): the UIs' "Sign in with Azure
+# Storage" popup, separate from Microsoft 365. An Entra app registration in the storage account's
+# directory, Web redirect URI <backend>/api/auth/azure/callback, delegated Azure Storage
+# user_impersonation with admin consent; users need Storage Blob Data Reader:
+# docs/DATA-SOURCES/README-azure-sign-in.md
+#AZURE_AUTH_CLIENT_ID=
+#AZURE_AUTH_CLIENT_SECRET=
+#AZURE_AUTH_TENANT_ID=
+#AZURE_AUTH_REDIRECT_URI=
+#AZURE_QUERY_AUTH=required
+# Amazon S3 sign-in (S3 permission-aware search; opt-in): users sign in with their own IAM access
+# key, exchanged once for a temporary STS session (only that session is kept); each S3 result is
+# then fetched as the user. No app to register: docs/DATA-SOURCES/README-s3-sign-in.md
+#S3_AUTH_ENABLED=true
+#S3_AUTH_SESSION_SECONDS=43200
+#S3_QUERY_AUTH=required
+# MCP browser sign-in (start_sign_in / finish_sign_in): true = the link first shows a code to
+# compare with the MCP client's before going to the vendor (recommended on a shared backend)
+#AUTH_HANDOFF_CONFIRM_CODE=false
+# MCP server level 1: questions from a client sending this key (the MCP server's
+# FLEXIBLE_GRAPHRAG_TRUSTED_KEY) are filtered only for the sources they bring credentials for;
+# with none they see everything. Unset = no client is trusted. Keep it secret.
+#TRUSTED_CLIENT_KEY=
 # Where a search result's / answer's Alfresco document opens in the Flexible GraphRAG UIs
 # (in a new browser tab): aca (default, the Alfresco Content App viewer) or share (Alfresco
 # Share's document page). KG Spaces in ACA always opens it in its own ACA viewer.

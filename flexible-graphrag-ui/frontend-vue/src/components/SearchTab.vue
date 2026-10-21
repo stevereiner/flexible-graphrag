@@ -9,6 +9,8 @@
       <v-tab value="qa">AI Query</v-tab>
     </v-tabs>
 
+    <SourcePicker class="mt-4" />
+
     <!-- Search Input -->
     <div class="d-flex ga-2 mb-4">
       <v-text-field
@@ -45,9 +47,9 @@
             variant="outlined"
           >
             <div class="text-caption text-medium-emphasis mb-2">
-              <strong>Source:</strong>
+              <strong>Source:</strong>&nbsp;
               <template v-if="result.documents?.length">
-                <SourceDocs :docs="result.documents" /><template v-if="storeLabel(result.source)"> | {{ storeLabel(result.source) }}</template>
+                <SourceDocs :docs="result.documents" /><template v-if="sourceTypeLabel(result.documents)"> | {{ sourceTypeLabel(result.documents) }}</template><template v-if="storeLabel(result.source)"> | {{ storeLabel(result.source) }}</template>
               </template>
               <template v-else>{{ result.file_name || result.metadata?.source || result.source || 'Unknown' }}</template> | 
               <strong> Score:</strong> {{ result.score?.toFixed(3) || 'N/A' }}
@@ -101,7 +103,8 @@
 <script lang="ts">
 import { defineComponent, ref, watch } from 'vue';
 import axios from 'axios';
-import SourceDocs, { SourceDocument, storeLabel } from './SourceDocs.vue';
+import SourceDocs, { SourceDocument, sourceTypeLabel, storeLabel } from './SourceDocs.vue';
+import SourcePicker from '../auth/SourcePicker.vue';
 
 interface QueryRequest {
   query: string;
@@ -121,7 +124,7 @@ interface ApiResponse {
 
 export default defineComponent({
   name: 'SearchTab',
-  components: { SourceDocs },
+  components: { SourceDocs, SourcePicker },
   setup() {
     // State
     const activeTab = ref('search');
@@ -202,6 +205,7 @@ export default defineComponent({
       qaAnswer,
       qaSources,
       storeLabel,
+      sourceTypeLabel,
       hasSearched,
       lastSearchQuery,
       isQuerying,

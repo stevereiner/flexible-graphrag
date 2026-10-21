@@ -45,7 +45,7 @@ Open the URL shown in the console (the token is pre-filled). Configure:
 - **Transport**: Streamable HTTP
 - **URL**: `http://localhost:3002/mcp`
 
-Click **Connect** — you can now browse and test all 9 tools interactively.
+Click **Connect** — you can now browse and test all the tools interactively (12, or 14 with `MCP_BROWSER_SIGN_IN=true`).
 
 ---
 
@@ -58,6 +58,10 @@ Click **Connect** — you can now browse and test all 9 tools interactively.
 | `ingest_text(content, source_name)` | Ingest and analyze specific text content |
 | `search_documents(query, top_k)` | Hybrid search — returns ranked excerpts with scores |
 | `query_documents(query, top_k)` | AI Q&A — generates an answer from your document corpus |
+| `list_sources()` | Sources with documents in the stores, for the `sources` argument |
+| `get_auth_requirements()` | Which sign-ins the stored documents need |
+| `sign_in(source, username, password)` | Sign in to `alfresco`, `nuxeo`, `cmis` or `s3`; returns the credential for `source_auth` |
+| `start_sign_in(source)` / `finish_sign_in(handoff_id)` | Browser sign-in (Microsoft 365, Box, Google, Azure Storage); only with `MCP_BROWSER_SIGN_IN=true` |
 | `test_with_sample()` | Quick system test using built-in Star Wars sample text |
 | `check_processing_status(id)` | Poll status of a long-running async ingestion task |
 | `get_python_info()` | Python environment and dependency diagnostics |

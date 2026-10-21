@@ -1,5 +1,8 @@
-import { Component, Input, Output, EventEmitter, OnInit, inject } from '@angular/core';
+import { Component, Input, Output, EventEmitter, OnDestroy, OnInit, inject } from '@angular/core';
 import { FlexibleGraphragConfigService } from '../../config.service';
+import { SourceAuthService } from '../../services/source-auth.service';
+import { UiDefaultsService } from '../../services/ui-defaults.service';
+import { FormSignIn } from '../source-sign-in/source-sign-in';
 
 export interface NuxeoOAuth2Config {
   client_id?: string;
@@ -17,6 +20,7 @@ export interface NuxeoSourceConfig {
   token?: string;
   oauth2?: NuxeoOAuth2Config;
   path?: string;
+  recursive?: boolean;  // Deep: include subfolders, in the ingest and its auto sync
 }
 
 @Component({
@@ -36,7 +40,12 @@ export interface NuxeoSourceConfig {
         <mat-hint>Base repository URL (no /api/v1 suffix)</mat-hint>
       </mat-form-field>
 
-      <mat-form-field appearance="outline" class="full-width">
+      <!-- The Nuxeo sign-in: when signed in to this server the ingest uses that session's token -->
+      <app-source-sign-in-section source="nuxeo" [url]="url"
+          [useOther]="signin.useOther" (useOtherChange)="signin.useOther = $event; update()">
+      </app-source-sign-in-section>
+
+      <mat-form-field appearance="outline" class="full-width" *ngIf="!usingSignIn">
         <mat-label>Authentication</mat-label>
         <mat-select [(ngModel)]="authMethod" (ngModelChange)="update()">
           <mat-option value="basic">Basic (username / password)</mat-option>
@@ -45,7 +54,7 @@ export interface NuxeoSourceConfig {
         </mat-select>
       </mat-form-field>
 
-      <div class="form-row" *ngIf="authMethod === 'basic' || authMethod === 'token'">
+      <div class="form-row" *ngIf="!usingSignIn && (authMethod === 'basic' || authMethod === 'token')">
         <mat-form-field appearance="outline" class="half-width">
           <mat-label>Username</mat-label>
           <input matInput [(ngModel)]="username" (ngModelChange)="update()" required autocomplete="off" />
@@ -56,7 +65,7 @@ export interface NuxeoSourceConfig {
         </mat-form-field>
       </div>
 
-      <ng-container *ngIf="authMethod === 'oauth2'">
+      <ng-container *ngIf="!usingSignIn && authMethod === 'oauth2'">
         <div class="form-row">
           <mat-form-field appearance="outline" class="half-width">
             <mat-label>Client ID</mat-label>
@@ -87,28 +96,42 @@ export interface NuxeoSourceConfig {
         </mat-form-field>
       </ng-container>
 
-      <mat-form-field appearance="outline" class="full-width">
-        <mat-label>Path</mat-label>
-        <input matInput [(ngModel)]="path" (ngModelChange)="update()"
-               placeholder="e.g., /default-domain/workspaces/GraphRAG" required />
-        <mat-hint>Path to the folder or document to process</mat-hint>
-      </mat-form-field>
+      <div class="path-row">
+        <mat-form-field appearance="outline" class="full-width">
+          <mat-label>Path</mat-label>
+          <input matInput [(ngModel)]="path" (ngModelChange)="update()"
+                 placeholder="e.g., /default-domain/workspaces/GraphRAG" required />
+          <mat-hint>Path to the folder or document to process</mat-hint>
+        </mat-form-field>
+        <mat-checkbox class="deep" [checked]="recursive" (change)="ownDeep = $event.checked; update()"
+                    title="Include subfolders, at every depth, in the ingest and its auto sync">Deep</mat-checkbox>
+      </div>
     </app-base-source-form>
   `,
   styles: [`
     .full-width { width: 100%; margin-bottom: 16px; }
     .form-row { display: flex; gap: 16px; margin-bottom: 16px; }
     .half-width { flex: 1; }
+    .path-row { display: flex; align-items: flex-start; gap: 8px; }
+    .path-row .full-width { flex: 1; }
+    .path-row .deep { margin-top: 12px; white-space: nowrap; }
   `],
   standalone: false
 })
-export class NuxeoSourceFormComponent implements OnInit {
+export class NuxeoSourceFormComponent implements OnInit, OnDestroy {
   private readonly fgConfig = inject(FlexibleGraphragConfigService);
+  private readonly auth = inject(SourceAuthService);
+  readonly signin = new FormSignIn(this.auth, this.fgConfig, 'nuxeo');
+  get usingSignIn(): boolean { return this.signin.using(this.url); }
   url: string = this.fgConfig.nuxeoBaseUrl;
   authMethod: string = 'basic';
   // Set NUXEO_PATH at build time (generate-env-config.ts) to point the dialog at
   // your own workspace.  The backend's .env NUXEO_PATH cannot reach the browser.
   path: string = this.fgConfig.nuxeoPath;
+  // Deep: include subfolders (recursive). Unset: the backend's DEFAULT_RECURSIVE, else off
+  private readonly uiDefaults = inject(UiDefaultsService);
+  ownDeep: boolean | undefined = undefined;
+  get recursive(): boolean { return this.ownDeep ?? this.uiDefaults.defaults.recursive ?? false; }
 
   // no pre-filled credentials (were Administrator/Administrator)
   username: string = '';
@@ -133,6 +156,7 @@ export class NuxeoSourceFormComponent implements OnInit {
     if (v.url !== undefined) this.url = v.url;
     if (v.auth_method) this.authMethod = v.auth_method;
     if (v.path !== undefined) this.path = v.path;
+    if (typeof v.recursive === 'boolean') this.ownDeep = v.recursive;
     if (v.username !== undefined) this.username = v.username;
     if (v.password !== undefined) this.password = v.password;
     if (v.token !== undefined) this.token = v.token;
@@ -143,10 +167,17 @@ export class NuxeoSourceFormComponent implements OnInit {
     if (o.refresh_token !== undefined) this.refreshToken = o.refresh_token;
     if (o.token_endpoint !== undefined) this.tokenEndpoint = o.token_endpoint;
     this.update();
+    this.signin.start(() => this.update());  // re-emit when the user signs in / out
+    this.uiDefaults.load().then(() => this.update());  // the Deep default may have changed
+  }
+
+  ngOnDestroy(): void {
+    this.signin.stop();
   }
 
   private isValid(): boolean {
     if (this.url.trim() === '') return false;
+    if (this.usingSignIn) return true;
     // basic and token both use username/password (token mode fetches the auth token
     // from them on the backend, like Alfresco ticket).
     if (this.authMethod === 'basic' || this.authMethod === 'token') {
@@ -156,7 +187,10 @@ export class NuxeoSourceFormComponent implements OnInit {
   }
 
   private buildConfig(): NuxeoSourceConfig {
-    const config: NuxeoSourceConfig = { url: this.url, auth_method: this.authMethod, path: this.path };
+    const signedIn = this.signin.credential(this.url);
+    if (signedIn) return { url: this.url, path: this.path, recursive: this.recursive, ...signedIn } as NuxeoSourceConfig;
+    const config: NuxeoSourceConfig = { url: this.url, auth_method: this.authMethod, path: this.path,
+                                        recursive: this.recursive };
     // token mode sends username/password; the backend fetches the auth token from them.
     if (this.authMethod === 'basic' || this.authMethod === 'token') {
       config.username = this.username;
@@ -177,6 +211,7 @@ export class NuxeoSourceFormComponent implements OnInit {
     const config = this.buildConfig();
     this.validationChange.emit(this.isValid());
     this.configurationChange.emit(config);
-    this.valueChange.emit(config);  // persist live config to the parent
+    // persist live config to the parent (with the user's own Deep choice only, not the default)
+    this.valueChange.emit({ ...config, recursive: this.ownDeep });
   }
 }

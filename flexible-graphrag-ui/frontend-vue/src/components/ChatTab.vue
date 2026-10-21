@@ -84,6 +84,9 @@
       </div>
     </v-card>
 
+    <!-- Which sources the question covers -->
+    <SourcePicker class="mt-4" />
+
     <!-- Input Area -->
     <div class="d-flex align-center ga-2">
       <v-textarea
@@ -140,6 +143,7 @@ import { defineComponent, ref, nextTick, watch } from 'vue';
 import axios from 'axios';
 import agentIcon from '../assets/agent.png';
 import SourceDocs, { SourceDocument } from './SourceDocs.vue';
+import SourcePicker from '../auth/SourcePicker.vue';
 
 interface ChatMessage {
   id: string;
@@ -170,7 +174,7 @@ interface ApiResponse {
 
 export default defineComponent({
   name: 'ChatTab',
-  components: { SourceDocs },
+  components: { SourceDocs, SourcePicker },
   setup() {
     // State
     const chatMessages = ref<ChatMessage[]>([]);

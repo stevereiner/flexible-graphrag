@@ -159,13 +159,44 @@ flexible-graphrag-mcp --http --port 8080
 
 The HTTP mode is automatically configured in the `mcp-inspector/` config files and works better than stdio for debugging complex MCP interactions.
 
+## Permission filtering: three levels
+
+Search and query through the MCP server can answer from everything, or only from what a given user
+may read ([Sign-In guide](../DATA-SOURCES/SIGN-IN-GUIDE.md)):
+
+| Level | How | Result |
+| --- | --- | --- |
+| **1** (default) | `search_documents` / `query_documents` with no credentials | No filtering: every document in the stores |
+| **2** | the same tools with `source_auth` (or `alfresco_ticket`), e.g. from `sign_in` | The sources you pass credentials for are filtered to what that user may read; the others stay unfiltered |
+| **3** | `MCP_BROWSER_SIGN_IN=true` | Also the `start_sign_in` / `finish_sign_in` tools: sign in to Microsoft 365, Box, Google or Azure Storage in your browser, then pass the credential as in level 2 |
+
+**Level 1 needs the backend to trust this server**, because by default the backend leaves out a
+governed source's documents from a question that brings no sign-in (`SOURCE_QUERY_AUTH=required`).
+Set the same random value on both sides:
+
+- backend `.env`: `TRUSTED_CLIENT_KEY=<random>`
+- MCP server env (e.g. the `env` block of its Claude Desktop config): `FLEXIBLE_GRAPHRAG_TRUSTED_KEY=<random>`
+
+Keep the key secret: anything that sends it gets unfiltered answers. Without it, the backend's own
+`SOURCE_QUERY_AUTH` rules apply to MCP questions as to any other caller.
+
+`sign_in` (username / password for `alfresco`, `nuxeo`, `cmis`; the IAM access key for `s3`) is
+always available. At level 3, `start_sign_in(source)` returns a link to open in your browser; after
+signing in, tell the assistant, and `finish_sign_in(handoff_id)` collects the credential (it returns
+at once; `wait_seconds` makes it wait). `AUTH_HANDOFF_CONFIRM_CODE=true` on the backend adds a code
+to compare first, for a shared backend.
+
 ## Available Tools
 
 - **`get_system_status()`** - System status and configuration
 - **`ingest_documents()`** - Ingest documents from 14 data sources (all support `skip_graph`; filesystem/Alfresco/CMIS use `paths`; Alfresco also supports `nodeDetails` list)
 - **`ingest_text(content, source_name)`** - Ingest custom text content
-- **`search_documents(query, top_k)`** - Hybrid search for document retrieval
-- **`query_documents(query, top_k)`** - AI-generated answers from documents
+- **`search_documents(query, top_k, source_auth, scope, sources)`** - Hybrid search for document retrieval
+- **`query_documents(query, top_k, source_auth, scope, sources)`** - AI-generated answers from documents
+- **`list_sources()`** - Sources with documents in the stores, for the `sources` argument of search / query
+- **`get_auth_requirements()`** - Which sign-ins the stored documents need
+- **`sign_in(source, username, password, url)`** - Sign in to `alfresco`, `nuxeo`, `cmis` or `s3`; returns the credential for `source_auth`
+- **`start_sign_in(source)` / `finish_sign_in(handoff_id)`** - Browser sign-in (Microsoft 365, Box, Google, Azure Storage); only with `MCP_BROWSER_SIGN_IN=true`
 - **`test_with_sample()`** - Quick test with sample text
 - **`check_processing_status(processing_id)`** - Check async operation status
 - **`get_python_info()`** - Python environment information
@@ -178,7 +209,7 @@ Ingest documents from various sources into the knowledge graph.
 
 **Parameters:**
 - `data_source` (string, default: "filesystem"): Type of data source
-  - Options: `filesystem`, `cmis`, `alfresco`, `web`, `wikipedia`, `youtube`, `s3`, `gcs`, `azure_blob`, `onedrive`, `sharepoint`, `box`, `google_drive`
+  - Options: `filesystem`, `cmis`, `alfresco`, `nuxeo`, `web`, `wikipedia`, `youtube`, `s3`, `gcs`, `azure_blob`, `onedrive`, `sharepoint`, `box`, `google_drive`
 - `paths` (string, optional): File path(s) to process (for filesystem, Alfresco, and CMIS sources)
   - Single path: `"/path/to/file.pdf"`
   - Multiple paths (JSON array): `["file1.pdf", "file2.docx"]`

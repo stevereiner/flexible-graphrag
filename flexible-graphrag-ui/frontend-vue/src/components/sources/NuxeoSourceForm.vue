@@ -15,7 +15,13 @@
       required
     />
 
+    <SourceSignInSection
+      source="nuxeo" :url="url" :session="session" :using-sign-in="usingSignIn"
+      v-model:use-other="useOther"
+    />
+
     <v-select
+      v-if="!usingSignIn"
       :model-value="authMethod"
       @update:model-value="(v: string) => authMethod = v"
       :items="authMethods"
@@ -25,7 +31,7 @@
       density="compact"
     />
 
-    <v-row v-if="authMethod === 'basic' || authMethod === 'token'" class="mb-4">
+    <v-row v-if="!usingSignIn && (authMethod === 'basic' || authMethod === 'token')" class="mb-4">
       <v-col cols="6">
         <v-text-field
           :model-value="username"
@@ -49,7 +55,7 @@
       </v-col>
     </v-row>
 
-    <template v-if="authMethod === 'oauth2'">
+    <template v-if="!usingSignIn && authMethod === 'oauth2'">
       <v-row class="mb-4">
         <v-col cols="6">
           <v-text-field
@@ -107,28 +113,37 @@
       />
     </template>
 
-    <v-text-field
-      :model-value="path"
-      @update:model-value="(v: string) => path = v"
-      label="Path *"
-      variant="outlined"
-      class="mb-4"
-      placeholder="e.g., /default-domain/workspaces/GraphRAG"
-      hint="Path to the folder or document to process"
-      persistent-hint
-      required
-    />
+    <div class="d-flex align-start">
+      <v-text-field
+        :model-value="path"
+        @update:model-value="(v: string) => path = v"
+        label="Path *"
+        variant="outlined"
+        class="mb-4"
+        placeholder="e.g., /default-domain/workspaces/GraphRAG"
+        hint="Path to the folder or document to process"
+        persistent-hint
+        required
+      />
+      <DeepCheckbox :checked="recursive" @change="(v: boolean) => ownDeep = v" />
+    </div>
   </BaseSourceForm>
 </template>
 
 <script lang="ts">
 import { defineComponent, ref, computed, watch } from 'vue';
 import BaseSourceForm from './BaseSourceForm.vue';
+import SourceSignInSection from '../../auth/SourceSignInSection.vue';
+import { useSourceSession } from '../../auth/useSourceSession';
+import DeepCheckbox from './DeepCheckbox.vue';
+import { loadUiDefaults } from '../../uiDefaults';
 
 export default defineComponent({
   name: 'NuxeoSourceForm',
   components: {
-    BaseSourceForm
+    BaseSourceForm,
+    SourceSignInSection,
+    DeepCheckbox
   },
   props: {
     // Single-object persistence: seeds the form on mount, emits update:value on every edit,
@@ -143,10 +158,18 @@ export default defineComponent({
     // VITE_NUXEO_PATH is a build-time var: the browser cannot read the
     // backend's .env, so NUXEO_PATH there does not reach this dialog.
     const path = ref(v.path ?? (import.meta.env.VITE_NUXEO_PATH || '/default-domain/workspaces/GraphRAG'));
+    // Deep: include subfolders (recursive). Unset: the backend's DEFAULT_RECURSIVE, else off
+    const ownDeep = ref<boolean | undefined>(v.recursive);
+    const uiDefaults = loadUiDefaults();
+    const recursive = computed(() => ownDeep.value ?? uiDefaults.recursive ?? false);
 
     // no pre-filled credentials (were Administrator/Administrator)
     const username = ref(v.username ?? '');
     const password = ref(v.password ?? '');
+
+    // The Nuxeo sign-in (header / dialog, planning/SOURCE-AUTH-LOGIN.md). When signed in to this
+    // server, the ingest uses that session's token and the credential fields are hidden.
+    const { session, useOther, usingSignIn, credential } = useSourceSession('nuxeo', url);
 
     const clientId = ref(v.oauth2?.client_id ?? '');
     const clientSecret = ref(v.oauth2?.client_secret ?? '');
@@ -162,6 +185,7 @@ export default defineComponent({
 
     const isValid = computed(() => {
       if (url.value.trim() === '') return false;
+      if (usingSignIn.value) return true;
       // basic and token both use username/password (token mode fetches the auth token
       // from them on the backend, like Alfresco ticket).
       if (authMethod.value === 'basic' || authMethod.value === 'token') {
@@ -171,7 +195,8 @@ export default defineComponent({
     });
 
     const config = computed(() => {
-      const base: any = { url: url.value, auth_method: authMethod.value, path: path.value };
+      if (usingSignIn.value && credential.value) return { url: url.value, path: path.value, recursive: recursive.value, ...credential.value };
+      const base: any = { url: url.value, auth_method: authMethod.value, path: path.value, recursive: recursive.value };
       // token mode sends username/password; the backend fetches the auth token from them.
       if (authMethod.value === 'basic' || authMethod.value === 'token') {
         base.username = username.value;
@@ -195,6 +220,11 @@ export default defineComponent({
     }, { immediate: true, deep: true });
 
     return {
+      ownDeep,
+      recursive,
+      session,
+      useOther,
+      usingSignIn,
       url,
       authMethod,
       authMethods,

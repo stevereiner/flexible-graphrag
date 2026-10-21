@@ -23,6 +23,7 @@ import {
 import CloseIcon from '@mui/icons-material/Close';
 import { Theme } from '@mui/material/styles';
 import axios from 'axios';
+import { useUiDefaults } from '../uiDefaults';
 
 /**
  * A failed request as a message the user can act on. The backend is not reachable when there is
@@ -52,13 +53,15 @@ import {
 // Sources with no auto change sync: the "Enable auto change sync" checkbox is hidden for them
 const NO_AUTO_SYNC_SOURCES = ['upload', 'cmis', 'web', 'wikipedia', 'youtube'];
 
-// What a row is in, or should end up in: Search+Vector, and Graphs (property graph + RDF).
+// What a row is in, or should end up in: Search+Vector, the property graph and the RDF graph.
+// (A backend without show_graph / show_rdf has one Graphs column for both: `graphs` then.)
 interface RowStores {
   sv: boolean;
-  graphs: boolean;
+  graphs: boolean;  // the property graph (with an older backend: both graphs)
+  rdf: boolean;     // the RDF graph (always false with an older backend)
   sync: boolean;  // Auto Sync: kept up to date with repository changes
 }
-type ColumnKind = 'sv' | 'graphs' | 'sync';
+type ColumnKind = 'sv' | 'graphs' | 'rdf' | 'sync';
 type ItemActionKind = 'ingest' | 'ingest_no_graph' | 'remove_graph' | 'remove_all' | 'keep';
 const TERMINAL_JOB = ['completed', 'failed', 'cancelled'];
 // Job list refresh: often while a job runs, seldom when idle (still picks up auto sync runs)
@@ -181,6 +184,10 @@ export const ProcessingTab: React.FC<ProcessingTabProps> = ({
   // What each row should end up in, by row name, once the user changed it (see wantFor)
   const [wantSearch, setWantSearch] = useState<Record<string, boolean>>({});
   const [wantGraphs, setWantGraphs] = useState<Record<string, boolean>>({});
+  const [wantRdf, setWantRdf] = useState<Record<string, boolean>>({});
+  // The ingest status's show_graph / show_rdf: undefined from a backend with one Graphs column
+  const [graphColumns, setGraphColumns] = useState<{ graph?: boolean; rdf?: boolean }>({});
+  const uiDefaults = useUiDefaults();
   const [wantSync, setWantSync] = useState<Record<string, boolean>>({});
   // Run in the background: START returns at once and the job is followed on the Jobs sub-tab
   const [runInBackground, setRunInBackground] = useState<boolean>(false);
@@ -388,6 +395,28 @@ export const ProcessingTab: React.FC<ProcessingTabProps> = ({
   const ingestedRowCount = getDisplayFiles()
     .filter((_, i) => ingestStatusFor(i)?.status === 'synced').length;
 
+  /** The ingest request's source fields for the configured source (not uploads): its config,
+   *  and for CMIS its path. The ingest and the single-row ingest status both send these, so
+   *  they name the same datasource. */
+  const sourceFields = (): Record<string, any> => {
+    const ds = configuredDataSource;
+    const strip = (c: any) => { const { type, ...rest } = c || {}; return rest; };
+    switch (ds) {
+      case 'cmis': return { paths: [folderPath], cmis_config: cmisConfig };
+      case 'alfresco': return { paths: [folderPath], alfresco_config: alfrescoConfig };
+      case 'nuxeo': return { nuxeo_config: nuxeoConfig };
+      case 'web': return { web_config: webConfig };
+      case 'wikipedia': return { wikipedia_config: wikipediaConfig };
+      case 'youtube': return { youtube_config: youtubeConfig };
+      case 's3': case 'gcs': case 'azure_blob': return { [`${ds}_config`]: strip(cloudConfig) };
+      case 'onedrive': case 'sharepoint': case 'box': case 'google_drive': return { [`${ds}_config`]: strip(enterpriseConfig) };
+      default: return {};
+    }
+  };
+
+  // Every other source is one row: the whole datasource (its config names it)
+  const singleRowSource = !!configuredDataSource && !['upload', 'alfresco', 'nuxeo'].includes(configuredDataSource);
+
   // Uploaded files: rows by file name (the backend finds them under its upload directory)
   const uploadNames = configuredDataSource === 'upload' ? configuredFiles.map((f) => f.name).join('\n') : '';
 
@@ -395,7 +424,13 @@ export const ProcessingTab: React.FC<ProcessingTabProps> = ({
     const repoConfig = configuredDataSource === 'alfresco' ? alfrescoConfig
       : configuredDataSource === 'nuxeo' ? nuxeoConfig : null;
     const isUpload = configuredDataSource === 'upload';
-    if (!isUpload && configuredDataSource !== 'alfresco' && configuredDataSource !== 'nuxeo') {
+    const rowName = singleRowSource ? getDisplayFiles()[0]?.name : '';
+    if (singleRowSource && !rowName) {
+      setIngestStatus([]);
+      ingestStatusKey.current = '';
+      return;
+    }
+    if (!isUpload && !singleRowSource && configuredDataSource !== 'alfresco' && configuredDataSource !== 'nuxeo') {
       setIngestStatus([]);
       ingestStatusKey.current = '';
       return;
@@ -405,9 +440,12 @@ export const ProcessingTab: React.FC<ProcessingTabProps> = ({
       ingestStatusKey.current = '';
       return;
     }
-    if ((!isUpload && repositoryItemsHidden) || isProcessing) return;
+    if ((!isUpload && !singleRowSource && repositoryItemsHidden) || isProcessing) return;
     const path = repoConfig?.path || folderPath || '/';
-    const request = isUpload
+    const request: any = singleRowSource
+      // one row, the whole datasource: the backend finds it by the same fields the ingest sends
+      ? { data_source: configuredDataSource, items: [{ path: rowName, is_folder: false }], source: sourceFields() }
+      : isUpload
       ? { data_source: 'upload', recursive: false,
           items: uploadNames.split('\n').map((name) => ({ path: name, is_folder: false })) }
       : {
@@ -430,6 +468,7 @@ export const ProcessingTab: React.FC<ProcessingTabProps> = ({
         const items = res.data?.enabled ? res.data.items : [];
         setIngestStatus(items);
         setStores(res.data?.stores || {});
+        setGraphColumns({ graph: res.data?.show_graph, rdf: res.data?.show_rdf });
         // uncheck rows already in the stores
         items.forEach((c: any, i: number) => {
           if (c?.status === 'synced' && selectedFileIndices.has(i)) onSelectFile(i, false);
@@ -443,16 +482,23 @@ export const ProcessingTab: React.FC<ProcessingTabProps> = ({
         }
       });
   }, [configuredDataSource, alfrescoConfig, nuxeoConfig, folderPath, repositoryItemsHidden,
-      isProcessing, currentProcessingId, configurationVersion, ingestStatusRefresh, uploadNames]);
+      isProcessing, currentProcessingId, configurationVersion, ingestStatusRefresh, uploadNames,
+      cmisConfig, webConfig, wikipediaConfig, youtubeConfig, cloudConfig, enterpriseConfig]);
 
-  // Auto Sync only for repository sources (uploads are not kept in sync)
-  const showAutoSync = configuredDataSource !== 'upload';
+  // Auto Sync only where an auto sync can watch the source (not uploads, CMIS, web pages,
+  // Wikipedia or YouTube)
+  const showAutoSync = !NO_AUTO_SYNC_SOURCES.includes(configuredDataSource);
 
   // ── Search+Vector / Graphs columns ──────────────────────────────────────────────────
   // Offered once the ingest-status check answered with `stores` (a 0.8.2 backend has none).
   const columnsMode = ingestStatus.length > 0 && ingestStatusRequest.current !== null && Object.keys(stores).length > 0;
   const canSearchVector = !!(stores.vector || stores.search);
-  const canGraphs = !!stores.graph;
+  // Separate Graph and RDF columns when the backend says which to show (show_graph / show_rdf);
+  // otherwise one Graphs column for both, as before
+  const splitGraphs = graphColumns.graph !== undefined || graphColumns.rdf !== undefined;
+  const showGraphColumn = splitGraphs ? !!graphColumns.graph : true;
+  const showRdfColumn = splitGraphs && !!graphColumns.rdf;
+  const canGraphs = splitGraphs ? !!graphColumns.graph : !!stores.graph;
   const inStores = (index: number): boolean =>
     ['synced', 'partial', 'overlaps'].includes(ingestStatusFor(index)?.status);
 
@@ -460,9 +506,30 @@ export const ProcessingTab: React.FC<ProcessingTabProps> = ({
   const currentFor = (index: number): RowStores => {
     const c = ingestStatusFor(index);
     const sync = !!c?.auto_sync;
-    if (!c || !inStores(index)) return { sv: false, graphs: false, sync };
-    if (c.indexed) return { sv: !!(c.indexed.vector || c.indexed.search), graphs: !!c.indexed.graph, sync };
-    return { sv: true, graphs: (c.datasources || []).some((m: any) => !m.skip_graph), sync };
+    if (!c || !inStores(index)) return { sv: false, graphs: false, rdf: false, sync };
+    if (c.indexed) {
+      return { sv: !!(c.indexed.vector || c.indexed.search), graphs: !!c.indexed.graph,
+               rdf: splitGraphs && !!c.indexed.rdf, sync };
+    }
+    const ds = c.datasources || [];
+    return { sv: true, graphs: ds.some((m: any) => m.enabled_graph ?? !m.skip_graph),
+             rdf: splitGraphs && ds.some((m: any) => m.enabled_rdf ?? !m.skip_graph), sync };
+  };
+
+  /**
+   * A new row's default for the Graph / RDF column: the folder or document rule (OpenArch flags
+   * pgGraph / rdfGraph) when it has one, else on if a covering datasource builds that graph, else on.
+   */
+  const freshGraphDefault = (index: number, kind: 'graph' | 'rdf'): boolean => {
+    if (!(kind === 'graph' ? showGraphColumn && canGraphs : showRdfColumn)) return false;
+    if (!splitGraphs) return canGraphs;
+    const c = ingestStatusFor(index);
+    const rule = c?.flags?.[kind === 'graph' ? 'pgGraph' : 'rdfGraph'];
+    if (rule !== null && rule !== undefined) return !!rule;
+    const ds = c?.datasources || [];
+    // no covering datasource: the backend's DEFAULT_ENABLED_GRAPH / DEFAULT_ENABLED_RDF, else on
+    return ds.length ? ds.some((m: any) => !!m[kind === 'graph' ? 'enabled_graph' : 'enabled_rdf'])
+      : (uiDefaults[kind === 'graph' ? 'enabled_graph' : 'enabled_rdf'] ?? true);
   };
 
   /** Whether an auto sync already covers the row (so Auto Sync on resumes, not starts, it). */
@@ -475,11 +542,12 @@ export const ProcessingTab: React.FC<ProcessingTabProps> = ({
     const cur = currentFor(index);
     const fresh = !inStores(index);
     const sv = wantSearch[name] ?? (fresh ? canSearchVector : cur.sv);
-    const graphs = wantGraphs[name] ?? (fresh ? canGraphs : cur.graphs);
+    const graphs = wantGraphs[name] ?? (fresh ? freshGraphDefault(index, 'graph') : cur.graphs);
+    const rdf = wantRdf[name] ?? (fresh ? freshGraphDefault(index, 'rdf') : cur.rdf);
     const sync = wantSync[name] ?? cur.sync;
-    // Graphs and Auto Sync both need Search+Vector: a sync with nothing indexed would only
+    // The graphs and Auto Sync all need Search+Vector: a sync with nothing indexed would only
     // put the document back on its next change
-    return { sv, graphs: sv && graphs, sync: sv && sync };
+    return { sv, graphs: sv && graphs, rdf: sv && rdf, sync: sv && sync };
   };
 
   /** Changing a row's Search+Vector / Graphs checks the row: START PROCESSING applies it. */
@@ -490,10 +558,14 @@ export const ProcessingTab: React.FC<ProcessingTabProps> = ({
       setWantSearch(all(value));
       if (!value) {  // no graphs and no sync without search + vector
         setWantGraphs(all(false));
+        setWantRdf(all(false));
         setWantSync(all(false));
       }
     } else if (kind === 'graphs') {
       setWantGraphs(all(value));
+      if (value) setWantSearch(all(true));
+    } else if (kind === 'rdf') {
+      setWantRdf(all(value));
       if (value) setWantSearch(all(true));
     } else {
       setWantSync(all(value));
@@ -508,9 +580,45 @@ export const ProcessingTab: React.FC<ProcessingTabProps> = ({
   const actionFor = (index: number): ItemActionKind | null => {
     const cur = currentFor(index);
     const want = wantFor(index);
-    if (!want.sv) return cur.sv || cur.graphs ? 'remove_all' : null;
-    if (want.graphs) return 'ingest';
-    return cur.sv && cur.graphs ? 'remove_graph' : 'ingest_no_graph';
+    if (!want.sv) return cur.sv || cur.graphs || cur.rdf ? 'remove_all' : null;
+    if (want.graphs || want.rdf) {
+      // Only dropping a graph the row is in (graphDrops removes it from that one): nothing to ingest
+      const adds = !cur.sv || (want.graphs && !cur.graphs) || (want.rdf && !cur.rdf);
+      const drops = (cur.graphs && !want.graphs) || (cur.rdf && !want.rdf);
+      return drops && !adds ? null : 'ingest';
+    }
+    return cur.sv && (cur.graphs || cur.rdf) ? 'remove_graph' : 'ingest_no_graph';
+  };
+
+  /**
+   * Checked rows that keep one graph but leave the other they are in now, grouped by what they
+   * leave ("graph" / "rdf"): START PROCESSING removes them with /api/sync/remove first, since an
+   * "ingest" row only builds graphs (remove_graph would take both).
+   */
+  const graphDrops = (): { targets: string[]; items: any[] }[] => {
+    if (!splitGraphs) return [];
+    const base = ingestStatusRequest.current;
+    const groups: Record<string, any[]> = {};
+    for (const i of Array.from(selectedFileIndices).sort((a, b) => a - b)) {
+      const item = base?.items?.[i];
+      const cur = currentFor(i);
+      const want = wantFor(i);
+      if (!item || !want.sv || !(want.graphs || want.rdf)) continue;  // remove_all / remove_graph cover the rest
+      const targets = [...(cur.graphs && !want.graphs ? ['graph'] : []), ...(cur.rdf && !want.rdf ? ['rdf'] : [])];
+      if (targets.length) {
+        (groups[targets.join(',')] ||= []).push({ path: item.path, id: item.id, is_folder: !!item.is_folder });
+      }
+    }
+    return Object.entries(groups).map(([t, items]) => ({ targets: t.split(','), items }));
+  };
+
+  /** Which graphs an ingest builds: enabled_graph / enabled_rdf for the columns shown (a hidden
+   *  column's field is left out, so the backend default applies); none with an older backend. */
+  const graphFields = (index: number): Record<string, boolean> => {
+    if (!splitGraphs) return {};
+    const want = wantFor(index);
+    return { ...(showGraphColumn ? { enabled_graph: want.graphs } : {}),
+             ...(showRdfColumn ? { enabled_rdf: want.rdf } : {}) };
   };
 
   /** The Status column in columns mode: which stores the row is in now. */
@@ -518,8 +626,9 @@ export const ProcessingTab: React.FC<ProcessingTabProps> = ({
     const c = ingestStatusFor(index);
     if (c?.status === 'removed') return 'removed';
     const cur = currentFor(index);
-    if (!cur.sv && !cur.graphs) return 'not ingested';
-    return (cur.graphs ? 'search+vector, graphs' : 'search+vector') + (cur.sync ? ' (synced)' : '');
+    if (!cur.sv && !cur.graphs && !cur.rdf) return 'not ingested';
+    const parts = ['search+vector', ...(cur.graphs ? [splitGraphs ? 'graph' : 'graphs'] : []), ...(cur.rdf ? ['rdf'] : [])];
+    return parts.join(', ') + (cur.sync ? ' (synced)' : '');
   };
 
   /** A sync change for a checked row: false stops it, true resumes it, null = none. */
@@ -542,12 +651,15 @@ export const ProcessingTab: React.FC<ProcessingTabProps> = ({
       const ref = { path: item.path, id: item.id, is_folder: !!item.is_folder };
       const sync = syncChange(i);
       if (sync === true && !coveredBySync(i)) {
-        rows.push({ ...ref, action: actionFor(i) ?? (wantFor(i).graphs ? 'ingest' : 'ingest_no_graph'), auto_sync: true });
+        const want = wantFor(i);
+        rows.push({ ...ref, action: actionFor(i) ?? (want.graphs || want.rdf ? 'ingest' : 'ingest_no_graph'),
+                    ...graphFields(i), auto_sync: true });
         continue;
       }
       const action = actionFor(i);
       if (!action && sync === null) continue;
-      rows.push({ ...ref, action: action ?? 'keep', ...(sync === null ? {} : { auto_sync: sync }) });
+      rows.push({ ...ref, action: action ?? 'keep', ...(action === 'ingest' ? graphFields(i) : {}),
+                  ...(sync === null ? {} : { auto_sync: sync }) });
     }
     return rows;
   };
@@ -560,6 +672,7 @@ export const ProcessingTab: React.FC<ProcessingTabProps> = ({
   const afterRun = () => {
     setWantSearch({});
     setWantGraphs({});
+    setWantRdf({});
     setWantSync({});
     awaitingStatus.current = true;
     allRows().forEach((i) => { if (selectedFileIndices.has(i)) onSelectFile(i, false); });
@@ -847,8 +960,19 @@ export const ProcessingTab: React.FC<ProcessingTabProps> = ({
       // Search+Vector / Graphs columns: each checked row says what it should end up as
       const planned = columnsMode ? itemActions() : null;
       const actions = planned;
-      if (planned && planned.length === 0) {
+      const drops = columnsMode ? graphDrops() : [];
+      if (planned && planned.length === 0 && drops.length === 0) {
         onSuccessMessage('Nothing to do: the checked rows already match their Search+Vector / Graphs settings.');
+        onProcessingStateChange(false);
+        return;
+      }
+      // Rows leaving just one of the two graphs: out of that graph first
+      for (const d of drops) {
+        await axios.post('/api/sync/remove', { ...ingestStatusRequest.current, items: d.items, targets: d.targets });
+      }
+      if (planned && planned.length === 0) {
+        onSuccessMessage(`Removed ${drops.reduce((n, d) => n + d.items.length, 0)} row(s) from the ` +
+          `${[...new Set(drops.flatMap((d) => d.targets))].map((t) => (t === 'rdf' ? 'RDF' : 'property')).join(' and ')} graph.`);
         onProcessingStateChange(false);
         return;
       }
@@ -889,43 +1013,9 @@ export const ProcessingTab: React.FC<ProcessingTabProps> = ({
 
         request.paths = uploadedPaths;
         request.data_source = 'filesystem';
-      } else if (configuredDataSource === 'cmis') {
-        request.paths = [folderPath];
-        request.cmis_config = cmisConfig;
-      } else if (configuredDataSource === 'alfresco') {
-        request.paths = [folderPath];
-        request.alfresco_config = alfrescoConfig;
-      } else if (configuredDataSource === 'nuxeo') {
-        request.nuxeo_config = nuxeoConfig;
-      } else if (configuredDataSource === 'web') {
-        request.web_config = webConfig;
-      } else if (configuredDataSource === 'wikipedia') {
-        request.wikipedia_config = wikipediaConfig;
-      } else if (configuredDataSource === 'youtube') {
-        console.log('YouTube config:', youtubeConfig);
-        request.youtube_config = youtubeConfig;
-      } else if (['s3', 'gcs', 'azure_blob'].includes(configuredDataSource)) {
-        // Cloud storage sources - strip the 'type' field before sending
-        const { type, ...cleanConfig } = cloudConfig || {};
-        if (configuredDataSource === 's3') {
-          request.s3_config = cleanConfig;
-        } else if (configuredDataSource === 'gcs') {
-          request.gcs_config = cleanConfig;
-        } else if (configuredDataSource === 'azure_blob') {
-          request.azure_blob_config = cleanConfig;
-        }
-      } else if (['onedrive', 'sharepoint', 'box', 'google_drive'].includes(configuredDataSource)) {
-        // Enterprise sources - strip the 'type' field before sending
-        const { type, ...cleanConfig } = enterpriseConfig || {};
-        if (configuredDataSource === 'onedrive') {
-          request.onedrive_config = cleanConfig;
-        } else if (configuredDataSource === 'sharepoint') {
-          request.sharepoint_config = cleanConfig;
-        } else if (configuredDataSource === 'box') {
-          request.box_config = cleanConfig;
-        } else if (configuredDataSource === 'google_drive') {
-          request.google_drive_config = cleanConfig;
-        }
+      } else {
+        // Every other source: its config (and CMIS its path) -- the same fields its ingest status sent
+        Object.assign(request, sourceFields());
       }
 
 
@@ -1129,7 +1219,7 @@ export const ProcessingTab: React.FC<ProcessingTabProps> = ({
           {columnsMode
             ? ' Check rows, set Search+Vector / Graphs, and click START PROCESSING to update them.'
             : ' Check rows and click START PROCESSING to update them.'}
-          Hover the status for details.
+          {' '}Hover the status for details.
         </Typography>
       )}
 
@@ -1164,8 +1254,9 @@ export const ProcessingTab: React.FC<ProcessingTabProps> = ({
                     </Box>
                   </TableCell>
                 )}
-                {columnsMode && (
-                  <TableCell padding="checkbox" sx={{ whiteSpace: 'nowrap', pr: 2 }} title={canGraphs ? 'Property graph and RDF, for every row' : 'No graph store configured in .env'}>
+                {columnsMode && showGraphColumn && (
+                  <TableCell padding="checkbox" sx={{ whiteSpace: 'nowrap', pr: 2 }}
+                    title={!canGraphs ? 'No graph store configured in .env' : splitGraphs ? 'Property graph, for every row' : 'Property graph and RDF, for every row'}>
                     <Box sx={{ display: 'flex', alignItems: 'center' }}>
                       <Checkbox
                         // the cell strips its direct child's padding; this one sits in a Box,
@@ -1176,7 +1267,21 @@ export const ProcessingTab: React.FC<ProcessingTabProps> = ({
                         disabled={isProcessing || !canGraphs}
                         onChange={(e) => setWant(allRows(), 'graphs', e.target.checked)}
                       />
-                      Graphs
+                      {splitGraphs ? 'Graph' : 'Graphs'}
+                    </Box>
+                  </TableCell>
+                )}
+                {columnsMode && showRdfColumn && (
+                  <TableCell padding="checkbox" sx={{ whiteSpace: 'nowrap', pr: 2 }} title="RDF graph, for every row">
+                    <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                      <Checkbox
+                        sx={{ p: 0, mr: 1 }}
+                        checked={countWant('rdf') === getDisplayFiles().length && getDisplayFiles().length > 0}
+                        indeterminate={countWant('rdf') > 0 && countWant('rdf') < getDisplayFiles().length}
+                        disabled={isProcessing}
+                        onChange={(e) => setWant(allRows(), 'rdf', e.target.checked)}
+                      />
+                      RDF
                     </Box>
                   </TableCell>
                 )}
@@ -1269,12 +1374,21 @@ export const ProcessingTab: React.FC<ProcessingTabProps> = ({
                         />
                       </TableCell>
                     )}
-                    {columnsMode && (
+                    {columnsMode && showGraphColumn && (
                       <TableCell padding="checkbox">
                         <Checkbox
                           checked={wantFor(index).graphs}
                           disabled={isProcessing || !canGraphs}
                           onChange={(e) => setWant([index], 'graphs', e.target.checked)}
+                        />
+                      </TableCell>
+                    )}
+                    {columnsMode && showRdfColumn && (
+                      <TableCell padding="checkbox">
+                        <Checkbox
+                          checked={wantFor(index).rdf}
+                          disabled={isProcessing}
+                          onChange={(e) => setWant([index], 'rdf', e.target.checked)}
                         />
                       </TableCell>
                     )}

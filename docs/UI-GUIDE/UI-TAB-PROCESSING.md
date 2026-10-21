@@ -10,7 +10,9 @@ Click **"START PROCESSING"** to begin. The button is visible once files or a dat
 
 ## Starting Processing
 
-1. Select **"Enable auto change sync"** if you want automatic monitoring for file changes (supported sources only)
+1. Tick **Auto Sync** on the rows to keep in sync (or, when the incremental registry is off,
+   select **"Enable auto change sync"**) if you want automatic monitoring for file changes
+   (supported sources only)
 2. Click **"START PROCESSING"** to begin
 3. Monitor real-time progress bars per file
 4. The pipeline runs: document parsing → chunking → vector indexing → knowledge graph extraction → full-text indexing
@@ -24,15 +26,27 @@ Click **"START PROCESSING"** to begin. The button is visible once files or a dat
 | **Enable auto change sync** | Turn on incremental update tracking for this source. Replaced by the per-row **Auto Sync** column when that is shown (below) |
 | **Run in background** | Start the job and keep the tab free to start another; follow it on the **Jobs** sub-tab |
 
-## Search+Vector and Graphs per Row (Alfresco, Nuxeo, file uploads)
+## Search+Vector and Graphs per Row (all data sources)
 
-With the incremental system on (default or Langflow pipeline), the table gets two checkbox
-columns that say what each row should end up in:
+With the incremental system on (default or Langflow pipeline), the table gets checkbox columns
+that say what each row should end up in, for every data source:
 
 - **Search+Vector** — the vector and full-text search stores
-- **Graphs** — the property graph and the RDF graph (needs Search+Vector)
-- **Auto Sync** — kept up to date with repository changes (needs Search+Vector; Alfresco and
-  Nuxeo only — uploaded files are not kept in sync, so they get the first two columns)
+- **Graphs** — the property graph and the RDF graph (needs Search+Vector). With a newer backend
+  (v0.9.0+) this splits into two columns, **Graph** (property graph) and **RDF** (RDF graph),
+  each shown when that store is configured
+- **Auto Sync** — kept up to date with source changes (needs Search+Vector). There is no Auto
+  Sync column where no sync can watch the source: file uploads, CMIS, web, Wikipedia and YouTube
+
+Alfresco, Nuxeo and file uploads get one row per document or folder. The other sources (S3, GCS,
+Azure Blob, Box, Google Drive, OneDrive, SharePoint, CMIS, web, Wikipedia, YouTube) get **one row
+for the whole datasource**: unticking Graphs removes only its graphs, unticking Search+Vector
+removes all of it, ticking either back re-ingests, and Auto Sync on / off starts or stops its
+auto sync (stopping keeps the documents).
+
+**Deep:** the Alfresco, Nuxeo and Box source forms have a **Deep** checkbox — include subfolders
+at every depth (recursive) in the ingest and its auto sync. Unset, it follows the backend's
+default.
 
 They start at what each row is in now (new rows: everything configured), and the **Status**
 column shows that: *search+vector, graphs*, *search+vector*, *not ingested*, or *removed*, with
@@ -107,7 +121,8 @@ its progress.
 
 ## Auto-Sync Processing
 
-When **"Enable auto change sync"** is selected before clicking **"START PROCESSING"**, the system continues monitoring the source for changes after the initial ingest completes.
+When **Auto Sync** is ticked on a row (or **"Enable auto change sync"** is selected, with the
+incremental registry off) before clicking **"START PROCESSING"**, the system continues monitoring the source for changes after the initial ingest completes.
 
 ![Processing tab — auto-sync enabled (Alfresco)](screen-shots/react/react-processing-auto-sync.png)
 

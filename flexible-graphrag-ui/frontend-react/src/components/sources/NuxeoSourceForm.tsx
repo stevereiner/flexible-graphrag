@@ -1,6 +1,9 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { TextField, Box, FormControl, InputLabel, Select, MenuItem } from '@mui/material';
 import { BaseSourceForm, BaseSourceFormProps } from './BaseSourceForm';
+import { SourceSignInSection, useSourceSession } from '../../auth/SourceSignInSection';
+import { DeepCheckbox, deepValue } from './DeepCheckbox';
+import { useUiDefaults } from '../../uiDefaults';
 
 type AuthMethod = 'basic' | 'oauth2' | 'token';
 
@@ -35,11 +38,18 @@ export const NuxeoSourceForm: React.FC<NuxeoSourceFormProps> = ({
   const [url, setUrl] = useState<string>(value?.url ?? defaultUrl);
   const [authMethod, setAuthMethod] = useState<AuthMethod>(value?.auth_method ?? 'basic');
   const [path, setPath] = useState<string>(value?.path ?? defaultPath);
+  // Deep: include subfolders (recursive). Unset: the backend's DEFAULT_RECURSIVE, else off
+  const [ownDeep, setRecursive] = useState<boolean | undefined>(value?.recursive);
+  const recursive = deepValue(ownDeep, useUiDefaults().recursive, false);
 
   // Basic auth
   // no pre-filled credentials (were Administrator/Administrator)
   const [username, setUsername] = useState<string>(value?.username ?? '');
   const [password, setPassword] = useState<string>(value?.password ?? '');
+
+  // The Nuxeo sign-in (header / dialog, planning/SOURCE-AUTH-LOGIN.md). When signed in to this
+  // server, the ingest uses that session's token and the credential fields are hidden.
+  const { session, useOther, setUseOther, usingSignIn, credential } = useSourceSession('nuxeo', url);
 
   // OAuth2
   const [clientId, setClientId] = useState<string>(value?.oauth2?.client_id ?? '');
@@ -50,6 +60,7 @@ export const NuxeoSourceForm: React.FC<NuxeoSourceFormProps> = ({
 
   const isValid = useMemo(() => {
     if (url.trim() === '') return false;
+    if (usingSignIn) return true;
     // basic and token both authenticate with username/password (token mode fetches a
     // Nuxeo auth token from them on the backend, like Alfresco ticket).
     if (authMethod === 'basic' || authMethod === 'token') {
@@ -57,10 +68,11 @@ export const NuxeoSourceForm: React.FC<NuxeoSourceFormProps> = ({
     }
     // oauth2
     return clientId.trim() !== '' && (accessToken.trim() !== '' || clientSecret.trim() !== '');
-  }, [url, authMethod, username, password, clientId, clientSecret, accessToken]);
+  }, [url, usingSignIn, authMethod, username, password, clientId, clientSecret, accessToken]);
 
   const config = useMemo(() => {
-    const base: any = { url, auth_method: authMethod, path };
+    if (usingSignIn && credential) return { url, path, recursive, ...credential };
+    const base: any = { url, auth_method: authMethod, path, recursive };
     // token mode sends username/password; the backend fetches the auth token from them.
     if (authMethod === 'basic' || authMethod === 'token') {
       base.username = username;
@@ -75,7 +87,7 @@ export const NuxeoSourceForm: React.FC<NuxeoSourceFormProps> = ({
       };
     }
     return base;
-  }, [url, authMethod, path, username, password, clientId, clientSecret, accessToken, refreshToken, tokenEndpoint]);
+  }, [url, authMethod, path, recursive, usingSignIn, credential, username, password, clientId, clientSecret, accessToken, refreshToken, tokenEndpoint]);
 
   useEffect(() => {
     onValidationChange(isValid);
@@ -101,6 +113,12 @@ export const NuxeoSourceForm: React.FC<NuxeoSourceFormProps> = ({
         helperText="Base repository URL (no /api/v1 suffix)"
       />
 
+      <SourceSignInSection
+        source="nuxeo" url={url} session={session} usingSignIn={usingSignIn}
+        useOther={useOther} onUseOtherChange={setUseOther}
+      />
+
+      {!usingSignIn && (
       <FormControl fullWidth size="small" sx={{ mb: 2 }}>
         <InputLabel>Authentication</InputLabel>
         <Select
@@ -113,8 +131,9 @@ export const NuxeoSourceForm: React.FC<NuxeoSourceFormProps> = ({
           <MenuItem value="token">Token (X-Authentication-Token)</MenuItem>
         </Select>
       </FormControl>
+      )}
 
-      {(authMethod === 'basic' || authMethod === 'token') && (
+      {!usingSignIn && (authMethod === 'basic' || authMethod === 'token') && (
         <Box sx={{ display: 'flex', gap: 2, mb: 2 }}>
           <TextField
             fullWidth
@@ -140,7 +159,7 @@ export const NuxeoSourceForm: React.FC<NuxeoSourceFormProps> = ({
         </Box>
       )}
 
-      {authMethod === 'oauth2' && (
+      {!usingSignIn && authMethod === 'oauth2' && (
         <Box sx={{ mb: 2 }}>
           <Box sx={{ display: 'flex', gap: 2, mb: 2 }}>
             <TextField
@@ -200,17 +219,20 @@ export const NuxeoSourceForm: React.FC<NuxeoSourceFormProps> = ({
         </Box>
       )}
 
-      <TextField
-        fullWidth
-        label="Path"
-        required
-        variant="outlined"
-        value={path}
-        onChange={(e) => setPath(e.target.value)}
-        size="small"
-        sx={{ mb: 2 }}
-        placeholder="e.g., /default-domain/workspaces/GraphRAG"
-      />
+      <Box sx={{ display: 'flex', alignItems: 'flex-start' }}>
+        <TextField
+          fullWidth
+          label="Path"
+          required
+          variant="outlined"
+          value={path}
+          onChange={(e) => setPath(e.target.value)}
+          size="small"
+          sx={{ mb: 2 }}
+          placeholder="e.g., /default-domain/workspaces/GraphRAG"
+        />
+        <DeepCheckbox checked={recursive} onChange={setRecursive} />
+      </Box>
     </BaseSourceForm>
   );
 };

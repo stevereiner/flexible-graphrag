@@ -21,6 +21,10 @@ export interface ItemAction {
   action: ItemActionKind;
   // Auto Sync column: false stops this row's sync, true resumes it; omitted = no change
   auto_sync?: boolean;
+  // Graph / RDF columns (a backend with show_graph / show_rdf): which graphs an ingest row
+  // builds; omitted = the backend default
+  enabled_graph?: boolean;
+  enabled_rdf?: boolean;
 }
 
 // GET /api/processing-status: processing jobs, oldest first
@@ -144,11 +148,13 @@ export interface AsyncProcessingResponse {
 
 // POST /api/sync/ingest-status: which auto-sync datasources already cover a repository selection
 export interface IngestStatusRequest {
-  // upload: items are uploaded file names; filesystem: backend paths
-  data_source: 'alfresco' | 'nuxeo' | 'upload' | 'filesystem';
+  // upload: items are uploaded file names; filesystem: backend paths; any other source: one row,
+  // the whole datasource, named by `source` (the ingest request's own source fields)
+  data_source: string;
   url?: string;
-  recursive: boolean;
+  recursive?: boolean;
   items: Array<{ path: string; id?: string; is_folder: boolean }>;
+  source?: Record<string, any>;
 }
 
 export interface IngestStatusMatch {
@@ -157,6 +163,8 @@ export interface IngestStatusMatch {
   root: string;
   recursive: boolean;
   skip_graph: boolean;
+  enabled_graph?: boolean;  // whether this sync builds the property graph / RDF graph
+  enabled_rdf?: boolean;    // (a backend with separate Graph / RDF columns)
   relation: 'same' | 'inside' | 'contains' | 'indexed';
   status: 'synced' | 'partial' | 'overlaps';
   auto_sync: boolean;  // false: ingested without auto change sync
@@ -171,8 +179,10 @@ export interface IngestStatusItem {
   // auto sync holds, taken out of every store (the sync now leaves it out until it is ingested again).
   status: 'synced' | 'partial' | 'overlaps' | 'removed' | 'none';
   datasources: IngestStatusMatch[];
-  indexed: { vector: boolean; search: boolean; graph: boolean } | null;
+  indexed: { vector: boolean; search: boolean; graph: boolean; rdf?: boolean } | null;
   auto_sync?: boolean;  // followed by an auto sync now (per document: document_state.auto_sync)
+  // A folder / document rule (OpenArch): the graphs a new row defaults to; null = no rule
+  flags?: { pgGraph?: boolean | null; rdfGraph?: boolean | null; [k: string]: any } | null;
 }
 
 // Which delete targets have a store behind them; any store can be "none" in .env.
@@ -186,10 +196,14 @@ export interface ConfiguredStores {
 export interface IngestStatusResponse {
   enabled: boolean;  // false when incremental sync is off on the backend
   stores?: ConfiguredStores;  // absent from a 0.8.2 backend
+  // Separate Graph and RDF columns, each shown when true; absent: one Graphs column for both
+  show_graph?: boolean;
+  show_rdf?: boolean;
   items: IngestStatusItem[];
 }
 
-export type RemoveTarget = 'vector' | 'search' | 'graph';
+// graph: the property graph (with a backend that has show_graph / show_rdf; before, both); rdf: the RDF graph
+export type RemoveTarget = 'vector' | 'search' | 'graph' | 'rdf';
 
 // POST /api/sync/remove: take a repository selection back out of some or all stores
 export interface SyncRemoveRequest extends IngestStatusRequest {

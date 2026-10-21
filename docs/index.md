@@ -24,6 +24,7 @@ hide:
 
 ## What's New
 
+- **10/19/26 — v0.8.6: Sign-in and permission-aware search for every source**: Alfresco, Nuxeo, CMIS, SharePoint / OneDrive, Box, Google Drive / Cloud Storage, Azure Blob and Amazon S3, with one sign-in pill in the header whose drop-down signs you in and out of each data source and server, and a Sources picker, in all the UIs and KG Spaces; signed S3 / Azure Blob links that open the file; per-row Processing columns for every source and a Deep checkbox; MCP permission levels and browser sign-in. See the [Sign-In Guide](DATA-SOURCES/SIGN-IN-GUIDE.md).
 - **10/17/26 — v0.8.5: Sign in to Alfresco, permission-aware search, form cleanup**: A sign-in in the React, Vue and Angular UIs, so search and AI chat answer only from Alfresco documents you may read (with a server picker in the sign-in dialog when several Alfresco servers are in the stores); the Alfresco source form can ingest using the sign-in. The MCP server's search and query tools filter by Alfresco permissions too (pass the user's ticket or credentials). Data-source forms no longer pre-fill credentials or get autofilled by the browser, and KG Spaces can ingest from another Alfresco server (in Other Sources, after adding `alfresco` to its `enabledSources` config; KG Spaces search still covers only the Alfresco server ACA is signed in to).
 - **10/10/26 — v0.8.4: Source documents and open links**: Hybrid search results (graph and RDF too) and AI query / AI chat answers name the documents they came from, as links: Alfresco documents open in the **Alfresco Content App viewer** over their folder (or Share), Nuxeo in its Web UI, web pages and Wikipedia at their URL, and YouTube at the transcript segment's time. In KG Spaces, closing ACA's viewer returns to your search results and chat. KG Spaces hybrid search returns full results again, and ArcadeDB moves to 26.10.1.
 - **10/8/26 — v0.8.3: Per-row Processing tab, Jobs, scoped Ask, permission-aware answers**: The Processing tab now has per-row **Search+Vector**, **Graphs** and **Auto Sync** checkbox columns (Alfresco, Nuxeo and file uploads initially), so besides ingesting you can toggle vector+search, graphs and auto sync row by row; plus a **Jobs** sub-tab and **Run in background**. KG Spaces adds **Ask KG Spaces about this document / folder** (then ask in AI chat). Hybrid search, AI query and AI chat answer only from documents the signed-in Alfresco user may read.
@@ -46,14 +47,16 @@ hide:
 - **Hybrid Search**: A configurable hybrid search system that combines vector search, full-text search, and graph GraphRAG
 - **Knowledge Graph GraphRAG**: Extracts entities and relationships from documents to auto create graphs in property graph databases for GraphRAG. Configuration for schemas to use or use as a starting point for LLM to expand on is supported.
 - **RDF/Ontology Support**: Load OWL/RDFS ontologies to guide KG extraction into any property graph or RDF store; SPARQL 1.1 queries; RDF 1.2 triple annotations; full UI pipeline (ingest, hybrid search, AI query/chat, incremental auto-sync). See [RDF Graph Databases](DATABASES/RDF/RDF-STORE-USER-GUIDE.md).
-- **8 Property Graph Databases**: Neo4j, ArcadeDB, FalkorDB, Ladybug, MemGraph, NebulaGraph, Amazon Neptune, and Amazon Neptune Analytics — with KG extraction, hybrid search, and AI query/chat
-- **3 RDF Triple Stores**: Apache Jena Fuseki, Ontotext GraphDB, Oxigraph
+- **15 Property Graph Databases**: 8 on both LI+LC (Neo4j, ArcadeDB, FalkorDB, Ladybug, Memgraph, NebulaGraph, Amazon Neptune, Neptune Analytics), 1 LI-only (Google Cloud Spanner), 6 LC-only (ArangoDB, Apache AGE, Cosmos Gremlin, HugeGraph, SurrealDB, TigerGraph) — with KG extraction, hybrid search, and AI query/chat
+- **4 RDF Triple Stores**: Apache Jena Fuseki, Ontotext GraphDB, Oxigraph, Amazon Neptune RDF
 - **10 Vector Databases**: Qdrant, Elasticsearch, OpenSearch, Neo4j, Chroma, Milvus, Weaviate, Pinecone, PostgreSQL pgvector, LanceDB — for semantic similarity search
 - **3 Search Databases**: Elasticsearch, OpenSearch, BM25 (built-in) — for full-text search and hybrid ranking
 - **LLM providers (KG extraction & chat)**: Ollama, OpenAI, Azure OpenAI, Google Gemini, Anthropic Claude, Google Vertex AI, Amazon Bedrock, Groq, Fireworks AI, OpenAI-compatible endpoints (`openai_like`), OpenRouter, LiteLLM proxy, and vLLM — configurable via `LLM_PROVIDER`; see [LLM & Embedding Config](LLM/LLM-EMBEDDING-CONFIG.md)
 - **Embedding providers**: OpenAI, Ollama, Azure OpenAI, Google GenAI, Vertex AI, Bedrock, Fireworks, OpenAI-like (`EMBEDDING_KIND=openai_like`), and LiteLLM — see [LLM Configuration](LLM/LLM-EMBEDDING-CONFIG.md)
 - **Configurable Architecture**: LlamaIndex provides abstractions for allowing multiple vector databases, property graph databases, RDF triple stores, search engines, and LLM providers to be supported
-- **Multi-Source Ingestion**: Processes documents from 14 data sources (file upload, cloud storage, enterprise repositories, web sources) with Docling (default) or LlamaParse (cloud API) document parsing.
+- **Document Processing**: Docling (default), LlamaParse (cloud API), or LiteParse (local, lightweight) document parsing.
+- **14 Data Sources**: 10 with incremental auto sync (Alfresco, Nuxeo, SharePoint, OneDrive, Box, Google Drive, Amazon S3, Google Cloud Storage, Azure Blob Storage, Filesystem) and 4 without (CMIS, Web Pages, Wikipedia, YouTube).
+- **Sign-In and Permission-Aware Search**: One sign-in pill in the header whose drop-down signs users in and out of each repository and cloud service; hybrid search, AI query and AI chat then use only the documents that user may read, and a **Sources** picker limits a question to chosen sources.
 - **Observability**: Built-in OpenTelemetry instrumentation with automatic LlamaIndex tracing, Prometheus metrics, Jaeger traces, and Grafana dashboards for production monitoring
 - **FastAPI Server with REST API**: Python based FastAPI server with REST APIs for document ingesting, hybrid search, AI query, and AI chat.
 - **MCP Server**: MCP server providing Claude Desktop and other MCP clients with tools for document/text ingesting (all 14 data sources), hybrid search, and AI query. Uses FastAPI backend REST APIs.
@@ -68,7 +71,7 @@ hide:
 
 - **REST API Server**: Provides endpoints for document ingestion, search, and AI query/chat
 - **Hybrid Search Engine**: Combines vector similarity (RAG), fulltext (BM25), and graph traversal (GraphRAG)
-- **Document Processing**: Advanced document conversion with Docling and LlamaParse integration
+- **Document Processing**: Advanced document conversion with Docling, LlamaParse, and LiteParse integration
 - **Configurable Architecture**: Environment-based configuration for all components
 - **Async Processing**: Background task processing with real-time progress updates
 
@@ -78,7 +81,7 @@ hide:
 - **Full API Parity**: Tools like `ingest_documents()` support all 14 data sources with source-specific configs: filesystem, repositories (Alfresco, SharePoint, Box, CMIS, Nuxeo), cloud storage, web; `skip_graph` flag for all data sources; `paths` parameter for filesystem/Alfresco/CMIS; Alfresco also supports `nodeDetails` list (multi-select for KG Spaces)
 - **Additional Tools**: `search_documents()`, `query_documents()`, `ingest_text()`, system diagnostics, and health checks
 - **Dual Transport**: HTTP mode for debugging, stdio mode for production
-- **Tool Suite**: 9 specialized tools for document processing, search, and system management
+- **Tool Suite**: 12 tools for document processing, search, sign-in and system management (14 with `MCP_BROWSER_SIGN_IN=true`); search and query can be permission-filtered per user (three levels)
 - **Multiple Installation**: pipx system installation or uvx no-install execution
 
 ### UI Clients (`/flexible-graphrag-ui`)
@@ -108,5 +111,5 @@ hide:
 | **[UI Guide](UI-GUIDE/UI-GUIDE.md)** | 4-tab interface: Sources → Processing → Search → Chat |
 | **[Data Sources](DATA-SOURCES/OVERVIEW.md)** | 14 sources: S3, Azure Blob, GCS, OneDrive, Alfresco, Nuxeo, CMIS, Wikipedia, YouTube … |
 | **[Databases](DATABASES/GRAPH-DATABASES/README-neo4j.md)** | Property graph, RDF triple stores, vector databases, search databases |
-| **[MCP Server](MCP/MCP-SERVER.md)** | 9 tools for Claude Desktop, Cursor, and other MCP clients |
+| **[MCP Server](MCP/MCP-SERVER.md)** | 12 tools for Claude Desktop, Cursor, and other MCP clients |
 | **[Developer](DEVELOPER/REST-API.md)** | REST API, MCP Tools, Observability, Testing & Debugging |

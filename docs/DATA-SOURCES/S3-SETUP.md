@@ -2,6 +2,8 @@
 
 Configure S3 with SQS event notifications for real-time change detection and automatic synchronization.
 
+> **Per-user permissions:** with `S3_AUTH_ENABLED=true`, users sign in with their own IAM access key and S3 results are checked as them, with links that open the file through a short-lived presigned URL. See [Amazon S3 sign-in](README-s3-sign-in.md).
+
 ## Benefits
 
 **Event-Driven vs Polling:**

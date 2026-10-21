@@ -30,6 +30,19 @@ export interface SourceDocument {
   open_url: string;     // link to the document (Alfresco Share, Nuxeo Web UI); '' when none
 }
 
+/** Display names of the data source types a result's documents came from (backend source_type). */
+const SOURCE_TYPE_LABELS: Record<string, string> = {
+  alfresco: 'Alfresco', nuxeo: 'Nuxeo', cmis: 'CMIS', sharepoint: 'SharePoint', onedrive: 'OneDrive',
+  box: 'Box', google_drive: 'Google Drive', s3: 'Amazon S3', gcs: 'Google Cloud Storage',
+  azure_blob: 'Azure Blob', filesystem: 'Files', upload: 'Uploads', web: 'Web', wikipedia: 'Wikipedia',
+  youtube: 'YouTube',
+};
+
+/** The data source part of a result's source line ("SharePoint"), '' when unknown. */
+export const sourceTypeLabel = (docs?: { source_type?: string }[]): string =>
+  Array.from(new Set((docs || []).map((d) => d.source_type || '').filter(Boolean)))
+    .map((t) => SOURCE_TYPE_LABELS[t] || t).join(', ');
+
 /** The store part of a result's source label ("a.txt | Neo4j property graph" -> "Neo4j property graph"). */
 export const storeLabel = (source?: string): string => {
   const s = source || '';

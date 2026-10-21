@@ -1,8 +1,20 @@
 import os
 import ntpath
 import logging
+import re
 import sys
+import warnings
 from datetime import datetime
+
+# google-auth / api-core warn at import that grpcio < 1.83 lacks post-quantum cryptography. grpcio
+# can't move up yet: weaviate-client (4.23.1) requires grpcio < 1.80. Drop this once it can.
+# weaviate's own import calls warnings.simplefilter("default"), which goes in front of every
+# earlier filter -- so import it first (it is imported only once), then put this filter ahead of it.
+try:
+    import weaviate  # noqa: F401
+except Exception:
+    pass
+warnings.filterwarnings("ignore", message=r".*does not support Post-Quantum Cryptography.*", category=FutureWarning)
 
 # Neutralise nest_asyncio.apply on Python 3.14+ before any imports that might trigger it.
 # LlamaIndex (async_utils, elasticsearch store) calls nest_asyncio.apply() unconditionally;
@@ -38,11 +50,12 @@ from dotenv import find_dotenv, load_dotenv
 # second (a source checkout run from elsewhere).
 load_dotenv(find_dotenv(usecwd=True) or find_dotenv())
 
-from fastapi import FastAPI, HTTPException, Depends, status, UploadFile, File, Header
+from fastapi import FastAPI, HTTPException, Depends, status, UploadFile, File, Header, Request
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, model_validator
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 import asyncio
 import uvicorn
 import shutil
@@ -872,6 +885,20 @@ async def lifespan(app: FastAPI):
     logger.info("SUCCESS: Shutdown complete")
 
 # Initialize FastAPI app with lifespan
+class _RedactAuthCodes(logging.Filter):
+    """Keep one-time sign-in codes out of the access log: a popup sign-in's callback
+    (/api/auth/<provider>/callback?code=...) -- Box sends its code in the query string."""
+    _CODE = re.compile(r"((?:^|[?&])(?:code|session_state)=)[^&\s]+")
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        args = record.args
+        if isinstance(args, tuple) and len(args) >= 3 and "/api/auth/" in str(args[2]):
+            record.args = args[:2] + (self._CODE.sub(r"\1[redacted]", str(args[2])),) + args[3:]
+        return True
+
+
+logging.getLogger("uvicorn.access").addFilter(_RedactAuthCodes())
+
 app = FastAPI(
     title="Flexible GraphRAG API",
     description="API for processing documents with configurable hybrid search (vector, graph, full-text)",
@@ -900,9 +927,14 @@ except Exception as e:
 # Models
 class CmisConfig(BaseModel):
     url: str
-    username: str
-    password: str
+    username: Optional[str] = None
+    password: Optional[str] = None
     folder_path: str
+    # From the UI's CMIS sign-in (sources/cmis_auth.py): an Alfresco server's ticket
+    # (auth_method=ticket) or a Nuxeo server's token (auth_method=token) instead of a password.
+    auth_method: Optional[str] = None  # basic | ticket | token
+    ticket: Optional[str] = None
+    token: Optional[str] = None
 
 class NodeDetail(BaseModel):
     id: str
@@ -1109,11 +1141,84 @@ class AlfrescoQueryAuth(BaseModel):
     oauth2: Optional[AlfrescoOAuth2Config] = None
 
 
+class NuxeoQueryAuth(BaseModel):
+    """Who is asking, for Nuxeo's permission check: the credentials ingest takes (basic / token /
+    oauth2 with an access_token) -- normally the token from POST /api/auth/nuxeo/login."""
+    url: Optional[str] = None  # the Nuxeo server (http://host:8081/nuxeo); omitted = NUXEO_URL
+    auth_method: Optional[str] = None  # basic | token | oauth2; omitted = token if only a token is given, else basic
+    username: Optional[str] = None
+    password: Optional[str] = None
+    token: Optional[str] = None
+    oauth2: Optional[NuxeoOAuth2Config] = None
+
+
+class CmisQueryAuth(BaseModel):
+    """Who is asking, for a CMIS server's permission check. From POST /api/auth/cmis/login: an
+    Alfresco server's ticket (auth_method=ticket) or a Nuxeo server's token (auth_method=token);
+    basic username/password also works."""
+    url: Optional[str] = None  # the CMIS service URL (AtomPub); omitted = CMIS_URL
+    auth_method: Optional[str] = None  # basic | ticket | token
+    username: Optional[str] = None
+    password: Optional[str] = None
+    ticket: Optional[str] = None
+    token: Optional[str] = None
+
+
+class MicrosoftQueryAuth(BaseModel):
+    """Who is asking, for SharePoint / OneDrive permission checks: a delegated Microsoft Graph
+    access token from the Microsoft 365 sign-in (GET /api/auth/microsoft/popup)."""
+    url: Optional[str] = None  # the tenant id; omitted = the token's own tenant (else MICROSOFT_AUTH_TENANT_ID)
+    access_token: str
+
+
+class S3QueryAuth(BaseModel):
+    """Who is asking, for Amazon S3 permission checks: the token from POST /api/auth/s3/login
+    (the user's temporary STS session credentials, packed)."""
+    url: Optional[str] = None  # always "aws" (one S3 sign-in)
+    token: str
+
+
+class AzureQueryAuth(BaseModel):
+    """Who is asking, for Azure Blob permission checks: an Azure Storage access token from the
+    Azure Storage sign-in (GET /api/auth/azure/popup)."""
+    url: Optional[str] = None  # always "azure" (one Azure Storage sign-in)
+    access_token: str
+
+
+class GoogleQueryAuth(BaseModel):
+    """Who is asking, for Google Drive / Cloud Storage permission checks: a Google access token
+    from the Google sign-in (GET /api/auth/google/popup)."""
+    url: Optional[str] = None  # always google.com (one Google)
+    access_token: str
+
+
+class BoxQueryAuth(BaseModel):
+    """Who is asking, for Box permission checks: a Box access token from the Box sign-in
+    (GET /api/auth/box/popup)."""
+    url: Optional[str] = None  # always box.com (one Box)
+    access_token: str
+
+
 class SourceAuth(BaseModel):
-    """The asker's identity per data source, for that source's query-time permission check.
-    Only Alfresco is checked so far; other repositories (Nuxeo, SharePoint/OneDrive, Drive, Box)
-    get their own entry here when their checker exists."""
-    alfresco: Optional[AlfrescoQueryAuth] = None
+    """The asker's identities per data source, for each source's query-time permission check
+    (permission_filter.py). Each entry is one credential or a list of them -- one per server, e.g.
+    two Alfresco repositories -- matched to documents by url. ``microsoft`` (one per tenant)
+    covers SharePoint and OneDrive."""
+    alfresco: Optional[Union[AlfrescoQueryAuth, List[AlfrescoQueryAuth]]] = None
+    nuxeo: Optional[Union[NuxeoQueryAuth, List[NuxeoQueryAuth]]] = None
+    cmis: Optional[Union[CmisQueryAuth, List[CmisQueryAuth]]] = None
+    microsoft: Optional[Union[MicrosoftQueryAuth, List[MicrosoftQueryAuth]]] = None
+    box: Optional[Union[BoxQueryAuth, List[BoxQueryAuth]]] = None
+    google: Optional[Union[GoogleQueryAuth, List[GoogleQueryAuth]]] = None
+    azure: Optional[Union[AzureQueryAuth, List[AzureQueryAuth]]] = None
+    s3: Optional[Union[S3QueryAuth, List[S3QueryAuth]]] = None
+
+
+class SourceSelector(BaseModel):
+    """One source to search: a data source type (as GET /api/sources/available lists it), and
+    optionally one server of it."""
+    source: str            # alfresco | nuxeo | cmis | filesystem | s3 | sharepoint | ...
+    url: Optional[str] = None  # one server of that type; omitted = all of them
 
 
 class QueryRequest(BaseModel):
@@ -1121,9 +1226,11 @@ class QueryRequest(BaseModel):
     top_k: int = 10
     query_type: Optional[str] = "hybrid"  # hybrid, qa
     scope: Optional[AskScope] = None  # answer only from this document / folder
-    # Who is asking, per data source (planning/SOURCE-AUTH-LOGIN.md). Alfresco documents are only
-    # answered from when an Alfresco identity is given (here or as X-Alfresco-Ticket) unless
-    # ALFRESCO_QUERY_AUTH=optional.
+    # Answer only from these sources (the UIs' source picker); omitted / empty = all sources
+    sources: Optional[List[SourceSelector]] = None
+    # Who is asking, per data source (planning/SOURCE-AUTH-LOGIN.md). A repository's documents
+    # (Alfresco, Nuxeo, CMIS) are only answered from when an identity for their server is given
+    # (here or as X-Alfresco-Ticket) unless <SOURCE>_QUERY_AUTH / SOURCE_QUERY_AUTH=optional.
     source_auth: Optional["SourceAuth"] = None
 
 class TextIngestRequest(BaseModel):
@@ -2613,6 +2720,124 @@ async def _start_item_actions(data_source: str, request, paths, kwargs: dict, ac
         paths=paths, config_id=kwargs.get("config_id"), label=label, **run_kwargs)
 
 
+# Sources an auto sync can watch (incremental_updates/detectors); the others are ingested once
+_SYNC_SOURCES = ("filesystem", "alfresco", "nuxeo", "s3", "gcs", "azure_blob", "onedrive",
+                 "sharepoint", "box", "google_drive")
+
+
+async def _datasource_row(data_source: str, request, paths):
+    """A single-row source's datasource -- the whole S3 bucket / prefix, SharePoint folder, web
+    page, ... -- by the same stable config_id its ingest gets: (config_id, config or None, its
+    document_state rows)."""
+    from incremental_updates.removal import fetch_rows
+    config_id = _resolve_config_id(data_source, request, paths)
+    if not _ingest_registry_available():
+        return config_id, None, []
+    await ensure_config_manager_ready()
+    cfg = await incremental_manager.config_manager.get_config(config_id)
+    async with incremental_manager.state_manager.pool.acquire() as conn:
+        rows = await fetch_rows(conn, [config_id])
+    return config_id, cfg, rows
+
+
+async def _datasource_row_status(request) -> dict:
+    """/api/sync/ingest-status for a single-row source: one row, the whole datasource, in the
+    same shape as a repository row's (status, the datasource, which stores hold its documents,
+    whether it is an auto sync)."""
+    from incremental_updates.ingest_status import Datasource
+    from incremental_updates.removal import configured_stores
+    try:
+        ireq = IngestRequest(data_source=request.data_source, **(request.source or {}))
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"invalid source for {request.data_source}: {e}")
+    config_id, cfg, rows = await _datasource_row(request.data_source, ireq, ireq.paths)
+    live = [r for r in rows if any(r.synced.values())]
+    status = "synced" if cfg is not None and live else "removed" if cfg is not None and rows else "none"
+    auto_sync = bool(cfg is not None and getattr(cfg, "auto_sync", False))
+    label = request.items[0].path if request.items else config_id
+    datasources = []
+    if status != "none":
+        ds = Datasource.from_config(cfg)
+        datasources = [{"config_id": config_id, "source_name": ds.source_name, "root": label,
+                        "recursive": False, "skip_graph": ds.skip_graph, "relation": "same",
+                        "status": "synced" if live else status, "auto_sync": auto_sync}]
+    item = {
+        "id": None, "path": label, "is_folder": False, "status": status,
+        "datasources": datasources,
+        "indexed": {t: any(r.synced[t] for r in rows) for t in ("vector", "search", "graph")} if rows else None,
+        "auto_sync": auto_sync,
+        "documents": len(live),
+    }
+    return {"enabled": True, "stores": configured_stores(settings), "items": [item for _ in request.items] or [item]}
+
+
+async def _datasource_row_actions(data_source: str, request, paths) -> Optional[dict]:
+    """The processing tab's Search+Vector / Graphs / Auto Sync columns for a single-row source:
+    its one row is the whole datasource. Store removals and stopping its auto sync are done here
+    (as a job when nothing is ingested: that job is returned); an ingest -- with graphs, without,
+    or to start the auto sync -- turns the request into the ordinary ingest of that datasource
+    (``skip_graph`` / ``enable_sync`` set, ``item_actions`` cleared) and None is returned."""
+    from incremental_updates.removal import (
+        configured_stores, record_removal, retire_datasource, set_auto_sync, store_names,
+    )
+    from ingest.replace_existing import delete_doc_ids
+    if len(request.item_actions) != 1:
+        raise HTTPException(status_code=400,
+                            detail=f"{data_source} has one row (the whole datasource): send one item action")
+    row = request.item_actions[0]
+    if row.action not in ITEM_ACTIONS:
+        raise HTTPException(status_code=400,
+                            detail=f"unknown action {row.action}; use {', '.join(ITEM_ACTIONS)}")
+    if row.action in ("remove_graph", "remove_all") and not _ingest_registry_available():
+        raise HTTPException(status_code=400,
+                            detail="removing needs ENABLE_INCREMENTAL_UPDATES=true "
+                                   "(document_state says what the datasource holds)")
+    config_id, cfg, rows = await _datasource_row(data_source, request, paths)
+    syncing = bool(cfg is not None and getattr(cfg, "auto_sync", False))
+    want_sync = bool((row.auto_sync if row.auto_sync is not None else syncing) and data_source in _SYNC_SOURCES)
+    has_graph = any(r.synced["graph"] for r in rows)
+
+    async def changes() -> list:
+        lines = []
+        if syncing and not want_sync:
+            async with incremental_manager.state_manager.pool.acquire() as conn:
+                await set_auto_sync(conn, [r.doc_id for r in rows], False)
+                outcome = await retire_datasource(conn, config_id)
+            orch = getattr(incremental_manager, "orchestrator", None)
+            if orch is not None:
+                try:
+                    await orch._handle_config_change({"operation": "delete", "config_id": config_id})
+                except Exception as e:
+                    logger.warning(f"Auto sync {config_id}: could not stop its updater: {e}")
+            lines.append("auto sync stopped" + (" (its documents stay in the stores, now tracked as ingested)"
+                                                if outcome == "ingest-only" else ""))
+        targets = {"remove_all": ["vector", "search", "graph"], "remove_graph": ["graph"]}.get(row.action)
+        if targets:
+            stores = configured_stores(settings)
+            targets = [t for t in targets if stores[t]]
+            in_stores = [r for r in rows if any(r.synced[t] for t in targets)]
+            if in_stores and targets:
+                await delete_doc_ids(backend_instance.system, [r.doc_id for r in in_stores], targets)
+                hit = [t for t in targets if any(r.synced[t] for r in in_stores)]
+                async with incremental_manager.state_manager.pool.acquire() as conn:
+                    await record_removal(conn, in_stores, targets, [config_id] if syncing and want_sync else [])
+                lines.append(f"removed {len(in_stores)} document(s) from {store_names(hit or targets, settings)}")
+        return lines
+
+    if row.action in ("ingest", "ingest_no_graph") or (want_sync and not syncing):
+        lines = await changes()  # (only a sync stop can precede an ingest)
+        if lines:
+            logger.info(f"{data_source} {config_id}: " + "; ".join(lines))
+        request.item_actions = None
+        request.skip_graph = (row.action == "ingest_no_graph") if row.action != "keep" else not has_graph
+        request.enable_sync = want_sync
+        return None
+    result = await backend_instance.run_item_actions(data_source, [], changes, paths=paths,
+                                                     config_id=config_id, label=row.path[:200])
+    result["sync_enabled"] = want_sync
+    return result
+
+
 @app.post("/api/ingest")
 async def ingest(request: IngestRequest):
     try:
@@ -2632,6 +2857,14 @@ async def ingest(request: IngestRequest):
                 detail="alfresco_config is required for an Alfresco ingest: url, path and the "
                        "caller's credentials (username/password, ticket, or oauth2)",
             )
+
+        # A single-row source (S3, SharePoint, web, ...): its one row is the whole datasource
+        from incremental_updates.ingest_status import ROW_SOURCES as _ROW_SOURCES
+        if request.item_actions and data_source not in _ROW_SOURCES:
+            early = await _datasource_row_actions(data_source, request, paths)
+            if early is not None:  # removals / stopping its sync only: that job
+                _label_job(early, data_source, request, paths)
+                return early
 
         actions = None
         row_sync = None
@@ -2980,139 +3213,441 @@ async def _scope_doc_ids(scope: "AskScope") -> List[str]:
     return sorted({r.doc_id for r in matched if r.synced["vector"] or r.synced["search"] or r.synced["graph"]})
 
 
-async def _candidate_doc_ids(query: str) -> List[str]:
-    """The documents an ordinary (unfiltered) retrieval finds for ``query``: what a permission
-    check has to look at when the question names no scope."""
+async def _candidate_doc_ids(query: str, within: Optional[List[str]] = None) -> List[str]:
+    """The documents a retrieval finds for ``query``: what a permission check has to look at.
+    ``within`` (a scope / the picked sources) prefilters the retrieval inside the stores, so only
+    the search results from those documents are checked, not every document they stand for."""
     from retriever_setup import setup_hybrid_retriever
-    from scope_filter import node_doc_id
+    from scope_filter import build_scoped_retriever, node_doc_id
     from llama_index.core.schema import QueryBundle
     system = backend_instance.system
-    if not system.hybrid_retriever:
-        setup_hybrid_retriever(system)
-    if not system.hybrid_retriever:
+    if within is not None:
+        if not within:
+            return []
+        retriever = build_scoped_retriever(system, within)
+    else:
+        if not system.hybrid_retriever:
+            setup_hybrid_retriever(system)
+        retriever = system.hybrid_retriever
+    if not retriever:
         return []
-    nodes = await system.hybrid_retriever.aretrieve(QueryBundle(query_str=query))
+    nodes = await retriever.aretrieve(QueryBundle(query_str=query))
     return list(dict.fromkeys(d for d in (node_doc_id(n) for n in nodes) if d))
 
 
+_REPO_SOURCES = ("alfresco", "nuxeo", "cmis")
+_MICROSOFT_SOURCES = ("sharepoint", "onedrive")
+_BOX_SOURCES = ("box",)
+_GOOGLE_SOURCES = ("google_drive", "gcs")
+_AZURE_SOURCES = ("azure_blob",)
+_S3_SOURCES = ("s3",)
+# Sources whose doc ids carry no repository id: the check finds it in the registry (Box, Drive:
+# document_state.source_id) or in the doc id itself (GCS: "<config_id>:<bucket>/<object>")
+_ID_SOURCES = _BOX_SOURCES + _GOOGLE_SOURCES + _AZURE_SOURCES + _S3_SOURCES
+_SOURCE_URL_ENV = {"alfresco": "ALFRESCO_URL", "nuxeo": "NUXEO_URL", "cmis": "CMIS_URL",
+                   "microsoft": "MICROSOFT_AUTH_TENANT_ID"}
 _auth_providers_cache: Dict[str, Any] = {"at": 0.0, "value": None}
+
+
+def _governed_sources() -> tuple:
+    """The data sources whose documents are permission-checked: Alfresco, Nuxeo, CMIS, and
+    SharePoint + OneDrive / Box once Microsoft / Box sign-in is configured
+    (MICROSOFT_AUTH_CLIENT_ID / BOX_AUTH_CLIENT_ID) -- without it nobody could sign in, so their
+    documents stay visible as before."""
+    from sources.azure_auth import config as azure_config
+    from sources.box_auth import config as box_config
+    from sources.google_auth import config as google_config
+    from sources.microsoft_auth import config as microsoft_config
+    from sources.s3_auth import enabled as s3_enabled
+    return (_REPO_SOURCES + (_MICROSOFT_SOURCES if microsoft_config() else ())
+            + (_BOX_SOURCES if box_config() else ()) + (_GOOGLE_SOURCES if google_config() else ())
+            + (_AZURE_SOURCES if azure_config() else ()) + (_S3_SOURCES if s3_enabled() else ()))
+
+
+def _source_default_url(source: str) -> str:
+    """The server a source's credential / document is assumed to belong to when it names none
+    (for SharePoint / OneDrive: the Microsoft tenant)."""
+    from permission_filter import auth_source
+    if auth_source(source) == "box":
+        from sources.box_auth import BOX_SERVER
+        return BOX_SERVER
+    if auth_source(source) == "google":
+        from sources.google_auth import GOOGLE_SERVER
+        return GOOGLE_SERVER
+    if auth_source(source) == "azure":
+        from sources.azure_auth import AZURE_SERVER
+        return AZURE_SERVER
+    if auth_source(source) == "s3":
+        from sources.s3_auth import S3_SERVER
+        return S3_SERVER
+    return (os.getenv(_SOURCE_URL_ENV.get(auth_source(source), "")) or "").strip()
+
+
+async def _registry_datasources() -> list:
+    """(Datasource, connection_params) for every datasource with documents in the stores; [] without the registry."""
+    if not incremental_manager or not incremental_manager.is_initialized():
+        return []
+    from incremental_updates.ingest_status import Datasource
+    await ensure_config_manager_ready()
+    return [(Datasource.from_config(cfg), dict(getattr(cfg, "connection_params", None) or {}))
+            for cfg in await incremental_manager.config_manager.get_ingest_status_configs()]
+
+
+def _datasource_server(ds, params: Dict[str, Any]) -> str:
+    """The server a datasource's documents are checked on: its url, or for SharePoint / OneDrive
+    its Microsoft tenant (else the source's configured default)."""
+    if ds.source_type in _MICROSOFT_SOURCES:
+        return (params.get("tenant_id") or "").strip() or _source_default_url(ds.source_type)
+    if ds.source_type in _ID_SOURCES:
+        return _source_default_url(ds.source_type)
+    return ds.url or _source_default_url(ds.source_type)
+
+
+def _azure_account_url(params: Dict[str, Any]) -> str:
+    """An Azure Blob datasource's storage account URL: account_url, else from account_name or the
+    connection string's AccountName (the public blob endpoint)."""
+    url = (params.get("account_url") or "").strip().rstrip("/")
+    if url:
+        return url
+    name = (params.get("account_name") or "").strip()
+    if not name:
+        import re as _re
+        m = _re.search(r"AccountName=([^;]+)", params.get("connection_string") or "")
+        name = m.group(1) if m else ""
+    return f"https://{name}.blob.core.windows.net" if name else ""
+
+
+def _query_auth_required(source: str) -> bool:
+    """``<SOURCE>_QUERY_AUTH`` (e.g. NUXEO_QUERY_AUTH), else ``SOURCE_QUERY_AUTH``, else required.
+    required: a question with no identity for that source is answered without its documents.
+    optional: such a question sees them (the pre-0.8.5 behaviour, for a backend only trusted
+    callers can reach)."""
+    value = os.getenv(f"{source.upper()}_QUERY_AUTH") or os.getenv("SOURCE_QUERY_AUTH") or "required"
+    return value.strip().lower() != "optional"
 
 
 async def _auth_providers(max_age: float = 30.0) -> List[Dict[str, Any]]:
     """The sign-ins the stored content needs (planning/SOURCE-AUTH-LOGIN.md): one entry per
-    Alfresco server that has documents in the stores. With the incremental registry this is exact
-    (document_state counts); without it nothing records what is stored, so a configured
-    ALFRESCO_URL is listed with ``documents: None`` (unknown). Cached for ``max_age`` seconds."""
+    repository server (Alfresco, Nuxeo, CMIS) whose documents in the stores are permission-checked.
+    With the incremental registry this is exact (document_state rows with a repository doc id);
+    without it nothing records what is stored, so each configured ALFRESCO_URL / NUXEO_URL /
+    CMIS_URL is listed with ``documents: None`` (unknown). Cached for ``max_age`` seconds."""
     import time as _time
+    from permission_filter import LABELS, SCHEMES, auth_source, server_key
     now = _time.monotonic()
     if _auth_providers_cache["value"] is not None and now - _auth_providers_cache["at"] < max_age:
         return _auth_providers_cache["value"]
-    methods = ["basic"] + (["oauth2"] if os.getenv("ALFRESCO_OAUTH2_CLIENT_ID") else [])
+
+    def entry(source: str, url: str, documents: Optional[int]) -> Dict[str, Any]:
+        methods = ["popup"] if source in ("microsoft", "box", "google", "azure") else ["basic"]
+        if source == "alfresco" and os.getenv("ALFRESCO_OAUTH2_CLIENT_ID"):
+            methods.append("oauth2")
+        return {"source": source, "label": LABELS[source], "url": url, "methods": methods,
+                "documents": documents, "required": _query_auth_required(source)}
+
     providers: List[Dict[str, Any]] = []
+    governed = _governed_sources()
     if incremental_manager and incremental_manager.is_initialized():
-        from incremental_updates.ingest_status import Datasource
         await ensure_config_manager_ready()
-        cm = incremental_manager.config_manager
-        counts = await cm.count_documents_by_config()
-        per_url: Dict[str, int] = {}
-        for ds in map(Datasource.from_config, await cm.get_ingest_status_configs()):
-            if ds.source_type == "alfresco" and counts.get(ds.config_id):
-                url = ds.url or os.getenv("ALFRESCO_URL", "")
-                per_url[url] = per_url.get(url, 0) + counts[ds.config_id]
-        providers = [{"source": "alfresco", "url": u, "methods": methods, "documents": n}
-                     for u, n in per_url.items()]
-    elif os.getenv("ALFRESCO_URL"):
-        providers = [{"source": "alfresco", "url": os.getenv("ALFRESCO_URL"),
-                      "methods": methods, "documents": None}]
+        counts = await incremental_manager.config_manager.count_governed_documents_by_config(list(SCHEMES.values()))
+        if any(s in governed for s in _ID_SOURCES):
+            # Box / Drive / GCS doc ids carry no repository scheme: all of such a datasource's count
+            all_counts = await incremental_manager.config_manager.count_documents_by_config()
+            id_cfgs = {ds.config_id for ds, _ in await _registry_datasources() if ds.source_type in _ID_SOURCES}
+            counts = {**counts, **{c: n for c, n in all_counts.items() if c in id_cfgs}}
+        # (sign-in source, server key) -> [url as given, documents, {data source: documents}]
+        per_server: Dict[tuple, List[Any]] = {}
+        for ds, params in await _registry_datasources():
+            if ds.source_type in governed and counts.get(ds.config_id):
+                auth = auth_source(ds.source_type)  # SharePoint / OneDrive -> one Microsoft 365 sign-in
+                url = _datasource_server(ds, params)
+                slot = per_server.setdefault((auth, server_key(auth, url)), [url, 0, {}])
+                slot[1] += counts[ds.config_id]
+                slot[2][ds.source_type] = slot[2].get(ds.source_type, 0) + counts[ds.config_id]
+        providers = []
+        for (s, _), (url, n, by_source) in per_server.items():
+            p = entry(s, url, n)
+            if s in ("microsoft", "google"):
+                # one sign-in covers these: the UIs name them ("SharePoint 2 docs · OneDrive 1 doc")
+                p["services"] = [{"source": src, "label": LABELS.get(src, src), "documents": docs}
+                                 for src, docs in sorted(by_source.items())]
+            providers.append(p)
+    else:
+        # without the registry SharePoint / OneDrive documents carry no repository ids: not governed
+        providers = [entry(s, _source_default_url(s), None)
+                     for s in _REPO_SOURCES if _source_default_url(s)]
     _auth_providers_cache.update(at=now, value=providers)
     return providers
 
 
-def _alfresco_query_auth_required() -> bool:
-    """ALFRESCO_QUERY_AUTH=required (default): a question with no Alfresco identity is answered
-    without Alfresco documents. optional: such a question sees every document (the pre-0.8.5
-    behaviour, for a backend only trusted callers can reach)."""
-    return os.getenv("ALFRESCO_QUERY_AUTH", "required").strip().lower() != "optional"
+def _as_list(value) -> list:
+    return [] if value is None else value if isinstance(value, list) else [value]
 
 
-async def _alfresco_authorization(request: "QueryRequest", ticket: Optional[str]) -> Optional[str]:
-    """The asker's Alfresco identity as an Authorization header value: the X-Alfresco-Ticket
-    header (KG Spaces), else the request's source_auth.alfresco (basic / ticket / oauth2), else None."""
+async def _identities(request: "QueryRequest", ticket: Optional[str] = None,
+                      ticket_url: Optional[str] = None) -> list:
+    """The asker's identities (permission_filter.Identity), one per repository server: the
+    X-Alfresco-Ticket header (KG Spaces; X-Alfresco-Url names its server), then every entry of the
+    request's source_auth.alfresco / .nuxeo / .cmis. A credential that names no url belongs to
+    that source's configured server (ALFRESCO_URL / NUXEO_URL / CMIS_URL)."""
+    from permission_filter import Identity, _rest_base
     from sources.alfresco_auth import alfresco_authorization
+    from sources.nuxeo_auth import nuxeo_headers
+    from sources.cmis_auth import cmis_headers
+    out = []
     if ticket and ticket.strip():
-        return alfresco_authorization("", "ticket", ticket=ticket.strip())
-    ac = request.source_auth.alfresco if request.source_auth else None
-    if not ac:
-        return None
+        out.append(Identity("alfresco", (ticket_url or "").strip() or _source_default_url("alfresco"),
+                            {"Authorization": alfresco_authorization("", "ticket", ticket=ticket.strip())}))
+    sa = request.source_auth
+    if not sa:
+        return out
     try:
-        return await asyncio.to_thread(
-            alfresco_authorization,
-            (ac.url or os.getenv("ALFRESCO_URL") or "").rstrip("/").removesuffix("/alfresco"),
-            ac.auth_method, ac.username or "", ac.password or "", ac.ticket,
-            ac.oauth2.model_dump(exclude_none=True) if ac.oauth2 else None,
-        )
+        for ac in _as_list(sa.alfresco):
+            url = (ac.url or _source_default_url("alfresco")).strip()
+            header = await asyncio.to_thread(
+                alfresco_authorization, _rest_base(url), ac.auth_method, ac.username or "",
+                ac.password or "", ac.ticket, ac.oauth2.model_dump(exclude_none=True) if ac.oauth2 else None)
+            if header:
+                out.append(Identity("alfresco", url, {"Authorization": header}))
+        for nc in _as_list(sa.nuxeo):
+            headers = nuxeo_headers(nc.auth_method, nc.username or "", nc.password or "", nc.token,
+                                    nc.oauth2.model_dump(exclude_none=True) if nc.oauth2 else None)
+            if headers:
+                out.append(Identity("nuxeo", (nc.url or _source_default_url("nuxeo")).strip(), headers))
+        for cc in _as_list(sa.cmis):
+            headers = cmis_headers(cc.auth_method, cc.username or "", cc.password or "", cc.ticket, cc.token)
+            if headers:
+                out.append(Identity("cmis", (cc.url or _source_default_url("cmis")).strip(), headers))
+        for mc in _as_list(sa.microsoft):
+            from sources.microsoft_auth import tenant_of
+            tenant = (mc.url or tenant_of(mc.access_token) or _source_default_url("microsoft")).strip()
+            out.append(Identity("microsoft", tenant, {"Authorization": f"Bearer {mc.access_token}"}))
+        for sc in _as_list(sa.s3):
+            from permission_filter import S3_TOKEN_HEADER
+            out.append(Identity("s3", (sc.url or _source_default_url("s3")).strip(), {S3_TOKEN_HEADER: sc.token}))
+        for zc in _as_list(sa.azure):
+            from sources.azure_auth import storage_headers
+            out.append(Identity("azure", (zc.url or _source_default_url("azure_blob")).strip(),
+                                storage_headers(zc.access_token)))
+        for gc in _as_list(sa.google):
+            out.append(Identity("google", (gc.url or _source_default_url("google_drive")).strip(),
+                                {"Authorization": f"Bearer {gc.access_token}"}))
+        for bc in _as_list(sa.box):
+            out.append(Identity("box", (bc.url or _source_default_url("box")).strip(),
+                                {"Authorization": f"Bearer {bc.access_token}"}))
     except PermissionError as e:
         raise HTTPException(status_code=401, detail=str(e))
+    return out
 
 
-async def _readable(doc_ids: List[str], authorization: str,
-                    default_url: Optional[str] = None) -> List[str]:
-    """``doc_ids`` the asker may read (permission_filter.py), ``authorization`` being their
-    Alfresco identity. Each document is checked on the Alfresco server its datasource ingested it
-    from (the request's source_auth.alfresco.url, else ALFRESCO_URL, otherwise)."""
-    from permission_filter import readable_doc_ids
-    from incremental_updates.ingest_status import Datasource
+def _trusted_client(key: Optional[str]) -> bool:
+    """The request comes from a client the backend trusts to decide its own filtering (the MCP
+    server): X-Trusted-Client-Key matches TRUSTED_CLIENT_KEY. Such a question is filtered only for
+    the sources it brings credentials for; with none it sees everything. Unset key: nobody is."""
+    import secrets as _secrets
+    expected = (os.getenv("TRUSTED_CLIENT_KEY") or "").strip()
+    return bool(expected and key and _secrets.compare_digest(expected, key.strip()))
+
+
+async def _readable(doc_ids: List[str], identities: list, trusted: bool = False):
+    """``doc_ids`` the asker may read (permission_filter.py) -> permission_filter.Readable. Each
+    governed document is checked on the server its datasource ingested it from (the registry's
+    url, else that source's configured URL), with the asker's identity for that server."""
+    from permission_filter import CredentialRefused, auth_source, config_id_of, readable_doc_ids
     urls: Dict[str, str] = {}
-    if incremental_manager and incremental_manager.is_initialized():
-        await ensure_config_manager_ready()
-        for ds in map(Datasource.from_config,
-                      await incremental_manager.config_manager.get_ingest_status_configs()):
-            if ds.url:
-                urls[ds.config_id] = ds.url
+    contexts: Dict[str, Dict[str, str]] = {}  # what a SharePoint / OneDrive check needs
+    datasources = await _registry_datasources()
+    governed = _governed_sources()
+    # Box / Drive documents keep their path doc ids: their file id is document_state.source_id;
+    # a GCS doc id is "<config_id>:<bucket>/<object>"
+    id_refs: Dict[str, tuple] = {}
+    id_types = {ds.config_id: ds.source_type for ds, _ in datasources
+                if ds.source_type in _ID_SOURCES and ds.source_type in governed}
+    if id_types:
+        from incremental_updates.removal import fetch_rows
+        async with incremental_manager.state_manager.pool.acquire() as conn:
+            for r in await fetch_rows(conn, list(id_types)):
+                kind = id_types[r.config_id]
+                if kind == "s3":  # "<config_id>:s3://<bucket>/<key>"
+                    i = r.doc_id.find("s3://")
+                    if i >= 0 and "/" in r.doc_id[i + 5:]:
+                        id_refs[r.doc_id] = (kind, r.doc_id[i + 5:])
+                elif kind in ("gcs", "azure_blob"):  # "<bucket|container>/<object|blob>"
+                    item = r.doc_id.split(":", 1)[1] if ":" in r.doc_id else ""
+                    if "/" in item:
+                        id_refs[r.doc_id] = (kind, item)
+                elif r.source_id:
+                    id_refs[r.doc_id] = (kind, r.source_id)
 
-    def repo_url(doc_id: str) -> Optional[str]:
-        return urls.get(doc_id.split(":alfresco://", 1)[0])
+    def cfg_of(d: str) -> str:
+        return config_id_of(d) or (d.split(":", 1)[0] if ":" in d else "")
 
+    for ds, params in datasources:
+        server = _datasource_server(ds, params)
+        if server:
+            urls[ds.config_id] = server
+        if ds.source_type in _MICROSOFT_SOURCES:
+            contexts[ds.config_id] = {k: params[k] for k in ("site_name", "site_id", "user_principal_name")
+                                      if params.get(k)}
+        if ds.source_type in _AZURE_SOURCES:
+            contexts[ds.config_id] = {"account_url": _azure_account_url(params)}
+        if ds.source_type in _S3_SOURCES:
+            contexts[ds.config_id] = {"region": (params.get("region_name") or "").strip()}
     try:
-        return await readable_doc_ids(doc_ids, authorization, repo_url,
-                                      default_url or os.getenv("ALFRESCO_URL"))
+        return await readable_doc_ids(doc_ids, identities, lambda d: urls.get(cfg_of(d)),
+                                      {auth_source(s): _source_default_url(s) for s in governed},
+                                      (lambda s: False) if trusted else _query_auth_required, governed,
+                                      lambda d: contexts.get(cfg_of(d)), lambda d: id_refs.get(d))
     except PermissionError as e:
-        raise HTTPException(status_code=401, detail=str(e))
+        # X-Auth-Source / X-Auth-Url name the sign-in to renew, when known
+        headers = ({"X-Auth-Source": e.source, "X-Auth-Url": e.url}
+                   if isinstance(e, CredentialRefused) else None)
+        raise HTTPException(status_code=401, detail=str(e), headers=headers)
 
 
-async def _question_scope(request: "QueryRequest", ticket: Optional[str], ticket_url: Optional[str] = None):
+_SOURCE_TYPE_LABELS = {
+    "alfresco": "Alfresco", "nuxeo": "Nuxeo", "cmis": "CMIS", "filesystem": "Files", "upload": "Uploads",
+    "s3": "Amazon S3", "gcs": "Google Cloud Storage", "azure_blob": "Azure Blob", "onedrive": "OneDrive",
+    "sharepoint": "SharePoint", "box": "Box", "google_drive": "Google Drive", "web": "Web",
+    "wikipedia": "Wikipedia", "youtube": "YouTube",
+}
+
+
+async def _source_groups() -> Optional[List[Dict[str, Any]]]:
+    """The sources that have documents in the stores, one per data source type and server, with
+    their datasources' config_ids; None without the incremental registry (nothing records it)."""
+    if not incremental_manager or not incremental_manager.is_initialized():
+        return None
+    from permission_filter import auth_source, server_key
+    await ensure_config_manager_ready()
+    counts = await incremental_manager.config_manager.count_documents_by_config()
+    governed = _governed_sources()
+    groups: Dict[tuple, Dict[str, Any]] = {}
+    for ds, params in await _registry_datasources():
+        if not counts.get(ds.config_id):
+            continue
+        gated = ds.source_type in governed
+        url = ds.url or (_source_default_url(ds.source_type) if ds.source_type in _REPO_SOURCES else "")
+        g = groups.setdefault((ds.source_type, server_key(ds.source_type, url)), {
+            "source": ds.source_type, "label": _SOURCE_TYPE_LABELS.get(ds.source_type, ds.source_type),
+            "url": url or None, "documents": 0, "login_gated": gated,
+            # the sign-in that unlocks it: SharePoint / OneDrive -> "microsoft" on its tenant
+            "auth_source": auth_source(ds.source_type) if gated else None,
+            "auth_url": _datasource_server(ds, params) if gated else None,
+            "config_ids": [],
+        })
+        g["documents"] += counts[ds.config_id]
+        g["config_ids"].append(ds.config_id)
+    return sorted(groups.values(), key=lambda g: (g["label"].lower(), g["url"] or ""))
+
+
+async def _selected_doc_ids(selectors: List["SourceSelector"]) -> List[str]:
+    """The stable doc ids in the stores from the selected sources (type, optionally one server)."""
+    from incremental_updates.removal import fetch_rows
+    from permission_filter import server_key
+    groups = await _source_groups()
+    if groups is None:
+        raise HTTPException(status_code=400, detail=(
+            "picking sources needs the incremental registry (ENABLE_INCREMENTAL_UPDATES=true and "
+            "POSTGRES_INCREMENTAL_URL): nothing else records which source a document came from"))
+    config_ids = [cid for g in groups for sel in selectors
+                  if g["source"] == sel.source
+                  and (not sel.url or server_key(g["source"], g["url"]) == server_key(sel.source, sel.url))
+                  for cid in g["config_ids"]]
+    if not config_ids:
+        return []
+    async with incremental_manager.state_manager.pool.acquire() as conn:
+        rows = await fetch_rows(conn, list(dict.fromkeys(config_ids)))
+    return sorted({r.doc_id for r in rows if r.synced["vector"] or r.synced["search"] or r.synced["graph"]})
+
+
+@app.get("/api/sources/available")
+async def sources_available():
+    """The sources a question can be limited to (the UIs' source picker): one entry per data source
+    type and server with documents in the stores -- ``{source, label, url, documents, login_gated,
+    auth_source, auth_url}``. ``login_gated`` sources (Alfresco, Nuxeo, CMIS; SharePoint and
+    OneDrive with Microsoft sign-in configured) only answer for a user signed in to
+    ``auth_source`` at ``auth_url`` unless its query auth is optional. ``available: false``
+    without the incremental registry."""
+    groups = await _source_groups()
+    if groups is None:
+        return {"available": False, "sources": []}
+    return {"available": True,
+            "sources": [{k: v for k, v in g.items() if k != "config_ids"} for g in groups]}
+
+
+def _join_labels(sources) -> str:
+    from permission_filter import LABELS
+    names = [LABELS.get(s, s) for s in sorted(sources)]
+    return names[0] if len(names) == 1 else ", ".join(names[:-1]) + " and " + names[-1]
+
+
+async def _question_scope(request: "QueryRequest", ticket: Optional[str], ticket_url: Optional[str] = None,
+                          trusted: bool = False):
     """The doc ids a question may be answered from, or None for everything: the request's scope,
-    narrowed to what the asker may read when they gave an Alfresco identity (X-Alfresco-Ticket or
-    source_auth.alfresco), or to the non-Alfresco documents when they gave none, the stores hold
-    Alfresco documents and ALFRESCO_QUERY_AUTH=required. Returns (doc_ids or None, message when
-    nothing is left)."""
-    from permission_filter import alfresco_node_id, without_alfresco
+    narrowed to the governed documents the asker may read with the identities they gave
+    (X-Alfresco-Ticket, source_auth.*). With no identity, a source whose query auth is required
+    contributes no documents. Nothing is checked when no identity is given and the stores need
+    no sign-in. Returns (doc_ids or None, message when nothing is left)."""
     scope_ids = None
     if request.scope:
         scope_ids = await _scope_doc_ids(request.scope)
         if not scope_ids:
             return [], _nothing_in_scope(request.scope)
-    authorization = await _alfresco_authorization(request, ticket)
-    if authorization:
-        candidates = scope_ids if scope_ids is not None else await _candidate_doc_ids(request.query)
-        ac = request.source_auth.alfresco if request.source_auth else None
-        # The Alfresco server the credential belongs to: source_auth.alfresco.url, or the
-        # X-Alfresco-Url sent with an X-Alfresco-Ticket (else ALFRESCO_URL). Only a refusal from
-        # that server means "sign in again"; other servers' documents are just left out.
-        url = (ac.url if ac and ac.url else None) or (ticket_url.strip() if ticket and ticket_url else None)
-        scope_ids = await _readable(candidates, authorization, url)
+    if request.sources:
+        selected = await _selected_doc_ids(request.sources)
+        if scope_ids is not None:
+            keep = set(selected)
+            selected = [d for d in scope_ids if d in keep]
+        if not selected:
+            return [], "Nothing from the selected source(s) is in the stores."
+        scope_ids = selected
+    identities = await _identities(request, ticket, ticket_url)
+    # the asker's Alfresco sign-in also finds result documents' folders for their ACA links
+    from doc_refs import set_asker_alfresco
+    from permission_filter import _rest_base
+    set_asker_alfresco({_rest_base(i.url): i.headers.get("Authorization", "")
+                        for i in identities if i.source == "alfresco"})
+    # a trusted client (MCP server) with no credentials: no filtering (it decides for itself)
+    if identities or (not trusted and any(p["required"] for p in await _auth_providers())):
+        # the search results (prefiltered to the scope / picked sources), not the whole scope
+        candidates = await _candidate_doc_ids(request.query, scope_ids)
+        readable = await _readable(candidates, identities, trusted)
+        scope_ids = readable.doc_ids
         if not scope_ids:
+            if readable.unsigned:
+                names = _join_labels(readable.unsigned)
+                return [], (f"The documents that answer this are in {names}. "
+                            f"Sign in to {names} to see the ones you may read.")
             return [], ("You don't have access to any document that answers this."
                         if candidates else "Nothing in the stores matches this question.")
-    elif _alfresco_query_auth_required() and await _auth_providers():
-        candidates = scope_ids if scope_ids is not None else await _candidate_doc_ids(request.query)
-        scope_ids = without_alfresco(candidates)
-        if not scope_ids:
-            if any(alfresco_node_id(d) for d in candidates):
-                return [], ("The documents that answer this are in Alfresco. "
-                            "Sign in to Alfresco to see the ones you may read.")
-            return [], "Nothing in the stores matches this question."
     return scope_ids, None
+
+
+async def _sign_links(request: "QueryRequest", *ref_lists) -> None:
+    """S3 / Azure Blob results' open links, signed with the asker's own sign-in (sources/signed_links.py),
+    so they open the file itself; without that sign-in they keep the console link / none."""
+    sa = request.source_auth
+    s3_tokens = [c.token for c in _as_list(sa.s3)] if sa else []
+    azure_tokens = [c.access_token for c in _as_list(sa.azure)] if sa else []
+    refs = [r for refs in ref_lists for r in (refs or []) if isinstance(r, dict)]
+    if not (s3_tokens or azure_tokens) or not any(r.get("source_type") in ("s3", "azure_blob") for r in refs):
+        return
+    from sources.signed_links import sign_open_links
+    contexts: Dict[str, Dict[str, str]] = {}
+    for ds, params in await _registry_datasources():
+        if ds.source_type in _S3_SOURCES:
+            contexts[ds.config_id] = {"region": (params.get("region_name") or "").strip()}
+        elif ds.source_type in _AZURE_SOURCES:
+            contexts[ds.config_id] = {"account_url": _azure_account_url(params)}
+    try:
+        await sign_open_links(refs, s3_tokens, azure_tokens, lambda d: contexts.get(d.split(":", 1)[0], {}))
+    except Exception as e:  # a link is a convenience: never fail the answer over it
+        logger.warning(f"Signing open links failed: {type(e).__name__}: {e}")
+
+
+def _result_documents(results) -> list:
+    return [d for r in (results or []) if isinstance(r, dict) for d in (r.get("documents") or [])]
 
 
 def _nothing_in_scope(scope: "AskScope") -> str:
@@ -3121,30 +3656,41 @@ def _nothing_in_scope(scope: "AskScope") -> str:
             f"then ask again.")
 
 
-class AlfrescoLoginRequest(BaseModel):
-    url: Optional[str] = None  # the Alfresco server; omitted = ALFRESCO_URL
+class SourceLoginRequest(BaseModel):
+    url: Optional[str] = None  # the server; omitted = ALFRESCO_URL / NUXEO_URL / CMIS_URL
     username: str
     password: str
 
 
-def _alfresco_url(url: Optional[str]) -> str:
-    url = (url or os.getenv("ALFRESCO_URL") or "").strip()
+AlfrescoLoginRequest = SourceLoginRequest
+
+
+def _source_url(source: str, url: Optional[str]) -> str:
+    url = (url or _source_default_url(source)).strip()
     if not url:
-        raise HTTPException(status_code=400, detail="no Alfresco URL: pass url or set ALFRESCO_URL")
+        raise HTTPException(status_code=400,
+                            detail=f"no {source} URL: pass url or set {_SOURCE_URL_ENV[source]}")
     return url
+
+
+def _alfresco_url(url: Optional[str]) -> str:
+    return _source_url("alfresco", url)
 
 
 @app.get("/api/auth/requirements")
 async def auth_requirements():
     """Which sign-ins the stored content needs before search / AI chat (planning/SOURCE-AUTH-LOGIN.md).
-    An empty ``providers`` list means no sign-in is needed. ``required`` is ALFRESCO_QUERY_AUTH:
-    when false, a question without sign-in still sees Alfresco documents."""
-    return {"required": _alfresco_query_auth_required(),
-            "providers": await _auth_providers(max_age=0)}
+    An empty ``providers`` list means no sign-in is needed. Each provider's ``required`` is its
+    source's query auth (``<SOURCE>_QUERY_AUTH`` / ``SOURCE_QUERY_AUTH``): when false, a question
+    without that sign-in still sees its documents. The top-level ``required`` is true when any
+    provider's is (Alfresco's setting when there are none)."""
+    providers = await _auth_providers(max_age=0)
+    return {"required": any(p["required"] for p in providers) if providers else _query_auth_required("alfresco"),
+            "providers": providers}
 
 
 @app.post("/api/auth/alfresco/login")
-async def alfresco_login_endpoint(body: AlfrescoLoginRequest):
+async def alfresco_login_endpoint(body: SourceLoginRequest):
     """Sign in to Alfresco the way ACA does (POST tickets): returns ``{ticket, user_id, url}``.
     Stateless -- the ticket is not stored here. Send it back as X-Alfresco-Ticket or
     source_auth.alfresco.ticket on search / query / ingest."""
@@ -3159,18 +3705,24 @@ async def alfresco_login_endpoint(body: AlfrescoLoginRequest):
     return {**result, "url": url}
 
 
+def _not_valid(detail: str) -> Dict[str, Any]:
+    """A /me check's answer for a sign-in that is no longer valid (expired, signed out, revoked).
+    200, not 401: checking a stored sign-in is not a refused request, and a 401 would log as one."""
+    return {"valid": False, "detail": detail}
+
+
 @app.get("/api/auth/alfresco/me")
 async def alfresco_me_endpoint(url: Optional[str] = None,
                                x_alfresco_ticket: Optional[str] = Header(default=None)):
-    """Whether the X-Alfresco-Ticket is still valid, and whose it is: ``{user_id, url}`` or 401."""
+    """Whether the X-Alfresco-Ticket is still valid, and whose it is: ``{valid: true, user_id, url}``, or ``{valid: false, detail}``."""
     from sources.alfresco_auth import alfresco_ticket_user
     if not x_alfresco_ticket:
-        raise HTTPException(status_code=401, detail="no X-Alfresco-Ticket header")
+        return _not_valid("no X-Alfresco-Ticket header")
     url = _alfresco_url(url)
     try:
-        return {"user_id": await alfresco_ticket_user(url, x_alfresco_ticket.strip()), "url": url}
+        return {"valid": True, "user_id": await alfresco_ticket_user(url, x_alfresco_ticket.strip()), "url": url}
     except PermissionError as e:
-        raise HTTPException(status_code=401, detail=str(e))
+        return _not_valid(str(e))
 
 
 @app.post("/api/auth/alfresco/logout")
@@ -3186,14 +3738,317 @@ async def alfresco_logout_endpoint(url: Optional[str] = None,
     return {"success": True}
 
 
+@app.post("/api/auth/nuxeo/login")
+async def nuxeo_login_endpoint(body: SourceLoginRequest):
+    """Sign in to Nuxeo: returns ``{token, user_id, url}``, a Nuxeo auth token (as for
+    auth_method=token ingest). Stateless -- send it back as source_auth.nuxeo.token on search /
+    query, or nuxeo_config.token on ingest. The token lasts until revoked in Nuxeo."""
+    from sources.nuxeo_auth import nuxeo_login
+    url = _source_url("nuxeo", body.url)
+    try:
+        result = await nuxeo_login(url, body.username, body.password)
+    except PermissionError as e:
+        raise HTTPException(status_code=401, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"could not reach Nuxeo at {url}: {e}")
+    return {**result, "url": url}
+
+
+@app.get("/api/auth/nuxeo/me")
+async def nuxeo_me_endpoint(url: Optional[str] = None,
+                            x_nuxeo_token: Optional[str] = Header(default=None)):
+    """Whether the X-Nuxeo-Token is still valid, and whose it is: ``{valid: true, user_id, url}``, or ``{valid: false, detail}``."""
+    from sources.nuxeo_auth import nuxeo_token_user
+    if not x_nuxeo_token:
+        return _not_valid("no X-Nuxeo-Token header")
+    url = _source_url("nuxeo", url)
+    try:
+        return {"valid": True, "user_id": await nuxeo_token_user(url, x_nuxeo_token.strip()), "url": url}
+    except PermissionError as e:
+        return _not_valid(str(e))
+
+
+class S3LoginRequest(BaseModel):
+    """An IAM user's access key, used once for STS GetSessionToken (never stored). The UIs' sign-in
+    dialog sends it as username / password."""
+    access_key_id: Optional[str] = None
+    secret_access_key: Optional[str] = None
+    username: Optional[str] = None
+    password: Optional[str] = None
+
+
+@app.post("/api/auth/s3/login")
+async def s3_login_endpoint(body: S3LoginRequest):
+    """Sign in to Amazon S3 (sources/s3_auth.py): an IAM access key -> ``{token, user_id,
+    expires_at, url}``, the user's temporary session credentials packed into one token. Send it
+    back as source_auth.s3.token on search / query."""
+    from sources.s3_auth import S3_SERVER, enabled, s3_login
+    if not enabled():
+        raise HTTPException(status_code=400, detail="Amazon S3 sign-in is not enabled (S3_AUTH_ENABLED)")
+    try:
+        result = await s3_login(body.access_key_id or body.username or "", body.secret_access_key or body.password or "")
+    except PermissionError as e:
+        raise HTTPException(status_code=401, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"could not reach AWS STS: {e}")
+    return {**result, "url": S3_SERVER}
+
+
+@app.get("/api/auth/s3/me")
+async def s3_me_endpoint(x_auth_token: Optional[str] = Header(default=None)):
+    """Whether an S3 sign-in token (X-Auth-Token) is still valid, and whose it is: ``{valid: true, user_id, url}``, or ``{valid: false, detail}``."""
+    from sources.s3_auth import S3_SERVER, s3_token_user
+    if not x_auth_token:
+        return _not_valid("no X-Auth-Token header")
+    try:
+        return {"valid": True, "user_id": await s3_token_user(x_auth_token.strip()), "url": S3_SERVER}
+    except PermissionError as e:
+        return _not_valid(str(e))
+
+
+@app.post("/api/auth/cmis/login")
+async def cmis_login_endpoint(body: SourceLoginRequest):
+    """Sign in to a CMIS server through its vendor (sources/cmis_auth.py): an Alfresco server
+    gives ``{auth_method: "ticket", ticket}``, a Nuxeo server ``{auth_method: "token", token}``,
+    plus ``user_id``, ``vendor`` and ``url``. Other vendors: 400 (no adapter yet). Send it back as
+    source_auth.cmis on search / query, or in cmis_config on ingest."""
+    from sources.cmis_auth import cmis_login
+    url = _source_url("cmis", body.url)
+    try:
+        result = await cmis_login(url, body.username, body.password)
+    except PermissionError as e:
+        raise HTTPException(status_code=401, detail=str(e))
+    except LookupError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"could not reach the CMIS server at {url}: {e}")
+    return {**result, "url": url}
+
+
+@app.get("/api/auth/cmis/me")
+async def cmis_me_endpoint(auth_method: str, url: Optional[str] = None,
+                           x_cmis_credential: Optional[str] = Header(default=None)):
+    """Whether a CMIS sign-in's ticket / token (X-Cmis-Credential; auth_method ticket | token) is
+    still valid, and whose it is: ``{valid: true, user_id, url}``, or ``{valid: false, detail}``."""
+    from sources.cmis_auth import cmis_credential_user
+    if not x_cmis_credential:
+        return _not_valid("no X-Cmis-Credential header")
+    url = _source_url("cmis", url)
+    try:
+        return {"valid": True, "user_id": await cmis_credential_user(url, auth_method, x_cmis_credential.strip()), "url": url}
+    except PermissionError as e:
+        return _not_valid(str(e))
+
+
+
+def _popup_provider(provider: str):
+    from sources.oauth_popup import providers
+    p = providers().get(provider)
+    if p is None:
+        raise HTTPException(status_code=404, detail=f"no popup sign-in for {provider}")
+    return p
+
+
+def _popup_redirect_uri(request: Request, provider: str) -> str:
+    """The redirect URI the vendor sends the popup back to: <PROVIDER>_AUTH_REDIRECT_URI, else this
+    backend's own /api/auth/<provider>/callback as the browser reaches it (127.0.0.1 written as
+    localhost, which is what the vendor apps register)."""
+    explicit = (os.getenv(f"{provider.upper()}_AUTH_REDIRECT_URI") or "").strip()
+    if explicit:
+        return explicit
+    host = request.headers.get("x-forwarded-host") or request.url.netloc
+    scheme = request.headers.get("x-forwarded-proto") or request.url.scheme
+    return f"{scheme}://{host.replace('127.0.0.1', 'localhost')}/api/auth/{provider}/callback"
+
+
+def _popup_cookie(provider: str) -> str:
+    return f"fg_{provider}_signin"
+
+
+@app.get("/api/auth/{provider}/popup")
+async def popup_signin_endpoint(provider: str, request: Request, state: str, login_hint: Optional[str] = None):
+    """Open this in the sign-in popup (``provider``: microsoft = SharePoint + OneDrive, box) with a
+    new random ``state``: it records the sign-in, binds it to this browser with a short-lived
+    HttpOnly cookie, and redirects to the vendor's login. ``login_hint`` (the account used last
+    time) skips the account picker where the vendor supports it. Then poll
+    GET /api/auth/<provider>/result?state=... (sources/oauth_popup.py)."""
+    import secrets as _secrets
+    from fastapi.responses import RedirectResponse
+    from sources.oauth_popup import start
+    p = _popup_provider(provider)
+    binder = _secrets.token_urlsafe(24)
+    try:
+        url = start(p, _popup_redirect_uri(request, provider), state, binder,
+                    (login_hint or "").strip()[:256] or None)
+    except (LookupError, ValueError) as e:
+        return HTMLResponse(status_code=400, content=f"<!doctype html><meta charset=utf-8><body "
+                            f"style='font-family:sans-serif;padding:2em'>Cannot sign in: {e}</body>")
+    resp = RedirectResponse(url, status_code=302)
+    resp.set_cookie(_popup_cookie(provider), binder, max_age=600, httponly=True, samesite="lax",
+                    path=f"/api/auth/{provider}")
+    return resp
+
+
+@app.api_route("/api/auth/{provider}/callback", methods=["GET", "POST"], response_class=HTMLResponse)
+async def popup_callback_endpoint(provider: str, request: Request):
+    """Where the vendor returns the sign-in popup (Microsoft: a form POST, keeping the code out of
+    logged URLs; Box: query arguments, redacted in the access log): exchange the code, then close
+    the popup."""
+    from sources.oauth_popup import finish, pending
+    import html as _html
+    p = _popup_provider(provider)
+    args = dict(await request.form()) if request.method == "POST" else dict(request.query_params)
+    state, code = str(args.get("state") or ""), args.get("code")
+    error, error_description = args.get("error"), args.get("error_description")
+    handoff = bool(pending.get(state, {}).get("handoff"))  # a browser handoff (MCP), not a popup
+    known = await finish(p, state, code, error_description or error)
+    back = ("Return to your MCP client and finish the sign-in there; you can close this tab." if handoff
+            else "Return to Flexible GraphRAG; this window closes itself (or close it).")
+    msg = (f"<b>Signed in to {p.label}.</b> {back}" if known and not (error or error_description)
+           else f"Sign-in did not complete: {_html.escape(error_description or error or 'unknown or expired sign-in')}")
+    return HTMLResponse(f"<!doctype html><meta charset=utf-8><title>{p.label} sign-in</title>"
+                        f"<body style='font-family:sans-serif;padding:2em'>{msg}"
+                        f"<script>setTimeout(function(){{window.close()}},800)</script></body>")
+
+
+@app.get("/api/auth/{provider}/result")
+async def popup_result_endpoint(provider: str, request: Request, state: str):
+    """A started sign-in's outcome: 202 while the user is still signing in, then (once)
+    ``{access_token, user_id, url, expires_at}`` -- ``url`` being the server the identity belongs
+    to (Microsoft: the tenant) -- or 401 with the reason. Only for the browser that opened the
+    popup (its sign-in cookie)."""
+    from sources.oauth_popup import result
+    r = result(_popup_provider(provider), state, request.cookies.get(_popup_cookie(provider)))
+    if r is None:
+        return JSONResponse(status_code=202, content={"pending": True})
+    if "error" in r:
+        raise HTTPException(status_code=401, detail=r["error"])
+    return r
+
+
+def _page(title: str, body: str, status: int = 200) -> HTMLResponse:
+    return HTMLResponse(status_code=status, content=(
+        f"<!doctype html><meta charset=utf-8><meta name=viewport content='width=device-width'>"
+        f"<title>{title}</title><body style='font-family:sans-serif;max-width:32em;margin:3em auto;"
+        f"padding:0 1em;line-height:1.5'>{body}</body>"))
+
+
+class HandoffResultRequest(BaseModel):
+    handoff_id: str
+    poll_key: str
+
+
+@app.post("/api/auth/{provider}/handoff")
+async def handoff_start_endpoint(provider: str, request: Request):
+    """Browser handoff for a caller with no browser (the MCP server): returns ``{sign_in_url,
+    user_code, handoff_id, poll_key, expires_in}``. Show the user ``sign_in_url`` and
+    ``user_code``; keep ``poll_key`` to yourself and POST it to /api/auth/<provider>/handoff/result.
+    The page at sign_in_url shows the code and, once the user confirms it matches, continues to
+    the vendor's login (sources/oauth_popup.py)."""
+    from sources.oauth_popup import start_handoff
+    p = _popup_provider(provider)
+    try:
+        h = start_handoff(p)
+    except LookupError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    host = request.headers.get("x-forwarded-host") or request.url.netloc
+    scheme = request.headers.get("x-forwarded-proto") or request.url.scheme
+    base = f"{scheme}://{host.replace('127.0.0.1', 'localhost')}"
+    if not _handoff_confirm_code():
+        h.pop("user_code", None)  # nothing to compare: the link goes straight to the vendor
+    return {**h, "sign_in_url": f"{base}/api/auth/{provider}/handoff/{h['handoff_id']}", "label": p.label}
+
+
+def _handoff_confirm_code() -> bool:
+    """AUTH_HANDOFF_CONFIRM_CODE=true: a handoff link first shows its code for the user to compare
+    with their client's before going on to the vendor. It stops a sign-in link sent by someone
+    else from handing them the user's token -- worth it on a shared backend. Default off: the link
+    goes straight to the vendor's login."""
+    return (os.getenv("AUTH_HANDOFF_CONFIRM_CODE") or "").strip().lower() in ("1", "true", "yes", "on")
+
+
+@app.get("/api/auth/{provider}/handoff/{handoff_id}", response_class=HTMLResponse)
+async def handoff_page_endpoint(provider: str, handoff_id: str, request: Request):
+    """The link the user opens: straight to the vendor's login, or (AUTH_HANDOFF_CONFIRM_CODE)
+    first a page with the code to compare and a button on."""
+    import html as _html
+    from sources.oauth_popup import handoff
+    p = _popup_provider(provider)
+    h = handoff(p, handoff_id)
+    if h is None or h["state"]:
+        return _page(f"{p.label} sign-in", "This sign-in link has expired or was already used. "
+                     "Start the sign-in again from your client.", 410)
+    if not _handoff_confirm_code():
+        # straight on to the vendor's login (single-user / local setups)
+        return await handoff_continue_endpoint(provider, handoff_id, request)
+    label = _html.escape(p.label)
+    return _page(f"{label} sign-in", (
+        f"<h2>Sign in to {label} for Flexible GraphRAG</h2>"
+        f"<p>Your client (e.g. an AI assistant using the Flexible GraphRAG MCP server) asked for this "
+        f"sign-in. Continue only if it shows this same code:</p>"
+        f"<p style='font-size:2em;letter-spacing:.15em;font-weight:bold;font-family:monospace'>"
+        f"{_html.escape(h['user_code'])}</p>"
+        f"<p>Search and AI answers through that client will then include the {label} documents "
+        f"you may read.</p>"
+        f"<p><a href='{_html.escape(handoff_id)}/continue' style='display:inline-block;padding:.6em 1.2em;"
+        f"background:#1565c0;color:#fff;border-radius:4px;text-decoration:none'>The codes match: "
+        f"continue to {label}</a></p>"
+        f"<p style='opacity:.7;font-size:.9em'>If you did not start this, close this page: "
+        f"someone may be trying to get access to your {label} documents.</p>"))
+
+
+@app.get("/api/auth/{provider}/handoff/{handoff_id}/continue")
+async def handoff_continue_endpoint(provider: str, handoff_id: str, request: Request):
+    """The user confirmed the code: on to the vendor's login (a link works once)."""
+    import html as _html
+    from fastapi.responses import RedirectResponse
+    from sources.oauth_popup import continue_handoff
+    p = _popup_provider(provider)
+    try:
+        url = continue_handoff(p, handoff_id, _popup_redirect_uri(request, provider))
+    except (LookupError, ValueError) as e:
+        return _page(f"{p.label} sign-in", _html.escape(str(e)), 410)
+    return RedirectResponse(url, status_code=302)
+
+
+@app.post("/api/auth/{provider}/handoff/result")
+async def handoff_result_endpoint(provider: str, body: HandoffResultRequest):
+    """A handoff's outcome for the holder of its poll key: 202 while the user has not finished,
+    then (once) ``{access_token, user_id, url, expires_at}``, or 401 with the reason."""
+    from sources.oauth_popup import handoff_result
+    r = handoff_result(_popup_provider(provider), body.handoff_id, body.poll_key)
+    if r is None:
+        return JSONResponse(status_code=202, content={"pending": True})
+    if "error" in r:
+        raise HTTPException(status_code=401, detail=r["error"])
+    return r
+
+
+@app.get("/api/auth/{provider}/me")
+async def popup_me_endpoint(provider: str, x_auth_token: Optional[str] = Header(default=None),
+                            x_microsoft_token: Optional[str] = Header(default=None)):
+    """Whether a popup sign-in's token (X-Auth-Token) is still valid, and whose it is:
+    ``{valid: true, user_id, url}``, or ``{valid: false, detail}``."""
+    p = _popup_provider(provider)
+    token = (x_auth_token or x_microsoft_token or "").strip()
+    if not token:
+        return _not_valid("no X-Auth-Token header")
+    try:
+        return {"valid": True, "user_id": await p.user(token), "url": p.server(p.config() or {}, token)}
+    except PermissionError as e:
+        return _not_valid(str(e))
+
+
 @app.post("/api/search")
 async def search(request: QueryRequest, x_alfresco_ticket: Optional[str] = Header(default=None),
-                 x_alfresco_url: Optional[str] = Header(default=None)):
+                 x_alfresco_url: Optional[str] = Header(default=None),
+                 x_trusted_client_key: Optional[str] = Header(default=None)):
     try:
         logger.info(f"Processing {request.query_type} query: {request.query}"
                     + (f" (scope: {request.scope.path or request.scope.node_id})" if request.scope else ""))
         # A scope, and/or the asking user's Alfresco permissions (X-Alfresco-Ticket [+ X-Alfresco-Url])
-        scope_ids, nothing = await _question_scope(request, x_alfresco_ticket, x_alfresco_url)
+        scope_ids, nothing = await _question_scope(request, x_alfresco_ticket, x_alfresco_url,
+                                                  _trusted_client(x_trusted_client_key))
         if nothing:
             if request.query_type == "qa":
                 return {"success": True, "answer": nothing}
@@ -3204,6 +4059,7 @@ async def search(request: QueryRequest, x_alfresco_ticket: Optional[str] = Heade
             result = await backend_instance.qa_query(request.query, scope_doc_ids=scope_ids)
             if result["success"]:
                 logger.info("Q&A query completed successfully")
+                await _sign_links(request, result.get("sources"))
                 return {"success": True, "answer": result["answer"], "sources": result.get("sources", [])}
             else:
                 raise HTTPException(500, result["error"])
@@ -3212,6 +4068,7 @@ async def search(request: QueryRequest, x_alfresco_ticket: Optional[str] = Heade
             result = await backend_instance.search_documents(request.query, request.top_k, scope_doc_ids=scope_ids)
             if result["success"]:
                 logger.info("Hybrid search completed successfully")
+                await _sign_links(request, _result_documents(result["results"]))
                 return {"success": True, "results": result["results"]}
             else:
                 raise HTTPException(500, result["error"])
@@ -3223,16 +4080,19 @@ async def search(request: QueryRequest, x_alfresco_ticket: Optional[str] = Heade
 
 @app.post("/api/query")
 async def query_graph(request: QueryRequest, x_alfresco_ticket: Optional[str] = Header(default=None),
-                      x_alfresco_url: Optional[str] = Header(default=None)):
+                      x_alfresco_url: Optional[str] = Header(default=None),
+                      x_trusted_client_key: Optional[str] = Header(default=None)):
     try:
         logger.info(f"Processing query: {request.query}")
-        scope_ids, nothing = await _question_scope(request, x_alfresco_ticket, x_alfresco_url)
+        scope_ids, nothing = await _question_scope(request, x_alfresco_ticket, x_alfresco_url,
+                                                  _trusted_client(x_trusted_client_key))
         if nothing:
             return {"status": "success", "answer": nothing}
         result = await backend_instance.query_documents(request.query, request.top_k, scope_doc_ids=scope_ids)
         
         if result["success"]:
             logger.info("Query processing completed successfully")
+            await _sign_links(request, result.get("sources"))
             return {"status": "success", "answer": result["answer"], "sources": result.get("sources", [])}
         else:
             raise HTTPException(500, result["error"])
@@ -3775,27 +4635,25 @@ def _infer_language(db_type: str) -> str:
 
 
 def _load_declared_requirement_lines() -> List[str]:
-    """Lines from requirements.txt if present and non-empty, else [project].dependencies in pyproject.toml."""
-    pkg_dir = os.path.dirname(__file__)
-    req_path = os.path.join(pkg_dir, "requirements.txt")
-    lines: List[str] = []
-    if os.path.isfile(req_path):
-        with open(req_path, "r", encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if line and not line.startswith("#"):
-                    lines.append(line)
-    if lines:
-        return lines
-    pyproject_path = os.path.join(pkg_dir, "pyproject.toml")
-    if not os.path.isfile(pyproject_path):
-        return []
-    import tomllib
+    """The backend's declared dependencies ([project].dependencies): from pyproject.toml next to this
+    file (a source checkout or editable install), else from the installed package's metadata (a
+    wheel install, e.g. from PyPI, ships no pyproject.toml). Optional extras are left out."""
+    pyproject_path = os.path.join(os.path.dirname(__file__), "pyproject.toml")
+    if os.path.isfile(pyproject_path):
+        import tomllib
 
-    with open(pyproject_path, "rb") as f:
-        data = tomllib.load(f)
-    deps = data.get("project", {}).get("dependencies") or []
-    return [d.strip() for d in deps if isinstance(d, str) and d.strip()]
+        with open(pyproject_path, "rb") as f:
+            data = tomllib.load(f)
+        deps = data.get("project", {}).get("dependencies") or []
+        return [d.strip() for d in deps if isinstance(d, str) and d.strip()]
+    try:
+        from importlib.metadata import requires
+
+        reqs = requires("flexible-graphrag") or []
+    except Exception:
+        return []
+    # Requires-Dist lines; an optional extra's carries the marker `extra == "<name>"`
+    return [r.strip() for r in reqs if "extra ==" not in r.replace("extra==", "extra ==")]
 
 
 def _requirement_install_name(req_line: str) -> str:
@@ -3917,10 +4775,14 @@ class IngestStatusItem(BaseModel):
 
 
 class IngestStatusRequest(BaseModel):
-    data_source: str          # alfresco | nuxeo
+    data_source: str          # alfresco | nuxeo | filesystem | upload -- or any other source (see `source`)
     url: Optional[str] = None  # repository url; omitted = every datasource of that type
     recursive: bool = False   # what the pending ingest would use
     items: List[IngestStatusItem]
+    # Every other source (S3, GCS, Azure Blob, Box, Google Drive, OneDrive, SharePoint, CMIS, web,
+    # Wikipedia, YouTube) is ONE row: the whole datasource. `source` is the ingest request's own
+    # source fields (e.g. {"s3_config": {...}}, CMIS also "paths"), which name that datasource.
+    source: Optional[Dict[str, Any]] = None
 
 
 @app.post("/api/sync/ingest-status")
@@ -3941,10 +4803,15 @@ async def sync_ingest_status(request: IngestStatusRequest):
     )
 
     if request.data_source not in ROW_SOURCES:
-        raise HTTPException(
-            status_code=400,
-            detail=f"ingest status is available for {', '.join(ROW_SOURCES)}, not {request.data_source}",
-        )
+        if request.source is None:
+            raise HTTPException(
+                status_code=400,
+                detail=f"ingest status for {request.data_source} needs `source`: the ingest request's "
+                       f"source fields (one row, the whole datasource)",
+            )
+        if not incremental_manager or not incremental_manager.is_initialized():
+            return {"enabled": False, "items": []}
+        return await _datasource_row_status(request)
     fs = request.data_source in FS_SOURCES
     source_type = "filesystem" if fs else request.data_source  # uploads are filesystem ingests
     if not incremental_manager or not incremental_manager.is_initialized():

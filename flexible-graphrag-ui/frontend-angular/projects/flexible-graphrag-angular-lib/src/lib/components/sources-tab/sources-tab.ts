@@ -130,6 +130,9 @@ export class SourcesTabComponent implements OnInit {
       folderPath: this.folderPath,
     };
 
+    // Credentials typed into an Alfresco / Nuxeo / CMIS form also sign in for search / chat
+    // (if not signed in to that server)
+    this.sourceAuth.signInFromSourceConfig(this.dataSource, this.currentConfig);
     // Add source-specific configurations
     switch (this.dataSource) {
       case 'cmis':
@@ -138,8 +141,6 @@ export class SourcesTabComponent implements OnInit {
       case 'alfresco':
         sourceConfig.alfrescoConfig = this.currentConfig;
         sourceConfig.folderPath = this.currentConfig?.path || '';
-        // Credentials typed into the form also sign in for search / chat (if not signed in)
-        this.sourceAuth.signInFromSourceConfig(this.currentConfig);
         break;
       case 'nuxeo':
         sourceConfig.nuxeoConfig = this.currentConfig;

@@ -30,6 +30,16 @@ CMIS_USERNAME=your-username
 CMIS_PASSWORD=your-password
 ```
 
+## Sign-In and Permission-Aware Search
+
+For CMIS servers on **Alfresco** or **Nuxeo**, the UIs can sign in to CMIS. The backend gets an
+Alfresco ticket or a Nuxeo token, depending on the server, and the UI keeps only that. The CMIS server
+appears in the header's sign-in pill menu (the pill reads `CMIS: <user>` when it is the only server). Search and AI chat then use only the CMIS documents that user
+may read, and the CMIS form can ingest with the sign-in instead of a password.
+
+CMIS servers from other vendors work as before: password ingest, and their documents are not
+permission-checked. To add a vendor, see [README-cmis-sign-in.md](README-cmis-sign-in.md).
+
 ## CMIS API Endpoints
 
 ### Document Processing

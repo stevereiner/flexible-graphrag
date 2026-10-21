@@ -304,6 +304,10 @@ export default defineComponent({
         folderPath: folderPath.value,
       };
 
+      // Credentials typed into an Alfresco / Nuxeo / CMIS form also sign in for search / chat
+      // (if not signed in to that server)
+      signInFromSourceConfig(dataSource.value, currentConfig.value);
+
       // Add source-specific configurations
       switch (dataSource.value) {
         case 'cmis':
@@ -311,8 +315,6 @@ export default defineComponent({
           break;
         case 'alfresco':
           sourceConfig.alfrescoConfig = currentConfig.value;
-          // Credentials typed into the form also sign in for search / chat (if not signed in)
-          signInFromSourceConfig(currentConfig.value);
           sourceConfig.folderPath = currentConfig.value?.path || '';
           break;
         case 'nuxeo':

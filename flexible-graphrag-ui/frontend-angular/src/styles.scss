@@ -299,6 +299,16 @@ html body .app-container .theme-switcher mat-slide-toggle .mdc-switch {
   }
 }
 
+// The header's sign-in menu renders in the overlay container too: without this its panel stays
+// white while .dark-theme makes its text white, so the servers and accounts were invisible
+.dark-theme .fg-sign-in-menu.mat-mdc-menu-panel {
+  background-color: #2d2d2d !important;
+  .menu-text, .menu-title, .offline { color: #ffffff !important; }
+  .menu-url { color: rgba(255, 255, 255, 0.7) !important; }
+  .mat-mdc-button, .mat-mdc-outlined-button { color: #90caf9 !important; }
+  .mat-mdc-outlined-button { border-color: rgba(144, 202, 249, 0.5) !important; }
+}
+
 // The Alfresco form's sign-in row (Sign in / Sign out / "Use other credentials") in dark mode
 .dark-theme app-alfresco-source-form .sign-in-row {
   .mat-mdc-button,

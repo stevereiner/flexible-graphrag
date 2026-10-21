@@ -2,6 +2,8 @@
 
 This guide covers creating an Azure Storage Account and container, configuring it in Flexible GraphRAG, and optionally enabling Change Feed for near real-time sync.
 
+> **Per-user permissions:** with an Entra app set up (`AZURE_AUTH_CLIENT_ID` / `_CLIENT_SECRET` / `_TENANT_ID`), users sign in with **Sign in with Azure Storage** and blob results are checked as them, with links that open the blob through a short-lived user-delegation SAS. See [Azure Storage sign-in](README-azure-sign-in.md).
+
 ---
 
 ## 1. Create a Storage Account

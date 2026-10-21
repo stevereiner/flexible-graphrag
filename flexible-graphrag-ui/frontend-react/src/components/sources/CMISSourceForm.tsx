@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo } from 'react';
 import { TextField, Box } from '@mui/material';
 import { BaseSourceForm, BaseSourceFormProps } from './BaseSourceForm';
+import { SourceSignInSection, useSourceSession } from '../../auth/SourceSignInSection';
 
 interface CMISSourceFormProps extends BaseSourceFormProps {
   url: string;
@@ -31,19 +32,21 @@ export const CMISSourceForm: React.FC<CMISSourceFormProps> = ({
     return `e.g., ${baseUrl}/alfresco/api/-default-/public/cmis/versions/1.1/atom`;
   }, []);
 
-  const isValid = useMemo(() => {
-    return folderPath.trim() !== '' && 
-           url.trim() !== '' && 
-           username.trim() !== '' && 
-           password.trim() !== '';
-  }, [folderPath, url, username, password]);
+  // The CMIS sign-in (header / dialog): for an Alfresco or Nuxeo CMIS server it holds that
+  // vendor's ticket / token, which the ingest then uses instead of a password.
+  const { session, useOther, setUseOther, usingSignIn, credential } = useSourceSession('cmis', url);
 
-  const config = useMemo(() => ({
-    url,
-    username,
-    password,
-    folder_path: folderPath
-  }), [url, username, password, folderPath]);
+  const isValid = useMemo(() => {
+    if (folderPath.trim() === '' || url.trim() === '') return false;
+    if (usingSignIn) return true;
+    return username.trim() !== '' && password.trim() !== '';
+  }, [folderPath, url, usingSignIn, username, password]);
+
+  const config = useMemo(() => (
+    usingSignIn && credential
+      ? { url, folder_path: folderPath, ...credential }
+      : { url, username, password, folder_path: folderPath }
+  ), [url, usingSignIn, credential, username, password, folderPath]);
 
   useEffect(() => {
     onValidationChange(isValid);
@@ -66,6 +69,11 @@ export const CMISSourceForm: React.FC<CMISSourceFormProps> = ({
         sx={{ mb: 2 }}
         placeholder={placeholder}
       />
+      <SourceSignInSection
+        source="cmis" url={url} session={session} usingSignIn={usingSignIn}
+        useOther={useOther} onUseOtherChange={setUseOther}
+      />
+      {!usingSignIn && (
       <Box sx={{ display: 'flex', gap: 2, mb: 2 }}>
         <TextField
           fullWidth
@@ -89,6 +97,7 @@ export const CMISSourceForm: React.FC<CMISSourceFormProps> = ({
           size="small"
         />
       </Box>
+      )}
       <TextField
         fullWidth
         label="Folder Path"

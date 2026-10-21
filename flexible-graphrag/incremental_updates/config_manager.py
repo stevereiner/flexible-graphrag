@@ -164,6 +164,17 @@ class ConfigManager:
             )
             return {row["config_id"]: row["n"] for row in rows}
 
+    async def count_governed_documents_by_config(self, schemes) -> Dict[str, int]:
+        """How many documents each datasource has whose doc_id carries a repository id
+        (``alfresco://``, ``nuxeo://``, ``cmis://``): the ones query-time permission checks govern."""
+        patterns = [f"%{s}%" for s in schemes]
+        async with self.pool.acquire() as conn:
+            rows = await conn.fetch(
+                "SELECT config_id, COUNT(*) AS n FROM document_state "
+                "WHERE doc_id LIKE ANY($1::text[]) GROUP BY config_id", patterns
+            )
+            return {row["config_id"]: row["n"] for row in rows}
+
     async def get_all_active_configs(self) -> List[DataSourceConfig]:
         """Get all active datasource configs"""
         async with self.pool.acquire() as conn:

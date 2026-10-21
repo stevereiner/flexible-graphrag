@@ -2,6 +2,7 @@
   <mat-tab-group [(selectedIndex)]="activeTabIndex" (selectedTabChange)="onTabChange()" animationDuration="0ms">
     <mat-tab label="HYBRID SEARCH">
       <div class="tab-content">
+        <app-source-picker></app-source-picker>
         <!-- Search Input -->
         <div class="search-input-row">
           <mat-form-field appearance="outline" class="search-field">
@@ -30,9 +31,9 @@
           <mat-card *ngFor="let result of searchResults; let i = index" class="result-card">
             <mat-card-content>
               <div class="result-meta">
-                <strong>Source:</strong>
+                <strong>Source:</strong>&nbsp;
                 <ng-container *ngIf="result.documents?.length; else sourceText">
-                  <app-source-docs [docs]="result.documents"></app-source-docs><ng-container *ngIf="storeLabel(result)"> | {{ storeLabel(result) }}</ng-container>
+                  <app-source-docs [docs]="result.documents"></app-source-docs><ng-container *ngIf="sourceTypeLabel(result)"> | {{ sourceTypeLabel(result) }}</ng-container><ng-container *ngIf="storeLabel(result)"> | {{ storeLabel(result) }}</ng-container>
                 </ng-container>
                 <ng-template #sourceText>{{ result.file_name || result.metadata?.source || result.source || 'Unknown' }}</ng-template> | 
                 <strong> Score:</strong> {{ result.score?.toFixed(3) || 'N/A' }}
@@ -56,6 +57,7 @@
 
     <mat-tab label="AI QUERY">
       <div class="tab-content">
+        <app-source-picker></app-source-picker>
         <!-- Q&A Input -->
         <div class="search-input-row">
           <mat-form-field appearance="outline" class="search-field">

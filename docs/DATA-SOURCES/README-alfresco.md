@@ -5,6 +5,8 @@ methods (**basic**, **ticket**, **OAuth2**), path / node selection, and real-tim
 Some of this is summarized in the root `README.md` and `OVERVIEW.md`; this page is the detailed
 reference.
 
+> **Sign-in for search and chat:** users sign in to Alfresco from the header sign-in pill, and search, AI query and AI chat use only the Alfresco documents they may read. Search links open ACA's viewer over the document's folder, found with the user's own sign-in. See the [Sign-In and Permission-Aware Search guide](SIGN-IN-GUIDE.md#alfresco).
+
 ## About Alfresco
 
 [Alfresco](https://www.hyland.com/en/solutions/products/alfresco-platform) (Hyland) is an open-source

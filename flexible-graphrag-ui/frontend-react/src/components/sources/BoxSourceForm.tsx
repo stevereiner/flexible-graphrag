@@ -1,6 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { TextField, Box, Typography, FormControl, InputLabel, Select, MenuItem } from '@mui/material';
 import { BaseSourceForm, BaseSourceFormProps } from './BaseSourceForm';
+import { DeepCheckbox, deepValue } from './DeepCheckbox';
+import { useUiDefaults } from '../../uiDefaults';
 
 type BoxAuthMode = 'developer_token' | 'ccg_user' | 'ccg_enterprise' | 'ccg_both';
 
@@ -34,6 +36,10 @@ export const BoxSourceForm: React.FC<BoxSourceFormProps> = ({
 }) => {
   const [folderId, setFolderId] = useState('');
   const [authMode, setAuthMode] = useState<BoxAuthMode>('developer_token');
+  // Deep: include subfolders (recursive). Unset: the backend's DEFAULT_RECURSIVE, else on (Box's
+  // own default)
+  const [ownDeep, setRecursive] = useState<boolean | undefined>(undefined);
+  const recursive = deepValue(ownDeep, useUiDefaults().recursive, true);
 
   const isValid = useMemo(() => {
     switch (authMode) {
@@ -56,8 +62,9 @@ export const BoxSourceForm: React.FC<BoxSourceFormProps> = ({
     developer_token: authMode === 'developer_token' ? developerToken : undefined,
     user_id: (authMode === 'ccg_user' || authMode === 'ccg_both') ? userId : undefined,
     enterprise_id: (authMode === 'ccg_enterprise' || authMode === 'ccg_both') ? enterpriseId : undefined,
-    folder_id: folderId || undefined
-  }), [authMode, clientId, clientSecret, developerToken, userId, enterpriseId, folderId]);
+    folder_id: folderId || undefined,
+    recursive,
+  }), [authMode, clientId, clientSecret, developerToken, userId, enterpriseId, folderId, recursive]);
 
   useEffect(() => {
     onValidationChange(isValid);
@@ -154,17 +161,20 @@ export const BoxSourceForm: React.FC<BoxSourceFormProps> = ({
         </>
       )}
 
-      <TextField
-        fullWidth
-        label="Folder ID (Optional)"
-        variant="outlined"
-        value={folderId}
-        onChange={(e) => setFolderId(e.target.value)}
-        size="small"
-        sx={{ mb: 2 }}
-        placeholder="e.g., 123456789"
-        helperText="Leave empty for the root folder (All Files, ID 0)"
-      />
+      <Box sx={{ display: 'flex', alignItems: 'flex-start' }}>
+        <TextField
+          fullWidth
+          label="Folder ID (Optional)"
+          variant="outlined"
+          value={folderId}
+          onChange={(e) => setFolderId(e.target.value)}
+          size="small"
+          sx={{ mb: 2 }}
+          placeholder="e.g., 123456789"
+          helperText="Leave empty for the root folder (All Files, ID 0)"
+        />
+        <DeepCheckbox checked={recursive} onChange={setRecursive} />
+      </Box>
     </BaseSourceForm>
   );
 };

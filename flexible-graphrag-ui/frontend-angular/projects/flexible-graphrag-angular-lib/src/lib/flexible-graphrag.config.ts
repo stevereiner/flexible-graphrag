@@ -52,12 +52,29 @@ export interface FlexibleGraphragConfig {
    */
   requestHeaders?: () => Record<string, string>;
   /**
-   * Alfresco sign-in for search / AI chat (planning/SOURCE-AUTH-LOGIN.md): before a question,
-   * when the stores hold Alfresco documents, ask the user to sign in (same ticket API as ACA) so
-   * answers come only from what they may read. Default true. Skipped automatically when
-   * requestHeaders already supplies X-Alfresco-Ticket (KG Spaces passes ACA's own).
+   * Repository sign-in for search / AI chat (planning/SOURCE-AUTH-LOGIN.md): before a question,
+   * when the stores hold Alfresco, Nuxeo or CMIS documents, ask the user to sign in to each such
+   * server (Alfresco ticket / Nuxeo token, as their own clients do) so answers come only from
+   * what they may read. Default true. The server whose ticket requestHeaders supplies
+   * (X-Alfresco-Ticket: KG Spaces passes ACA's) needs no sign-in of its own; see searchSignIn for
+   * the others.
    */
   sourceSignIn?: boolean;
+  /**
+   * The library's sign-ins also apply to search / AI chat (the sign-in pill, a sign-in before a
+   * question, `source_auth` on it) in a host that supplies its own Alfresco ticket. Unset: on,
+   * except in such a host, where questions then carry only the host's identity and the forms'
+   * sign-ins serve ingest only (KG Spaces before 0.8.6). KG Spaces sets it true: questions carry
+   * ACA's ticket plus the user's sign-ins to every other server and source.
+   */
+  searchSignIn?: boolean;
+  /**
+   * Source picker on Search (Hybrid Search + AI Query) and AI Chat: "All sources" plus one chip per
+   * source with documents in the stores, sent as the question's `sources`. Default true, KG Spaces
+   * included. A repository the user has no identity for (outside what requestHeaders covers) shows
+   * greyed.
+   */
+  sourcePicker?: boolean;
   /**
    * Open a result's / answer's source document in the host's own viewer. Return true when
    * handled; otherwise the document's `open_url` (if any) opens in a new tab. KG Spaces opens
@@ -73,7 +90,7 @@ export const FLEXIBLE_GRAPHRAG_CONFIG = new InjectionToken<FlexibleGraphragConfi
 );
 
 /** Defaults for anything the host leaves unset. */
-export const FLEXIBLE_GRAPHRAG_DEFAULTS: Required<Omit<FlexibleGraphragConfig, 'enabledSources' | 'requestHeaders' | 'openDocument' | 'canOpenDocument'>> = {
+export const FLEXIBLE_GRAPHRAG_DEFAULTS: Required<Omit<FlexibleGraphragConfig, 'enabledSources' | 'requestHeaders' | 'openDocument' | 'canOpenDocument' | 'searchSignIn'>> = {
   apiUrl: '/api',
   defaultFolderPath: '/Shared/GraphRAG',
   cmisBaseUrl: 'http://localhost:8080',
@@ -84,6 +101,7 @@ export const FLEXIBLE_GRAPHRAG_DEFAULTS: Required<Omit<FlexibleGraphragConfig, '
   noSourcesMessage: 'Please go to the Sources tab to configure your data source first.',
   goToSourcesLabel: '← Go to Sources',
   sourceSignIn: true,
+  sourcePicker: true,
   chatWelcomeTitle: 'Welcome to Flexible GraphRAG Chat',
   chatWelcomeLines: [
     'Ask questions about your documents and get conversational answers.',

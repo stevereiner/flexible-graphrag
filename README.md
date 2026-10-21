@@ -32,6 +32,8 @@
 
 **Flexible GraphRAG** is an open source AI context platform supporting a document processing pipeline (Docling, LlamaParse, or LiteParse), knowledge graph auto-building, ontologies, schemas, many LLM providers, GraphRAG and RAG, hybrid semantic search (fulltext, vector, property graph, RDF/SPARQL), AI query, and AI chat. The backend is **Python** with **LlamaIndex** and **LangChain** as peer frameworks. **LlamaIndex** is the default for each pipeline stage; **LangChain** can be selected per stage in environment configuration. The API is a REST **FastAPI** service. **Angular**, **React**, and **Vue** TypeScript frontends and an **MCP** server are included. The stack supports 14 data sources (10 with incremental auto-sync), 15 property graph databases, 4 RDF triple stores (Apache Jena Fuseki, Ontotext GraphDB, Oxigraph, Amazon Neptune RDF), 10 vector databases, OpenSearch / Elasticsearch / BM25 search, Alfresco, and Nuxeo. Databases and dashboards can be enabled with the provided Docker Compose layout. Optionally, the ingest pipeline, hybrid search, and AI query can run through customizable **Langflow** visual flows (12 custom Langflow components). As a further option, ingest can run on a **CocoIndex** (Rust engine) pipeline that reuses the same sources, targets, parsers and KG extractors, adding step-level memoization and automatic delete reconciliation.  
 
+**New 10/19/26 — v0.8.6 release:** **Sign-in and permission-aware search for every repository and cloud source**: Alfresco, Nuxeo, CMIS, SharePoint / OneDrive, Box, Google Drive / Cloud Storage, Azure Blob and Amazon S3, with one sign-in pill in the header whose drop-down signs you in and out of each data source and server, and a Sources picker, in the React, Vue and Angular UIs and in KG Spaces; S3 and Azure Blob results open the file through short-lived signed links; per-row Processing columns for every data source and a Deep (subfolders) checkbox; MCP permission levels and browser sign-in. See the [Sign-In Guide](docs/DATA-SOURCES/SIGN-IN-GUIDE.md).
+
 **New 10/17/26 — v0.8.5 release:** **Sign in to Alfresco** in the React, Vue and Angular UIs: search and AI chat answer only from Alfresco documents you may read (with a server picker in the sign-in dialog when several Alfresco servers are in the stores), and the Alfresco source form can ingest using the sign-in. The MCP server's search and query tools filter by Alfresco permissions too (pass the user's ticket or credentials). Data-source forms no longer pre-fill credentials or get autofilled by the browser, and KG Spaces can ingest from another Alfresco server (in Other Sources, after adding `alfresco` to its `enabledSources` config; KG Spaces search still covers only the Alfresco server ACA is signed in to).
 
 **New 10/10/26 — v0.8.4 release:** Hybrid search results (graph and RDF too) and AI query / AI chat answers now **name the documents they came from, as links**: Alfresco documents open in the **Alfresco Content App viewer** over their folder (or Share), Nuxeo in its Web UI, web pages and Wikipedia at their URL, and YouTube at the transcript segment's time. In KG Spaces, closing ACA's viewer returns to your search results and chat. KG Spaces hybrid search returns full results again, and ArcadeDB moves to 26.10.1.
@@ -72,7 +74,9 @@
 - **LLM providers (KG extraction & chat)**: Ollama, OpenAI, Azure OpenAI, Google Gemini, Anthropic Claude, Google Vertex AI, Amazon Bedrock, Groq, Fireworks AI, OpenAI-compatible endpoints (`openai_like`), OpenRouter, LiteLLM proxy, and vLLM — configurable via `LLM_PROVIDER`; see [Supported LLM Providers](#supported-llm-providers)
 - **Embedding providers**: OpenAI, Ollama, Azure OpenAI, Google GenAI, Vertex AI, Bedrock, Fireworks, OpenAI-like (`EMBEDDING_KIND=openai_like`), and LiteLLM — see [LLM Configuration](#llm-configuration)
 - **Dual-framework pipeline**: **LlamaIndex** and **LangChain** are first-class choices for chunking, vector and search adapters, property graphs, KG extraction, RDF text-to-SPARQL retrieval, and hybrid fusion—each stage can be set independently (**LlamaIndex** defaults). See [Framework Configuration](#framework-configuration).
-- **Multi-Source Ingestion**: Processes documents from 14 data sources (10 with incremental auto sync): (file upload, cloud storage, enterprise repositories, web sources) with Docling (default), LlamaParse (cloud API), or LiteParse (local, lightweight) document parsing.
+- **Document Processing**: Docling (default), LlamaParse (cloud API), or LiteParse (local, lightweight) document parsing.
+- **14 Data Sources**: 10 with incremental auto sync (Alfresco, Nuxeo, SharePoint, OneDrive, Box, Google Drive, Amazon S3, Google Cloud Storage, Azure Blob Storage, Filesystem) and 4 without (CMIS, Web Pages, Wikipedia, YouTube).
+- **Sign-In and Permission-Aware Search**: One sign-in pill in the header whose drop-down signs users in and out of each repository and cloud service; hybrid search, AI query and AI chat then use only the documents that user may read, and a **Sources** picker limits a question to chosen sources.
 - **Observability**: Built-in OpenTelemetry instrumentation with automatic LlamaIndex tracing, Prometheus metrics, Jaeger traces, and Grafana dashboards for production monitoring
 - **FastAPI Server with REST API**: Python based FastAPI server with REST APIs for document ingesting, hybrid search, AI query, and AI chat.
 - **MCP Server**: MCP server providing Claude Desktop and other MCP clients with tools for document/text ingesting (all 14 data sources with 10 supporting incremental auto sync), hybrid search, and AI query. Uses FastAPI backend REST APIs. 
@@ -139,7 +143,7 @@
 - **Full API Parity**: Tools like `ingest_documents()` support all 14 data sources with source-specific configs: filesystem, repositories (Alfresco, SharePoint, Box, CMIS, Nuxeo), cloud storage, web; `skip_graph` flag for all data sources; `paths` parameter for filesystem/Alfresco/CMIS; Alfresco also supports `nodeDetails` list (multi-select for KG Spaces)
 - **Additional Tools**: `search_documents()`, `query_documents()`, `ingest_text()`, system diagnostics, and health checks
 - **Dual Transport**: HTTP mode for debugging, stdio mode for production
-- **Tool Suite**: 9 specialized tools for document processing, search, and system management
+- **Tool Suite**: 12 tools for document processing, search, sign-in and system management (14 with `MCP_BROWSER_SIGN_IN=true`); search and query can be permission-filtered per user (three levels)
 - **Multiple Installation**: pipx system installation or uvx no-install execution
 
 ### UI Clients (`/flexible-graphrag-ui`)
@@ -186,7 +190,7 @@ Flexible GraphRAG supports **14 different data sources** for ingesting documents
 
 ### Enterprise Repository Sources
 7. **Alfresco** - Alfresco ECM/content repository with two integration options:
-   - **[KG Spaces ACA Extension](https://github.com/stevereiner/kg-spaces-aca)** - Integrates the Flexible GraphRAG Angular UI as an extension plugin within the Alfresco Content Application (ACA), enabling multi-select document/folder ingestion with nodeIds directly from the Alfresco interface
+   - **[KG Spaces ACA Extension](https://github.com/stevereiner/kg-spaces-aca)** - Integrates the Flexible GraphRAG Angular UI as an extension plugin within the Alfresco Content Application (ACA), enabling multi-select document/folder ingestion with nodeIds directly from the Alfresco interface. Its title bar has a sign-in pill for the other sources and servers (Angular lib option `searchSignIn`), so KG Spaces search and chat can also use other sources' documents the user may read
    - **Flexible GraphRAG Alfresco Data Source** - Direct integration using Alfresco paths (e.g., /Shared/GraphRAG, /Company Home/Shared/GraphRAG, or /Shared/GraphRAG/cmispress.txt)
 8. **Nuxeo** - Nuxeo content repository (File and Note documents); basic / token (X-Authentication-Token) / OAuth2 auth, path or node selection, and real-time incremental sync via the Nuxeo audit event stream (Kafka)
 9. **SharePoint** - Microsoft SharePoint document libraries
@@ -202,6 +206,7 @@ Each data source includes:
 - **Configuration Forms**: Easy-to-use interfaces for credentials and settings
 - **Progress Tracking**: Real-time per-file progress indicators
 - **Flexible Authentication**: Support for various auth methods (API keys, OAuth, service accounts)
+- **Per-user sign-in** (Alfresco, Nuxeo, CMIS, SharePoint, OneDrive, Box, Google Drive, GCS, Azure Blob, S3): search and chat answer only from documents the signed-in user may read. See [Sign-In and Permission-Aware Search](docs/DATA-SOURCES/SIGN-IN-GUIDE.md)
 
 ### Incremental Updates & Auto-Sync
 
@@ -242,7 +247,8 @@ POSTGRES_INCREMENTAL_URL=postgresql://postgres:password@localhost:5433/postgres
 **Note**: The incremental updates system uses PostgreSQL to track document state. The `docker-compose.yaml` includes a pgvector container that can be used both as a vector database option and for incremental updates state management. The database connection creates the necessary tables automatically on first use.
 
 **Usage**: 
-- Check the **"Enable auto change sync"** checkbox in the Processing tab when configuring your data source
+- Tick the **Auto Sync** column for the row(s) in the Processing tab (with the incremental registry on, every data source has per-row Search+Vector / Graphs / Auto Sync columns; the older **"Enable auto change sync"** checkbox appears only when the registry is off)
+- **Deep** on the Alfresco, Nuxeo and Box forms includes subfolders (recursive) in the ingest and its auto sync
 - For **S3**: Also provide the "SQS Queue URL" for event notifications
 - For **GCS**: Also provide the "Pub/Sub Subscription Name" for real-time updates
 
@@ -1199,15 +1205,13 @@ Process your selected documents and monitor progress:
 
 - **Start Processing**: Click "START PROCESSING" to begin document ingestion
 - **Monitor Progress**: View real-time progress bars for each file
-- **File Management**: 
-  - Use checkboxes to select files
-  - Click "REMOVE SELECTED (N)" to remove selected files from the list
-  - **Note**: This removes files from the processing queue, not from your system
+- **Per-row columns**: With the incremental registry on, every data source gets **Search+Vector**, **Graphs** and **Auto Sync** checkbox columns (single-folder / bucket sources get one row for the whole datasource); unticking removes from those stores, ticking re-ingests. A v0.9.0+ backend splits **Graphs** into **Graph** and **RDF** columns. See [Tab 2 — Processing](docs/UI-GUIDE/UI-TAB-PROCESSING.md)
+- **File Management**: Click a row's **✕** to take it off the list (not from your system or the stores)
 - **Processing Pipeline**: Documents are processed through Docling conversion, vector indexing, and knowledge graph creation
 
 ### 3. Search Tab
 
-Perform searches on your processed documents:
+Perform searches on your processed documents. The header's **sign-in pill** signs you in to repositories and cloud services so results include only documents you may read, and the **Sources** chips limit a search to chosen sources (see [Sign-In and Permission-Aware Search](docs/DATA-SOURCES/SIGN-IN-GUIDE.md)):
 
 #### Hybrid Search
 - **Purpose**: Find and rank the most relevant document excerpts
@@ -1300,7 +1304,7 @@ For full details see [`flexible-graphrag-mcp/README.md`](flexible-graphrag-mcp/R
 
 ## MCP Tools for Claude Desktop and Other MCP Clients
 
-The MCP server provides 9 specialized tools for document intelligence workflows:
+The MCP server provides 12 tools for document intelligence workflows (14 with `MCP_BROWSER_SIGN_IN=true`). Search and query take `source_auth` (per-user permission filtering) and `sources`; see [Permission filtering: three levels](flexible-graphrag-mcp/README.md#permission-filtering-three-levels).
 
 | Tool | Purpose | Usage |
 |------|---------|-------|
@@ -1309,6 +1313,10 @@ The MCP server provides 9 specialized tools for document intelligence workflows:
 | `ingest_text(content, source_name)` | Custom text analysis | Analyze specific text content |
 | `search_documents(query, top_k)` | Hybrid document retrieval | Find relevant document excerpts |
 | `query_documents(query, top_k)` | AI-powered Q&A | Generate answers from document corpus |
+| `list_sources()` | Source picker | Sources with documents in the stores, for search / query `sources` |
+| `get_auth_requirements()` | Sign-in check | Which sign-ins the stored documents need |
+| `sign_in(source, username, password)` | Repository sign-in | `alfresco`, `nuxeo`, `cmis` or `s3`; returns the credential for `source_auth` |
+| `start_sign_in(source)` / `finish_sign_in(handoff_id)` | Browser sign-in | Microsoft 365, Box, Google, Azure Storage; only with `MCP_BROWSER_SIGN_IN=true` |
 | `test_with_sample()` | System verification | Quick test with sample content |
 | `check_processing_status(id)` | Async operation monitoring | Track long-running ingestion tasks |
 | `get_python_info()` | Environment diagnostics | Debug Python environment issues |

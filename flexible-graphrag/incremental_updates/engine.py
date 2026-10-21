@@ -782,7 +782,9 @@ class IncrementalUpdateEngine:
         # For cloud sources with source_id, look up by source_id instead of doc_id
         # This handles the case where metadata.path is just a filename (Box, etc.)
         existing_state = None
-        if hasattr(metadata, 'extra') and metadata.extra and metadata.extra.get('file_id'):
+        # (Alfresco carries its node id as node_id: its doc ids are "<config_id>:alfresco://<node>",
+        # which a path-based doc_id never matches -- a synced file looked NEW to the periodic refresh)
+        if hasattr(metadata, 'extra') and metadata.extra and (metadata.extra.get('file_id') or metadata.extra.get('node_id')):
             # Cloud source with file_id - look up by source_id
             source_id = metadata.extra.get('file_id') or metadata.extra.get('id') or metadata.extra.get('node_id')
             if source_id:

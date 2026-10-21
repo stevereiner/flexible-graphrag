@@ -19,6 +19,7 @@ import axios from 'axios';
 import { QueryRequest, ApiResponse, ChatMessage } from '../types/api';
 import agentIcon from '../agent.png';
 import { SourceDocs } from './SourceDocs';
+import { SourcePicker } from '../auth/SourcePicker';
 
 interface ChatTabProps {
   currentTheme: Theme;
@@ -272,6 +273,9 @@ export const ChatTab: React.FC<ChatTabProps> = ({
           </List>
         )}
       </Paper>
+
+      {/* Which sources the question covers */}
+      <SourcePicker />
 
       {/* Input Area */}
       <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>

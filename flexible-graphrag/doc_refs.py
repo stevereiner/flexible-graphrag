@@ -21,9 +21,19 @@ from __future__ import annotations
 import json
 import logging
 import os
+from contextvars import ContextVar
 from typing import Any, Callable, Dict, Iterable, List, Optional
 
 logger = logging.getLogger(__name__)
+
+# The asking user's Alfresco Authorization header per server (lower-cased base URL), set for the
+# question being answered (main.py): finds a document's folder for its ACA link when the backend
+# has no Alfresco service account. Their own ticket, so only folders they may see are asked.
+_asker_alfresco: ContextVar[Dict[str, str]] = ContextVar("asker_alfresco", default={})
+
+
+def set_asker_alfresco(auth_by_server: Dict[str, str]) -> None:
+    _asker_alfresco.set({k.rstrip("/").lower(): v for k, v in auth_by_server.items() if k and v})
 
 _REPO_MARKS = ("alfresco", "nuxeo")
 
@@ -43,7 +53,10 @@ def node_doc_ids(node: Any) -> List[str]:
     return list(dict.fromkeys(d for d in [node_doc_id(node), *(meta.get("doc_ids") or [])] if d))
 
 
-_URL_SOURCES = ("web", "wikipedia", "youtube")
+# Sources whose chunks carry the document's own web address in ``url``: a web page, Wikipedia
+# article or YouTube video, and a SharePoint / OneDrive file (its Graph webUrl -- SharePoint /
+# OneDrive enforce the viewer's own permissions when it is opened)
+_URL_SOURCES = ("web", "wikipedia", "youtube", "sharepoint", "onedrive")
 
 
 def _seconds(label: str) -> int:
@@ -71,6 +84,34 @@ def _chunk_ref(meta: Dict[str, Any], doc_id: str = "") -> Dict[str, str]:
         url = f"https://{meta.get('language') or 'en'}.wikipedia.org/?curid={doc_id}"
         if not fn and meta.get("resolved_title"):
             ref["name"] = meta["resolved_title"]
+    drive_id = meta.get("file_id") or meta.get("file id")  # LlamaIndex's reader: "file id"; stored: file_id
+    if source == "google_drive" and drive_id:
+        # Drive's own file page (Drive enforces the viewer's permissions when it is opened)
+        ref["source_type"] = source
+        ref["open_url"] = f"https://drive.google.com/file/d/{drive_id}/view"
+        return ref
+    if source == "gcs" and meta.get("bucket") and meta.get("file_path", "").startswith(f"{meta['bucket']}/"):
+        # The object through Google's authenticated browser endpoint (signs the viewer in and
+        # applies their bucket permissions)
+        from urllib.parse import quote
+        ref["source_type"] = source
+        ref["open_url"] = f"https://storage.cloud.google.com/{quote(meta['file_path'], safe='/')}"
+        return ref
+    if source == "s3" and meta.get("bucket_name") and meta.get("s3_key"):
+        # The object's page in the AWS console (signs the viewer in and applies their IAM access)
+        from urllib.parse import quote
+        ref["source_type"] = source
+        ref["open_url"] = (f"https://console.aws.amazon.com/s3/object/{quote(meta['bucket_name'], safe='')}"
+                           f"?region={quote(meta.get('region') or 'us-east-1', safe='')}"
+                           f"&prefix={quote(meta['s3_key'], safe='')}")
+        return ref
+    if source == "box" and meta.get("box_file_id"):
+        # Box keeps no web address on its chunks, but its file page is fixed by the file id (Box
+        # enforces the viewer's own permissions when it is opened)
+        url = f"https://app.box.com/file/{meta['box_file_id']}"
+        ref["source_type"] = source
+        ref["open_url"] = url
+        return ref
     if source in _URL_SOURCES and url:
         ref["source_type"] = source
         ref["open_url"] = url
@@ -121,7 +162,8 @@ def _from_doc_id(doc_id: str) -> Dict[str, Any]:
     return {"name": name, "path": tail if name else ""}
 
 
-def _open_url(source_type: Optional[str], node_id: Optional[str], repo_url: str, parent_id: str = "") -> str:
+def _open_url(source_type: Optional[str], node_id: Optional[str], repo_url: str, parent_id: str = "",
+              name: str = "") -> str:
     if not node_id:
         return ""
     if source_type == "alfresco":
@@ -135,14 +177,19 @@ def _open_url(source_type: Optional[str], node_id: Optional[str], repo_url: str,
         # ACA is hash-routed and its viewer is the "viewer" outlet. Over the document's folder in
         # the Repository view (open to every user; Alfresco permissions apply), as ACA's own links
         # do, so closing the viewer lands in that folder with its breadcrumb; over search when the
-        # folder is unknown.
+        # folder is unknown -- a search for the file's name, since ACA's search page with no
+        # term never finishes loading when the viewer is closed onto it.
         aca = os.getenv("ALFRESCO_ACA_URL", "").rstrip("/") or (f"{base}/content-app" if base else "")
         if not aca:
             return ""
         if parent_id:
             return (f"{aca}/#/repository/{parent_id}/(viewer:view/{node_id})"
                     f"?location=%2Frepository%2F{parent_id}")
-        return f"{aca}/#/search/(viewer:view/{node_id})"
+        if name:
+            from urllib.parse import quote
+            term = quote(name, safe="")
+            return f"{aca}/#/search;q={term}/(viewer:view/{node_id})"
+        return f"{aca}/#/personal-files/(viewer:view/{node_id})"
     if source_type == "nuxeo":
         base = (repo_url or os.getenv("NUXEO_URL", "")).rstrip("/")
         return f"{base}/ui/#!/doc/{node_id}" if base else ""
@@ -166,14 +213,19 @@ async def _alfresco_parents(nodes: Dict[str, str]) -> Dict[str, str]:
     todo = {n: b for n, b in nodes.items() if n not in out and b}
     user = os.getenv("ALFRESCO_SYNC_USERNAME") or os.getenv("ALFRESCO_USERNAME")
     password = os.getenv("ALFRESCO_SYNC_PASSWORD") or os.getenv("ALFRESCO_PASSWORD")
-    if not todo or not user or password is None:
+    service = ("Basic " + base64.b64encode(f"{user}:{password}".encode()).decode()
+               if user and password is not None else "")
+    asker = _asker_alfresco.get()
+    # the service account, else the asking user's own sign-in on that server
+    auth_for = lambda base: service or asker.get(base.rstrip("/").lower(), "")
+    todo = {n: b for n, b in todo.items() if auth_for(b)}
+    if not todo:
         return out
-    auth = "Basic " + base64.b64encode(f"{user}:{password}".encode()).decode()
 
     async def one(client, node_id, base):
         try:
             r = await client.get(f"{base}/alfresco/api/-default-/public/alfresco/versions/1/nodes/{node_id}",
-                                 params={"fields": "parentId"}, headers={"Authorization": auth})
+                                 params={"fields": "parentId"}, headers={"Authorization": auth_for(base)})
             if r.status_code == 200:
                 parent = (r.json().get("entry") or {}).get("parentId") or ""
                 _parents[node_id] = (now, parent)
@@ -251,7 +303,7 @@ async def describe(doc_ids: Iterable[str], known: Optional[Dict[str, Dict[str, s
         repo_url = ref.pop("repo_url", "")
         ref["parent_id"] = parents.get(ref["node_id"], "") if ref["source_type"] == "alfresco" else ""
         if not ref["open_url"]:
-            ref["open_url"] = _open_url(ref["source_type"], ref["node_id"], repo_url, ref["parent_id"])
+            ref["open_url"] = _open_url(ref["source_type"], ref["node_id"], repo_url, ref["parent_id"], ref["name"])
     return out
 
 

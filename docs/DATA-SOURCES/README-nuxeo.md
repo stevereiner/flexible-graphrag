@@ -138,6 +138,32 @@ NUXEO_OAUTH2_REFRESH_TOKEN=<refresh-token>
 In the UI's OAuth2 fields, provide the Client ID (and secret if set) plus the access/refresh
 tokens.
 
+## Sign-In and Permission-Aware Search
+
+The React, Vue and Angular UIs can sign in to Nuxeo. The backend gets a Nuxeo auth token from
+`GET /nuxeo/authentication/token`, the same endpoint the `token` auth method uses, and the UI keeps
+only that token.
+
+- **Header:** the one sign-in pill reads `Nuxeo: <user>` when Nuxeo is the only server, else
+  "Sign-ins n/m"; its menu has a row per Nuxeo server, next to any Alfresco, CMIS or cloud ones.
+  Sign-out only forgets the token in that browser tab.
+- **Search / AI chat:** when the stores hold Nuxeo documents, the UI asks for the sign-in before the first
+  question. Answers then use only the Nuxeo documents that user may read, checked with
+  `GET /api/v1/id/{uid}` when the question is asked. "Continue without" leaves Nuxeo documents out.
+- **Ingest:** signed in to the form's server, the Nuxeo form shows "Signed in to Nuxeo as X (used for this
+  ingest)" and sends `auth_method: token` + the token. A Nuxeo token does not expire, so it also
+  works as an Auto Sync credential.
+- **REST / MCP:** `POST /api/auth/nuxeo/login` returns `{token, user_id, url}`, and
+  `GET /api/auth/nuxeo/me` (header `X-Nuxeo-Token`) checks a stored token. Search and query take
+  `source_auth.nuxeo`: one `{url, token}` (or basic / oauth2 credentials), or a list with one per
+  server. The MCP server's `sign_in` tool wraps the login.
+- **Setting:** `NUXEO_QUERY_AUTH` (or `SOURCE_QUERY_AUTH`) is `required` by default. Set `optional`
+  to show Nuxeo documents to askers who haven't signed in.
+
+Nuxeo returns the same token for the same user, application (`flexible-graphrag`) and device
+(`flexible-graphrag-ui`), so signing in again does not create more tokens. Revoke it in the Nuxeo
+Web UI under user settings, Authentication Tokens.
+
 ## Real-Time Change Sync (optional, via Kafka)
 
 With auto-sync enabled, Nuxeo document changes (create / modify / delete) flow into the graph in

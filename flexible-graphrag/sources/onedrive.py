@@ -44,6 +44,33 @@ class OneDriveSource(BaseDataSource):
             logger.error(f"Failed to import OneDriveReader: {e}")
             raise ImportError("Please install llama-index-readers-microsoft-onedrive: pip install llama-index-readers-microsoft-onedrive")
     
+
+    def _attach_web_urls(self, documents) -> None:
+        """Give each document its OneDrive web address (Graph ``webUrl``) as ``url``, so search results
+        and answer sources can link to the file. OneDriveReader leaves it out (SharePointReader keeps
+        it). One app-token call per file; a failure only means no link."""
+        docs = [d for d in documents or [] if d.metadata.get("file_id") and not d.metadata.get("url")]
+        if not docs or not self.user_principal_name:
+            return
+        try:
+            import httpx
+            from urllib.parse import quote
+            token = httpx.post(
+                f"https://login.microsoftonline.com/{self.tenant_id}/oauth2/v2.0/token",
+                data={"client_id": self.client_id, "client_secret": self.client_secret,
+                      "grant_type": "client_credentials", "scope": "https://graph.microsoft.com/.default"},
+                timeout=20.0,
+            ).json()["access_token"]
+            with httpx.Client(timeout=20.0, headers={"Authorization": f"Bearer {token}"}) as client:
+                for d in docs:
+                    r = client.get(
+                        f"https://graph.microsoft.com/v1.0/users/{quote(self.user_principal_name, safe='@')}"
+                        f"/drive/items/{quote(d.metadata['file_id'], safe='')}", params={"$select": "webUrl"})
+                    if r.status_code == 200 and r.json().get("webUrl"):
+                        d.metadata["url"] = r.json()["webUrl"]
+        except Exception as e:
+            logger.warning(f"OneDrive: could not look up the files' web addresses (no open links): {e}")
+
     def validate_config(self) -> bool:
         """Validate the OneDrive source configuration."""
         if not self.user_principal_name:
@@ -137,6 +164,9 @@ class OneDriveSource(BaseDataSource):
                 logger.info(f"get_documents() - Loading files from folder path: {self.folder_path}")
                 documents = reader.load_data(folder_path=self.folder_path)
                 logger.info(f"Loaded {len(documents)} OneDrive files from folder: {self.folder_path}")
+            
+            self._attach_web_urls(documents)
+
             
             # Add source metadata and use stable file_id as path
             for doc in documents:
@@ -271,6 +301,9 @@ class OneDriveSource(BaseDataSource):
                     logger.error("load_data() returned None - this indicates OneDriveReader failed to authenticate or load documents")
                     raise ValueError("OneDriveReader.load_data() returned None - authentication or loading failed")
                 logger.info(f"Loaded {len(documents)} OneDrive files from folder")
+            
+            self._attach_web_urls(documents)
+
             
             # Add source metadata and use stable file_id as path
             if documents:

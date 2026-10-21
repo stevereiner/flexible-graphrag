@@ -1,6 +1,7 @@
 # MCP Tools Reference
 
-The MCP server provides **9 tools** for document ingestion, search, and AI Q&A.
+The MCP server provides **12 tools** for document ingestion, search, AI Q&A and sign-in (14 with
+`MCP_BROWSER_SIGN_IN=true`).
 
 ## Available Tools
 
@@ -9,8 +10,12 @@ The MCP server provides **9 tools** for document ingestion, search, and AI Q&A.
 | `get_system_status()` | Verify setup and database connections |
 | `ingest_documents(data_source, skip_graph, ...)` | Process documents from any of the 14 data sources |
 | `ingest_text(content, source_name, skip_graph)` | Ingest and analyze specific text content; `skip_graph=True` skips KG extraction |
-| `search_documents(query, top_k)` | Hybrid search — find relevant document excerpts |
-| `query_documents(query, top_k)` | AI-powered Q&A over your document corpus |
+| `search_documents(query, top_k, source_auth, scope, sources)` | Hybrid search — find relevant document excerpts; `source_auth` filters to what that user may read, `sources` limits to chosen sources |
+| `query_documents(query, top_k, source_auth, scope, sources)` | AI-powered Q&A over your document corpus (same filtering arguments) |
+| `list_sources()` | The sources with documents in the stores, for the `sources` argument |
+| `get_auth_requirements()` | Which sign-ins the stored documents need before search / query |
+| `sign_in(source, username, password, url)` | Sign in to `alfresco`, `nuxeo`, `cmis` or `s3` (IAM access key); returns the credential for `source_auth` |
+| `start_sign_in(source)` / `finish_sign_in(handoff_id)` | Only with `MCP_BROWSER_SIGN_IN=true`: browser sign-in for Microsoft 365, Box, Google or Azure Storage |
 | `test_with_sample(skip_graph)` | Quick system verification with built-in sample content; `skip_graph=True` for vector-only |
 | `check_processing_status(id)` | Track long-running async ingestion tasks |
 | `get_python_info()` | Python environment diagnostics |
@@ -80,3 +85,14 @@ test_with_sample(skip_graph=True)
 ```
 
 When set, the document is chunked, embedded, and stored in vector + search indexes but KG extraction and property graph / RDF store writes are skipped. Useful for fast bulk ingest when graph queries are not needed.
+
+## Permission Filtering — Three Levels
+
+| Level | How | Result |
+|---|---|---|
+| **1** (default) | `search_documents` / `query_documents` with no credentials | No filtering. Needs the backend to trust the MCP server: the same random value in backend `TRUSTED_CLIENT_KEY` and MCP server `FLEXIBLE_GRAPHRAG_TRUSTED_KEY` |
+| **2** | the same tools with `source_auth` (e.g. from `sign_in`) | Those sources are filtered to what that user may read |
+| **3** | `MCP_BROWSER_SIGN_IN=true` on the MCP server | Adds `start_sign_in` / `finish_sign_in` (a link the user opens in a browser); `AUTH_HANDOFF_CONFIRM_CODE=true` on the backend adds a code to compare first |
+
+Details: [Full MCP README — Permission filtering](MCP-FULL-README.md#permission-filtering-three-levels)
+and the [Sign-In and Permission-Aware Search guide](../DATA-SOURCES/SIGN-IN-GUIDE.md).

@@ -13,22 +13,10 @@
       required
     />
 
-    <div class="d-flex align-center flex-wrap ga-3 mb-4">
-      <template v-if="signedInHere">
-        <span class="text-body-2">
-          Signed in to Alfresco as <strong>{{ session?.user_id }}</strong>{{ usingSignIn ? ' (used for this ingest)' : '' }}
-        </span>
-        <v-btn size="small" variant="text" @click="signOut()">Sign out</v-btn>
-        <v-checkbox
-          v-model="useOther" density="compact" hide-details
-          label="Use other credentials (e.g. for Auto Sync)"
-        />
-      </template>
-      <template v-else>
-        <v-btn size="small" variant="outlined" @click="signInHere">Sign in to Alfresco</v-btn>
-        <span class="text-body-2 text-medium-emphasis">or enter credentials below</span>
-      </template>
-    </div>
+    <SourceSignInSection
+      source="alfresco" :url="url" :session="session" :using-sign-in="usingSignIn"
+      v-model:use-other="useOther"
+    />
 
     <v-select
       v-if="!usingSignIn"
@@ -131,32 +119,35 @@
       </v-row>
     </template>
 
-    <v-text-field
-      :model-value="path"
-      @update:model-value="(v: string) => path = v"
-      label="Path *"
-      variant="outlined"
-      class="mb-4"
-      placeholder="e.g., /Shared/GraphRAG"
-      required
-    />
+    <div class="d-flex align-start">
+      <v-text-field
+        :model-value="path"
+        @update:model-value="(v: string) => path = v"
+        label="Path *"
+        variant="outlined"
+        class="mb-4"
+        placeholder="e.g., /Shared/GraphRAG"
+        required
+      />
+      <DeepCheckbox :checked="recursive" @change="(v: boolean) => ownDeep = v" />
+    </div>
   </BaseSourceForm>
 </template>
 
 <script lang="ts">
-import { defineComponent, ref, computed, watch, onMounted, onUnmounted } from 'vue';
+import { defineComponent, ref, computed, watch } from 'vue';
 import BaseSourceForm from './BaseSourceForm.vue';
-import { AlfrescoSession, getAlfrescoSession, onAuthChange, openSignIn, signOut, validateSession } from '../../auth/sourceAuth';
-
-// Same Alfresco server? (an /alfresco suffix and trailing slashes don't matter)
-const sameServer = (a: string, b: string) =>
-  a.trim().replace(/\/+$/, '').replace(/\/alfresco$/i, '').toLowerCase() ===
-  b.trim().replace(/\/+$/, '').replace(/\/alfresco$/i, '').toLowerCase();
+import SourceSignInSection from '../../auth/SourceSignInSection.vue';
+import { useSourceSession } from '../../auth/useSourceSession';
+import DeepCheckbox from './DeepCheckbox.vue';
+import { loadUiDefaults } from '../../uiDefaults';
 
 export default defineComponent({
   name: 'AlfrescoSourceForm',
   components: {
-    BaseSourceForm
+    BaseSourceForm,
+    SourceSignInSection,
+    DeepCheckbox
   },
   props: {
     // Single-object persistence (see NuxeoSourceForm): seeds on mount, emits update:value on edit.
@@ -174,6 +165,10 @@ export default defineComponent({
     const url = ref(v.url ?? defaultUrl);
     const authMethod = ref(v.auth_method ?? 'basic');
     const path = ref(v.path ?? defaultPath);
+    // Deep: include subfolders (recursive). Unset: the backend's DEFAULT_RECURSIVE, else off
+    const ownDeep = ref<boolean | undefined>(v.recursive);
+    const uiDefaults = loadUiDefaults();
+    const recursive = computed(() => ownDeep.value ?? uiDefaults.recursive ?? false);
 
     // No pre-filled credentials (they were admin/admin): sign in, or type a username/password
     const username = ref(v.username ?? '');
@@ -183,17 +178,7 @@ export default defineComponent({
     // server, the ingest uses that session's ticket -- nobody types a ticket. "Use other
     // credentials" falls back to the fields (e.g. a service account for Auto Sync, which needs
     // durable credentials, never a ticket).
-    const session = ref<AlfrescoSession | null>(getAlfrescoSession());
-    const useOther = ref(false);
-    let stopAuth: (() => void) | null = null;
-    onMounted(() => {
-      stopAuth = onAuthChange(() => { session.value = getAlfrescoSession(); });
-      validateSession(true);  // a kept ticket may be dead by now
-    });
-    onUnmounted(() => stopAuth?.());
-    const signedInHere = computed(() => !!session.value && sameServer(session.value.url, url.value));
-    const usingSignIn = computed(() => signedInHere.value && !useOther.value);
-    const signInHere = () => openSignIn({ source: 'alfresco', url: url.value, methods: ['basic'], documents: null }, 'ingest');
+    const { session, useOther, usingSignIn } = useSourceSession('alfresco', url);
 
     const clientId = ref(v.oauth2?.client_id ?? '');
     const clientSecret = ref(v.oauth2?.client_secret ?? '');
@@ -219,9 +204,9 @@ export default defineComponent({
 
     const config = computed(() => {
       if (usingSignIn.value && session.value) {
-        return { url: url.value, path: path.value, auth_method: 'ticket', ticket: session.value.ticket };
+        return { url: url.value, path: path.value, recursive: recursive.value, auth_method: 'ticket', ticket: session.value.ticket! };
       }
-      const base: any = { url: url.value, auth_method: authMethod.value, path: path.value };
+      const base: any = { url: url.value, auth_method: authMethod.value, path: path.value, recursive: recursive.value };
       if (authMethod.value === 'oauth2') {
         base.oauth2 = {
           client_id: clientId.value,
@@ -248,14 +233,13 @@ export default defineComponent({
       defaultUrl,
       session,
       useOther,
-      signedInHere,
       usingSignIn,
-      signInHere,
-      signOut,
       url,
       authMethod,
       authMethods,
       path,
+      ownDeep,
+      recursive,
       username,
       password,
       clientId,

@@ -142,8 +142,8 @@
             :model-value="countWant('graphs') === displayFiles.length && displayFiles.length > 0"
             :indeterminate="countWant('graphs') > 0 && countWant('graphs') < displayFiles.length"
             :disabled="isProcessing || !canGraphs"
-            label="Graphs"
-            :title="canGraphs ? 'Property graph and RDF, for every row' : 'No graph store configured in .env'"
+            :label="splitGraphs ? 'Graph' : 'Graphs'"
+            :title="!canGraphs ? 'No graph store configured in .env' : splitGraphs ? 'Property graph, for every row' : 'Property graph and RDF, for every row'"
             class="text-no-wrap"
             density="compact"
             hide-details
@@ -166,6 +166,28 @@
             density="compact"
             hide-details
             @update:model-value="(v) => setWant([item.index], 'graphs', !!v)"
+          ></v-checkbox>
+        </template>
+        <template #header.rdf>
+          <v-checkbox
+            :model-value="countWant('rdf') === displayFiles.length && displayFiles.length > 0"
+            :indeterminate="countWant('rdf') > 0 && countWant('rdf') < displayFiles.length"
+            :disabled="isProcessing"
+            label="RDF"
+            title="RDF graph, for every row"
+            class="text-no-wrap"
+            density="compact"
+            hide-details
+            @update:model-value="(v) => setWant(allRows(), 'rdf', !!v)"
+          ></v-checkbox>
+        </template>
+        <template #item.rdf="{ item }">
+          <v-checkbox
+            :model-value="wantFor(item.index).rdf"
+            :disabled="isProcessing"
+            density="compact"
+            hide-details
+            @update:model-value="(v) => setWant([item.index], 'rdf', !!v)"
           ></v-checkbox>
         </template>
         <!-- Auto Sync column: kept up to date with repository changes -->
@@ -439,6 +461,7 @@
 <script lang="ts">
 import { defineComponent, ref, computed, watch, onBeforeUnmount } from 'vue';
 import axios from 'axios';
+import { loadUiDefaults } from '../uiDefaults';
 
 /**
  * A failed request as a message the user can act on. The backend is not reachable when there is
@@ -578,9 +601,16 @@ export default defineComponent({
       { title: 'Progress', key: 'progress', width: columnsMode.value ? '30%' : '45%', sortable: false },
       ...(columnsMode.value ? [
         { title: 'Search+Vector', key: 'searchVector', sortable: false, align: 'start', width: '170px', minWidth: '170px' },
-        { title: 'Graphs', key: 'graphs', sortable: false, align: 'start', width: '120px', minWidth: '120px' },
-        // Auto Sync only for repository sources (uploads are not kept in sync)
-        ...(props.configuredDataSource === 'upload' ? [] : [
+        // one Graphs column, or (show_graph / show_rdf from the backend) separate Graph and RDF ones
+        ...(showGraphColumn.value ? [
+          { title: splitGraphs.value ? 'Graph' : 'Graphs', key: 'graphs', sortable: false, align: 'start', width: '120px', minWidth: '120px' },
+        ] : []),
+        ...(showRdfColumn.value ? [
+          { title: 'RDF', key: 'rdf', sortable: false, align: 'start', width: '100px', minWidth: '100px' },
+        ] : []),
+        // Auto Sync only where an auto sync can watch the source (not uploads, CMIS, web pages,
+        // Wikipedia or YouTube)
+        ...(NO_AUTO_SYNC_SOURCES.includes(props.configuredDataSource) ? [] : [
           { title: 'Auto Sync', key: 'autoSync', sortable: false, align: 'start', width: '140px', minWidth: '140px' },
         ]),
       ] : []),
@@ -1003,9 +1033,21 @@ export default defineComponent({
         // Search+Vector / Graphs columns: each checked row says what it should end up as
         const planned = columnsMode.value ? itemActions() : null;
         const actions = planned;
-        if (planned && planned.length === 0) {
+        const drops = columnsMode.value ? graphDrops() : [];
+        if (planned && planned.length === 0 && drops.length === 0) {
           successMessage.value = 'Nothing to do: the checked rows already match their Search+Vector / Graphs settings.';
           isProcessing.value = false;
+          return;
+        }
+        // Rows leaving just one of the two graphs: out of that graph first
+        for (const d of drops) {
+          await axios.post('/api/sync/remove', { ...ingestStatusRequest, items: d.items, targets: d.targets });
+        }
+        if (planned && planned.length === 0) {
+          successMessage.value = `Removed ${drops.reduce((n, d) => n + d.items.length, 0)} row(s) from the ` +
+            `${[...new Set(drops.flatMap((d) => d.targets))].map((t) => (t === 'rdf' ? 'RDF' : 'property')).join(' and ')} graph.`;
+          isProcessing.value = false;
+          afterRun();  // no job was started: reset the rows and ask the ingest status again
           return;
         }
         if (planned) {
@@ -1044,54 +1086,10 @@ export default defineComponent({
 
           request.paths = uploadedPaths;
           request.data_source = 'filesystem'; // Use filesystem processing for uploaded files
-        } else if (props.configuredDataSource === 'cmis') {
-          request.paths = [props.configuredFolderPath || '/Shared/GraphRAG']; // Use configured path
-          // Send what the CMIS form configured (this was a hardcoded localhost admin/admin literal
-          // that silently ignored the form)
-          request.cmis_config = props.configuredCmisConfig
-            ? { ...props.configuredCmisConfig, folder_path: props.configuredCmisConfig.folder_path || props.configuredFolderPath || '/Shared/GraphRAG' }
-            : undefined;
-        } else if (props.configuredDataSource === 'alfresco') {
-          const alfrescoPath = props.configuredAlfrescoConfig?.path || props.configuredFolderPath || '/Shared/GraphRAG';
-          request.paths = [alfrescoPath];
-          // Send what the Sources tab configured. This used to be a hardcoded admin/admin
-          // literal, so the form's credentials, auth method and URL were silently discarded
-          // (and the URL differed from the form's, so the datasource never matched ingest status).
-          // Nothing configured: send no credentials (no admin/admin literals); the backend then
-          // answers 400 "alfresco_config is required", shown as the job's error.
-          request.alfresco_config = props.configuredAlfrescoConfig
-            ? { ...props.configuredAlfrescoConfig, path: alfrescoPath }
-            : undefined;
-        } else if (props.configuredDataSource === 'nuxeo') {
-          request.nuxeo_config = props.configuredNuxeoConfig;
-        } else if (props.configuredDataSource === 'web') {
-          request.web_config = props.configuredWebConfig;
-        } else if (props.configuredDataSource === 'wikipedia') {
-          request.wikipedia_config = props.configuredWikipediaConfig;
-        } else if (props.configuredDataSource === 'youtube') {
-          request.youtube_config = props.configuredYoutubeConfig;
-        } else if (['s3', 'gcs', 'azure_blob'].includes(props.configuredDataSource)) {
-          // Cloud storage sources - strip the 'type' field before sending
-          const { type, ...cleanConfig } = props.configuredCloudConfig || {};
-          if (props.configuredDataSource === 's3') {
-            request.s3_config = cleanConfig;
-          } else if (props.configuredDataSource === 'gcs') {
-            request.gcs_config = cleanConfig;
-          } else if (props.configuredDataSource === 'azure_blob') {
-            request.azure_blob_config = cleanConfig;
-          }
-        } else if (['onedrive', 'sharepoint', 'box', 'google_drive'].includes(props.configuredDataSource)) {
-          // Enterprise sources - strip the 'type' field before sending
-          const { type, ...cleanConfig } = props.configuredEnterpriseConfig || {};
-          if (props.configuredDataSource === 'onedrive') {
-            request.onedrive_config = cleanConfig;
-          } else if (props.configuredDataSource === 'sharepoint') {
-            request.sharepoint_config = cleanConfig;
-          } else if (props.configuredDataSource === 'box') {
-            request.box_config = cleanConfig;
-          } else if (props.configuredDataSource === 'google_drive') {
-            request.google_drive_config = cleanConfig;
-          }
+        } else {
+          // Every other source: its config (and CMIS / Alfresco their path) -- the same fields
+          // its ingest status sent, so both name the same datasource
+          Object.assign(request, sourceFields());
         }
 
 
@@ -1194,6 +1192,8 @@ export default defineComponent({
     let ingestStatusRequest: any = null;  // the request behind `ingestStatus` (rows line up)
     // Which stores are configured; any can be "none" in .env (from the ingest-status response)
     const stores = ref<Record<string, boolean>>({});
+    // The ingest status's show_graph / show_rdf: undefined from a backend with one Graphs column
+    const graphColumns = ref<{ graph?: boolean; rdf?: boolean }>({});
 
     const looksLikeFile = (path: string): boolean =>
       /\.[A-Za-z0-9]{1,8}$/.test((path || '').split('/').pop() || '');
@@ -1249,21 +1249,59 @@ export default defineComponent({
     const showIngestStatus = (index: number): boolean =>
       !!ingestStatusFor(index) && !isProcessing.value && processingProgress.value === 0;
 
+    /** The ingest request's source fields for the configured source (not uploads): its config,
+     *  and for CMIS / Alfresco its path. START PROCESSING and the single-row ingest status both
+     *  send these, so they name the same datasource. */
+    const sourceFields = (): Record<string, any> => {
+      const ds = props.configuredDataSource;
+      const strip = (c: any) => { const { type, ...rest } = c || {}; return rest; };
+      switch (ds) {
+        case 'cmis': {
+          const folder = props.configuredFolderPath || '/Shared/GraphRAG';
+          const cfg: any = props.configuredCmisConfig;
+          return { paths: [folder], cmis_config: cfg ? { ...cfg, folder_path: cfg.folder_path || folder } : undefined };
+        }
+        case 'alfresco': {
+          // Nothing configured: no credentials (no admin/admin literals); the backend then answers
+          // 400 "alfresco_config is required", shown as the job's error
+          const path = props.configuredAlfrescoConfig?.path || props.configuredFolderPath || '/Shared/GraphRAG';
+          return { paths: [path], alfresco_config: props.configuredAlfrescoConfig ? { ...props.configuredAlfrescoConfig, path } : undefined };
+        }
+        case 'nuxeo': return { nuxeo_config: props.configuredNuxeoConfig };
+        case 'web': return { web_config: props.configuredWebConfig };
+        case 'wikipedia': return { wikipedia_config: props.configuredWikipediaConfig };
+        case 'youtube': return { youtube_config: props.configuredYoutubeConfig };
+        case 's3': case 'gcs': case 'azure_blob': return { [`${ds}_config`]: strip(props.configuredCloudConfig) };
+        case 'onedrive': case 'sharepoint': case 'box': case 'google_drive':
+          return { [`${ds}_config`]: strip(props.configuredEnterpriseConfig) };
+        default: return {};
+      }
+    };
+
+    // Every other source is one row: the whole datasource (its config names it)
+    const isSingleRowSource = () =>
+      !!props.configuredDataSource && !['upload', 'alfresco', 'nuxeo'].includes(props.configuredDataSource);
+
     const refreshIngestStatus = () => {
       const source = props.configuredDataSource;
       const cfg: any = source === 'alfresco' ? props.configuredAlfrescoConfig
         : source === 'nuxeo' ? props.configuredNuxeoConfig : null;
       const isUpload = source === 'upload';
-      if ((!isUpload && source !== 'alfresco' && source !== 'nuxeo') || isProcessing.value
-          || (isUpload && !displayFiles.value.length)) {
-        if ((!isUpload && source !== 'alfresco' && source !== 'nuxeo') || (isUpload && !displayFiles.value.length)) {
+      const single = isSingleRowSource();
+      const rowName = single ? displayFiles.value[0]?.name : '';
+      const known = isUpload || single || source === 'alfresco' || source === 'nuxeo';
+      if (!known || isProcessing.value || (isUpload && !displayFiles.value.length) || (single && !rowName)) {
+        if (!known || (isUpload && !displayFiles.value.length) || (single && !rowName)) {
           ingestStatus.value = []; ingestStatusKey = '';
         }
         return;
       }
       const path = cfg?.path || props.configuredFolderPath || '/';
-      // Uploaded files: rows by file name (the backend finds them under its upload directory)
-      const request = isUpload
+      // Uploaded files: rows by file name (the backend finds them under its upload directory);
+      // a single-row source: one row, the whole datasource, found by the fields its ingest sends
+      const request: any = single
+        ? { data_source: source, items: [{ path: rowName, is_folder: false }], source: sourceFields() }
+        : isUpload
         ? { data_source: 'upload', recursive: false,
             items: displayFiles.value.map((f: any) => ({ path: f.name, is_folder: false })) }
         : {
@@ -1283,6 +1321,7 @@ export default defineComponent({
           if (key !== ingestStatusKey) return;  // configuration changed while this was in flight
           ingestStatus.value = res.data?.enabled ? res.data.items : [];
           stores.value = res.data?.stores || {};
+          graphColumns.value = { graph: res.data?.show_graph, rdf: res.data?.show_rdf };
           if (!awaitingStatus) {
             selectedItems.value = selectedItems.value.filter((i) => ingestStatusFor(i)?.status !== 'synced');
           }
@@ -1310,17 +1349,24 @@ export default defineComponent({
 
     // ── Search+Vector / Graphs columns ────────────────────────────────────────────────
     type ItemActionKind = 'ingest' | 'ingest_no_graph' | 'remove_graph' | 'remove_all' | 'keep';
-    type ColumnKind = 'sv' | 'graphs' | 'sync';
+    type ColumnKind = 'sv' | 'graphs' | 'rdf' | 'sync';
     const TERMINAL_JOB = ['completed', 'failed', 'cancelled'];
     // What each row should end up in, by row name, once the user changed it (see wantFor)
     const wantSearch = ref<Record<string, boolean>>({});
-    const wantGraphs = ref<Record<string, boolean>>({});
+    const wantGraphs = ref<Record<string, boolean>>({});  // the property graph (older backend: both graphs)
+    const wantRdf = ref<Record<string, boolean>>({});
+    const uiDefaults = loadUiDefaults();
     const wantSync = ref<Record<string, boolean>>({});
     let awaitingStatus = false;  // a run just ended: check nothing until the fresh ingest status
 
     const columnsMode = computed(() => ingestStatus.value.length > 0 && ingestStatusRequest !== null && Object.keys(stores.value).length > 0);
     const canSearchVector = computed(() => !!(stores.value.vector || stores.value.search));
-    const canGraphs = computed(() => !!stores.value.graph);
+    // Separate Graph and RDF columns when the backend says which to show (show_graph / show_rdf);
+    // otherwise one Graphs column for both, as before
+    const splitGraphs = computed(() => graphColumns.value.graph !== undefined || graphColumns.value.rdf !== undefined);
+    const showGraphColumn = computed(() => (splitGraphs.value ? !!graphColumns.value.graph : true));
+    const showRdfColumn = computed(() => splitGraphs.value && !!graphColumns.value.rdf);
+    const canGraphs = computed(() => (splitGraphs.value ? !!graphColumns.value.graph : !!stores.value.graph));
     const inStores = (index: number): boolean =>
       ['synced', 'partial', 'overlaps'].includes(ingestStatusFor(index)?.status);
 
@@ -1328,9 +1374,30 @@ export default defineComponent({
     const currentFor = (index: number) => {
       const c = ingestStatusFor(index);
       const sync = !!c?.auto_sync;
-      if (!c || !inStores(index)) return { sv: false, graphs: false, sync };
-      if (c.indexed) return { sv: !!(c.indexed.vector || c.indexed.search), graphs: !!c.indexed.graph, sync };
-      return { sv: true, graphs: (c.datasources || []).some((m: any) => !m.skip_graph), sync };
+      if (!c || !inStores(index)) return { sv: false, graphs: false, rdf: false, sync };
+      if (c.indexed) {
+        return { sv: !!(c.indexed.vector || c.indexed.search), graphs: !!c.indexed.graph,
+                 rdf: splitGraphs.value && !!c.indexed.rdf, sync };
+      }
+      const ds = c.datasources || [];
+      return { sv: true, graphs: ds.some((m: any) => m.enabled_graph ?? !m.skip_graph),
+               rdf: splitGraphs.value && ds.some((m: any) => m.enabled_rdf ?? !m.skip_graph), sync };
+    };
+
+    /**
+     * A new row's default for the Graph / RDF column: the folder or document rule (OpenArch flags
+     * pgGraph / rdfGraph) when it has one, else on if a covering datasource builds that graph, else on.
+     */
+    const freshGraphDefault = (index: number, kind: 'graph' | 'rdf'): boolean => {
+      if (!(kind === 'graph' ? showGraphColumn.value && canGraphs.value : showRdfColumn.value)) return false;
+      if (!splitGraphs.value) return canGraphs.value;
+      const c = ingestStatusFor(index);
+      const rule = c?.flags?.[kind === 'graph' ? 'pgGraph' : 'rdfGraph'];
+      if (rule !== null && rule !== undefined) return !!rule;
+      const ds = c?.datasources || [];
+      // no covering datasource: the backend's DEFAULT_ENABLED_GRAPH / DEFAULT_ENABLED_RDF, else on
+      return ds.length ? ds.some((m: any) => !!m[kind === 'graph' ? 'enabled_graph' : 'enabled_rdf'])
+        : (uiDefaults[kind === 'graph' ? 'enabled_graph' : 'enabled_rdf'] ?? true);
     };
 
     /** Whether an auto sync already covers the row (so Auto Sync on resumes, not starts, it). */
@@ -1343,11 +1410,12 @@ export default defineComponent({
       const cur = currentFor(index);
       const fresh = !inStores(index);
       const sv = wantSearch.value[name] ?? (fresh ? canSearchVector.value : cur.sv);
-      const graphs = wantGraphs.value[name] ?? (fresh ? canGraphs.value : cur.graphs);
+      const graphs = wantGraphs.value[name] ?? (fresh ? freshGraphDefault(index, 'graph') : cur.graphs);
+      const rdf = wantRdf.value[name] ?? (fresh ? freshGraphDefault(index, 'rdf') : cur.rdf);
       const sync = wantSync.value[name] ?? cur.sync;
-      // Graphs and Auto Sync both need Search+Vector: a sync with nothing indexed would only
+      // The graphs and Auto Sync all need Search+Vector: a sync with nothing indexed would only
       // put the document back on its next change
-      return { sv, graphs: sv && graphs, sync: sv && sync };
+      return { sv, graphs: sv && graphs, rdf: sv && rdf, sync: sv && sync };
     };
 
     /** Changing a row's Search+Vector / Graphs checks the row: START PROCESSING applies it. */
@@ -1359,10 +1427,14 @@ export default defineComponent({
           wantSearch.value = { ...wantSearch.value, [name]: value };
           if (!value) {  // no graphs and no sync without search + vector
             wantGraphs.value = { ...wantGraphs.value, [name]: false };
+            wantRdf.value = { ...wantRdf.value, [name]: false };
             wantSync.value = { ...wantSync.value, [name]: false };
           }
         } else if (kind === 'graphs') {
           wantGraphs.value = { ...wantGraphs.value, [name]: value };
+          if (value) wantSearch.value = { ...wantSearch.value, [name]: true };
+        } else if (kind === 'rdf') {
+          wantRdf.value = { ...wantRdf.value, [name]: value };
           if (value) wantSearch.value = { ...wantSearch.value, [name]: true };
         } else {
           wantSync.value = { ...wantSync.value, [name]: value };
@@ -1378,9 +1450,44 @@ export default defineComponent({
     const actionFor = (index: number): ItemActionKind | null => {
       const cur = currentFor(index);
       const want = wantFor(index);
-      if (!want.sv) return cur.sv || cur.graphs ? 'remove_all' : null;
-      if (want.graphs) return 'ingest';
-      return cur.sv && cur.graphs ? 'remove_graph' : 'ingest_no_graph';
+      if (!want.sv) return cur.sv || cur.graphs || cur.rdf ? 'remove_all' : null;
+      if (want.graphs || want.rdf) {
+        // Only dropping a graph the row is in (graphDrops removes it from that one): nothing to ingest
+        const adds = !cur.sv || (want.graphs && !cur.graphs) || (want.rdf && !cur.rdf);
+        const drops = (cur.graphs && !want.graphs) || (cur.rdf && !want.rdf);
+        return drops && !adds ? null : 'ingest';
+      }
+      return cur.sv && (cur.graphs || cur.rdf) ? 'remove_graph' : 'ingest_no_graph';
+    };
+
+    /**
+     * Checked rows that keep one graph but leave the other they are in now, grouped by what they
+     * leave ("graph" / "rdf"): START PROCESSING removes them with /api/sync/remove first, since an
+     * "ingest" row only builds graphs (remove_graph would take both).
+     */
+    const graphDrops = (): { targets: string[]; items: any[] }[] => {
+      if (!splitGraphs.value) return [];
+      const groups: Record<string, any[]> = {};
+      for (const i of [...selectedItems.value].sort((a, b) => a - b)) {
+        const item = ingestStatusRequest?.items?.[i];
+        const cur = currentFor(i);
+        const want = wantFor(i);
+        if (!item || !want.sv || !(want.graphs || want.rdf)) continue;  // remove_all / remove_graph cover the rest
+        const targets = [...(cur.graphs && !want.graphs ? ['graph'] : []), ...(cur.rdf && !want.rdf ? ['rdf'] : [])];
+        if (targets.length) {
+          (groups[targets.join(',')] ||= []).push({ path: item.path, id: item.id, is_folder: !!item.is_folder });
+        }
+      }
+      return Object.entries(groups).map(([t, items]) => ({ targets: t.split(','), items }));
+    };
+
+    /** Which graphs an ingest builds: enabled_graph / enabled_rdf for the columns shown (a hidden
+     *  column's field is left out, so the backend default applies); none with an older backend. */
+    const graphFields = (index: number): Record<string, boolean> => {
+      if (!splitGraphs.value) return {};
+      const want = wantFor(index);
+      return { ...(showGraphColumn.value ? { enabled_graph: want.graphs } : {}),
+               ...(showRdfColumn.value ? { enabled_rdf: want.rdf } : {}) };
     };
 
     /** The Status column in columns mode: which stores the row is in now. */
@@ -1388,8 +1495,9 @@ export default defineComponent({
       const c = ingestStatusFor(index);
       if (c?.status === 'removed') return 'removed';
       const cur = currentFor(index);
-      if (!cur.sv && !cur.graphs) return 'not ingested';
-      return (cur.graphs ? 'search+vector, graphs' : 'search+vector') + (cur.sync ? ' (synced)' : '');
+      if (!cur.sv && !cur.graphs && !cur.rdf) return 'not ingested';
+      const parts = ['search+vector', ...(cur.graphs ? [splitGraphs.value ? 'graph' : 'graphs'] : []), ...(cur.rdf ? ['rdf'] : [])];
+      return parts.join(', ') + (cur.sync ? ' (synced)' : '');
     };
 
     /** A sync change for a checked row: false stops it, true resumes it, null = none. */
@@ -1411,12 +1519,15 @@ export default defineComponent({
         const ref = { path: item.path, id: item.id, is_folder: !!item.is_folder };
         const sync = syncChange(i);
         if (sync === true && !coveredBySync(i)) {
-          rows.push({ ...ref, action: actionFor(i) ?? (wantFor(i).graphs ? 'ingest' : 'ingest_no_graph'), auto_sync: true });
+          const want = wantFor(i);
+          rows.push({ ...ref, action: actionFor(i) ?? (want.graphs || want.rdf ? 'ingest' : 'ingest_no_graph'),
+                      ...graphFields(i), auto_sync: true });
           continue;
         }
         const action = actionFor(i);
         if (!action && sync === null) continue;
-        rows.push({ ...ref, action: action ?? 'keep', ...(sync === null ? {} : { auto_sync: sync }) });
+        rows.push({ ...ref, action: action ?? 'keep', ...(action === 'ingest' ? graphFields(i) : {}),
+                    ...(sync === null ? {} : { auto_sync: sync }) });
       }
       return rows;
     };
@@ -1429,6 +1540,7 @@ export default defineComponent({
     const afterRun = () => {
       wantSearch.value = {};
       wantGraphs.value = {};
+      wantRdf.value = {};
       wantSync.value = {};
       selectedItems.value = [];
       awaitingStatus = true;
@@ -1532,6 +1644,7 @@ export default defineComponent({
       subTab.value = 0;
       wantSearch.value = {};
       wantGraphs.value = {};
+      wantRdf.value = {};
       wantSync.value = {};
     });
 
@@ -1668,6 +1781,7 @@ export default defineComponent({
       columnsMode,
       canSearchVector,
       canGraphs,
+      splitGraphs,
       inStores,
       wantFor,
       setWant,

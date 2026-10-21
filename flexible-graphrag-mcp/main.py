@@ -66,9 +66,27 @@ def _fmt_error(e: Exception) -> str:
     return f"{type(e).__name__}: {e}" if str(e) else type(e).__name__
 
 
+# Permission filtering, from the MCP side -- three levels:
+#   1. search_documents / query_documents with no credentials: no filtering. Needs the backend to
+#      trust this server: FLEXIBLE_GRAPHRAG_TRUSTED_KEY here = TRUSTED_CLIENT_KEY on the backend
+#      (otherwise the backend's own SOURCE_QUERY_AUTH applies and may leave sources out).
+#   2. with credentials (source_auth / alfresco_ticket, e.g. from sign_in): those sources are
+#      filtered to what that user may read; the others stay unfiltered.
+#   3. MCP_BROWSER_SIGN_IN=true: also the start_sign_in / finish_sign_in tools, for Microsoft 365,
+#      Box, Google and Azure Storage sign-in in the user's browser (off by default).
+TRUSTED_KEY = (os.getenv("FLEXIBLE_GRAPHRAG_TRUSTED_KEY") or "").strip()
+BROWSER_SIGN_IN = os.getenv("MCP_BROWSER_SIGN_IN", "false").strip().lower() in ("1", "true", "yes", "on")
+
+
 def _ticket_headers(alfresco_ticket: Optional[str]) -> Optional[Dict[str, str]]:
-    """The asking user's Alfresco ticket as the header the backend's permission filter reads."""
-    return {"X-Alfresco-Ticket": alfresco_ticket.strip()} if alfresco_ticket and alfresco_ticket.strip() else None
+    """The question's headers: the asking user's Alfresco ticket (read by the backend's permission
+    filter), and this server's trusted-client key (level 1: no credentials, no filtering)."""
+    headers: Dict[str, str] = {}
+    if alfresco_ticket and alfresco_ticket.strip():
+        headers["X-Alfresco-Ticket"] = alfresco_ticket.strip()
+    if TRUSTED_KEY:
+        headers["X-Trusted-Client-Key"] = TRUSTED_KEY
+    return headers or None
 
 
 def _parse_obj(value: Optional[Union[str, dict]], name: str) -> Optional[dict]:
@@ -257,12 +275,23 @@ async def ingest_documents(
             "progress": 0
         }
 
-async def _ask(endpoint: str, query: str, top_k: int, alfresco_ticket, source_auth, scope) -> Dict[str, Any]:
+async def _ask(endpoint: str, query: str, top_k: int, alfresco_ticket, source_auth, scope,
+               sources=None) -> Dict[str, Any]:
     """search_documents / query_documents: the question plus who is asking and where."""
     try:
         request_data = {"query": query, "top_k": top_k}
         if scope:
             request_data["scope"] = _parse_obj(scope, "scope")
+        if sources:
+            parsed = sources
+            if isinstance(sources, str) and sources.strip().startswith(("[", "{")):
+                import json
+                parsed = json.loads(sources)  # a JSON list (or one object) from an LLM client
+            if isinstance(parsed, str):
+                parsed = [x.strip() for x in parsed.split(",") if x.strip()]
+            if isinstance(parsed, dict):
+                parsed = [parsed]
+            request_data["sources"] = [x if isinstance(x, dict) else {"source": x} for x in parsed]
         if source_auth:
             request_data["source_auth"] = _parse_obj(source_auth, "source_auth")
         result = await make_api_call("POST", endpoint, request_data, headers=_ticket_headers(alfresco_ticket))
@@ -276,10 +305,11 @@ async def get_auth_requirements() -> Dict[str, Any]:
     """
     Which sign-ins the stored content needs before search_documents / query_documents.
 
-    Returns {"required": bool, "providers": [{"source": "alfresco", "url": ..., "methods": [...],
-    "documents": n}]}. An empty providers list means no sign-in is needed. When required is true,
-    documents of a listed source are only used if the call passes that user's identity
-    (alfresco_ticket or source_auth); ask the user for it rather than guessing.
+    Returns {"required": bool, "providers": [{"source": "alfresco" | "nuxeo" | "cmis", "url": ...,
+    "methods": [...], "documents": n, "required": bool}]}, one provider per server. An empty
+    providers list means no sign-in is needed. Documents of a provider whose required is true are
+    only used if the call passes that user's identity for that server (alfresco_ticket or
+    source_auth); ask the user for it rather than guessing.
     """
     try:
         return {"success": True, "data": await make_api_call("GET", "/api/auth/requirements")}
@@ -288,61 +318,200 @@ async def get_auth_requirements() -> Dict[str, Any]:
 
 
 @mcp.tool()
+async def list_sources() -> Dict[str, Any]:
+    """
+    The sources that have documents in the stores, for search_documents / query_documents'
+    sources argument: [{"source", "label", "url", "documents", "login_gated"}], one per data source
+    type and server. login_gated sources (Alfresco, Nuxeo, CMIS) answer only for a caller that
+    passes its identity there (source_auth). available is false without the incremental registry.
+    """
+    try:
+        return {"success": True, "data": await make_api_call("GET", "/api/sources/available")}
+    except Exception as e:
+        return {"success": False, "error": _fmt_error(e)}
+
+
+@mcp.tool()
+async def sign_in(source: str, username: str, password: str, url: Optional[str] = None) -> Dict[str, Any]:
+    """
+    Sign in to a repository for search_documents / query_documents (and ingest).
+
+    Args:
+        source: "alfresco", "nuxeo", "cmis" or "s3"
+        username: The user's name on that repository (s3: their IAM access key ID)
+        password: Their password (s3: their secret access key) -- used once here, never stored
+        url: The server (a CMIS service URL for cmis); default: the backend's configured one
+
+    Returns the credential to pass back, ready to put in source_auth[source]:
+    alfresco {"ticket", "user_id", "url"}; nuxeo {"token", "user_id", "url"};
+    cmis {"auth_method": "ticket"|"token", "ticket"|"token", "user_id", "vendor", "url"}
+    (CMIS sign-in supports Alfresco and Nuxeo servers); s3 {"token", "user_id", "expires_at", "url"}
+    (temporary STS session credentials, packed; needs S3_AUTH_ENABLED on the backend).
+    """
+    if source not in ("alfresco", "nuxeo", "cmis", "s3"):
+        return {"success": False, "error": "source must be alfresco, nuxeo, cmis or s3 (microsoft, box, "
+                                            "google and azure sign in in a browser: start_sign_in, when the "
+                                            "server runs with MCP_BROWSER_SIGN_IN=true)"}
+    try:
+        body = {"username": username, "password": password}
+        if url:
+            body["url"] = url
+        data = await make_api_call("POST", f"/api/auth/{source}/login", body)
+        data.pop("password", None)
+        return {"success": True, "data": data}
+    except Exception as e:
+        return {"success": False, "error": _fmt_error(e)}
+
+
+_BROWSER_SIGN_INS = ("microsoft", "box", "google", "azure")
+_handoff_keys: Dict[str, tuple] = {}  # handoff_id -> (source, poll key): kept here, never shown to the model
+
+
+async def start_sign_in(source: str) -> Dict[str, Any]:
+    """
+    Start a sign-in that happens in the user's browser: "microsoft" (SharePoint + OneDrive),
+    "box", "google" (Google Drive + Cloud Storage) or "azure" (Azure Blob). For username /
+    password sources (alfresco, nuxeo, cmis) and s3, use sign_in instead.
+
+    Returns {sign_in_url, handoff_id, expires_in} (plus user_code when the backend asks users to
+    confirm a code). Show the user the link (and the code, if any) and ask them to open it in
+    their browser and sign in. When they say they have, call finish_sign_in(handoff_id). The link works once and
+    expires after expires_in seconds.
+    """
+    if source not in _BROWSER_SIGN_INS:
+        return {"success": False, "error": f"source must be one of {', '.join(_BROWSER_SIGN_INS)} "
+                                            "(use sign_in for alfresco, nuxeo, cmis and s3)"}
+    try:
+        data = await make_api_call("POST", f"/api/auth/{source}/handoff")
+        _handoff_keys[data["handoff_id"]] = (source, data.pop("poll_key"))
+        label = data.get("label", source)
+        steps = (f"Open {data['sign_in_url']} in your browser, check it shows the code {data['user_code']}, "
+                 f"then continue and sign in to {label}." if data.get("user_code")
+                 else f"Open {data['sign_in_url']} in your browser and sign in to {label}.")
+        return {"success": True, "data": {**data, "instructions": steps}}
+    except Exception as e:
+        return {"success": False, "error": _fmt_error(e)}
+
+
+async def finish_sign_in(handoff_id: str, wait_seconds: int = 0) -> Dict[str, Any]:
+    """
+    Collect a browser sign-in started with start_sign_in. Call it after the user says they have
+    signed in: by default it checks once and returns at once (no waiting); wait_seconds (max 300)
+    waits that long for the user to finish. Returns the credential, ready to put in
+    source_auth[source]: {"source", "credential": {"access_token", "url"}, "user_id",
+    "expires_at"} -- pass it as source_auth={source: credential} to search_documents /
+    query_documents. While the user is still signing in, returns {"pending": true}: ask them to
+    finish, then call finish_sign_in again.
+    """
+    import time as _time
+    entry = _handoff_keys.get(handoff_id)
+    if entry is None:
+        return {"success": False, "error": "unknown sign-in: start it with start_sign_in"}
+    source, poll_key = entry
+    deadline = _time.monotonic() + max(0, min(int(wait_seconds or 0), 300))
+    try:
+        while True:
+            data = await make_api_call("POST", f"/api/auth/{source}/handoff/result",
+                                       {"handoff_id": handoff_id, "poll_key": poll_key})
+            if not data.get("pending"):
+                _handoff_keys.pop(handoff_id, None)
+                return {"success": True, "data": {
+                    "source": source, "user_id": data.get("user_id"), "expires_at": data.get("expires_at"),
+                    "credential": {"access_token": data["access_token"], "url": data.get("url")}}}
+            if _time.monotonic() >= deadline:
+                return {"success": True, "data": {"pending": True, "handoff_id": handoff_id,
+                                                  "message": "The user has not finished signing in yet."}}
+            await asyncio.sleep(2)
+    except Exception as e:
+        _handoff_keys.pop(handoff_id, None)
+        return {"success": False, "error": _fmt_error(e)}
+
+
+if BROWSER_SIGN_IN:  # level 3 only: otherwise these tools are not offered
+    start_sign_in = mcp.tool()(start_sign_in)
+    finish_sign_in = mcp.tool()(finish_sign_in)
+
+
+@mcp.tool()
 async def search_documents(query: str, top_k: int = 10, alfresco_ticket: Optional[str] = None,
                            source_auth: Optional[Union[str, dict]] = None,
-                           scope: Optional[Union[str, dict]] = None) -> Dict[str, Any]:
+                           scope: Optional[Union[str, dict]] = None,
+                           sources: Optional[Union[str, List[Union[str, Dict[str, str]]]]] = None) -> Dict[str, Any]:
     """
     Search documents using hybrid search
 
-    Alfresco documents are only searched when the caller says who they are (alfresco_ticket or
-    source_auth); results then include only the Alfresco documents that user may read,
-    checked against Alfresco at query time. Documents from other sources are always searched.
+    Repository documents (Alfresco, Nuxeo, and CMIS on Alfresco/Nuxeo servers) are only searched
+    when the caller says who they are on that server (alfresco_ticket or source_auth); results
+    then include only the documents that user may read, checked against each repository at query
+    time. Documents from other sources are always searched.
 
     Args:
         query: Search query string
         top_k: Number of results to return
         alfresco_ticket: The asking user's Alfresco login ticket (TICKET_...)
-        source_auth: The asking user's identity per data source, e.g.
-            {"alfresco": {"auth_method": "basic", "username": "...", "password": "..."}},
-            {"alfresco": {"ticket": "TICKET_..."}} or
+        source_auth: The asking user's identities per data source -- one object or a list (one
+            per server) for each of "alfresco", "nuxeo" and "cmis", e.g.
+            {"alfresco": {"ticket": "TICKET_..."}, "nuxeo": {"token": "..."}},
+            {"alfresco": [{"url": "http://a:8080", "ticket": "..."}, {"url": "http://b:8080", "ticket": "..."}]},
+            {"cmis": {"url": "<CMIS service URL>", "auth_method": "ticket", "ticket": "TICKET_..."}},
+            {"microsoft": {"access_token": "<delegated Graph token>"}} (SharePoint + OneDrive),
+            {"box" | "google" | "azure": {"access_token": "..."}} (popup sign-ins in the UIs),
+            {"s3": {"token": "<from sign_in source=s3>"}} (Amazon S3),
+            {"alfresco": {"auth_method": "basic", "username": "...", "password": "..."}} or
             {"alfresco": {"auth_method": "oauth2", "oauth2": {"access_token": "..."}}}.
-            Optional "url" names the Alfresco server. get_auth_requirements tells whether the
-            stored content needs one.
+            "url" names the server (default: the backend's configured one for that source).
+            sign_in turns a username/password into the ticket/token; get_auth_requirements
+            lists the servers the stored content needs.
         scope: Limit to one repository document or folder, as a JSON object:
             {"data_source": "alfresco", "path": "/Shared/GraphRAG", "is_folder": true}
             or {"data_source": "alfresco", "node_id": "<node id>"}. A folder covers everything
             below it. Optional "url" picks one repository; "name" is used in messages.
+        sources: Answer only from these sources (list_sources names them): "nuxeo,sharepoint",
+            ["alfresco", "filesystem"], or [{"source": "alfresco", "url": "http://a:8080"}] for one
+            server. Omitted = all sources.
     """
-    return await _ask("/api/search", query, top_k, alfresco_ticket, source_auth, scope)
+    return await _ask("/api/search", query, top_k, alfresco_ticket, source_auth, scope, sources)
 
 
 @mcp.tool()
 async def query_documents(query: str, top_k: int = 10, alfresco_ticket: Optional[str] = None,
                           source_auth: Optional[Union[str, dict]] = None,
-                          scope: Optional[Union[str, dict]] = None) -> Dict[str, Any]:
+                          scope: Optional[Union[str, dict]] = None,
+                          sources: Optional[Union[str, List[Union[str, Dict[str, str]]]]] = None) -> Dict[str, Any]:
     """
     Query documents with AI-generated answers
 
-    Alfresco documents are only used when the caller says who they are (alfresco_ticket or
-    source_auth); the answer then draws only on the Alfresco documents that user may read,
-    checked against Alfresco at query time. Documents from other sources are always used.
+    Repository documents (Alfresco, Nuxeo, and CMIS on Alfresco/Nuxeo servers) are only used
+    when the caller says who they are on that server (alfresco_ticket or source_auth); the answer
+    then draws only on the documents that user may read, checked against each repository at query
+    time. Documents from other sources are always used.
 
     Args:
         query: Question to ask
         top_k: Number of source documents to consider
         alfresco_ticket: The asking user's Alfresco login ticket (TICKET_...)
-        source_auth: The asking user's identity per data source, e.g.
-            {"alfresco": {"auth_method": "basic", "username": "...", "password": "..."}},
-            {"alfresco": {"ticket": "TICKET_..."}} or
+        source_auth: The asking user's identities per data source -- one object or a list (one
+            per server) for each of "alfresco", "nuxeo" and "cmis", e.g.
+            {"alfresco": {"ticket": "TICKET_..."}, "nuxeo": {"token": "..."}},
+            {"alfresco": [{"url": "http://a:8080", "ticket": "..."}, {"url": "http://b:8080", "ticket": "..."}]},
+            {"cmis": {"url": "<CMIS service URL>", "auth_method": "ticket", "ticket": "TICKET_..."}},
+            {"microsoft": {"access_token": "<delegated Graph token>"}} (SharePoint + OneDrive),
+            {"box" | "google" | "azure": {"access_token": "..."}} (popup sign-ins in the UIs),
+            {"s3": {"token": "<from sign_in source=s3>"}} (Amazon S3),
+            {"alfresco": {"auth_method": "basic", "username": "...", "password": "..."}} or
             {"alfresco": {"auth_method": "oauth2", "oauth2": {"access_token": "..."}}}.
-            Optional "url" names the Alfresco server. get_auth_requirements tells whether the
-            stored content needs one.
+            "url" names the server (default: the backend's configured one for that source).
+            sign_in turns a username/password into the ticket/token; get_auth_requirements
+            lists the servers the stored content needs.
         scope: Limit to one repository document or folder, as a JSON object:
             {"data_source": "alfresco", "path": "/Shared/GraphRAG", "is_folder": true}
             or {"data_source": "alfresco", "node_id": "<node id>"}. A folder covers everything
             below it. Optional "url" picks one repository; "name" is used in messages.
+        sources: Answer only from these sources (list_sources names them): "nuxeo,sharepoint",
+            ["alfresco", "filesystem"], or [{"source": "alfresco", "url": "http://a:8080"}] for one
+            server. Omitted = all sources.
     """
-    return await _ask("/api/query", query, top_k, alfresco_ticket, source_auth, scope)
+    return await _ask("/api/query", query, top_k, alfresco_ticket, source_auth, scope, sources)
 
 @mcp.tool()
 async def test_with_sample(skip_graph: bool = False) -> Dict[str, Any]:
@@ -455,6 +624,8 @@ def main():
     sys.stderr.write("   • get_system_status\n")
     sys.stderr.write("   • ingest_documents (supports paths, skip_graph, enable_sync, nodeDetails, all 14 data sources)\n")
     sys.stderr.write("   • get_auth_requirements\n")
+    sys.stderr.write("   • sign_in\n")
+    sys.stderr.write("   • list_sources\n")
     sys.stderr.write("   • search_documents\n")
     sys.stderr.write("   • query_documents\n")
     sys.stderr.write("   • test_with_sample\n")

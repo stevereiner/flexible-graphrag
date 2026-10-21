@@ -19,8 +19,8 @@ class CmisSource(BaseDataSource):
     def __init__(self, config: Dict[str, Any]):
         super().__init__(config)
         self.url = config.get("url", "")
-        self.username = config.get("username", "")
-        self.password = config.get("password", "")
+        self.username = config.get("username") or ""
+        self.password = config.get("password") or ""
         folder_path = config.get("folder_path", "/")
         
         # Strip /Company Home prefix if present (for Alfresco compatibility)
@@ -34,20 +34,52 @@ class CmisSource(BaseDataSource):
         
         self.folder_path = folder_path
         
+        # A sign-in ticket (Alfresco server) / token (Nuxeo server) instead of a password
+        # (sources/cmis_auth.py); the vendor's adapter knows how to send it.
+        from sources.cmis_auth import governed_vendor, split_credential
+        self.signin_adapter, self.signin_credential = split_credential(config)
+
         try:
             self.client = CmisClient(self.url, self.username, self.password)
+            if self.signin_adapter is not None and self.signin_credential:
+                self.signin_adapter.cmislib_session(self.client, self.signin_credential)
             self.repo = self.client.getDefaultRepository()
             logger.info("Successfully connected to CMIS repository")
         except Exception as e:
             logger.error(f"Failed to connect to CMIS repository: {str(e)}")
             raise
-    
+
+        # Documents from a vendor with a sign-in adapter (Alfresco, Nuxeo) get cmis://<id> doc ids,
+        # so query-time permission filtering checks them; others keep path ids and stay visible.
+        try:
+            self.vendor = self.repo.getRepositoryInfo().get("vendorName", "") or ""
+        except Exception:
+            self.vendor = ""
+        self.governed = governed_vendor(self.vendor)
+
+    def _stable_meta(self, file_info: dict) -> dict:
+        """``stable_file_path: cmis://<id>`` for a governed vendor: the version series id when the
+        server gives one (stays the same across new versions), else the object id."""
+        if not self.governed:
+            return {}
+        series = None
+        obj = file_info.get('cmis_object')
+        if obj is not None:
+            try:
+                series = obj.properties.get('cmis:versionSeriesId')
+            except Exception:
+                series = None
+        return {"stable_file_path": f"cmis://{series or file_info['id']}"}
+
     def validate_config(self) -> bool:
         """Validate the CMIS source configuration."""
         if not self.url:
             logger.error("No URL specified for CMIS source")
             return False
-        
+
+        if self.signin_credential:
+            return True
+
         if not self.username:
             logger.error("No username specified for CMIS source")
             return False
@@ -243,6 +275,7 @@ class CmisSource(BaseDataSource):
                             # find the date regardless of which key it looks up.
                             meta_update["cmis:lastModificationDate"] = last_mod
                             meta_update["modified_at"] = last_mod
+                        meta_update.update(self._stable_meta(file_info))
                         processed_doc.metadata.update(meta_update)
                         
                         documents.append(processed_doc)
@@ -321,6 +354,7 @@ class CmisSource(BaseDataSource):
                     if last_mod:
                         meta_update["cmis:lastModificationDate"] = last_mod
                         meta_update["modified_at"] = last_mod
+                    meta_update.update(self._stable_meta(file_info))
                     processed_doc.metadata.update(meta_update)
                     
                     documents.append(processed_doc)

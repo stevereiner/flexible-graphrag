@@ -42,6 +42,18 @@ export class SearchTabComponent implements OnInit, OnDestroy {
   emptyMessage = '';
   private readonly sourceAuth = inject(SourceAuthService);
 
+  /** The data source part of a result's source line ("SharePoint"), '' when unknown. */
+  sourceTypeLabel(result: any): string {
+    const labels: Record<string, string> = {
+      alfresco: 'Alfresco', nuxeo: 'Nuxeo', cmis: 'CMIS', sharepoint: 'SharePoint', onedrive: 'OneDrive',
+      box: 'Box', google_drive: 'Google Drive', s3: 'Amazon S3', gcs: 'Google Cloud Storage',
+      azure_blob: 'Azure Blob', filesystem: 'Files', upload: 'Uploads', web: 'Web', wikipedia: 'Wikipedia',
+      youtube: 'YouTube',
+    };
+    const types: string[] = (result.documents || []).map((d: any) => d.source_type || '').filter(Boolean);
+    return Array.from(new Set(types)).map((t) => labels[t] || t).join(', ');
+  }
+
   /** The store part of a result's source label ("a.txt | Neo4j property graph" -> "Neo4j property graph"). */
   storeLabel(result: any): string {
     const source: string = result.source || '';
@@ -76,7 +88,7 @@ export class SearchTabComponent implements OnInit, OnDestroy {
   }
 
   private owner(): string {
-    return JSON.stringify(this.fgConfig.questionHeaders());
+    return JSON.stringify([this.fgConfig.questionHeaders(), this.fgConfig.questionSourceAuth() || {}]);
   }
 
   onTabChange(): void {
@@ -108,11 +120,11 @@ export class SearchTabComponent implements OnInit, OnDestroy {
         top_k: 10
       };
       
-      // Ask for an Alfresco sign-in first when the stores need one; on a 401 with our ticket
-      // (expired, or signed out elsewhere) sign in again and ask once more
+      // Ask for the sign-ins the stores need first (one per repository server); on a 401 (a
+      // ticket / token expired or was revoked) sign in again and ask once more
       await this.sourceAuth.beforeQuestion();
-      const post = () => this.http.post<ApiResponse>(`${this.fgConfig.apiUrl}/search`, request,
-        { headers: this.fgConfig.questionHeaders() }).toPromise();
+      const post = () => this.http.post<ApiResponse>(`${this.fgConfig.apiUrl}/search`,
+        this.fgConfig.questionBody(request), { headers: this.fgConfig.questionHeaders() }).toPromise();
       let response: ApiResponse | undefined;
       try {
         response = await post();

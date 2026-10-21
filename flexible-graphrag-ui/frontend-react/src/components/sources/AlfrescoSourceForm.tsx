@@ -1,14 +1,11 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { TextField, Box, FormControl, InputLabel, Select, MenuItem, Button, Typography, FormControlLabel, Checkbox } from '@mui/material';
+import { TextField, Box, FormControl, InputLabel, Select, MenuItem } from '@mui/material';
 import { BaseSourceForm, BaseSourceFormProps } from './BaseSourceForm';
-import { AlfrescoSession, getAlfrescoSession, onAuthChange, openSignIn, signOut, validateSession } from '../../auth/sourceAuth';
+import { SourceSignInSection, useSourceSession } from '../../auth/SourceSignInSection';
+import { DeepCheckbox, deepValue } from './DeepCheckbox';
+import { useUiDefaults } from '../../uiDefaults';
 
 type AuthMethod = 'basic' | 'ticket' | 'oauth2';
-
-// Same Alfresco server? (an /alfresco suffix and trailing slashes don't matter)
-const sameServer = (a: string, b: string) =>
-  a.trim().replace(/\/+$/, '').replace(/\/alfresco$/i, '').toLowerCase() ===
-  b.trim().replace(/\/+$/, '').replace(/\/alfresco$/i, '').toLowerCase();
 
 interface AlfrescoSourceFormProps extends BaseSourceFormProps {
   // Single-object persistence (see NuxeoSourceForm): seeds on mount, emits full config on edit,
@@ -41,6 +38,9 @@ export const AlfrescoSourceForm: React.FC<AlfrescoSourceFormProps> = ({
   const [url, setUrl] = useState<string>(value?.url ?? defaultUrl);
   const [authMethod, setAuthMethod] = useState<AuthMethod>(value?.auth_method ?? 'basic');
   const [path, setPath] = useState<string>(value?.path ?? defaultPath);
+  // Deep: include subfolders (recursive). Unset: the backend's DEFAULT_RECURSIVE, else off
+  const [ownDeep, setRecursive] = useState<boolean | undefined>(value?.recursive);
+  const recursive = deepValue(ownDeep, useUiDefaults().recursive, false);
 
   // Basic / ticket auth
   // No pre-filled credentials (they were admin/admin): sign in, or type a username/password
@@ -51,12 +51,7 @@ export const AlfrescoSourceForm: React.FC<AlfrescoSourceFormProps> = ({
   // server, the ingest uses that session's ticket -- nobody types a ticket. "Use other
   // credentials" falls back to the fields below (e.g. a service account for Auto Sync, which
   // needs durable credentials, never a ticket).
-  const [session, setSession] = useState<AlfrescoSession | null>(getAlfrescoSession());
-  const [useOther, setUseOther] = useState<boolean>(false);
-  useEffect(() => onAuthChange(() => setSession(getAlfrescoSession())), []);
-  useEffect(() => { validateSession(true); }, []);  // a kept ticket may be dead by now
-  const signedInHere = !!session && sameServer(session.url, url);
-  const usingSignIn = signedInHere && !useOther;
+  const { session, useOther, setUseOther, usingSignIn } = useSourceSession('alfresco', url);
 
   // OAuth2
   const [clientId, setClientId] = useState<string>(value?.oauth2?.client_id ?? '');
@@ -78,9 +73,9 @@ export const AlfrescoSourceForm: React.FC<AlfrescoSourceFormProps> = ({
 
   const config = useMemo(() => {
     if (usingSignIn && session) {
-      return { url, path, auth_method: 'ticket', ticket: session.ticket };
+      return { url, path, recursive, auth_method: 'ticket', ticket: session.ticket! };
     }
-    const base: any = { url, auth_method: authMethod, path };
+    const base: any = { url, auth_method: authMethod, path, recursive };
     if (authMethod === 'oauth2') {
       base.oauth2 = {
         client_id: clientId,
@@ -95,7 +90,7 @@ export const AlfrescoSourceForm: React.FC<AlfrescoSourceFormProps> = ({
       base.password = password;
     }
     return base;
-  }, [url, authMethod, path, usingSignIn, session, username, password, clientId, clientSecret, tokenEndpoint, scope, accessToken, refreshToken]);
+  }, [url, authMethod, path, recursive, usingSignIn, session, username, password, clientId, clientSecret, tokenEndpoint, scope, accessToken, refreshToken]);
 
   useEffect(() => {
     onValidationChange(isValid);
@@ -120,31 +115,10 @@ export const AlfrescoSourceForm: React.FC<AlfrescoSourceFormProps> = ({
         placeholder={`e.g., ${defaultUrl}`}
       />
 
-      <Box sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
-        {signedInHere ? (
-          <>
-            <Typography variant="body2">
-              Signed in to Alfresco as <strong>{session!.user_id}</strong>
-              {usingSignIn ? ' (used for this ingest)' : ''}
-            </Typography>
-            <Button size="small" onClick={() => { signOut(); }}>Sign out</Button>
-            <FormControlLabel
-              control={<Checkbox size="small" checked={useOther} onChange={(e) => setUseOther(e.target.checked)} />}
-              label="Use other credentials (e.g. for Auto Sync)"
-            />
-          </>
-        ) : (
-          <>
-            <Button
-              variant="outlined" size="small"
-              onClick={() => openSignIn({ source: 'alfresco', url, methods: ['basic'], documents: null }, 'ingest')}
-            >
-              Sign in to Alfresco
-            </Button>
-            <Typography variant="body2" color="text.secondary">or enter credentials below</Typography>
-          </>
-        )}
-      </Box>
+      <SourceSignInSection
+        source="alfresco" url={url} session={session} usingSignIn={usingSignIn}
+        useOther={useOther} onUseOtherChange={setUseOther}
+      />
 
       {!usingSignIn && (
       <FormControl fullWidth size="small" sx={{ mb: 2 }}>
@@ -260,17 +234,20 @@ export const AlfrescoSourceForm: React.FC<AlfrescoSourceFormProps> = ({
         </Box>
       )}
 
-      <TextField
-        fullWidth
-        label="Path"
-        required
-        variant="outlined"
-        value={path}
-        onChange={(e) => setPath(e.target.value)}
-        size="small"
-        sx={{ mb: 2 }}
-        placeholder="e.g., /Shared/GraphRAG"
-      />
+      <Box sx={{ display: 'flex', alignItems: 'flex-start' }}>
+        <TextField
+          fullWidth
+          label="Path"
+          required
+          variant="outlined"
+          value={path}
+          onChange={(e) => setPath(e.target.value)}
+          size="small"
+          sx={{ mb: 2 }}
+          placeholder="e.g., /Shared/GraphRAG"
+        />
+        <DeepCheckbox checked={recursive} onChange={setRecursive} />
+      </Box>
     </BaseSourceForm>
   );
 };

@@ -53,6 +53,23 @@ All three text ingestion endpoints (`/api/ingest`, `/api/ingest-text`, `/api/tes
 | `/api/search` | POST | Hybrid search — returns ranked document excerpts from all configured stores |
 | `/api/query` | POST | AI-powered Q&A — generates an answer from the document corpus |
 
+Both take optional `source_auth` (the asker's sign-ins, per source: `alfresco`, `nuxeo`, `cmis`,
+`microsoft`, `box`, `google`, `azure`, `s3`) to return only documents that user may read, and
+`sources` (a list of `{source, url?}`) to limit the question to chosen sources.
+
+### Sign-In
+
+| Endpoint | Method | Description |
+|---|---|---|
+| `/api/auth/requirements` | GET | Which sign-ins the stored documents need, one provider per server |
+| `/api/sources/available` | GET | The sources with documents in the stores (for `sources`) |
+| `/api/auth/{alfresco,nuxeo,cmis,s3}/login` | POST | Username / password (S3: IAM access key) sign-in; returns a ticket, token or session |
+| `/api/auth/{alfresco,nuxeo,cmis,s3}/me` | GET | Check a stored sign-in |
+| `/api/auth/{provider}/popup`, `/callback`, `/result`, `/me` | GET | Popup sign-in for `microsoft`, `box`, `google`, `azure` |
+| `/api/auth/{provider}/handoff`, `/handoff/result` | POST | Browser hand-off sign-in (used by the MCP server's `start_sign_in` / `finish_sign_in`) |
+
+See the [Sign-In and Permission-Aware Search guide](../DATA-SOURCES/SIGN-IN-GUIDE.md).
+
 ### Graph
 
 | Endpoint | Method | Description |

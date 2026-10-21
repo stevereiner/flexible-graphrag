@@ -68,28 +68,34 @@
       />
     </template>
 
-    <v-text-field
-      v-model="folderId"
-      label="Folder ID (Optional)"
-      variant="outlined"
-      class="mb-2"
-      placeholder="e.g., 123456789"
-      hint="Leave empty for the root folder (All Files, ID 0)"
-      persistent-hint
-    />
+    <div class="d-flex align-start">
+      <v-text-field
+        v-model="folderId"
+        label="Folder ID (Optional)"
+        variant="outlined"
+        class="mb-2"
+        placeholder="e.g., 123456789"
+        hint="Leave empty for the root folder (All Files, ID 0)"
+        persistent-hint
+      />
+      <DeepCheckbox :checked="recursive" @change="(v: boolean) => ownDeep = v" />
+    </div>
   </BaseSourceForm>
 </template>
 
 <script lang="ts">
 import { defineComponent, ref, computed, watch } from 'vue';
 import BaseSourceForm from './BaseSourceForm.vue';
+import DeepCheckbox from './DeepCheckbox.vue';
+import { loadUiDefaults } from '../../uiDefaults';
 
 type BoxAuthMode = 'developer_token' | 'ccg_user' | 'ccg_enterprise' | 'ccg_both';
 
 export default defineComponent({
   name: 'BoxSourceForm',
   components: {
-    BaseSourceForm
+    BaseSourceForm,
+    DeepCheckbox
   },
   props: {
     clientId: {
@@ -121,6 +127,10 @@ export default defineComponent({
   setup(props, { emit }) {
     const folderId = ref('');
     const authMode = ref<BoxAuthMode>('developer_token');
+    // Deep: include subfolders (recursive). Unset: the backend's DEFAULT_RECURSIVE, else on (Box's own default)
+    const ownDeep = ref<boolean | undefined>(undefined);
+    const uiDefaults = loadUiDefaults();
+    const recursive = computed(() => ownDeep.value ?? uiDefaults.recursive ?? true);
     
     const authModes = [
       { title: 'Developer Token', value: 'developer_token' },
@@ -151,7 +161,8 @@ export default defineComponent({
       developer_token: authMode.value === 'developer_token' ? props.developerToken : undefined,
       user_id: (authMode.value === 'ccg_user' || authMode.value === 'ccg_both') ? props.userId : undefined,
       enterprise_id: (authMode.value === 'ccg_enterprise' || authMode.value === 'ccg_both') ? props.enterpriseId : undefined,
-      folder_id: folderId.value || undefined
+      folder_id: folderId.value || undefined,
+      recursive: recursive.value,
     }));
 
     // Emit validation and configuration changes
@@ -181,6 +192,8 @@ export default defineComponent({
     };
 
     return {
+      ownDeep,
+      recursive,
       folderId,
       authMode,
       authModes,

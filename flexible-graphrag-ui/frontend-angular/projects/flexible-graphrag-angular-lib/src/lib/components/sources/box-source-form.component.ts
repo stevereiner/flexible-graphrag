@@ -1,4 +1,5 @@
-import { Component, Input, Output, EventEmitter, OnInit, OnDestroy } from '@angular/core';
+import { Component, Input, Output, EventEmitter, OnInit, OnDestroy, inject } from '@angular/core';
+import { UiDefaultsService } from '../../services/ui-defaults.service';
 
 type BoxAuthMode = 'developer_token' | 'ccg_user' | 'ccg_enterprise' | 'ccg_both';
 
@@ -9,6 +10,7 @@ export interface BoxSourceConfig {
   user_id?: string;
   enterprise_id?: string;
   folder_id?: string;
+  recursive?: boolean;  // Deep: include subfolders, in the ingest and its auto sync
 }
 
 @Component({
@@ -78,14 +80,18 @@ export interface BoxSourceConfig {
         </mat-form-field>
       </div>
 
-      <mat-form-field appearance="outline" class="full-width">
-        <mat-label>Folder ID (Optional)</mat-label>
-        <input matInput
-               [(ngModel)]="folderId"
-               (ngModelChange)="onFolderIdChange()"
-               placeholder="e.g., 123456789" />
-        <mat-hint>Leave empty for the root folder (All Files, ID 0)</mat-hint>
-      </mat-form-field>
+      <div class="path-row">
+        <mat-form-field appearance="outline" class="full-width">
+          <mat-label>Folder ID (Optional)</mat-label>
+          <input matInput
+                 [(ngModel)]="folderId"
+                 (ngModelChange)="onFolderIdChange()"
+                 placeholder="e.g., 123456789" />
+          <mat-hint>Leave empty for the root folder (All Files, ID 0)</mat-hint>
+        </mat-form-field>
+        <mat-checkbox class="deep" [checked]="recursive" (change)="ownDeep = $event.checked; onFolderIdChange()"
+                    title="Include subfolders, at every depth, in the ingest and its auto sync">Deep</mat-checkbox>
+      </div>
     </app-base-source-form>
   `,
   styles: [`
@@ -105,6 +111,9 @@ export interface BoxSourceConfig {
     .flex-1 {
       flex: 1;
     }
+    .path-row { display: flex; align-items: flex-start; gap: 8px; }
+    .path-row .full-width { flex: 1; }
+    .path-row .deep { margin-top: 12px; white-space: nowrap; }
   `],
   standalone: false
 })
@@ -125,9 +134,14 @@ export class BoxSourceFormComponent implements OnInit, OnDestroy {
 
   folderId: string = '';
   authMode: BoxAuthMode = 'developer_token';
+  // Deep: include subfolders (recursive). Unset: the backend's DEFAULT_RECURSIVE, else on (Box's own default)
+  private readonly uiDefaults = inject(UiDefaultsService);
+  ownDeep: boolean | undefined = undefined;
+  get recursive(): boolean { return this.ownDeep ?? this.uiDefaults.defaults.recursive ?? true; }
 
   ngOnInit() {
     this.updateValidationAndConfig();
+    this.uiDefaults.load().then(() => this.updateValidationAndConfig());  // the Deep default may have changed
   }
 
   ngOnDestroy() {
@@ -158,7 +172,8 @@ export class BoxSourceFormComponent implements OnInit, OnDestroy {
       developer_token: this.authMode === 'developer_token' ? this.developerToken : undefined,
       user_id: (this.authMode === 'ccg_user' || this.authMode === 'ccg_both') ? this.userId : undefined,
       enterprise_id: (this.authMode === 'ccg_enterprise' || this.authMode === 'ccg_both') ? this.enterpriseId : undefined,
-      folder_id: this.folderId || undefined
+      folder_id: this.folderId || undefined,
+      recursive: this.recursive,
     };
     
     this.validationChange.emit(isValid);

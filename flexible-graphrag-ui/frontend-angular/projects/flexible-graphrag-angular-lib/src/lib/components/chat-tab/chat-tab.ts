@@ -81,7 +81,7 @@ export class ChatTabComponent implements AfterViewChecked, AfterViewInit, OnChan
   }
 
   private owner(): string {
-    return JSON.stringify(this.fgConfig.questionHeaders());
+    return JSON.stringify([this.fgConfig.questionHeaders(), this.fgConfig.questionSourceAuth() || {}]);
   }
 
   ngOnChanges(changes: SimpleChanges): void {
@@ -191,11 +191,11 @@ export class ChatTabComponent implements AfterViewChecked, AfterViewInit, OnChan
         ...(this.scope ? { scope: this.scope } : {}),
       };
       
-      // Ask for an Alfresco sign-in first when the stores need one; on a 401 with our ticket
-      // (expired, or signed out elsewhere) sign in again and ask once more
+      // Ask for the sign-ins the stores need first (one per repository server); on a 401 (a
+      // ticket / token expired or was revoked) sign in again and ask once more
       await this.sourceAuth.beforeQuestion();
-      const post = () => this.http.post<ApiResponse>(`${this.fgConfig.apiUrl}/search`, request,
-        { headers: this.fgConfig.questionHeaders() }).toPromise();
+      const post = () => this.http.post<ApiResponse>(`${this.fgConfig.apiUrl}/search`,
+        this.fgConfig.questionBody(request), { headers: this.fgConfig.questionHeaders() }).toPromise();
       let response: ApiResponse | undefined;
       try {
         response = await post();

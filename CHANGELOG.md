@@ -2,6 +2,58 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2026-10-19] — v0.8.6: sign-in and permission-aware search for every repository and cloud source
+
+### Added
+
+- **Sign-in for search and AI chat across sources**, so answers come only from documents the asker
+  may read (checked at question time). Setup per source: `docs/DATA-SOURCES/SIGN-IN-GUIDE.md`.
+  - Username / password: Alfresco, Nuxeo, CMIS on Alfresco or Nuxeo servers (vendor adapters,
+    `README-cmis-sign-in.md`).
+  - Browser popup (opt-in by app settings): Microsoft 365 for SharePoint + OneDrive, Box, Google
+    for Drive + Cloud Storage, Azure Storage for Azure Blob.
+  - Amazon S3 with the user's own IAM access key, traded for a temporary STS session
+    (`S3_AUTH_ENABLED`).
+  - Several sign-ins at once, one per server; `SOURCE_QUERY_AUTH` / `<SOURCE>_QUERY_AUTH`
+    (`required` | `optional`).
+- **UIs (React, Vue, Angular):** one sign-in pill in the header with a menu of servers, and a
+  Sources picker (chips) on Search and AI Chat. Results name their data source.
+- **Open links** for SharePoint, OneDrive, Box, Drive and GCS; S3 and Azure Blob links open the file
+  through a short-lived URL signed with the user's own sign-in.
+- **Processing tab:** Search+Vector / Graphs / Auto Sync columns for every data source (one row for
+  a whole S3, GCS, Azure, Box, Drive, OneDrive, SharePoint, CMIS, web, Wikipedia or YouTube
+  datasource). Ready for a backend that splits Graphs into Graph and RDF columns (`show_graph` /
+  `show_rdf`) and sends UI defaults (`/api/ui-defaults`).
+- **Deep checkbox** (include subfolders) on the Alfresco, Nuxeo and Box forms, sent as `recursive`.
+- **KG Spaces / Angular lib:** `searchSignIn` option; KG Spaces questions carry ACA's ticket plus the
+  user's sign-ins to other sources.
+- **MCP:** three levels: no credentials = unfiltered (backend `TRUSTED_CLIENT_KEY` = MCP
+  `FLEXIBLE_GRAPHRAG_TRUSTED_KEY`); `source_auth` filters; `MCP_BROWSER_SIGN_IN=true` adds
+  `start_sign_in` / `finish_sign_in` (browser handoff). Also `sign_in` (incl. S3), `list_sources`,
+  and `sources` on search / query.
+- API: `/api/auth/{source}/login|me`, `/api/auth/{provider}/popup|callback|result|me|handoff`,
+  `/api/sources/available`, `source_auth` and `sources` on `/api/search` and `/api/query`.
+
+### Changed
+
+- Version 0.8.6 for the backend, MCP server, React / Vue / Angular apps, the
+  `@flexible-graphrag/angular-ui` library, Langflow components and flows.
+- The UIs send sign-ins as `source_auth` in the body; hosts such as KG Spaces still send
+  `X-Alfresco-Ticket`.
+- CMIS documents on Alfresco / Nuxeo servers get `cmis://` doc ids: re-ingest earlier CMIS ingests to
+  have them permission-checked.
+
+### Fixed
+
+- ACA view links found the document's folder only with a backend service account; they now use the
+  asker's own Alfresco sign-in, and fall back to a search for the file name (closing the viewer no
+  longer lands on an endless empty search).
+- MCP `sources` given as a JSON list string failed.
+- Re-checking a stored sign-in that has expired (`/api/auth/*/me`) logged `401 Unauthorized`; it now
+  answers `{"valid": false}`. The startup FutureWarning about grpcio and post-quantum cryptography is
+  hidden (grpcio is held below 1.80 by weaviate-client).
+- `/api/python-info` (MCP `get_python_info`) listed no dependencies for a wheel install.
+
 ## [2026-10-18] — v0.8.5 release
 
 Releases the [2026-10-17] changes below as v0.8.5.

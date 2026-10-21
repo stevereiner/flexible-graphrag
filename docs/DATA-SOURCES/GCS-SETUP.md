@@ -2,6 +2,8 @@
 
 This guide shows you how to configure Google Cloud Storage as a data source for Flexible GraphRAG, with optional real-time Pub/Sub integration.
 
+> **Per-user permissions:** with `GOOGLE_AUTH_CLIENT_ID` / `_CLIENT_SECRET` set, users sign in with **Sign in with Google** (one sign-in for Cloud Storage and Google Drive) and results are checked as them. See [Google sign-in](README-google-sign-in.md).
+
 ---
 
 ## Part 1: Google Cloud Setup

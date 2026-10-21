@@ -1,24 +1,28 @@
-import { Component, Input, Output, EventEmitter, OnInit, OnChanges, OnDestroy, SimpleChanges } from '@angular/core';
+import { Component, Input, Output, EventEmitter, OnInit, OnChanges, OnDestroy, SimpleChanges, inject } from '@angular/core';
 import { MatCheckboxChange } from '@angular/material/checkbox';
+import { firstValueFrom } from 'rxjs';
 import { ApiService } from '../../services/api.service';
 import { FlexibleGraphragConfigService } from '../../config.service';
 import { ProcessingSessionService } from '../../services/processing-session.service';
+import { UiDefaultsService } from '../../services/ui-defaults.service';
 import {
   AsyncProcessingResponse, ConfiguredStores, ProcessingStatusResponse,
-  IngestStatusItem, IngestStatusRequest, ItemAction, ItemActionKind, ProcessingJob,
+  IngestStatusItem, IngestStatusRequest, ItemAction, ItemActionKind, ProcessingJob, RemoveTarget,
 } from '../../models/api.models';
 
 // Sources with no auto change sync: the "Enable auto change sync" checkbox is hidden for them
 const NO_AUTO_SYNC_SOURCES = ['upload', 'cmis', 'web', 'wikipedia', 'youtube'];
 
-// What a row is in, or should end up in: Search+Vector, and Graphs (property graph + RDF).
+// What a row is in, or should end up in: Search+Vector, the property graph and the RDF graph.
+// (A backend without show_graph / show_rdf has one Graphs column for both: `graphs` then.)
 interface RowStores {
   sv: boolean;
-  graphs: boolean;
+  graphs: boolean;  // the property graph (with an older backend: both graphs)
+  rdf: boolean;     // the RDF graph (always false with an older backend)
   sync: boolean;  // Auto Sync: kept up to date with repository changes
 }
 
-type ColumnKind = 'sv' | 'graphs' | 'sync';
+type ColumnKind = 'sv' | 'graphs' | 'rdf' | 'sync';
 
 const TERMINAL_JOB = ['completed', 'failed', 'cancelled'];
 // Job list refresh: often while a job runs, seldom when idle (still picks up auto sync runs)
@@ -85,10 +89,14 @@ export class ProcessingTabComponent implements OnInit, OnChanges, OnDestroy {
   private ingestStatusRequest: IngestStatusRequest | null = null;  // the request behind `ingestStatus`
   // Which stores are configured; any can be "none" in .env (from the ingest-status response)
   stores: Partial<ConfiguredStores> = {};
+  // The ingest status's show_graph / show_rdf: undefined from a backend with one Graphs column
+  graphColumns: { graph?: boolean; rdf?: boolean } = {};
 
   // What each row should end up in, by row name, once the user changed it (see wantFor)
   private wantSearch = new Map<string, boolean>();
   private wantGraphs = new Map<string, boolean>();
+  private wantRdf = new Map<string, boolean>();
+  private readonly uiDefaults = inject(UiDefaultsService);
   private wantSync = new Map<string, boolean>();
 
   // Run in the background: START returns at once and the job is followed on the Jobs sub-tab
@@ -103,10 +111,12 @@ export class ProcessingTabComponent implements OnInit, OnChanges, OnDestroy {
   /** Search+Vector / Graphs columns: once the ingest-status check answered with `stores`. */
   get displayedColumns(): string[] {
     if (!this.columnsMode) return ['select', 'name', 'size', 'progress', 'remove', 'status'];
-    // Auto Sync only for repository sources (uploads are not kept in sync)
-    return this.configuredDataSource === 'upload'
-      ? ['select', 'name', 'size', 'progress', 'searchVector', 'graphs', 'remove', 'status']
-      : ['select', 'name', 'size', 'progress', 'searchVector', 'graphs', 'autoSync', 'remove', 'status'];
+    // Auto Sync only where an auto sync can watch the source (not uploads, CMIS, web pages,
+    // Wikipedia or YouTube); Graph / RDF as the backend says (one Graphs column before)
+    return ['select', 'name', 'size', 'progress', 'searchVector',
+            ...(this.showGraphColumn ? ['graphs'] : []), ...(this.showRdfColumn ? ['rdf'] : []),
+            ...(NO_AUTO_SYNC_SOURCES.includes(this.configuredDataSource) ? [] : ['autoSync']),
+            'remove', 'status'];
   }
   
   // State
@@ -140,6 +150,7 @@ export class ProcessingTabComponent implements OnInit, OnChanges, OnDestroy {
               private session: ProcessingSessionService) {}
 
   ngOnInit(): void {
+    this.uiDefaults.load();  // a new row's Graph / RDF defaults (read when the rows are drawn)
     this.restoreSession();
     this.updateDisplayFiles();
   }
@@ -166,7 +177,7 @@ export class ProcessingTabComponent implements OnInit, OnChanges, OnDestroy {
       skipGraph: this.skipGraph, enableSync: this.enableSync, runInBackground: this.runInBackground,
       subTabIndex: this.subTabIndex, watchedJobs: [...this.watchedJobs],
       userChecks: [...this.userChecks], wantSearch: [...this.wantSearch], wantGraphs: [...this.wantGraphs],
-      wantSync: [...this.wantSync],
+      wantRdf: [...this.wantRdf], wantSync: [...this.wantSync],
     };
   }
 
@@ -184,6 +195,7 @@ export class ProcessingTabComponent implements OnInit, OnChanges, OnDestroy {
     this.userChecks = new Map(t['userChecks']);
     this.wantSearch = new Map(t['wantSearch']);
     this.wantGraphs = new Map(t['wantGraphs']);
+    this.wantRdf = new Map(t['wantRdf'] || []);
     this.wantSync = new Map(t['wantSync'] || []);
     if (this.isProcessing && this.currentProcessingId) {
       this.startStatusPolling();  // the run went on while the tab was gone
@@ -224,6 +236,7 @@ export class ProcessingTabComponent implements OnInit, OnChanges, OnDestroy {
         this.userChecks.clear();  // a new selection starts from the defaults
         this.wantSearch.clear();
         this.wantGraphs.clear();
+        this.wantRdf.clear();
         this.wantSync.clear();
         this.subTabIndex = 0;  // a new selection (e.g. Add to KG Spaces) opens on Processing
       }
@@ -353,7 +366,45 @@ export class ProcessingTabComponent implements OnInit, OnChanges, OnDestroy {
    * the whole selection, re-made only when the selection changes -- updateDisplayFiles() also
    * runs on every status poll. Quietly does nothing against a backend without the endpoint.
    */
+  /** Every other source is one row: the whole datasource (its config names it). */
+  private get singleRowSource(): boolean {
+    return !!this.configuredDataSource && !['upload', 'filesystem', 'alfresco', 'nuxeo'].includes(this.configuredDataSource);
+  }
+
+  /** The ingest request's source fields for a single-row source: its config (CMIS also its
+   *  path). START PROCESSING and the ingest status both send these, so they name the same
+   *  datasource. */
+  private sourceFields(): Record<string, any> {
+    const ds = this.configuredDataSource;
+    switch (ds) {
+      case 'cmis': {
+        const folder = this.configuredFolderPath || '/Sites/swsdp/documentLibrary';
+        const cfg: any = this.configuredCmisConfig;
+        return { paths: [folder], cmis_config: cfg ? { ...cfg, folder_path: cfg.folder_path || folder } : undefined };
+      }
+      case 'web': return { web_config: this.configuredWebConfig };
+      case 'wikipedia': return { wikipedia_config: this.configuredWikipediaConfig };
+      case 'youtube': return { youtube_config: this.configuredYoutubeConfig };
+      case 's3': case 'gcs': case 'azure_blob': return { [`${ds}_config`]: this.configuredCloudConfig };
+      case 'onedrive': case 'sharepoint': case 'box': case 'google_drive':
+        return { [`${ds}_config`]: this.configuredEnterpriseConfig };
+      default: return {};
+    }
+  }
+
   private refreshIngestStatus(): void {
+    if (this.singleRowSource) {
+      // one row, the whole datasource: the backend finds it by the same fields the ingest sends
+      if (this.isProcessing) return;
+      const name = this.displayFiles[0]?.name;
+      if (!name) { this.ingestStatus = []; this.ingestStatusKey = ''; return; }
+      this.requestIngestStatus({
+        data_source: this.configuredDataSource,
+        items: [{ path: name, is_folder: false }],
+        source: this.sourceFields(),
+      });
+      return;
+    }
     if (this.configuredDataSource === 'upload') {
       // Uploaded files: rows by file name (the backend finds them under its upload directory)
       if (this.isProcessing) return;
@@ -395,6 +446,7 @@ export class ProcessingTabComponent implements OnInit, OnChanges, OnDestroy {
         if (key !== this.ingestStatusKey) return;  // the selection changed while this was in flight
         this.ingestStatus = res.enabled ? res.items : [];
         this.stores = res.stores || {};
+        this.graphColumns = { graph: res.show_graph, rdf: res.show_rdf };
         this.autoSelectFiles();
       },
       error: (err: any) => {
@@ -495,8 +547,22 @@ export class ProcessingTabComponent implements OnInit, OnChanges, OnDestroy {
     return !!(this.stores.vector || this.stores.search);
   }
 
+  /** Separate Graph and RDF columns when the backend says which to show (show_graph / show_rdf);
+   *  otherwise one Graphs column for both, as before. */
+  get splitGraphs(): boolean {
+    return this.graphColumns.graph !== undefined || this.graphColumns.rdf !== undefined;
+  }
+
+  get showGraphColumn(): boolean {
+    return this.splitGraphs ? !!this.graphColumns.graph : true;
+  }
+
+  get showRdfColumn(): boolean {
+    return this.splitGraphs && !!this.graphColumns.rdf;
+  }
+
   get canGraphs(): boolean {
-    return !!this.stores.graph;
+    return this.splitGraphs ? !!this.graphColumns.graph : !!this.stores.graph;
   }
 
   inStores(index: number): boolean {
@@ -508,12 +574,31 @@ export class ProcessingTabComponent implements OnInit, OnChanges, OnDestroy {
   currentFor(index: number): RowStores {
     const c = this.ingestStatusFor(index);
     const sync = !!c?.auto_sync;
-    if (!c || !this.inStores(index)) return { sv: false, graphs: false, sync };
+    if (!c || !this.inStores(index)) return { sv: false, graphs: false, rdf: false, sync };
     if (c.indexed) {
-      return { sv: !!(c.indexed.vector || c.indexed.search), graphs: !!c.indexed.graph, sync };
+      return { sv: !!(c.indexed.vector || c.indexed.search), graphs: !!c.indexed.graph,
+               rdf: this.splitGraphs && !!c.indexed.rdf, sync };
     }
     // No per-document answer: the datasources holding it say whether they build graphs
-    return { sv: true, graphs: c.datasources.some((m) => !m.skip_graph), sync };
+    return { sv: true, graphs: c.datasources.some((m) => m.enabled_graph ?? !m.skip_graph),
+             rdf: this.splitGraphs && c.datasources.some((m) => m.enabled_rdf ?? !m.skip_graph), sync };
+  }
+
+  /**
+   * A new row's default for the Graph / RDF column: the folder or document rule (OpenArch flags
+   * pgGraph / rdfGraph) when it has one, else on if a covering datasource builds that graph, else on.
+   */
+  private freshGraphDefault(index: number, kind: 'graph' | 'rdf'): boolean {
+    if (!(kind === 'graph' ? this.showGraphColumn && this.canGraphs : this.showRdfColumn)) return false;
+    if (!this.splitGraphs) return this.canGraphs;
+    const c = this.ingestStatusFor(index);
+    const rule = c?.flags?.[kind === 'graph' ? 'pgGraph' : 'rdfGraph'];
+    if (rule !== null && rule !== undefined) return !!rule;
+    const ds = c?.datasources || [];
+    // no covering datasource: the backend's DEFAULT_ENABLED_GRAPH / DEFAULT_ENABLED_RDF, else on
+    const d = this.uiDefaults.defaults;
+    return ds.length ? ds.some((m) => !!(kind === 'graph' ? m.enabled_graph : m.enabled_rdf))
+      : ((kind === 'graph' ? d.enabled_graph : d.enabled_rdf) ?? true);
   }
 
   /** Whether an auto sync already covers the row (so Auto Sync on resumes, not starts, it). */
@@ -527,11 +612,12 @@ export class ProcessingTabComponent implements OnInit, OnChanges, OnDestroy {
     const cur = this.currentFor(index);
     const fresh = !this.inStores(index);
     const sv = this.wantSearch.get(name) ?? (fresh ? this.canSearchVector : cur.sv);
-    const graphs = this.wantGraphs.get(name) ?? (fresh ? this.canGraphs : cur.graphs);
+    const graphs = this.wantGraphs.get(name) ?? (fresh ? this.freshGraphDefault(index, 'graph') : cur.graphs);
+    const rdf = this.wantRdf.get(name) ?? (fresh ? this.freshGraphDefault(index, 'rdf') : cur.rdf);
     const sync = this.wantSync.get(name) ?? cur.sync;
-    // Graphs and Auto Sync both need Search+Vector: a sync with nothing indexed would only
+    // The graphs and Auto Sync all need Search+Vector: a sync with nothing indexed would only
     // put the document back on its next change
-    return { sv, graphs: sv && graphs, sync: sv && sync };
+    return { sv, graphs: sv && graphs, rdf: sv && rdf, sync: sv && sync };
   }
 
   /** Changing a row's Search+Vector / Graphs / Auto Sync checks the row: START PROCESSING applies it. */
@@ -542,10 +628,14 @@ export class ProcessingTabComponent implements OnInit, OnChanges, OnDestroy {
       this.wantSearch.set(name, value);
       if (!value) {  // no graphs and no sync without search + vector
         this.wantGraphs.set(name, false);
+        this.wantRdf.set(name, false);
         this.wantSync.set(name, false);
       }
     } else if (kind === 'graphs') {
       this.wantGraphs.set(name, value);
+      if (value) this.wantSearch.set(name, true);
+    } else if (kind === 'rdf') {
+      this.wantRdf.set(name, value);
       if (value) this.wantSearch.set(name, true);
     } else {
       this.wantSync.set(name, value);
@@ -573,9 +663,45 @@ export class ProcessingTabComponent implements OnInit, OnChanges, OnDestroy {
   actionFor(index: number): ItemActionKind | null {
     const cur = this.currentFor(index);
     const want = this.wantFor(index);
-    if (!want.sv) return cur.sv || cur.graphs ? 'remove_all' : null;
-    if (want.graphs) return 'ingest';
-    return cur.sv && cur.graphs ? 'remove_graph' : 'ingest_no_graph';
+    if (!want.sv) return cur.sv || cur.graphs || cur.rdf ? 'remove_all' : null;
+    if (want.graphs || want.rdf) {
+      // Only dropping a graph the row is in (graphDrops removes it from that one): nothing to ingest
+      const adds = !cur.sv || (want.graphs && !cur.graphs) || (want.rdf && !cur.rdf);
+      const drops = (cur.graphs && !want.graphs) || (cur.rdf && !want.rdf);
+      return drops && !adds ? null : 'ingest';
+    }
+    return cur.sv && (cur.graphs || cur.rdf) ? 'remove_graph' : 'ingest_no_graph';
+  }
+
+  /** Which graphs an ingest builds: enabled_graph / enabled_rdf for the columns shown (a hidden
+   *  column's field is left out, so the backend default applies); none with an older backend. */
+  private graphFields(index: number): Partial<ItemAction> {
+    if (!this.splitGraphs) return {};
+    const want = this.wantFor(index);
+    return { ...(this.showGraphColumn ? { enabled_graph: want.graphs } : {}),
+             ...(this.showRdfColumn ? { enabled_rdf: want.rdf } : {}) };
+  }
+
+  /**
+   * Checked rows that keep one graph but leave the other they are in now, grouped by what they
+   * leave ("graph" / "rdf"): START PROCESSING removes them with /api/sync/remove first, since an
+   * "ingest" row only builds graphs (remove_graph would take both).
+   */
+  private graphDrops(): { targets: RemoveTarget[]; items: IngestStatusRequest['items'] }[] {
+    if (!this.splitGraphs) return [];
+    const groups = new Map<string, IngestStatusRequest['items']>();
+    for (const i of [...this.selectedItems].sort((a, b) => a - b)) {
+      const item = this.ingestStatusRequest?.items[i];
+      const cur = this.currentFor(i);
+      const want = this.wantFor(i);
+      if (!item || !want.sv || !(want.graphs || want.rdf)) continue;  // remove_all / remove_graph cover the rest
+      const targets = [...(cur.graphs && !want.graphs ? ['graph'] : []), ...(cur.rdf && !want.rdf ? ['rdf'] : [])];
+      if (targets.length) {
+        const key = targets.join(',');
+        groups.set(key, [...(groups.get(key) || []), { path: item.path, id: item.id, is_folder: item.is_folder }]);
+      }
+    }
+    return [...groups].map(([t, items]) => ({ targets: t.split(',') as RemoveTarget[], items }));
   }
 
   /** The Status column in columns mode: which stores the row is in now. */
@@ -583,8 +709,9 @@ export class ProcessingTabComponent implements OnInit, OnChanges, OnDestroy {
     const c = this.ingestStatusFor(index);
     if (c?.status === 'removed') return 'removed';
     const cur = this.currentFor(index);
-    if (!cur.sv && !cur.graphs) return 'not ingested';
-    return (cur.graphs ? 'search+vector, graphs' : 'search+vector') + (cur.sync ? ' (synced)' : '');
+    if (!cur.sv && !cur.graphs && !cur.rdf) return 'not ingested';
+    const parts = ['search+vector', ...(cur.graphs ? [this.splitGraphs ? 'graph' : 'graphs'] : []), ...(cur.rdf ? ['rdf'] : [])];
+    return parts.join(', ') + (cur.sync ? ' (synced)' : '');
   }
 
   /** A sync change for a checked row: false stops it, true resumes it, null = none. */
@@ -611,13 +738,16 @@ export class ProcessingTabComponent implements OnInit, OnChanges, OnDestroy {
       if (!item) continue;
       const ref = { path: item.path, id: item.id, is_folder: item.is_folder };
       if (this.needsNewSync(i)) {
-        rows.push({ ...ref, action: this.actionFor(i) ?? (this.wantFor(i).graphs ? 'ingest' : 'ingest_no_graph'), auto_sync: true });
+        const want = this.wantFor(i);
+        rows.push({ ...ref, action: this.actionFor(i) ?? (want.graphs || want.rdf ? 'ingest' : 'ingest_no_graph'),
+                    ...this.graphFields(i), auto_sync: true });
         continue;
       }
       const action = this.actionFor(i);
       const sync = this.syncChange(i);
       if (!action && sync === null) continue;
-      rows.push({ ...ref, action: action ?? 'keep', ...(sync === null ? {} : { auto_sync: sync }) });
+      rows.push({ ...ref, action: action ?? 'keep', ...(action === 'ingest' ? this.graphFields(i) : {}),
+                  ...(sync === null ? {} : { auto_sync: sync }) });
     }
     return rows;
   }
@@ -704,6 +834,7 @@ export class ProcessingTabComponent implements OnInit, OnChanges, OnDestroy {
     this.userChecks.clear();
     this.wantSearch.clear();
     this.wantGraphs.clear();
+    this.wantRdf.clear();
     this.selectedItems = new Set();
     this.awaitingStatus = true;
     setTimeout(() => {
@@ -1012,9 +1143,21 @@ export class ProcessingTabComponent implements OnInit, OnChanges, OnDestroy {
       // Search+Vector / Graphs columns: each checked row says what it should end up as
       const planned = this.columnsMode ? this.itemActions() : null;
       const actions = planned;
-      if (planned && planned.length === 0) {
+      const drops = this.columnsMode ? this.graphDrops() : [];
+      if (planned && planned.length === 0 && drops.length === 0) {
         this.successMessage = 'Nothing to do: the checked rows already match their Search+Vector / Graphs settings.';
         this.isProcessing = false;
+        return;
+      }
+      // Rows leaving just one of the two graphs: out of that graph first
+      for (const d of drops) {
+        await firstValueFrom(this.apiService.removeFromStores({ ...this.ingestStatusRequest!, items: d.items, targets: d.targets }));
+      }
+      if (planned && planned.length === 0) {
+        this.successMessage = `Removed ${drops.reduce((n, d) => n + d.items.length, 0)} row(s) from the ` +
+          `${[...new Set(drops.flatMap((d) => d.targets))].map((t) => (t === 'rdf' ? 'RDF' : 'property')).join(' and ')} graph.`;
+        this.isProcessing = false;
+        this.afterRun();
         return;
       }
 
@@ -1047,13 +1190,9 @@ export class ProcessingTabComponent implements OnInit, OnChanges, OnDestroy {
       if (this.configuredDataSource === 'filesystem') {
         // For direct filesystem access (not upload)
         processingData.paths = this.configuredFiles.map(f => f.name);
-      } else if (this.configuredDataSource === 'cmis') {
-        processingData.paths = [this.configuredFolderPath || '/Sites/swsdp/documentLibrary']; // Use configured path
-        // Send what the CMIS form configured (this was a hardcoded localhost admin/admin literal
-        // that silently ignored the form)
-        processingData.cmis_config = this.configuredCmisConfig
-          ? { ...this.configuredCmisConfig, folder_path: this.configuredCmisConfig.folder_path || this.configuredFolderPath || '/Sites/swsdp/documentLibrary' }
-          : undefined;
+      } else if (this.singleRowSource) {
+        // its config (CMIS also its path): the same fields its ingest status sent
+        Object.assign(processingData, this.sourceFields());
       } else if (this.configuredDataSource === 'alfresco') {
         const alfrescoPath = this.configuredAlfrescoConfig?.path
           || this.configuredFolderPath
@@ -1078,26 +1217,6 @@ export class ProcessingTabComponent implements OnInit, OnChanges, OnDestroy {
         processingData.nuxeo_config = this.configuredNuxeoConfig
           ? this.withCheckedNodes({ ...this.configuredNuxeoConfig })
           : this.configuredNuxeoConfig;
-      } else if (this.configuredDataSource === 'web') {
-        processingData.web_config = this.configuredWebConfig;
-      } else if (this.configuredDataSource === 'wikipedia') {
-        processingData.wikipedia_config = this.configuredWikipediaConfig;
-      } else if (this.configuredDataSource === 'youtube') {
-        processingData.youtube_config = this.configuredYoutubeConfig;
-      } else if (this.configuredDataSource === 's3') {
-        processingData.s3_config = this.configuredCloudConfig;
-      } else if (this.configuredDataSource === 'gcs') {
-        processingData.gcs_config = this.configuredCloudConfig;
-      } else if (this.configuredDataSource === 'azure_blob') {
-        processingData.azure_blob_config = this.configuredCloudConfig;
-      } else if (this.configuredDataSource === 'onedrive') {
-        processingData.onedrive_config = this.configuredEnterpriseConfig;
-      } else if (this.configuredDataSource === 'sharepoint') {
-        processingData.sharepoint_config = this.configuredEnterpriseConfig;
-      } else if (this.configuredDataSource === 'box') {
-        processingData.box_config = this.configuredEnterpriseConfig;
-      } else if (this.configuredDataSource === 'google_drive') {
-        processingData.google_drive_config = this.configuredEnterpriseConfig;
       }
       
       console.log('🔧 Angular startProcessing - configured data:', {

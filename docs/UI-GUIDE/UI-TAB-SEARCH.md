@@ -2,6 +2,15 @@
 
 Two search modes available.
 
+> **Sources and sign-in:** the **Sources** row (chips) above the search box limits a search to
+> chosen sources; a chip for a source that needs a sign-in is greyed until you sign in, and
+> clicking it opens the sign-in. The header's **sign-in pill** (one pill, with a menu of servers)
+> signs you in to Alfresco, Nuxeo, CMIS, Microsoft 365 (SharePoint, OneDrive), Box, Google (Drive,
+> Cloud Storage), Azure Storage (Azure Blob) and Amazon S3, so results include only documents you
+> may read. Microsoft, Box, Google and Azure open a popup sign-in window, so **allow pop-ups** for
+> the app's site. See the
+> [Sign-In and Permission-Aware Search guide](../DATA-SOURCES/SIGN-IN-GUIDE.md).
+
 ## Hybrid Search
 
 Finds and ranks the most relevant document excerpts.
@@ -26,6 +35,9 @@ company-ontology.txt | Qdrant vector
 company-ontology.txt | Ontotext GraphDB rdf graph
 ```
 
+Current builds also name the data source type between the file and the store, for every source,
+e.g. `Source: cmispress.pdf | SharePoint | Qdrant vector | Score: 0.250`.
+
 Graph and RDF results name the document their facts came from too; a result built from several
 documents lists up to two names, then *(+N more)*.
 
@@ -34,7 +46,13 @@ documents open in the Alfresco Content App's viewer (ACA at `ALFRESCO_ACA_URL` i
 `.env`, default `ALFRESCO_URL` + `/content-app`), or in Alfresco Share with `ALFRESCO_VIEWER=share`, or
 any page via `ALFRESCO_OPEN_URL` (with `{node_id}` in it). Nuxeo documents open in the Nuxeo Web
 UI; web pages and Wikipedia articles open at their URL, and a YouTube transcript segment opens the
-video at that segment's start. In KG Spaces, Alfresco documents open in ACA's viewer in the same tab, and closing the viewer
+video at that segment's start. Alfresco ACA links find the document's folder with your own
+sign-in (no service account needed). SharePoint and OneDrive documents open in SharePoint /
+OneDrive, Box documents at their Box page, Google Drive files at their Drive page and GCS objects
+at `storage.cloud.google.com`. Amazon S3 and Azure Blob links open the file itself through a
+short-lived signed URL made with your own sign-in (an S3 presigned URL, or an Azure
+user-delegation SAS); without an S3 sign-in, S3 links go to the object's page in the AWS console.
+In KG Spaces, Alfresco documents open in ACA's viewer in the same tab, and closing the viewer
 (✕) brings you back to KG Spaces with your results and conversation.
 
 When multiple databases return the same passage, duplicate filtering keeps only the highest-scoring copy — so not all configured databases will always appear in the results. This is expected behavior.

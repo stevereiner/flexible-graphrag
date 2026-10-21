@@ -2,6 +2,15 @@
 
 Flexible GraphRAG supports **14 data sources** for ingesting documents into your knowledge base.
 
+> **Per-user permissions:** documents from Alfresco, Nuxeo, CMIS, SharePoint, OneDrive, Box,
+> Google Drive, Cloud Storage, Azure Blob and Amazon S3 can be limited to what the person asking
+> may read, checked at query time. See the
+> [Sign-In and Permission-Aware Search guide](SIGN-IN-GUIDE.md) and the per-source pages:
+> [Microsoft 365](README-microsoft-sign-in.md), [Box](README-box-sign-in.md),
+> [Google](README-google-sign-in.md), [Azure Storage](README-azure-sign-in.md),
+> [Amazon S3](README-s3-sign-in.md), [CMIS vendors](README-cmis-sign-in.md),
+> [Nuxeo](README-nuxeo.md#sign-in-and-permission-aware-search).
+
 [![Data Sources](https://raw.githubusercontent.com/stevereiner/flexible-graphrag/main/screen-shots/react/data-sources-1.jpeg)](https://raw.githubusercontent.com/stevereiner/flexible-graphrag/main/screen-shots/react/data-sources-1.jpeg)
 
 ## Overview
@@ -15,8 +24,10 @@ Flexible GraphRAG supports **14 data sources** for ingesting documents into your
 
 All data sources support:
 
-- **Docling** (default) or **LlamaParse** document parser
-- **Skip Graph** — ingest to vector + search only, skip KG extraction
+- **Docling** (default), **LlamaParse** or **LiteParse** document parser
+- **Skip Graph** — ingest to vector + search only, skip KG extraction (with the incremental
+  registry on, the Processing tab's per-row **Search+Vector** / **Graphs** / **Auto Sync** columns
+  do this for every data source; see [Tab 2 — Processing](../UI-GUIDE/UI-TAB-PROCESSING.md))
 - **Incremental Auto-Sync** — keep databases synchronized when files change (most sources)
 
 Each data source includes:
@@ -92,7 +103,7 @@ Incremental updates supported via **polling**.
 
 Two integration modes:
 
-1. **KG Spaces ACA Extension** — multi-select documents/folders directly from the Alfresco Content Application using nodeIds
+1. **KG Spaces ACA Extension** — multi-select documents/folders directly from the Alfresco Content Application using nodeIds. Its title bar has a sign-in pill for the other sources and servers (ACA's own Alfresco uses ACA's ticket); see [Sign-In guide — Alfresco](SIGN-IN-GUIDE.md#alfresco)
 2. **Direct Integration** — use Alfresco paths (e.g., `/Shared/GraphRAG/cmispress.txt`)
 
 ```bash

@@ -10,3 +10,4 @@
 - [Tab 2 — Processing](../UI-GUIDE/UI-TAB-PROCESSING.md) — start ingestion and monitor progress
 - [Tab 3 — Hybrid Search](../UI-GUIDE/UI-TAB-SEARCH.md) — hybrid search and AI query
 - [Tab 4 — AI Chat](../UI-GUIDE/UI-TAB-CHAT.md) — conversational AI over your documents
+- [Sign-In and Permission-Aware Search](../DATA-SOURCES/SIGN-IN-GUIDE.md) — the header sign-in pill and the Sources picker on Search and AI Chat

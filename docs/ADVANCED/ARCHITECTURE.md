@@ -179,12 +179,15 @@ The MCP server uses an **HTTP client pattern** to communicate with the backend, 
 |  |               | MCP Protocol                      |    |
 |  |               v                                   |    |
 |  |  +------------------------------------------+     |    |
-|  |  |  9 MCP Tools:                            |     |    |
+|  |  |  12 MCP Tools:                           |     |    |
 |  |  |  • get_system_status()                   |     |    |
 |  |  |  • ingest_documents()                    |     |    |
 |  |  |  • ingest_text()                         |     |    |
 |  |  |  • search_documents()                    |     |    |
 |  |  |  • query_documents()                     |     |    |
+|  |  |  • list_sources()                        |     |    |
+|  |  |  • get_auth_requirements()               |     |    |
+|  |  |  • sign_in()                             |     |    |
 |  |  |  • test_with_sample()                    |     |    |
 |  |  |  • check_processing_status()             |     |    |
 |  |  |  • get_python_info()                     |     |    |

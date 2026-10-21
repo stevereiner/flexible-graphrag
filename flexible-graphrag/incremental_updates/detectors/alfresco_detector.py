@@ -185,8 +185,8 @@ class DirectAlfrescoEventListener(stomp.ConnectionListener if STOMP_AVAILABLE el
             elif "Deleted" in event_type:
                 # DELETE: Check if this file was in our monitored folder
                 # Use primary_hierarchy from "resource" (the deleted node's last known location)
-                if self.detector._monitored_folder_id and primary_hierarchy:
-                    # Check if any ancestor is the monitored folder
+                if self.detector._monitored_folder_id and primary_hierarchy and node_id != self.detector._monitored_folder_id:
+                    # Check if any ancestor is the monitored folder (a one-file datasource: the node itself)
                     if self.detector._monitored_folder_id not in primary_hierarchy:
                         logger.info(f"   SKIPPED (DELETE): File not in monitored folder")
                         logger.info(f"      Primary hierarchy: {primary_hierarchy[:2] if len(primary_hierarchy) > 2 else primary_hierarchy}")
@@ -869,7 +869,10 @@ class AlfrescoDetector(ChangeDetector):
                         
                         # FILTER: Check if this event is for our monitored folder
                         primary_hierarchy = event_data.get('primary_hierarchy', [])
-                        if self._monitored_folder_id and primary_hierarchy:
+                        # A datasource for one file (selected in ACA) "monitors" that file itself:
+                        # its own events list only its parent folders, so match the node too
+                        is_monitored_node = event_data.get('node_id') == self._monitored_folder_id
+                        if self._monitored_folder_id and primary_hierarchy and not is_monitored_node:
                             if self._monitored_folder_id not in primary_hierarchy:
                                 logger.info(f"   SKIPPED: Event not in monitored folder")
                                 logger.info(f"      Event hierarchy: {primary_hierarchy[:2] if len(primary_hierarchy) > 2 else primary_hierarchy}")
@@ -877,7 +880,10 @@ class AlfrescoDetector(ChangeDetector):
                                 continue  # Skip this event
 
                         # Construct path
-                        file_path = f"{self.path}{event_data['name']}" if self.path.endswith('/') else f"{self.path}/{event_data['name']}"
+                        if is_monitored_node:
+                            file_path = self.path  # the datasource is this one file
+                        else:
+                            file_path = f"{self.path}{event_data['name']}" if self.path.endswith('/') else f"{self.path}/{event_data['name']}"
                         
                         # Create FileMetadata
                         metadata = FileMetadata(

@@ -87,6 +87,15 @@ Config file locations:
 
 Restart Claude Desktop after saving the config.
 
+!!! note "Permission filtering"
+    By default the backend leaves out documents from sources that need a sign-in (Alfresco, Nuxeo,
+    CMIS, and any of SharePoint, OneDrive, Box, Drive, GCS, Azure Blob, S3 whose sign-in is set up)
+    when a question brings no sign-in. For
+    unfiltered MCP answers, set the same random value as `TRUSTED_CLIENT_KEY` in the backend `.env`
+    and `FLEXIBLE_GRAPHRAG_TRUSTED_KEY` in the `env` block above. To filter per user, pass
+    `source_auth` (from `sign_in`), or set `MCP_BROWSER_SIGN_IN=true` for browser sign-in tools. See
+    [Permission Filtering — Three Levels](MCP-TOOLS.md#permission-filtering-three-levels).
+
 ---
 
 ## Client Support

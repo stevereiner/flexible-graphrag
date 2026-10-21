@@ -49,6 +49,8 @@ ENABLE_INCREMENTAL_UPDATES=true
 
 ## Step 3: Enable Sync via UI (2 minutes)
 
+> **Current UIs:** pick the source on the **Sources** tab, then on the **Processing** tab tick **Auto Sync** on the row(s) (every data source has per-row **Search+Vector** / **Graphs** / **Auto Sync** columns when the incremental registry is on) and click **START PROCESSING**. See [Tab 2 — Processing](../../UI-GUIDE/UI-TAB-PROCESSING.md). The steps below describe the older checkbox flow.
+
 ### For New Data Source
 
 1. Open the web UI (http://localhost:5000)

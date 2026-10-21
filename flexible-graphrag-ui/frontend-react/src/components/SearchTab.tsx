@@ -13,7 +13,8 @@ import { TabContext, TabPanel } from '@mui/lab';
 import { Theme } from '@mui/material/styles';
 import axios from 'axios';
 import { QueryRequest, ApiResponse, SourceDocument } from '../types/api';
-import { SourceDocs, storeLabel } from './SourceDocs';
+import { SourceDocs, sourceTypeLabel, storeLabel } from './SourceDocs';
+import { SourcePicker } from '../auth/SourcePicker';
 
 interface SearchTabProps {
   currentTheme: Theme;
@@ -126,7 +127,9 @@ export const SearchTab: React.FC<SearchTabProps> = ({
             <Tab label="AI Query" value="qa" />
           </Tabs>
         </Box>
-        
+
+        <SourcePicker />
+
         <Box sx={{ display: 'flex', gap: 2, mb: 2 }}>
           <TextField
             fullWidth
@@ -179,6 +182,7 @@ export const SearchTab: React.FC<SearchTabProps> = ({
                     {result.documents?.length ? (
                       <>
                         <SourceDocs docs={result.documents} />
+                        {sourceTypeLabel(result.documents) && ` | ${sourceTypeLabel(result.documents)}`}
                         {storeLabel(result.source) && ` | ${storeLabel(result.source)}`}
                       </>
                     ) : (result.file_name || result.metadata?.source || result.source || 'Unknown')} | 

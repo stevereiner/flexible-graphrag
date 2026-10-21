@@ -2,6 +2,14 @@
 
 Configure your data source and select files for processing.
 
+!!! note "Auto sync and sign-in"
+    Where a section below says to select **"Enable auto change sync"**: with the incremental
+    registry on, every data source instead gets per-row **Search+Vector** / **Graphs** / **Auto
+    Sync** columns on the Processing tab; tick **Auto Sync** there (see
+    [Tab 2 — Processing](UI-TAB-PROCESSING.md)). The Alfresco, Nuxeo and CMIS forms can also ingest
+    with your header sign-in instead of typed credentials (see the
+    [Sign-In guide](../DATA-SOURCES/SIGN-IN-GUIDE.md)).
+
 ## File Upload
 
 Auto sync is not supported for the file upload UI.
@@ -27,6 +35,7 @@ Supports auto sync — select **"Enable auto change sync"** on the Processing ta
 - **Authentication** — **basic**, **ticket** (enter username/password; the source self-fetches the ticket), or **OAuth2** (Bearer via the `identity-service` subsystem, e.g. Keycloak). See the [Alfresco Integration Guide](../DATA-SOURCES/README-alfresco.md).
 - **Username / Password** (for basic / ticket)
 - **Path** — e.g. `/Sites/example/documentLibrary`
+- **Deep** — include subfolders at every depth (recursive) in the ingest and its auto sync
 
 ![Alfresco source form](screen-shots/react/sources/react-sources-alfresco.png)
 
@@ -37,6 +46,7 @@ Supports auto sync — select **"Enable auto change sync"** on the Processing ta
 - **Nuxeo URL** — e.g. `http://localhost:8081/nuxeo`
 - **Authentication** — **basic**, **token** (enter username/password; the source self-fetches the token), or **OAuth2** (Bearer)
 - **Path** — e.g. `/default-domain/workspaces/test`
+- **Deep** — include subfolders at every depth (recursive) in the ingest and its auto sync
 
 ![Nuxeo source form](screen-shots/react/sources/react-sources-nuxeo.png)
 
@@ -124,6 +134,7 @@ Supports auto sync — select **"Enable auto change sync"** on the Processing ta
 
 - **Client ID / Client Secret**
 - **Folder ID**
+- **Deep** — include subfolders at every depth (recursive) in the ingest and its auto sync
 
 ![Box source form](screen-shots/react/sources/react-sources-box.png)
 

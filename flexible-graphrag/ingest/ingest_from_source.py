@@ -102,6 +102,10 @@ def _assign_stable_doc_ids(documents: List, config_id: str) -> None:
                 stable_doc_id = f"{config_id}:{file_path}"
             else:
                 stable_doc_id = f"{config_id}:{file_name}"
+        elif source_type == 'cmis' and doc.metadata.get('stable_file_path', '').startswith('cmis://'):
+            # An Alfresco / Nuxeo CMIS server (sources/cmis_auth.py): the repository id, so query-time
+            # permission filtering can check it. Other vendors keep the path id below.
+            stable_doc_id = f"{config_id}:{doc.metadata['stable_file_path']}"
         elif source_type in ['onedrive', 'sharepoint']:
             stable_fp = doc.metadata.get('stable_file_path', '')
             stable_doc_id = f"{config_id}:{stable_fp}" if stable_fp else (
@@ -132,13 +136,13 @@ def _assign_repository_doc_ids(documents: List) -> None:
     """Without a config_id, still give repository documents their repository id as doc_id.
 
     Query-time permission filtering (permission_filter.py) and scoped questions recognise an
-    Alfresco document by the ``alfresco://<node id>`` in its doc_id. A run without the incremental
+    Alfresco / Nuxeo / CMIS document by the ``alfresco://`` / ``nuxeo://`` / ``cmis://`` id in its doc_id. A run without the incremental
     registry (ENABLE_INCREMENTAL_UPDATES off, no auto sync) has no config_id, and its documents
     would otherwise keep a bare node id -- then every caller sees them, whatever ticket they send.
     """
     for doc in documents:
         stable_fp = (getattr(doc, 'metadata', None) or {}).get('stable_file_path', '')
-        if stable_fp.startswith(('alfresco://', 'nuxeo://')):
+        if stable_fp.startswith(('alfresco://', 'nuxeo://', 'cmis://')):
             doc.id_ = stable_fp
             doc.metadata['doc_id'] = stable_fp
 

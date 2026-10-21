@@ -13,7 +13,12 @@
       required
     />
     
-    <v-row class="mb-4">
+    <SourceSignInSection
+      source="cmis" :url="url" :session="session" :using-sign-in="usingSignIn"
+      v-model:use-other="useOther"
+    />
+
+    <v-row v-if="!usingSignIn" class="mb-4">
       <v-col cols="6">
         <v-text-field
           :model-value="username"
@@ -52,13 +57,16 @@
 </template>
 
 <script lang="ts">
-import { defineComponent, computed, watch } from 'vue';
+import { defineComponent, computed, watch, toRef } from 'vue';
 import BaseSourceForm from './BaseSourceForm.vue';
+import SourceSignInSection from '../../auth/SourceSignInSection.vue';
+import { useSourceSession } from '../../auth/useSourceSession';
 
 export default defineComponent({
   name: 'CMISSourceForm',
   components: {
-    BaseSourceForm
+    BaseSourceForm,
+    SourceSignInSection
   },
   props: {
     url: {
@@ -85,19 +93,21 @@ export default defineComponent({
       return `e.g., ${baseUrl}/alfresco/api/-default-/public/cmis/versions/1.1/atom`;
     });
 
+    // The CMIS sign-in (header / dialog): for an Alfresco or Nuxeo CMIS server it holds that
+    // vendor's ticket / token, which the ingest then uses instead of a password.
+    const { session, useOther, usingSignIn, credential } = useSourceSession('cmis', toRef(props, 'url'));
+
     const isValid = computed(() => {
-      return props.url.trim() !== '' && 
-             props.username.trim() !== '' && 
-             props.password.trim() !== '' && 
-             props.folderPath.trim() !== '';
+      if (props.url.trim() === '' || props.folderPath.trim() === '') return false;
+      if (usingSignIn.value) return true;
+      return props.username.trim() !== '' && props.password.trim() !== '';
     });
 
-    const config = computed(() => ({
-      url: props.url,
-      username: props.username,
-      password: props.password,
-      folder_path: props.folderPath
-    }));
+    const config = computed(() => (
+      usingSignIn.value && credential.value
+        ? { url: props.url, folder_path: props.folderPath, ...credential.value }
+        : { url: props.url, username: props.username, password: props.password, folder_path: props.folderPath }
+    ));
 
     // Emit validation and configuration changes
     watch([isValid, config], ([newIsValid, newConfig]) => {
@@ -122,6 +132,9 @@ export default defineComponent({
     };
 
     return {
+      session,
+      useOther,
+      usingSignIn,
       placeholder,
       handleUrlChange,
       handleUsernameChange,
