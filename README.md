@@ -13,6 +13,7 @@
 [![Ask DeepWiki](https://img.shields.io/badge/Ask-DeepWiki-20B2AA)](https://deepwiki.com/stevereiner/flexible-graphrag)
 [![Documentation](https://img.shields.io/badge/Documentation-GitHub%20Pages-blue)](https://stevereiner.github.io/flexible-graphrag/)
 [![Blog](https://img.shields.io/badge/Blog-integratedsemantics.org-orange)](https://integratedsemantics.org)
+[![Supports Hyland OpenArch](https://img.shields.io/badge/Supports-Hyland%20OpenArch-0b5394.svg)](https://github.com/Hyland/OpenArch)
 
 <p align="center">
   <a href="./screen-shots/langflow/langflow-sharepoint-graphdb-neo4j.png">
@@ -1520,12 +1521,21 @@ See [docs/DEVELOPER/OBSERVABILITY/OBSERVABILITY.md](docs/DEVELOPER/OBSERVABILITY
   - `main.py`: FastAPI REST API server
   - `backend.py`: Shared business logic used by both API and MCP
   - `config.py`: Configurable settings for data sources, databases, and LLM providers
+  - `doc_refs.py`: Source documents of results and answers — names and open links (ACA, Web UI, URLs)
   - `factories.py`: Factory classes for LLM and database creation
+  - `flow_service.py`: Langflow flow-mode REST client (`ENABLE_LANGFLOW_FLOWS`)
+  - `graph_flags.py`: Which graphs an ingest builds — property graph and RDF graph, each on / off
   - `hybrid_system.py`: Main hybrid search and ingestion system
+  - `incremental_system.py`: Incremental auto-sync startup and wiring
+  - `job_retention.py`: Jobs list retention (finished jobs kept 60 min / 200 jobs, per owner)
+  - `nltk_compat.py`: `NLTK_DATA` default — a plain copy of LlamaIndex's NLTK data (nltk 3.10.4+ vs uv hardlinks)
+  - `permission_filter.py`: Query-time permission filtering by each source's sign-in
   - `post_ingestion_state.py`: Post-ingestion document state tracking
   - `query_engine.py`: Query engine with result deduplication and re-scoring
-  - `retriever_setup.py`: Retriever assembly — vector, search, graph, RDF, synonym expansion
+  - `retriever_setup.py`: Retriever assembly — vector, search, OpenArch, graph, RDF, synonym expansion
   - `schema_manager.py`: Database schema management
+  - `scope_filter.py`: Scoped Ask — limits retrieval to one document or folder
+  - `ssl_compat.py`: SSL context patch (backend and Langflow components)
   - `adapters/`: Framework-neutral ABCs and factories for all subsystems
     - `adapters/graph/`: Property graph and RDF store adapter ABCs
     - `adapters/llm/`: LLM and embedding adapter ABCs (`BothLLMAdapter`, `BothEmbeddingAdapter`)
@@ -1541,7 +1551,7 @@ See [docs/DEVELOPER/OBSERVABILITY/OBSERVABILITY.md](docs/DEVELOPER/OBSERVABILITY
     - `connectors/cocoindex/`: native CocoIndex connectors (Qdrant, Neo4j, LanceDB, Postgres, S3, GCS, Google Drive)
     - `pipeline/`: `app.py` entry point, `flexible_app.py`, `run.py`, `bootstrap.py`, `state.py`, `providers.py`, `selectors.py`
   - `incremental_updates/`: Auto-sync engine — detectors, orchestrator, state manager for real-time/near-real-time source sync
-  - `ingest/`: Modular ingestion steps — `ingest_from_files`, `ingest_from_text`, `ingest_from_source`, `run_chunk_pipeline`, `update_pg_graph`, `update_rdf_graph`, `update_vector`, `update_search`
+  - `ingest/`: Modular ingestion steps — `ingest_from_files`, `ingest_from_text`, `ingest_from_source`, `run_chunk_pipeline`, `update_pg_graph`, `update_rdf_graph`, `update_vector`, `update_search`, `update_openarch`
   - `langflow_components/`: 12 custom Langflow components (Python) in `flexible_graphrag/` + shared run-cache helper `_fg_shared.py`; `flow_service.py` (backend) drives them over the Langflow REST API
   - `langchain/`: LangChain peer framework — graph, vector, search, chunking, KG extraction, retrieval
     - `langchain/graph/pg_store_adapters/`: 15 property graph store adapters (one file per store)
@@ -1558,6 +1568,14 @@ See [docs/DEVELOPER/OBSERVABILITY/OBSERVABILITY.md](docs/DEVELOPER/OBSERVABILITY
     - `llamaindex/search/adapters/`: Elasticsearch, OpenSearch search adapters
     - `llamaindex/vector/adapters/`: Qdrant, Elasticsearch, OpenSearch, pgvector, Chroma, and others
   - `observability/`: OpenTelemetry instrumentation, Prometheus metrics, tracing setup
+  - `openarch/`: Hyland OpenArch support (uses `python-openarch-api`)
+    - `integration.py`: sets up OpenArch as the search + vector store (`ENABLE_OPENARCH`)
+    - `writer.py`: writes each document with its extracted text and its chunks' embeddings
+    - `vector_store.py`: LlamaIndex vector store over OpenArch's chunk index (vector, keyword, hybrid queries)
+    - `registry.py`: auto-sync state store in OpenArch trees (`INCREMENTAL_STATE_STORE=openarch`)
+    - `scope.py`: per-folder / per-document scope rules
+    - `source_system.py`: source systems and document paths in the OpenArch tree
+    - `client.py`: OpenArch client setup
   - `process/`: Core document processing — `document_processor.py` (Docling/LlamaParse/LiteParse), `kg_extractor.py`, `node_pipeline.py`
   - `rdf/`: RDF/ontology support — ontology manager, KG-to-RDF converter, SPARQL tools, bundled schemas (`rdf/schemas/`)
     - `rdf/store/`: RDF store adapters — Fuseki, GraphDB, Oxigraph, store factory
@@ -1566,7 +1584,6 @@ See [docs/DEVELOPER/OBSERVABILITY/OBSERVABILITY.md](docs/DEVELOPER/OBSERVABILITY
   - `pyproject.toml`: Modern Python package definition (PEP 517/518)
   - `uv.toml`: UV package manager configuration
   - `start.py`: Startup script (`flexible-graphrag` console entry point)
-  - `install.py`: Installation helper script
 
 - `/flows`: Bundled Langflow flow JSONs the app uploads in flow mode — `fg_ingestion_flow.json`, `fg_search_flow.json`, `fg_aiquery_flow.json`, `fg_query_flow.json` (see `README.md` there)
 
@@ -1586,6 +1603,7 @@ See [docs/DEVELOPER/OBSERVABILITY/OBSERVABILITY.md](docs/DEVELOPER/OBSERVABILITY
 
   - `/frontend-angular`: Angular + TypeScript frontend (built with Angular CLI)
     - `/src`: Source code
+    - `/projects/flexible-graphrag-angular-lib`: the shared UI library, published on npm as `@flexible-graphrag/angular-ui` (used by this app, KG Spaces ACA and KG Spaces for Nuxeo)
     - `angular.json`: Angular configuration
     - `tsconfig.json`: TypeScript configuration
     - `package.json`: Node.js dependencies and scripts
@@ -1610,12 +1628,13 @@ See [docs/DEVELOPER/OBSERVABILITY/OBSERVABILITY.md](docs/DEVELOPER/OBSERVABILITY
   - `UI-GUIDE/`: UI screenshots and per-tab guides (Sources, Processing, Hybrid Search, AI Chat)
   - `DATA-SOURCES/`: Data source setup (S3, Azure Blob, GCS, CMIS, path examples); `DOC-PROCESSING/` (file formats, Docling GPU/OCR, parser output); `INCREMENTAL-UPDATE-AUTO-SYNC/`
   - `LLM/`: LLM & embedding configuration, testing results, Ollama
-  - `DATABASES/`: Database configuration, PostgreSQL; `GRAPH-DATABASES/`, `RDF/`, `VECTOR-DATABASES/`
+  - `DATABASES/`: Database configuration, PostgreSQL; `GRAPH-DATABASES/`, `RDF/`, `VECTOR-DATABASES/`, `OPENARCH/` (Hyland OpenArch, as the search + vector store and as the state store)
   - `MCP/`: MCP server quickstart, MCP tools, usage guide
   - `DEVELOPER/`: REST API, MCP developer setup, **Langflow Components**, **CocoIndex Developer Guide**, testing & cleanup, full-stack debugging, documentation system; `OBSERVABILITY/`
   - `ADVANCED/`: Architecture, deployment configurations, Docker resource config, port mappings, timeouts, default usernames/passwords; `LANGCHAIN/` (framework integration)
 
 - `/scripts`: Utility scripts
+  - `cleanup.py`: Clears the configured stores (graph, vector, search, RDF, incremental state, OpenArch) for a fresh start — stop the backend first
   - `create_opensearch_pipeline.py`: OpenSearch hybrid search pipeline setup
   - `setup-opensearch-pipeline.sh/.bat`: Cross-platform pipeline creation (for an OpenSearch you run yourself; `docker/includes/opensearch.yaml` creates it on start)
   - `rdf_cleanup.py`: RDF store CLI tool — list-docs, count, clear-doc, clear-all
@@ -1626,9 +1645,12 @@ See [docs/DEVELOPER/OBSERVABILITY/OBSERVABILITY.md](docs/DEVELOPER/OBSERVABILITY
     - `README.md`: Script usage documentation
 
 - `/tests`: Test suite
+  - `test_*.py`: unit tests (pytest), e.g. OpenArch, state store, scope rules, graph flags, sync jobs
   - `test_bm25_*.py`: BM25 configuration and integration tests
   - `conftest.py`: Test configuration and fixtures
   - `run_tests.py`: Test runner
+  - `/integration`: Integration tests against running databases and data sources (`run_matrix.py`, with `--state-store` for PostgreSQL or OpenArch)
+    - `/autosync`: Auto-sync harness — add / update / rename / move / delete for every auto-sync source (`run_autosync.py`)
 
 - `/examples`: Standalone usage examples (not re-tested)
   - `observability_example.py`: OpenTelemetry / observability integration example
