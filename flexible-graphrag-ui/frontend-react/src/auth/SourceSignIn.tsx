@@ -120,7 +120,9 @@ export const SourceSignIn: React.FC = () => {
     ? `${providerTitle(rows[0].provider)}: ${rows[0].session ? rows[0].session.user_id.split('@')[0] : 'offline'}`
     : `Sign-ins ${signedInCount}/${rows.length}`;
   const pillTitle = rows.map((r) => `${providerTitle(r.provider)}: ${r.session ? r.session.user_id : 'offline'}`).join('\n');
-  const picker = reason === 'ask' && missing.length > 1;
+  // one source per dialog (Alfresco, then Nuxeo, ...): its servers in the picker
+  const servers = missing.filter((p) => p.source === shownProvider?.source);
+  const picker = reason === 'ask' && servers.length > 1;
 
   return (
     <>
@@ -175,10 +177,10 @@ export const SourceSignIn: React.FC = () => {
             <TextField
               select fullWidth size="small" label="Server" sx={{ mb: 2 }}
               value={shownProvider ? providerKey(shownProvider) : ''}
-              onChange={(e) => setDialogProvider(missing.find((p) => providerKey(p) === e.target.value) || null)}
+              onChange={(e) => setDialogProvider(servers.find((p) => providerKey(p) === e.target.value) || null)}
               helperText="Sign in to each server you want answers from; the others' documents are left out"
             >
-              {missing.map((p) => (
+              {servers.map((p) => (
                 <MenuItem key={providerKey(p)} value={providerKey(p)}>
                   {labelOf(p.source)}: {p.url}{p.documents != null ? ` (${p.documents} document${p.documents === 1 ? '' : 's'})` : ''}
                 </MenuItem>

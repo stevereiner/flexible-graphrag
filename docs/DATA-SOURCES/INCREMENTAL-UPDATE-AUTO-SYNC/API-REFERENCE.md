@@ -26,6 +26,7 @@ All endpoints are prefixed with `/api`.
 | `/api/sync/enable-all` | POST | Enable all datasources (skips ingest-only records) |
 | `/api/sync/ingest-status` | POST | Ingest status of a selection: which datasources already hold each item |
 | `/api/sync/remove` | POST | Remove a selection from some or all stores |
+| `/api/ui-defaults` | GET | What the UIs start from: Deep checkbox, Graph / RDF checkboxes and columns |
 | `/api/ingest` with `item_actions` | POST | Per-row run: removals, then ingest with and without graphs, as one job |
 | `/api/processing-status` | GET / DELETE | List processing jobs (oldest first) / clear finished ones |
 | `/api/sync/interval` | PATCH | Update global sync interval |
@@ -60,7 +61,9 @@ Ingest documents and enable automatic synchronization in one operation.
 - `data_source` (string, required): Source type (`filesystem`, `s3`, `google_drive`, etc.)
 - `paths` (array, required for filesystem): Paths to monitor
 - `enable_sync` (boolean): Enable automatic sync (default: `false`)
-- `skip_graph` (boolean): Skip knowledge graph extraction (default: `false`)
+- `enabled_graph` (boolean, optional): Build the property graph (`PG_GRAPH_DB`). Not given: the server's `DEFAULT_ENABLED_GRAPH` (true unless set)
+- `enabled_rdf` (boolean, optional): Build the RDF graph (`RDF_GRAPH_DB`). Not given: the server's `DEFAULT_ENABLED_RDF` (true unless set)
+- `skip_graph` (boolean): Skip knowledge graph extraction, both graphs off (default: `false`); the older single flag, still accepted
 - `sync_config` (object, optional): Sync configuration
   - `source_name` (string): Human-readable name
   - `refresh_interval_seconds` (integer): Seconds between scans (default: 300)
@@ -156,6 +159,8 @@ Get all configured datasources for incremental sync.
       "refresh_interval_seconds": 300,
       "enable_change_stream": true,
       "skip_graph": true,
+      "enabled_graph": false,
+      "enabled_rdf": false,
       "connection_params": {
         "paths": ["/data/documents"]
       }
@@ -398,7 +403,7 @@ Get overall incremental sync system status.
 
 ### Check Ingest Status Before Ingesting
 
-Reports, for each item of an Alfresco or Nuxeo selection, which datasources already hold it — active auto syncs, and ingests made without sync (v0.8.2+). The Processing tab uses this to show "already synced" / "already ingested" and leave those rows unchecked. One call for a whole multi-select; results come back in request order. (Named `/api/sync/coverage` in v0.8.2.)
+Reports, for each item of an Alfresco, Nuxeo, filesystem or upload selection (other sources: one row for the whole datasource, see below), which datasources already hold it — active auto syncs, and ingests made without sync (v0.8.2+). The Processing tab uses this to show "already synced" / "already ingested" and leave those rows unchecked. One call for a whole multi-select; results come back in request order. (Named `/api/sync/coverage` in v0.8.2.)
 
 **Endpoint:** `POST /api/sync/ingest-status`
 
@@ -423,14 +428,17 @@ Reports, for each item of an Alfresco or Nuxeo selection, which datasources alre
 ```json
 {
   "enabled": true,
-  "stores": {"vector": true, "search": true, "graph": true},
+  "stores": {"vector": true, "search": true, "graph": true, "rdf": false},
+  "show_graph": true,
+  "show_rdf": false,
   "items": [
     {
       "path": "/Shared/GraphRAG/space-station.txt", "id": "c0f6a861-...", "is_folder": false,
       "status": "synced",
       "datasources": [{"config_id": "334c8860-...", "source_name": "alfresco_ingest", "root": "/Shared/GraphRAG/space-station.txt",
-                       "recursive": false, "skip_graph": true, "relation": "same", "status": "synced", "auto_sync": false}],
-      "indexed": {"vector": true, "search": true, "graph": false}
+                       "recursive": false, "skip_graph": true, "relation": "same", "status": "synced", "auto_sync": false,
+                       "enabled_graph": false, "enabled_rdf": false}],
+      "indexed": {"vector": true, "search": true, "graph": false, "rdf": false}
     },
     {"path": "/Shared/GraphRAG", "is_folder": true, "status": "overlaps", "datasources": ["..."], "indexed": null}
   ]
@@ -444,11 +452,13 @@ For a folder, `indexed` says which stores hold any of the documents below it.
 - `partial`: the same folder, but synced without subfolders while this ingest would be recursive
 - `overlaps`: a folder that contains something already held
 - `removed`: a file an auto sync holds, taken out of every store with `/api/sync/remove` (the sync keeps it out until it is ingested again)
-
-Each item also has `auto_sync`: whether an auto sync follows it now (per document, `document_state.auto_sync`).
 - `none`: not held
 
-On a match, `auto_sync: false` means it was ingested without sync; `indexed` (files only) says which stores hold it. `stores` says which stores are configured: any can be `none` in `.env` (`graph` is the property graph and/or the RDF store). Answers `{"enabled": false, "items": []}` when the incremental system is not running (including `PIPELINE_BACKEND=cocoindex`).
+Each item also has `auto_sync`: whether an auto sync follows it now (per document, `document_state.auto_sync`).
+
+**Other sources** (S3, GCS, Azure Blob, Box, Google Drive, OneDrive, SharePoint, CMIS, web, Wikipedia, YouTube) are one row each: the whole datasource. Send the ingest request's own source fields as `source` (e.g. `{"data_source": "s3", "source": {"s3_config": {...}}, "items": [{"path": "my-bucket/docs"}]}`; CMIS also `paths`); the answer has the same shape, with one item whose `indexed` covers `vector`, `search`, `graph` and `rdf`, and `show_graph` / `show_rdf` as above. Filesystem paths and file uploads (`data_source`: `filesystem` / `upload`) are matched per file, like repository rows.
+
+On a match, `auto_sync: false` means it was ingested without sync, and `enabled_graph` / `enabled_rdf` say which graphs that datasource's sync builds; `indexed` (files only) says which stores hold it. `stores` says which stores are configured: any can be `none` in `.env` (`graph` is the property graph store, `rdf` the RDF store); removal can reach those. `show_graph` / `show_rdf` say which graph columns to offer: the store is configured and `ENABLE_KNOWLEDGE_GRAPH` is on. With OpenArch scope rules, each item also has `flags` (`searchVector`, `pgGraph`, `rdfGraph`, `autoSync`; `null` = no rule). Answers `{"enabled": false, "items": []}` when the incremental system is not running (including `PIPELINE_BACKEND=cocoindex`).
 
 ### Remove From the Stores
 
@@ -456,7 +466,7 @@ Takes Alfresco or Nuxeo files and folders back out of vector + search, the graph
 
 **Endpoint:** `POST /api/sync/remove`
 
-**Request:** the ingest-status body plus `targets` (some of `vector`, `search`, `graph`; default all three):
+**Request:** the ingest-status body plus `targets` (some of `vector`, `search`, `graph`, `rdf`; default all four). `graph` is the property graph only: send `["graph", "rdf"]` for both graphs (before v0.9.0, `graph` meant both):
 
 ```json
 {
@@ -464,7 +474,7 @@ Takes Alfresco or Nuxeo files and folders back out of vector + search, the graph
   "url": "http://localhost:8080",
   "recursive": false,
   "items": [{"path": "/Shared/GraphRAG", "is_folder": true}],
-  "targets": ["graph"]
+  "targets": ["graph", "rdf"]
 }
 ```
 
@@ -475,7 +485,7 @@ A file is matched by its node id (or path); a folder stands for the documents be
 ```json
 {
   "status": "success",
-  "targets": ["graph"],
+  "targets": ["graph", "rdf"],
   "documents": 2,
   "forgotten": 0,
   "datasources_dropped": 0,
@@ -485,10 +495,26 @@ A file is matched by its node id (or path); a folder stands for the documents be
 ```
 
 - Documents from an ingest without sync: their `document_state` row is dropped once nothing is left (`forgotten`), and an ingest record left with no documents is dropped too (`datasources_dropped`).
-- `skip_graph` is a datasource setting: a datasource none of whose documents has a graph left is marked `skip_graph` (`datasources_now_skip_graph`), like one ingested with it; its auto sync then leaves the graph out, and a re-ingest with the graph clears it.
-- Documents an auto sync holds (`kept_out_of_auto_sync`): their row is kept with the removed stores cleared. Removed from every store, a document also gets `auto_sync = false`, and the sync's update events skip it — it stays out even when it changes in the repository. Ingesting it again clears that (re-ingesting the same selection puts it back under the sync). A document whose graph is removed is marked `skip_graph` in `document_state`, so the sync's updates keep leaving the graph out for it until an ingest writes the graph again.
+- Each graph is a datasource setting (`enabled_graph`, `enabled_rdf`): when a removal takes a datasource's last document out of a graph, while it still has documents in vector + search, it no longer builds that graph (`datasources_now_skip_graph` counts them), like one ingested without it; its auto sync then leaves that graph out, and a re-ingest that builds it turns it back on. With both off, the datasource is also `skip_graph`. A datasource that never had documents in a graph (no RDF store configured, say) is left as it is.
+- Documents an auto sync holds (`kept_out_of_auto_sync`): their row is kept with the removed stores cleared. Removed from every store, a document also gets `auto_sync = false`, and the sync's update events skip it — it stays out even when it changes in the repository. Ingesting it again clears that (re-ingesting the same selection puts it back under the sync). A document whose graph is removed gets that graph turned off in `document_state` (`enabled_graph` / `enabled_rdf`; `skip_graph` once both are off), so the sync's updates keep leaving it out for that document until an ingest writes it again.
 
 Needs the incremental system (`ENABLE_INCREMENTAL_UPDATES=true`); answers 400 otherwise.
+
+### UI Defaults
+
+**Endpoint:** `GET /api/ui-defaults`
+
+What the UIs start from, read once when they load:
+
+```json
+{"recursive": true, "enabled_graph": true, "enabled_rdf": true, "show_graph": true, "show_rdf": false}
+```
+
+- `recursive`: where the **Deep** checkbox of the Alfresco, Nuxeo and Box forms starts (`DEFAULT_RECURSIVE`). A request that leaves `recursive` out keeps the old default (Alfresco and Nuxeo: not recursive; Box: recursive).
+- `enabled_graph` / `enabled_rdf`: where the Processing tab's Graph and RDF checkboxes start (`DEFAULT_ENABLED_GRAPH` / `DEFAULT_ENABLED_RDF`); also what an ingest builds when it doesn't say.
+- `show_graph` / `show_rdf`: whether to offer those columns at all (as in the ingest-status answer).
+
+All three settings are true unless set in the backend's `.env`.
 
 ### Per-row Runs and Jobs
 
@@ -501,7 +527,9 @@ source config plus `item_actions` — one entry per checked row:
   "alfresco_config": {"url": "http://localhost:8080", "path": "/Shared", "nodeDetails": ["..."]},
   "item_actions": [
     {"path": "/Shared/a.pdf", "id": "<node id>", "is_folder": false, "action": "ingest"},
+    {"path": "/Shared/d.pdf", "id": "<node id>", "is_folder": false, "action": "ingest", "enabled_rdf": false},
     {"path": "/Shared/b.xlsx", "id": "<node id>", "is_folder": false, "action": "ingest_no_graph"},
+    {"path": "/Shared/e.docx", "id": "<node id>", "is_folder": false, "action": "remove_graph", "enabled_graph": true},
     {"path": "/Shared/old", "id": "<node id>", "is_folder": true, "action": "remove_all"},
     {"path": "/Shared/c.txt", "id": "<node id>", "is_folder": false, "action": "keep", "auto_sync": false}
   ],
@@ -510,7 +538,10 @@ source config plus `item_actions` — one entry per checked row:
 ```
 
 Actions: `ingest` (search + vector + graphs), `ingest_no_graph`, `remove_graph`, `remove_all`,
-`keep` (no store change). Optional `auto_sync` per entry: `false` stops the row's auto sync
+`keep` (no store change). Optional `enabled_graph` / `enabled_rdf` per entry (the Graph and RDF
+columns): on `ingest`, which graphs it builds (not given: the request's, else the server's
+defaults); on `remove_graph`, `true` keeps that graph and removes only the other (neither given:
+both removed). Optional `auto_sync` per entry: `false` stops the row's auto sync
 (`document_state.auto_sync = false` on its documents; a datasource root — a `nodeDetails` entry or
 its `path` — also comes off `connection_params` and the sync restarts with the rest; a datasource
 left with no roots becomes ingest-only while documents of it are in a store, else is deleted with
@@ -520,11 +551,12 @@ an auto sync watching it — the other rows it ingests are recorded with `auto_s
 response has `sync_enabled: true`. With `enable_sync: true` on the request, every ingested row is
 synced except those sent with `auto_sync: false`. Registration runs in the background once the job
 finishes, so the request returns at once.
-The backend runs them as one job: auto sync changes and removals first, then an ingest pass with graphs and one
-without — under one datasource, that of the rows being ingested — through the configured
+The backend runs them as one job: auto sync changes and removals first, then one ingest pass per
+combination of graphs (both, property graph only, RDF only, none) — under one datasource, that of
+the rows being ingested — through the configured
 pipeline (default or Langflow; per-row actions are refused with `PIPELINE_BACKEND=cocoindex`).
-Documents ingested without graphs get `document_state.skip_graph`, so later sync updates leave
-their graph out too.
+Each document records the graphs it was ingested with (`document_state.enabled_graph` /
+`enabled_rdf`; `skip_graph` when neither), so later sync updates leave the others out too.
 
 `GET /api/processing-status` lists jobs, oldest first (`?owner=` limits ingest jobs to one
 user; auto sync runs have `kind: "sync"`):
@@ -537,7 +569,11 @@ user; auto sync runs have `kind: "sync"`):
 ```
 
 `DELETE /api/processing-status` forgets finished jobs, except one whose `document_state` rows
-are still being written. Jobs live in memory until the backend restarts.
+are still being written; with `?owner=` (0.9.0), only that user's ingest jobs (other users' jobs
+and auto-sync runs stay). Jobs live in memory until the backend restarts: finished ones for
+`JOB_RETENTION_MINUTES` (default 60), at most `JOB_RETENTION_MAX` (default 200). The Angular
+library sends its `currentUser` as `owner` on its ingests, the list and Clear; `owner` filters
+the view, it doesn't restrict access.
 
 ## Start Monitoring
 

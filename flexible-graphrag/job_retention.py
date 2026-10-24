@@ -64,11 +64,14 @@ def _parent(pid: str, st: Dict[str, Any]) -> str:
     return st.get("pass_of") or pid
 
 
-def clear_finished(status: Dict[str, Dict[str, Any]]) -> Dict[str, int]:
-    """Forget finished jobs (with their passes), except those whose rows are still being written."""
+def clear_finished(status: Dict[str, Dict[str, Any]], owner: Optional[str] = None) -> Dict[str, int]:
+    """Forget finished jobs (with their passes), except those whose rows are still being written.
+    With ``owner``: only that user's ingest jobs (other users' jobs and auto-sync runs, which every
+    user's list shows, stay until they age out)."""
     now = datetime.now(timezone.utc)
     done = {pid for pid, st in list(status.items())
-            if not st.get("pass_of") and _finished_at(st) and not state_pending(st, now)}
+            if not st.get("pass_of") and _finished_at(st) and not state_pending(st, now)
+            and (owner is None or (not pid.startswith("incremental_") and st.get("owner") == owner))}
     for pid, st in list(status.items()):
         if _parent(pid, st) in done:
             status.pop(pid, None)

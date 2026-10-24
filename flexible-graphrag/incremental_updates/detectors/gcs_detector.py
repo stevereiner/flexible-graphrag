@@ -77,13 +77,21 @@ class GCSDetector(ChangeDetector):
             import json
             self.service_account_key = json.loads(config['credentials'])
             logger.info("Parsed GCS credentials from JSON string")
-            
-            # Extract project_id from credentials if not explicitly provided
-            if not self.project_id and 'project_id' in self.service_account_key:
-                self.project_id = self.service_account_key['project_id']
-                logger.info(f"Extracted project_id from credentials: {self.project_id}")
-        
+
         self.service_account_key_path = config.get('service_account_key_path')
+
+        # project_id (Pub/Sub needs it) from the credentials when not given: the key itself, or its file
+        if not self.project_id and isinstance(self.service_account_key, dict):
+            self.project_id = self.service_account_key.get('project_id')
+        if not self.project_id and self.service_account_key_path:
+            try:
+                import json
+                with open(self.service_account_key_path, encoding='utf-8') as f:
+                    self.project_id = json.load(f).get('project_id')
+            except (OSError, ValueError) as e:
+                logger.warning(f"Could not read project_id from {self.service_account_key_path}: {e}")
+        if self.project_id and not config.get('project_id'):
+            logger.info(f"Extracted project_id from credentials: {self.project_id}")
         
         # Clients
         self.storage_client = None
@@ -685,8 +693,10 @@ class GCSDetector(ChangeDetector):
         full_path = f"{self.bucket}/{object_key}"
         _added_inflight = False
         try:
-            skip_graph = getattr(self, 'skip_graph', False)
-            processing_id = f"incremental_gcs_{object_key.replace('/', '_').replace('.', '_')[:16]}"
+            from incremental_updates.doc_graphs import datasource_graphs, synced_times
+            graphs = datasource_graphs(self)  # which graphs it builds
+            from .. import sync_jobs
+            processing_id = sync_jobs.processing_id("gcs", object_key)
 
             # In-flight guard: the periodic refresh AND the Pub/Sub event stream both call this
             # method, and either can trigger for the same object during the ingest window before
@@ -714,7 +724,7 @@ class GCSDetector(ChangeDetector):
                 processing_id=processing_id,
                 data_source="gcs",
                 config_id=self.config_id,
-                skip_graph=skip_graph,
+                graphs=graphs,
                 gcs_config=gcs_config,
             )
 
@@ -741,7 +751,8 @@ class GCSDetector(ChangeDetector):
                     content_hash = StateManager.compute_content_hash(updated.isoformat())
 
                     now = datetime.now(timezone.utc)
-                    skip_graph_flag = getattr(self, 'skip_graph', False)
+                    from incremental_updates.doc_graphs import datasource_graphs, synced_times
+                    graph_at, rdf_at = synced_times(self, datasource_graphs(self), now)
                     doc_id = f"{self.config_id}:{full_path}"
 
                     doc_state = DocumentState(
@@ -754,7 +765,8 @@ class GCSDetector(ChangeDetector):
                         modified_timestamp=updated.isoformat(),
                         vector_synced_at=now,
                         search_synced_at=now,
-                        graph_synced_at=now if not skip_graph_flag else None
+                        graph_synced_at=graph_at,
+                        rdf_synced_at=rdf_at
                     )
 
                     await self.state_manager.save_state(doc_state)
@@ -837,7 +849,8 @@ class GCSDetector(ChangeDetector):
             modified_timestamp=modified_timestamp,
             vector_synced_at=now,
             search_synced_at=now,
-            graph_synced_at=now if not getattr(self, 'skip_graph', False) else None
+            graph_synced_at=synced_times(self, datasource_graphs(self), now)[0],
+            rdf_synced_at=synced_times(self, datasource_graphs(self), now)[1],
         )
         
         await self.state_manager.save_state(doc_state)

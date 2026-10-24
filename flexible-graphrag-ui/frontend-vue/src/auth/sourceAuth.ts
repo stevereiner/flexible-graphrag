@@ -236,6 +236,13 @@ export async function getAvailableSources(force = false): Promise<AvailableSourc
   return availableCache.value;
 }
 
+/** A run changed what the stores hold: the source lists are asked again and the pickers refresh. */
+export function storesChanged(): void {
+  if (availableCache) availableCache.at = 0;  // stale, but still there for the request interceptor
+  if (requirementsCache) requirementsCache.at = 0;
+  notify();
+}
+
 export const sourceKey = (s: { source: string; url?: string | null }) => `${s.source}|${serverKey(s.source, s.url)}`;
 
 const PICK_KEY = 'fg.sourcePicker';

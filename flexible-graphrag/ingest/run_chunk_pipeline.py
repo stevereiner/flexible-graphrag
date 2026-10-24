@@ -163,11 +163,13 @@ async def _run_langchain_chunk_pipeline(system, documents: list, loop) -> tuple:
     logger.debug("[LC pipe] stashed %d lc_chunks on system._last_lc_chunks", len(lc_chunks))
 
     # ── Step 3: thin bridge nodes for KG / RDF consumers (conditional) ──────
-    needs_bridge = _needs_li_bridge(system)
+    # OpenArch (ENABLE_OPENARCH) writes LI nodes with their embeddings
+    openarch_needs = getattr(system, "openarch_store", None) is not None
+    needs_bridge = _needs_li_bridge(system) or openarch_needs
     vector_needs_embed = _store_needs_li_embeddings(getattr(system, "vector_store", None))
     search_needs_embed = _store_needs_li_embeddings(getattr(system, "search_store", None))
     li_pg_needs_embed  = _li_pg_needs_embeddings(system) and needs_bridge
-    needs_li_embed     = vector_needs_embed or search_needs_embed or li_pg_needs_embed
+    needs_li_embed     = vector_needs_embed or search_needs_embed or li_pg_needs_embed or openarch_needs
 
     if needs_bridge or needs_li_embed:
         bridge_nodes = langchain_docs_to_llamaindex_nodes(lc_chunks)

@@ -120,6 +120,7 @@ from cocoindex_integration.pipeline.run import (  # noqa: F401
     process_document,
     set_progress_hook,
     set_runtime_skip_graph,
+    set_runtime_graphs,
 )
 # Re-exported so callers that hold the *module* (see the note below) can read the
 # native-PG write flag without reaching into pipeline.state directly.

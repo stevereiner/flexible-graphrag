@@ -55,8 +55,8 @@
         <v-select
           v-if="picker"
           :model-value="shownProvider ? providerKey(shownProvider) : null"
-          @update:model-value="(k: string) => { dialogProvider = missing.find((p) => providerKey(p) === k) || null }"
-          :items="missing.map((p) => ({ title: `${labelOf(p.source)}: ${p.url}` + (p.documents != null ? ` (${p.documents} document${p.documents === 1 ? '' : 's'})` : ''), value: providerKey(p) }))"
+          @update:model-value="(k: string) => { dialogProvider = servers.find((p) => providerKey(p) === k) || null }"
+          :items="servers.map((p) => ({ title: `${labelOf(p.source)}: ${p.url}` + (p.documents != null ? ` (${p.documents} document${p.documents === 1 ? '' : 's'})` : ''), value: providerKey(p) }))"
           label="Server" variant="outlined" density="compact" class="mb-3"
           hint="Sign in to each server you want answers from; the others' documents are left out"
           persistent-hint
@@ -163,7 +163,9 @@ export default defineComponent({
     const shownProvider = computed(() => dialogProvider.value || missing.value[0] || null);
     const label = computed(() => labelOf(shownProvider.value?.source || 'alfresco'));
     const docs = computed(() => shownProvider.value?.documents);
-    const picker = computed(() => reason.value === 'ask' && missing.value.length > 1);
+    // one source per dialog (Alfresco, then Nuxeo, ...): its servers in the picker
+    const servers = computed(() => missing.value.filter((p) => p.source === shownProvider.value?.source));
+    const picker = computed(() => reason.value === 'ask' && servers.value.length > 1);
     // eslint-disable-next-line @typescript-eslint/no-unused-expressions
     const rows = computed(() => { sessions.value; return signInRows(requirements.value); });
     const signedInCount = computed(() => rows.value.filter((r) => r.session).length);
@@ -212,7 +214,7 @@ export default defineComponent({
     };
 
     return {
-      sessions, missing, dialogProvider, open, reason, username, password, error, busy, shownProvider, label, docs, picker,
+      sessions, missing, servers, dialogProvider, open, reason, username, password, error, busy, shownProvider, label, docs, picker,
       show, handleSignIn, handleContinueWithout, finish, signOut, labelOf, providerKey,
       rows, signedInCount, pillLabel, pillTitle, SOURCE_COLORS, providerTitle, providerCaption, providerTooltip, isPopup, handlePopup, isKeySource, credentialLabels,
     };

@@ -31,20 +31,24 @@ from .ingest_status import Item, _depth_below, normalize_repo_path
 TARGET_COLUMNS = {
     "vector": "vector_synced_at",
     "search": "search_synced_at",
-    "graph": "graph_synced_at",
+    "graph": "graph_synced_at",  # the property graph (PG_GRAPH_DB)
+    "rdf": "rdf_synced_at",      # the RDF graph (RDF_GRAPH_DB)
 }
 
 
 def configured_stores(settings: Any) -> Dict[str, bool]:
     """Which delete targets have a store behind them; any of them can be ``none`` in .env.
-    "graph" counts when either the property graph or the RDF store is configured."""
+    "graph" is the property graph store, "rdf" the RDF store; with ENABLE_OPENARCH, OpenArch is
+    the vector and the search store."""
     def on(name: str) -> bool:
         value = getattr(settings, name, None)
         return str(getattr(value, "value", value) or "none").lower() != "none"
+    openarch = bool(getattr(settings, "enable_openarch", False))
     return {
-        "vector": on("vector_db"),
-        "search": on("search_db"),
-        "graph": on("pg_graph_db") or on("rdf_graph_db"),
+        "vector": openarch or on("vector_db"),
+        "search": openarch or on("search_db"),
+        "graph": on("pg_graph_db"),
+        "rdf": on("rdf_graph_db"),
     }
 
 
@@ -110,83 +114,7 @@ def stores_holding(item: Item, rows: Iterable[StateRow], recursive: bool) -> Opt
     matched = [r for r in rows if item_matches(item, r, recursive)]
     if not matched:
         return None
-    return {t: any(r.synced[t] for r in matched) for t in TARGET_COLUMNS}
-
-
-async def fetch_rows(conn, config_ids: List[str]) -> List[StateRow]:
-    records = await conn.fetch(
-        "SELECT doc_id, config_id, source_id, source_path, vector_synced_at, "
-        "search_synced_at, graph_synced_at, auto_sync FROM document_state "
-        "WHERE config_id = ANY($1::text[])",
-        config_ids,
-    )
-    return [row_from_record(r) for r in records]
-
-
-async def record_removal(conn, rows: Iterable[StateRow], targets: Iterable[str],
-                         auto_sync_configs: Iterable[str]) -> Dict[str, int]:
-    """Clear ``targets`` on each row; forget ingest-only rows left with nothing, then any
-    ingest-only datasource left with no rows; mark a datasource left with no graph as
-    skip_graph. Returns counts for the response."""
-    rows, targets = list(rows), list(targets)
-    cols = [TARGET_COLUMNS[t] for t in targets]
-    doc_ids = list(dict.fromkeys(r.doc_id for r in rows))
-    if not doc_ids or not cols:
-        return {"forgotten": 0, "datasources_dropped": 0, "datasources_now_skip_graph": 0}
-    sets = ", ".join(f"{c} = NULL" for c in cols)
-    await conn.execute(
-        f"UPDATE document_state SET {sets}, updated_at = NOW() WHERE doc_id = ANY($1::text[])",
-        doc_ids,
-    )
-    if "graph" in targets:
-        # Per document: its sync's updates leave the graph out from now on (until an ingest
-        # writes the graph again, which clears it -- see StateManager.save_state).
-        await conn.execute(
-            "UPDATE document_state SET skip_graph = TRUE WHERE doc_id = ANY($1::text[])",
-            doc_ids,
-        )
-    await conn.execute(
-        "UPDATE document_state SET auto_sync = FALSE WHERE doc_id = ANY($1::text[]) "
-        "AND config_id = ANY($2::text[]) "
-        "AND vector_synced_at IS NULL AND search_synced_at IS NULL AND graph_synced_at IS NULL",
-        doc_ids, list(auto_sync_configs),
-    )
-    forgotten = await conn.fetch(
-        "DELETE FROM document_state WHERE doc_id = ANY($1::text[]) "
-        "AND NOT (config_id = ANY($2::text[])) "
-        "AND vector_synced_at IS NULL AND search_synced_at IS NULL AND graph_synced_at IS NULL "
-        "RETURNING config_id",
-        doc_ids, list(auto_sync_configs),
-    )
-    dropped = await conn.fetch(
-        """
-        DELETE FROM datasource_config dc
-        WHERE dc.config_id = ANY($1::text[]) AND dc.auto_sync = FALSE
-          AND NOT EXISTS (SELECT 1 FROM document_state ds WHERE ds.config_id = dc.config_id)
-        RETURNING config_id
-        """,
-        list({r["config_id"] for r in forgotten}),
-    )
-    # skip_graph is a datasource setting, not a per-document one: once a datasource still has
-    # documents in vector + search but none with a graph, it is a "vector + search only" one, the same as one
-    # ingested with skip_graph. Its sync (if any) then leaves the graph out on later updates,
-    # and a re-ingest with the graph turns the setting back off.
-    graph_off = []
-    if "graph" in targets:
-        graph_off = await conn.fetch(
-            """
-            UPDATE datasource_config dc SET skip_graph = TRUE, updated_at = NOW()
-            WHERE dc.config_id = ANY($1::text[]) AND NOT dc.skip_graph
-              AND EXISTS (SELECT 1 FROM document_state ds WHERE ds.config_id = dc.config_id
-                          AND (ds.vector_synced_at IS NOT NULL OR ds.search_synced_at IS NOT NULL))
-              AND NOT EXISTS (SELECT 1 FROM document_state ds
-                              WHERE ds.config_id = dc.config_id AND ds.graph_synced_at IS NOT NULL)
-            RETURNING config_id
-            """,
-            list({r.config_id for r in rows}),
-        )
-    return {"forgotten": len(forgotten), "datasources_dropped": len(dropped),
-            "datasources_now_skip_graph": len(graph_off)}
+    return {t: any(r.synced.get(t, False) for r in matched) for t in TARGET_COLUMNS}
 
 
 # ── Per-row auto sync (the Processing tab's Auto Sync column) ─────────────────────────────
@@ -244,28 +172,3 @@ def add_roots(connection_params: Dict[str, Any], items: Sequence[Item]):
         added += 1
     cp["nodeDetails"] = details
     return cp, added
-
-
-async def set_auto_sync(conn, doc_ids: Iterable[str], value: bool) -> int:
-    ids = list(dict.fromkeys(doc_ids))
-    if not ids:
-        return 0
-    await conn.execute("UPDATE document_state SET auto_sync = $2, updated_at = NOW() "
-                       "WHERE doc_id = ANY($1::text[])", ids, value)
-    return len(ids)
-
-
-async def retire_datasource(conn, config_id: str) -> str:
-    """A datasource with no roots left: 'ingest-only' while documents of it are in a store,
-    else 'deleted' (with its rows)."""
-    in_store = await conn.fetchval(
-        "SELECT EXISTS (SELECT 1 FROM document_state WHERE config_id = $1 AND "
-        "(vector_synced_at IS NOT NULL OR search_synced_at IS NOT NULL OR graph_synced_at IS NOT NULL))",
-        config_id)
-    if in_store:
-        await conn.execute("UPDATE datasource_config SET auto_sync = FALSE, is_active = FALSE, "
-                           "updated_at = NOW() WHERE config_id = $1", config_id)
-        return "ingest-only"
-    await conn.execute("DELETE FROM document_state WHERE config_id = $1", config_id)
-    await conn.execute("DELETE FROM datasource_config WHERE config_id = $1", config_id)
-    return "deleted"

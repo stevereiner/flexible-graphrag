@@ -171,6 +171,7 @@ class FlowService:
         skip_graph: bool = False,
         config_id: Optional[str] = None,
         tweaks: Optional[Dict[str, Any]] = None,
+        graphs=None,
         replace_doc_ids: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
         if not self.ingestion_flow_id:
@@ -184,6 +185,9 @@ class FlowService:
             run_cfg["config_path"] = config_path
         if skip_graph:
             run_cfg["skip_graph"] = True
+        if graphs is not None:
+            # which graphs to build (graph_flags.GraphFlags): property graph, RDF graph
+            run_cfg.update(graphs.to_dict())
         if config_id:
             # Stable doc_id prefix for incremental sync — the Data Source threads it through
             # the run-cache; the Document Processor assigns {config_id}:{identity} doc_ids.

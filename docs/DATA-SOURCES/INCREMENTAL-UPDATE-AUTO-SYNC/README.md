@@ -27,6 +27,11 @@ The Incremental Update System provides real-time and periodic synchronization of
 1. **Event-Driven Streams** (when supported) - Real-time change notifications for instant updates
 2. **Periodic Polling** (configurable interval) - Comprehensive fallback that catches any missed changes
 
+For the sources whose event streams ingest changes themselves (Alfresco, Nuxeo, S3, Box, Google Drive), a new or
+changed file the periodic refresh finds is left to the stream for `INCREMENTAL_RECOVERY_GRACE_SECONDS` (default
+120); after that the refresh ingests it itself (v0.9.0+). A change made while the backend was down, or before the
+stream started, is taken at once.
+
 ### Supported Data Sources
 
 | Source | Change Detection | Status |
@@ -34,6 +39,7 @@ The Incremental Update System provides real-time and periodic synchronization of
 | **Filesystem** | Real-time OS events (watchdog) | ✅ Production |
 | **Amazon S3** | SQS event notifications | ✅ Production |
 | **Alfresco** | ActiveMQ events + Polling | ✅ Production |
+| **Nuxeo** | Kafka audit stream + Polling | ✅ Ready |
 | **Google Drive** | Changes API (polling) | ✅ Ready |
 | **Azure Blob Storage** | Change feed iterator | ✅ Ready |
 | **Google Cloud Storage** | Pub/Sub notifications | ✅ Ready |
@@ -131,6 +137,8 @@ The **Incremental Update Engine**:
 - `datasource_config`: Data source configurations and sync status
 - `document_state`: Per-document tracking (content hash, ordinal, source ID)
 
+Or, with `INCREMENTAL_STATE_STORE=openarch`, Hyland OpenArch keeps the same state, plus per-folder and per-document scope rules, and no PostgreSQL is needed: see [OpenArch as the Auto-Sync State Store](../../DATABASES/OPENARCH/OPENARCH-STATE-STORE.md).
+
 ## Ingests Without Auto Sync Are Recorded Too
 
 Since v0.8.2, an ingest made **without** "Enable auto change sync" is also recorded in PostgreSQL: a `datasource_config` row marked `auto_sync = false` (and `is_active = false`, so it is never monitored), plus one `document_state` row per document it stored.
@@ -187,6 +195,7 @@ Configure via UI or REST API:
 - **Refresh Interval**: Seconds between periodic scans (default: 300)
 - **Enable Change Stream**: Use event-driven detection when available
 - **Skip Graph**: Optionally skip knowledge graph extraction for faster syncs
+- **Graphs** (v0.9.0+): `enabled_graph` / `enabled_rdf`, the property graph and the RDF graph each on or off (unset: `DEFAULT_ENABLED_GRAPH` / `DEFAULT_ENABLED_RDF`, both true unless set)
 
 ## Management
 
@@ -278,6 +287,7 @@ Two main tables in PostgreSQL:
 - `is_active`, `auto_sync`, `sync_status`
 - `refresh_interval_seconds`
 - `enable_change_stream`, `skip_graph`
+- `enabled_graph`, `enabled_rdf` (v0.9.0+): which graphs its sync builds, the property graph and the RDF graph each on its own
 
 `is_active` means "monitor this source now"; `auto_sync` (added in v0.8.2, created automatically on existing databases) tells a sync from an ingest-only record:
 
@@ -296,6 +306,8 @@ A sync whose last root is turned off on the Processing tab's **Auto Sync** colum
 - `content_hash` (for change detection)
 - `ordinal` (microsecond timestamp)
 - `source_id` (cloud file ID for DELETE operations)
+- `vector_synced_at`, `search_synced_at`, `graph_synced_at`, `rdf_synced_at` (which stores hold it; `rdf_synced_at` v0.9.0+)
+- `enabled_graph`, `enabled_rdf` (v0.9.0+): which graphs the sync's updates write for this document
 
 See `schema.sql` for complete schema definition.
 

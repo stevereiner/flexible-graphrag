@@ -1,0 +1,18 @@
+{
+  "description": "Post processor for hybrid search",
+  "phase_results_processors": [
+    {
+      "normalization-processor": {
+        "normalization": {
+          "technique": "min_max"
+        },
+        "combination": {
+          "technique": "harmonic_mean",
+          "parameters": {
+            "weights": [0.3, 0.7]
+          }
+        }
+      }
+    }
+  ]
+}

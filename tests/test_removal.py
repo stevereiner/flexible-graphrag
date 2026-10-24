@@ -46,9 +46,10 @@ def test_configs_present_ignores_rows_with_nothing_left():
 def test_configured_stores_honours_none():
     s = SimpleNamespace(vector_db="qdrant", search_db=SimpleNamespace(value="none"),
                         pg_graph_db="none", rdf_graph_db="fuseki")
-    assert configured_stores(s) == {"vector": True, "search": False, "graph": True}
-    s.rdf_graph_db = "none"
-    assert configured_stores(s)["graph"] is False
+    # the property graph and the RDF graph are targets of their own
+    assert configured_stores(s) == {"vector": True, "search": False, "graph": False, "rdf": True}
+    s.pg_graph_db, s.rdf_graph_db = "neo4j", "none"
+    assert (configured_stores(s)["graph"], configured_stores(s)["rdf"]) == (True, False)
 
 
 def _ds(config_id, auto_sync, root="/f"):
@@ -71,14 +72,14 @@ def test_ingest_status_marks_an_auto_synced_file_removed_from_every_store():
                        "search_synced_at": False, "graph_synced_at": False}]}
     result = check_ingest_status([item], [_ds("c2", True)], indexed, present=[set()])[0]
     assert result["status"] == REMOVED
-    assert result["indexed"] == {"vector": False, "search": False, "graph": False}
+    assert result["indexed"] == {"vector": False, "search": False, "graph": False, "rdf": False}
 
 
 def test_stores_holding_reports_what_is_left_below_a_folder():
     from incremental_updates.removal import stores_holding
     rows = [row("c1:1", "/f/a.pdf", graph=False), row("c1:2", "/f/sub/b.pdf", graph=True)]
     assert stores_holding(Item("/f", True), rows, recursive=False) == \
-        {"vector": True, "search": True, "graph": False}
+        {"vector": True, "search": True, "graph": False, "rdf": False}
     assert stores_holding(Item("/f", True), rows, recursive=True)["graph"] is True
     assert stores_holding(Item("/g", True), rows, recursive=True) is None
 

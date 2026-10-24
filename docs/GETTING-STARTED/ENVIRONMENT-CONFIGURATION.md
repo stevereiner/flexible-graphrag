@@ -36,6 +36,24 @@ KG_EXTRACTOR_BACKEND=llamaindex # llamaindex | langchain
 RETRIEVAL_FUSION=llamaindex     # llamaindex | langchain (EnsembleRetriever/RRF)
 ```
 
+### NLTK data for the LlamaIndex chunker (`NLTK_DATA`)
+
+```env
+#NLTK_DATA=./nltk_data          # optional: where SentenceSplitter finds NLTK's sentence tokenizer and stopwords
+```
+
+LlamaIndex's `SentenceSplitter` (`CHUNKER_BACKEND=llamaindex`, the default) uses NLTK data that ships inside the
+llama-index-core package. When that package was installed with **uv** (which hardlinks installed files to its cache),
+**nltk 3.10.4 and later refuse to open it**: `Security Violation [pathsec.open]: refusing multiply-linked file ...
+nltk_cache\corpora\stopwords\english`.
+
+So when `NLTK_DATA` is not set, the backend (and the Langflow components) make a plain copy of that data once, in the
+user cache folder (`flexible-graphrag/nltk_data/<llama-index-core version>`), and use it. Nothing to configure. The
+backend, Langflow flow mode and the CocoIndex pipeline (also `cocoindex update` from the command line) all do this.
+
+Set `NLTK_DATA` only to use a folder of your own (a relative path is from the folder the backend starts in): an empty
+folder is fine, the data is downloaded into it on first use (needs internet access once).
+
 ### Sections 3+: Service-specific settings (LLM, embeddings, graph DBs, vector DBs, etc.)
 
 ---
@@ -108,6 +126,21 @@ PG_GRAPH_DB=none
 ENABLE_KNOWLEDGE_GRAPH=false
 VECTOR_DB=qdrant
 ```
+
+**Ingest and UI defaults** (v0.9.0+): three optional settings, `true` when not set.
+`env-sample.txt` (graph database section) sets `DEFAULT_ENABLED_GRAPH=false` and `DEFAULT_ENABLED_RDF=false`, so
+new rows start with search + vector only and a row's graphs are added when wanted; a REST or MCP ingest that
+doesn't pass `enabled_graph` / `enabled_rdf` then builds no graphs either. The integration test harnesses set
+both to `true` for their own backends.
+
+| Setting | What it decides |
+|---|---|
+| `DEFAULT_ENABLED_GRAPH` | Whether an ingest that doesn't say (`enabled_graph` not given) builds the property graph (`PG_GRAPH_DB`); where the Processing tab's **Graph** column starts for new rows |
+| `DEFAULT_ENABLED_RDF` | The same for the RDF graph (`RDF_GRAPH_DB`, `enabled_rdf`) and the **RDF** column |
+| `DEFAULT_RECURSIVE` | Where the **Deep** checkbox of the Alfresco, Nuxeo and Box forms starts |
+
+The UIs read them from `GET /api/ui-defaults` (see the
+[auto-sync API reference](../DATA-SOURCES/INCREMENTAL-UPDATE-AUTO-SYNC/API-REFERENCE.md#ui-defaults)).
 
 ---
 

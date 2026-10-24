@@ -139,6 +139,10 @@ def build_settings(config_path: str = "", overrides: dict | None = None):
             if sval:
                 os.environ[key] = sval
 
+    # NLTK_DATA when not set, as in main.py
+    from nltk_compat import use_plain_nltk_data  # noqa: PLC0415
+    use_plain_nltk_data()
+
     from config import Settings
     return Settings()
 
@@ -253,6 +257,15 @@ def start_run(system, **fields) -> str:
         for old in list(_RUNS.keys())[:-_MAX_RUNS]:
             _RUNS.pop(old, None)
     return key
+
+
+def run_graphs(run: dict):
+    """Which graphs this run builds (graph_flags.GraphFlags): enabled_graph / enabled_rdf from the
+    trigger payload, else the older skip_graph, else DEFAULT_ENABLED_GRAPH / _RDF."""
+    from graph_flags import GraphFlags
+    system = run.get("system")
+    return GraphFlags.resolve(run.get("enabled_graph"), run.get("enabled_rdf"), run.get("skip_graph"),
+                              config=getattr(system, "config", None))
 
 
 def get_run(value) -> dict:

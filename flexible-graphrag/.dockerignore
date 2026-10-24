@@ -1,6 +1,12 @@
 # Secrets and local config — never bake into image
 .env
 *.env
+.env*
+# service account / OAuth key files kept next to .env (GOOGLE_DRIVE / GCS credentials_path)
+gcs.json
+gen-lang-client.json
+*credentials*.json
+*service-account*.json
 
 # Python virtual environments
 venv*/

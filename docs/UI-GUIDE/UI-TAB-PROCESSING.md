@@ -22,7 +22,7 @@ Click **"START PROCESSING"** to begin. The button is visible once files or a dat
 | Option | Description |
 |---|---|
 | **Document Parser** | Docling (local, free) or LlamaParse (cloud API) |
-| **Skip Graph** | Skip knowledge graph extraction (vector + search only). Replaced by the per-row **Graphs** column when that is shown (below) |
+| **Skip Graph** | Skip knowledge graph extraction (vector + search only). Replaced by the per-row **Graph** / **RDF** columns (**Graphs** with an older backend) when those are shown (below) |
 | **Enable auto change sync** | Turn on incremental update tracking for this source. Replaced by the per-row **Auto Sync** column when that is shown (below) |
 | **Run in background** | Start the job and keep the tab free to start another; follow it on the **Jobs** sub-tab |
 
@@ -32,24 +32,27 @@ With the incremental system on (default or Langflow pipeline), the table gets ch
 that say what each row should end up in, for every data source:
 
 - **Search+Vector** — the vector and full-text search stores
-- **Graphs** — the property graph and the RDF graph (needs Search+Vector). With a newer backend
-  (v0.9.0+) this splits into two columns, **Graph** (property graph) and **RDF** (RDF graph),
-  each shown when that store is configured
+- **Graph** and **RDF** — the property graph (`PG_GRAPH_DB`) and the RDF graph (`RDF_GRAPH_DB`),
+  each on its own (needs Search+Vector). Each column is shown when that store is configured and
+  `ENABLE_KNOWLEDGE_GRAPH` is on. With a backend older than v0.9.0 there is one **Graphs** column
+  for both
 - **Auto Sync** — kept up to date with source changes (needs Search+Vector). There is no Auto
   Sync column where no sync can watch the source: file uploads, CMIS, web, Wikipedia and YouTube
 
 Alfresco, Nuxeo and file uploads get one row per document or folder. The other sources (S3, GCS,
 Azure Blob, Box, Google Drive, OneDrive, SharePoint, CMIS, web, Wikipedia, YouTube) get **one row
-for the whole datasource**: unticking Graphs removes only its graphs, unticking Search+Vector
+for the whole datasource**: unticking Graph or RDF removes only that graph, unticking Search+Vector
 removes all of it, ticking either back re-ingests, and Auto Sync on / off starts or stops its
 auto sync (stopping keeps the documents).
 
 **Deep:** the Alfresco, Nuxeo and Box source forms have a **Deep** checkbox — include subfolders
-at every depth (recursive) in the ingest and its auto sync. Unset, it follows the backend's
-default.
+at every depth (recursive) in the ingest and its auto sync. It starts at the backend's
+`DEFAULT_RECURSIVE` (true unless set; the UIs read it from `GET /api/ui-defaults`, v0.9.0+).
 
-They start at what each row is in now (new rows: everything configured), and the **Status**
-column shows that: *search+vector, graphs*, *search+vector*, *not ingested*, or *removed*, with
+They start at what each row is in now (new rows: Search+Vector, and Graph / RDF as the backend's
+`DEFAULT_ENABLED_GRAPH` / `DEFAULT_ENABLED_RDF` say, both true unless set), and the **Status**
+column shows that: *search+vector, graphs* (with separate columns: *search+vector, graph, rdf*),
+*search+vector*, *not ingested*, or *removed*, with
 *(synced)* when an auto change sync holds it. A header checkbox sets a column for every row. A
 column whose stores are set to `none` in `.env` is disabled.
 
@@ -65,6 +68,11 @@ row; **START PROCESSING** then does, for each checked row:
 | ☑ | ☐ | search+vector only, or nothing | ingest without graphs (a refresh if already there) |
 | ☐ | ☐ | anything | remove it from every store |
 
+With separate **Graph** and **RDF** columns, each graph follows the Graphs column above on its
+own: unticking only RDF on a row that has both graphs removes the RDF graph and keeps the
+property graph, and ticking only Graph on a new row ingests it with the property graph and no
+RDF graph.
+
 All of it runs as one job. Afterwards the rows' choices go back to their defaults, so pressing
 START again does not repeat the run. Removing never touches the repository; ingest again to put
 a row back.
@@ -72,9 +80,9 @@ a row back.
 **With auto change sync**, a removal sticks: a document whose graphs were removed keeps leaving
 the graph out of its sync updates, and a document removed from every store stays out of the
 sync (its row shows *removed*) even when it changes in the repository — until you ingest it
-again. Renames and moves are still recorded. **Skip graph** is also kept for the datasource: once
-none of its documents has a graph left, it is marked skip-graph, and an ingest with the graph
-clears that.
+again. Renames and moves are still recorded. Each graph is also a datasource setting: once none
+of its documents is left in a graph, its auto sync stops building that graph, and an ingest that
+builds it turns it back on.
 
 ### Auto Sync per Row
 
@@ -109,7 +117,11 @@ backend keeps the list in memory until it restarts.
 With **Run in background**, START returns at once and the Processing sub-tab is free; when the
 job finishes, its per-file result and message are shown there like a foreground run. In KG
 Spaces, leaving the page for elsewhere in ACA and coming back keeps the selection, the run and
-its progress.
+its progress. KG Spaces for ACA and KG Spaces for Nuxeo start with **Run in background** ticked
+(v0.9.0+; the Angular library's `runInBackground` option).
+
+When a run finishes, the **Sources** chips on Hybrid Search and AI Chat are refreshed, so a
+source the run added or emptied shows up or goes away (v0.9.0+).
 
 ## Processing Complete
 

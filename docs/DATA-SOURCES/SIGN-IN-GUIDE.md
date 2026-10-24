@@ -110,8 +110,8 @@ Sync: an Alfresco ticket expires, while a Nuxeo token does not.
 Nothing to register. The sign-in uses Alfresco's own ticket API (as ACA does) against the server
 the documents came from. `ALFRESCO_URL` is the default server.
 
-- **KG Spaces in ACA** passes ACA's own ticket, so no sign-in is asked there for ACA's own server.
-  Every other source signs in from the **sign-in pill** at the right end of the KG Spaces title bar
+- **KG Spaces in ACA** passes ACA's own ticket, so no sign-in is asked there for ACA's own server
+  (since v0.9.0 the title bar shows it as **Alfresco · \<user\>**). Every other source signs in from the **sign-in pill** at the right end of the KG Spaces title bar
   (with a signed-in count); questions then carry ACA's ticket plus
   those sign-ins. `plugins.kgSpaces.searchSignIn: false` in ACA's `app.config.json` sends only
   ACA's ticket.
@@ -122,6 +122,11 @@ the documents came from. `ALFRESCO_URL` is the default server.
 Nothing to register. Nuxeo issues a token for the user. A CMIS server on Alfresco or Nuxeo gets
 that vendor's ticket or token. Details: [Nuxeo](README-nuxeo.md#sign-in-and-permission-aware-search),
 [CMIS](README-cmis-sign-in.md), including how to add another CMIS vendor.
+
+- **KG Spaces for Nuxeo** (v0.9.0+) passes the Web UI user's Nuxeo token, so no sign-in is asked
+  there for that Nuxeo server; its title bar shows **Nuxeo · \<user\>** (sign out in Web UI), and
+  every other source signs in from the sign-in pill next to it. See
+  [Nuxeo — KG Spaces for Nuxeo](README-nuxeo.md#kg-spaces-for-nuxeo).
 
 ### Microsoft 365, Box, Google, Azure Storage: what they have in common
 

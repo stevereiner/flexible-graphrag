@@ -214,6 +214,7 @@ Ingest documents from various sources into the knowledge graph.
   - Single path: `"/path/to/file.pdf"`
   - Multiple paths (JSON array): `["file1.pdf", "file2.docx"]`
 - `skip_graph` (boolean, default: false): Skip knowledge graph extraction on a per-ingest basis for faster performance (vector + search only)
+- `enabled_graph` / `enabled_rdf` (boolean, optional): Build only the property graph or only the RDF graph; one left out follows the server's `DEFAULT_ENABLED_GRAPH` / `DEFAULT_ENABLED_RDF` (both true unless set)
 - `cmis_config` (string, optional): CMIS configuration as JSON string
 - `alfresco_config` (string, optional): Alfresco configuration as JSON string (also supports `nodeDetails` list for multi-select)
 - `web_config` (string, optional): Web page configuration as JSON string

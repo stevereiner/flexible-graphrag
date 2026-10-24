@@ -94,6 +94,8 @@ class Datasource:
     skip_graph: bool
     roots: List[Root]
     auto_sync: bool = True  # False: recorded by an ingest without auto change sync
+    enabled_graph: bool = True  # its sync builds the property graph (graph_flags.py)
+    enabled_rdf: bool = True    # ... and the RDF graph
 
     @classmethod
     def from_config(cls, cfg: Any) -> "Datasource":
@@ -116,17 +118,62 @@ class Datasource:
                 if isinstance(nd, dict) and nd.get("path")
             ]
         else:
-            roots = [Root(path=normalize_repo_path(cp.get("path")), is_folder=True)]
+            roots = _cloud_roots(cfg.source_type, cp)
+            if roots is None:
+                roots = [Root(path=normalize_repo_path(cp.get("path")), is_folder=True)]
         return cls(
             config_id=cfg.config_id,
             source_type=cfg.source_type,
             source_name=getattr(cfg, "source_name", "") or "",
             url=normalize_url(cp.get("url")),
-            recursive=bool(cp.get("recursive", False)),
+            # the cloud sources follow subfolders (or every key under a prefix)
+            recursive=bool(cp.get("recursive", cfg.source_type in _CLOUD_SOURCES)),
             skip_graph=bool(getattr(cfg, "skip_graph", False)),
             roots=roots,
             auto_sync=bool(getattr(cfg, "auto_sync", True)),
+            **_graph_fields(cfg),
         )
+
+
+def _graph_fields(cfg: Any) -> Dict[str, bool]:
+    """enabled_graph / enabled_rdf of a datasource config (its ``graphs``, else its fields)."""
+    from graph_flags import GraphFlags
+    graphs = getattr(cfg, "graphs", None)
+    if not isinstance(graphs, GraphFlags):
+        graphs = GraphFlags.of(cfg)
+    return graphs.to_dict()
+
+
+_CLOUD_SOURCES = ("s3", "gcs", "azure_blob", "sharepoint", "onedrive", "box", "google_drive")
+
+
+def _cloud_roots(source_type: str, cp: Dict[str, Any]) -> Optional[List[Root]]:
+    """Roots of a datasource whose config has no repository path: its bucket / container / site /
+    drive and prefix or folder, so a prefix sync and a bucket-wide one are told apart (both used
+    to be root "/", and a new sync seemed to cover every other sync of its type). Box and Google
+    Drive folders and files are known by id only. None for any other source."""
+    def folder(*parts) -> Root:
+        return Root(path=normalize_repo_path("/".join(str(p).strip("/") for p in parts if p)), is_folder=True)
+
+    if source_type in ("s3", "gcs"):
+        return [folder(cp.get("bucket_name") or cp.get("bucket"), cp.get("prefix"))]
+    if source_type == "azure_blob":
+        container = cp.get("container_name") or cp.get("container")
+        if cp.get("blob"):
+            blob = str(cp["blob"])
+            return [Root(path=normalize_repo_path(f"{container}/{blob}"), is_folder=False, node_id=blob)]
+        return [folder(container, cp.get("prefix"))]
+    if source_type == "sharepoint":
+        return [folder(cp.get("site_name") or cp.get("site_id"), cp.get("folder_path") or cp.get("folder_id"))]
+    if source_type in ("onedrive", "box", "google_drive"):
+        owner = {"onedrive": cp.get("user_principal_name"), "box": "box", "google_drive": "google_drive"}[source_type]
+        files = cp.get("file_ids") or cp.get("box_file_ids") or []
+        if files:
+            return [Root(path=normalize_repo_path(f"{owner}/#{f}"), is_folder=False, node_id=str(f)) for f in files]
+        where = cp.get("folder_path") if source_type == "onedrive" else None
+        where = where or cp.get("folder_id") or cp.get("box_folder_id")
+        return [folder(owner, f"#{where}" if where and source_type != "onedrive" else where)]
+    return None
 
 
 @dataclass
@@ -146,6 +193,8 @@ class Match:
     relation: str  # same | inside | contains | indexed
     status: str    # synced | partial | overlaps
     auto_sync: bool = True  # False: ingested once, not kept in sync
+    enabled_graph: bool = True  # the datasource builds the property graph
+    enabled_rdf: bool = True    # ... and the RDF graph
 
     def as_dict(self) -> Dict[str, Any]:
         return self.__dict__.copy()
@@ -167,7 +216,8 @@ def relate(item: Item, ds: Datasource, request_recursive: bool) -> List[Match]:
 
     def add(root: Root, relation: str, status: str) -> None:
         matches.append(Match(ds.config_id, ds.source_name, root.path, ds.recursive,
-                             ds.skip_graph, relation, status, ds.auto_sync))
+                             ds.skip_graph, relation, status, ds.auto_sync,
+                             ds.enabled_graph, ds.enabled_rdf))
 
     for root in ds.roots:
         if (item.id and root.node_id and item.id == root.node_id) or item.path == root.path:
@@ -223,11 +273,12 @@ def check_ingest_status(
                 ds = by_id[row["config_id"]]
                 if not any(m.config_id == ds.config_id and m.status == "synced" for m in matches):
                     matches.append(Match(ds.config_id, ds.source_name, "", ds.recursive,
-                                         ds.skip_graph, "indexed", "synced", ds.auto_sync))
+                                         ds.skip_graph, "indexed", "synced", ds.auto_sync,
+                                         ds.enabled_graph, ds.enabled_rdf))
             if rows:
                 targets = {
                     t: any(r.get(f"{t}_synced_at") for r in rows)
-                    for t in ("vector", "search", "graph")
+                    for t in ("vector", "search", "graph", "rdf")
                 }
                 auto_sync = any(by_id[r["config_id"]].auto_sync and r.get("auto_sync", True) for r in rows)
         if auto_sync is None:

@@ -414,8 +414,9 @@ class MicrosoftGraphDetector(ChangeDetector):
                 # Get items at root level
                 items = await self._get_drive_items_delta(endpoint)
                 
-                # Recursively process items (folders and files)
-                await self._process_items_recursive(items, files)
+                # Recursively process items (folders and files). Paths start at the sync's
+                # folder ("/test/cmispress.txt"), as the delta stream and the API ingest record them
+                await self._process_items_recursive(items, files, self._base_path())
                 
             except Exception as sdk_error:
                 logger.error(f"Error calling Graph SDK: {sdk_error}")
@@ -557,6 +558,18 @@ class MicrosoftGraphDetector(ChangeDetector):
             else:
                 logger.warning(f"Item {item_name} is neither file nor folder - skipping")
     
+    def _base_path(self) -> str:
+        """The sync's folder as a drive path ("/test"), or "" for the whole drive."""
+        return "/" + self.folder_path.strip("/") if self.folder_path and self.folder_path.strip("/") else ""
+
+    def _in_folder(self, file_path: Optional[str]) -> bool:
+        """Whether a drive path is under the sync's folder (at any depth: the listing is recursive)."""
+        from ..recovery import comparable_path
+        base = self._base_path()
+        if not base:
+            return True
+        return bool(file_path) and comparable_path(file_path).startswith(comparable_path(base) + "/")
+
     async def get_changes(self) -> AsyncGenerator[ChangeEvent, None]:
         """Stream change events from Microsoft Graph using the ``/delta`` endpoint.
 
@@ -582,6 +595,8 @@ class MicrosoftGraphDetector(ChangeDetector):
             return
 
         if not self.enable_change_polling:
+            # no events will come: the periodic refresh takes every change (recovery.py)
+            self._events_live_since = datetime.max.replace(tzinfo=timezone.utc)
             logger.info(f"Change polling disabled for {self.data_source} (enable_change_polling=False)")
             logger.info(f"  Relying on periodic refresh (every 5 minutes) for change detection")
             logger.info(f"  Set 'enable_change_polling': true in datasource config to enable delta polling")
@@ -645,6 +660,14 @@ class MicrosoftGraphDetector(ChangeDetector):
                 if event is None:
                     continue  # folder or unparseable
 
+                # The delta covers the whole drive: only what is under the sync's folder is its
+                # own; a document it follows that moved out of it is no longer its to keep
+                if event.change_type != ChangeType.DELETE and not self._in_folder(event.metadata.extra.get('file_path')):
+                    gone = await self._moved_out_event(event)
+                    if gone is not None:
+                        yield gone
+                    continue
+
                 self.events_processed += 1
                 if event.change_type == ChangeType.DELETE:
                     yield event
@@ -662,6 +685,26 @@ class MicrosoftGraphDetector(ChangeDetector):
                     self.delta_link = delta_link
                     await self._save_delta_link(delta_link)
                 page = None
+
+    async def _moved_out_event(self, event: ChangeEvent) -> Optional[ChangeEvent]:
+        """A DELETE for a followed document now outside the sync's folder, else None."""
+        if not (self.state_manager and self.config_id):
+            return None
+        from ..recovery import moved_out
+        from ..state_manager import StateManager
+        try:
+            state = await self.state_manager.get_state(StateManager.make_doc_id(self.config_id, event.metadata.path))
+        except Exception as e:
+            logger.debug(f"Could not check {event.metadata.path}: {e}")
+            return None
+        if not moved_out(state, event.metadata.extra.get('file_path')):
+            return None
+        logger.info(f"Microsoft Graph EVENT: {state.source_path} moved out of this sync's folder -- removing it")
+        return ChangeEvent(
+            metadata=FileMetadata(source_type='msgraph', path=event.metadata.path,
+                                  ordinal=int(datetime.now(timezone.utc).timestamp() * 1_000_000),
+                                  extra={'file_id': event.metadata.extra.get('file_id')}),
+            change_type=ChangeType.DELETE, timestamp=datetime.now(timezone.utc))
 
     async def _run_fulllist_cycle(self) -> AsyncGenerator[ChangeEvent, None]:
         """Legacy fallback: list all files and diff against known IDs."""
@@ -782,63 +825,22 @@ class MicrosoftGraphDetector(ChangeDetector):
             }
         return d
 
-    async def _delta_state_pool(self):
-        """Return the asyncpg pool used to persist deltaLinks, or None."""
-        sm = self.state_manager
-        if sm is not None and getattr(sm, "pool", None) is not None:
-            return sm.pool
-        return None
-
-    async def _ensure_delta_state_table(self, pool) -> None:
-        async with pool.acquire() as conn:
-            await conn.execute(
-                """
-                CREATE TABLE IF NOT EXISTS msgraph_delta_state (
-                    config_id  TEXT PRIMARY KEY,
-                    delta_link TEXT,
-                    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-                )
-                """
-            )
-
     async def _load_delta_link(self) -> Optional[str]:
-        """Load the persisted deltaLink for this config_id (if any)."""
-        if not self.config_id:
-            return None
-        pool = await self._delta_state_pool()
-        if pool is None:
+        """Load the persisted deltaLink for this config_id (if any), from the state store."""
+        if not self.config_id or self.state_manager is None:
             return None
         try:
-            await self._ensure_delta_state_table(pool)
-            async with pool.acquire() as conn:
-                row = await conn.fetchrow(
-                    "SELECT delta_link FROM msgraph_delta_state WHERE config_id = $1",
-                    self.config_id,
-                )
-                return row['delta_link'] if row else None
+            return await self.state_manager.load_sync_cursor(self.config_id)
         except Exception as e:
             logger.debug(f"Could not load msgraph deltaLink: {e}")
             return None
 
     async def _save_delta_link(self, delta_link: str) -> None:
         """Persist the deltaLink for this config_id so restarts resume in place."""
-        if not self.config_id:
-            return
-        pool = await self._delta_state_pool()
-        if pool is None:
+        if not self.config_id or self.state_manager is None:
             return
         try:
-            await self._ensure_delta_state_table(pool)
-            async with pool.acquire() as conn:
-                await conn.execute(
-                    """
-                    INSERT INTO msgraph_delta_state (config_id, delta_link, updated_at)
-                    VALUES ($1, $2, NOW())
-                    ON CONFLICT (config_id)
-                    DO UPDATE SET delta_link = EXCLUDED.delta_link, updated_at = NOW()
-                    """,
-                    self.config_id, delta_link,
-                )
+            await self.state_manager.save_sync_cursor(self.config_id, delta_link)
         except Exception as e:
             logger.debug(f"Could not save msgraph deltaLink: {e}")
     
@@ -950,8 +952,10 @@ class MicrosoftGraphDetector(ChangeDetector):
         logger.info(f"Processing {filename} (file_id: {file_id}) via backend (full pipeline) using {self.data_source}")
         
         try:
-            skip_graph = getattr(self, 'skip_graph', False)
-            processing_id = f"incremental_msg_{file_id[:8]}"
+            from incremental_updates.doc_graphs import datasource_graphs, synced_times
+            graphs = datasource_graphs(self)  # which graphs it builds
+            from .. import sync_jobs
+            processing_id = sync_jobs.processing_id("msg", file_id)
             
             # Build config based on data source type (determined at init)
             source_config = {
@@ -992,7 +996,7 @@ class MicrosoftGraphDetector(ChangeDetector):
                 processing_id=processing_id,
                 data_source=self.data_source,
                 config_id=self.config_id,
-                skip_graph=skip_graph,
+                graphs=graphs,
                 **{config_param: source_config}
             )
             
@@ -1082,8 +1086,9 @@ class MicrosoftGraphDetector(ChangeDetector):
         # Get current timestamp for sync tracking
         now = datetime.now(timezone.utc)
         
-        # Determine which indexes were updated based on skip_graph flag
-        skip_graph = getattr(self, 'skip_graph', False)
+        # each graph's sync time, only where a store is behind it
+        from incremental_updates.doc_graphs import datasource_graphs, synced_times
+        graph_at, rdf_at = synced_times(self, datasource_graphs(self), now)
         
         # Create document state
         doc_state = DocumentState(
@@ -1096,7 +1101,8 @@ class MicrosoftGraphDetector(ChangeDetector):
             modified_timestamp=modified_timestamp,
             vector_synced_at=now,  # Set to current time since we just indexed
             search_synced_at=now,  # Set to current time since we just indexed
-            graph_synced_at=now if not skip_graph else None  # Only set if graph was updated
+            graph_synced_at=graph_at,  # each graph only if it was built
+            rdf_synced_at=rdf_at
         )
         
         await self.state_manager.save_state(doc_state)

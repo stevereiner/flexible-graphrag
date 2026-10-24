@@ -1,6 +1,6 @@
 # Databases
 
-All supported database types — property graph, RDF triple stores, vector, search, and PostgreSQL.
+All supported database types — property graph, RDF triple stores, vector, search, PostgreSQL, and Hyland OpenArch.
 
 ## Property Graph Databases (`PG_GRAPH_DB`)
 
@@ -81,3 +81,10 @@ Two separate Postgres containers — do not confuse them:
 | `apache-age` | 5434 | Apache AGE property graph (separate DB) |
 
 - [PostgreSQL Setup](../DATABASES/POSTGRES-SETUP.md) — pgvector + pgAdmin (port 5050) + incremental schema
+
+## Hyland OpenArch
+
+[Hyland OpenArch](https://github.com/Hyland/OpenArch) (optional), an AI-ready content repository for documents with their extracted text and vector embeddings, in either or both of two roles:
+
+- [Search + vector store](../DATABASES/OPENARCH/OPENARCH.md) (`ENABLE_OPENARCH=true`) — each document, its text and its chunks with embeddings, in place of `VECTOR_DB` and `SEARCH_DB`; 1024-dimension embeddings
+- [Auto-sync state store](../DATABASES/OPENARCH/OPENARCH-STATE-STORE.md) (`INCREMENTAL_STATE_STORE=openarch`) — data sources, document state and per-folder / per-document scope rules, in place of PostgreSQL

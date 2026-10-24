@@ -162,8 +162,17 @@ def create_embedding_model(provider: LLMProvider, config: Dict[str, Any], settin
             if not api_key:
                 raise ValueError("OpenAI embeddings require OPENAI_API_KEY")
             _http = _make_openai_http_client()
+            # text-embedding-3-* can return shorter vectors (OPENAI_EMBEDDING_DIMENSION /
+            # EMBEDDING_DIMENSION, e.g. 1024 for OpenArch); older models have a fixed size
+            _dims = {}
+            if model_name.startswith("text-embedding-3"):
+                _native = 3072 if "large" in model_name else 1536
+                _target = get_embedding_dimension("openai", model_name, embedding_dimension)
+                if _target and _target != _native:
+                    _dims = {"dimensions": _target}
+                    logger.info(f"[EmbFactory] OpenAI {model_name}: {_target} dimensions (native {_native})")
             emb = OpenAIEmbedding(
-                    model_name=model_name, api_key=api_key,
+                    model_name=model_name, api_key=api_key, **_dims,
                     **({"http_client": _http} if _http is not None else {}))
             logger.debug(f"[EmbFactory] Created OpenAIEmbedding")
             return emb

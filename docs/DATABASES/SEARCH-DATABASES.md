@@ -44,7 +44,10 @@ SEARCH_DB=opensearch
 OPENSEARCH_SEARCH_DB_CONFIG={"hosts": ["http://localhost:9201"], "index_name": "hybrid_search"}
 ```
 
-For optimal hybrid search with OpenSearch, set up the hybrid search pipeline:
+For optimal hybrid search with OpenSearch, OpenSearch needs the hybrid search pipeline
+(`hybrid-search-pipeline`). `includes/opensearch.yaml` creates it on every start (a one-off
+`opensearch-init` container that PUTs `docker/config/opensearch-hybrid-search-pipeline.json`).
+For an OpenSearch you run yourself, create it with:
 
 ```bash
 python scripts/create_opensearch_pipeline.py

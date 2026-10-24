@@ -3,5 +3,6 @@
   "dest": "../../dist/flexible-graphrag-angular-lib",
   "lib": {
     "entryFile": "src/public-api.ts"
-  }
+  },
+  "assets": ["styles/**/*.scss"]
 }

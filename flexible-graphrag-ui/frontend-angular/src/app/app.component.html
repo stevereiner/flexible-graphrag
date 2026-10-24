@@ -1,20 +1,5 @@
 <div class="app-container">
-  <mat-toolbar [ngClass]="isDarkMode ? 'dark-toolbar' : 'light-toolbar'">
-    <mat-toolbar-row>
-      <span>{{ title }}</span>
-      <span class="spacer"></span>
-      <app-source-sign-in></app-source-sign-in>
-      <div class="theme-switcher">
-        <div class="custom-toggle" (click)="toggleThemeSimple()">
-          <div class="toggle-track" [class.checked]="isLightMode">
-            <div class="toggle-thumb" [class.checked]="isLightMode"></div>
-          </div>
-        </div>
-        <mat-icon class="theme-icon">{{ isDarkMode ? 'dark_mode' : 'light_mode' }}</mat-icon>
-        <span class="theme-text">{{ isDarkMode ? 'Dark' : 'Light' }}</span>
-      </div>
-    </mat-toolbar-row>
-  </mat-toolbar>
+  <app-title-bar [title]="title"></app-title-bar>
 
   <main class="main-content">
     <div class="container">

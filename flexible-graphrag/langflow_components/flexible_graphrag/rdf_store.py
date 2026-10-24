@@ -4,7 +4,7 @@ Writes an RDF graph via the real backend update_rdf_graph (per RDF_GRAPH_DB), us
 shared system. Reuses the KG-extracted nodes from the Knowledge Graph node when present.
 """
 
-from langflow_components.flexible_graphrag._fg_shared import get_run, make_payload, has_ingest_chunks
+from langflow_components.flexible_graphrag._fg_shared import get_run, make_payload, has_ingest_chunks, run_graphs
 
 from langflow.custom import Component
 from langflow.io import HandleInput, BoolInput, Output
@@ -44,13 +44,16 @@ class FlexibleRDFStoreComponent(Component):
         # (skip_graph on the run, or its own field, KG extraction otherwise skipped — e.g.
         # ENABLE_KNOWLEDGE_GRAPH=false), or there is no RDF store (RDF_GRAPH_DB=none), store
         # nothing — do NOT let update_rdf_graph re-extract a full KG here.
-        if (bool(self.skip_graph) or bool(run.get("skip_graph"))
-                or not run.get("kg_extracted") or db.lower() == "none"):
-            self.status = "RDF writing skipped (skip_graph / no KG extracted / RDF_GRAPH_DB=none)."
+        # (rdf_extracts: the LangChain KG node left extraction to this node, property graph off)
+        extracts_here = bool(run.get("rdf_extracts"))
+        if (bool(self.skip_graph) or not run_graphs(run).rdf
+                or not (run.get("kg_extracted") or extracts_here) or db.lower() == "none"):
+            self.status = "RDF writing skipped (enabled_rdf off / no KG extracted / RDF_GRAPH_DB=none)."
             return make_payload(run["_key"], "rdf", db=db, entities=0, relations=0)
 
+        from graph_flags import GraphFlags
         rdf_kg_duration, rdf_store_duration = await update_rdf_graph(
-            system, nodes, nodes_kg_extracted=True, skip_graph=False
+            system, nodes, nodes_kg_extracted=not extracts_here, graphs=GraphFlags(False, True)
         )
         self.status = (f"RDF written to {db}: {run.get('entities', 0)} entities, "
                        f"{run.get('relations', 0)} relations (kg {rdf_kg_duration:.2f}s, "

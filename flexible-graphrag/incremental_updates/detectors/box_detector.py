@@ -76,6 +76,8 @@ class BoxDetector(ChangeDetector):
         # Folder configuration
         self.folder_id = config.get('folder_id') or config.get('box_folder_id', '0')
         self.recursive = config.get('recursive', True)
+        # The selected files (a multi-select), else the whole folder is followed
+        self.file_ids = {str(i) for i in (config.get('box_file_ids') or config.get('file_ids') or [])}
         self.polling_interval = config.get('polling_interval', 30)
         
         # Authentication config
@@ -251,6 +253,14 @@ class BoxDetector(ChangeDetector):
         
         files = []
         try:
+            if self.file_ids:
+                from types import SimpleNamespace
+                for file_id in sorted(self.file_ids):
+                    metadata = await self._item_to_metadata(SimpleNamespace(id=file_id))
+                    if metadata:  # a deleted one is absent: the refresh removes it
+                        files.append(metadata)
+                logger.info(f"Listed {len(files)} selected files from Box")
+                return files
             # Get items from folder
             await self._list_folder_items(self.folder_id, files)
             
@@ -303,6 +313,10 @@ class BoxDetector(ChangeDetector):
                 
                 # Process events
                 for event_data in events.entries:
+                    if await self._folder_changed(event_data):
+                        async for folder_event in self._follow_folder(event_data.source.id):
+                            yield folder_event
+                        continue
                     event = await self._parse_event(event_data)
                     if event:
                         self.events_processed += 1
@@ -322,7 +336,8 @@ class BoxDetector(ChangeDetector):
                                 logger.warning(f"SKIP: No file_id for {file_name}")
                                 continue
                             
-                            is_new = file_id not in self.known_file_ids
+                            # new unless seen or followed already (known_file_ids starts empty)
+                            is_new = file_id not in self.known_file_ids and await self._tracked(file_id) is None
                             
                             if is_new:
                                 # Truly new - CREATE
@@ -377,7 +392,8 @@ class BoxDetector(ChangeDetector):
                             logger.info(f"Box EVENT: UPDATE for {file_name}")
                             
                             # Check if truly known (might be false positive)
-                            is_new = file_id not in self.known_file_ids
+                            # new unless seen or followed already (known_file_ids starts empty)
+                            is_new = file_id not in self.known_file_ids and await self._tracked(file_id) is None
                             
                             if is_new:
                                 # Actually new - treat as CREATE
@@ -457,12 +473,23 @@ class BoxDetector(ChangeDetector):
                 # Ignore other event types (ITEM_DOWNLOAD, ITEM_PREVIEW, etc.)
                 return None
             
-            # Check if file is in monitored folders
+            # Check if file is in what this sync follows: its selected files, else its folders
             parent = source.parent
-            if self.folder_id and self.folder_id != '0':
+            if self.file_ids:
+                if str(source.id) not in self.file_ids:
+                    return None
+            elif self.folder_id and self.folder_id != '0':
                 parent_id = parent.id if parent else None
                 if parent_id not in self.folder_cache:
-                    return None
+                    state = await self._tracked(source.id) if event_type == 'ITEM_MOVE' else None
+                    if state is None or getattr(state, 'auto_sync', None) is False:
+                        return None
+                    logger.info(f"Box EVENT: {state.source_path} moved out of this sync's folder -- removing it")
+                    return ChangeEvent(
+                        metadata=FileMetadata(source_type='box', path=source.id,
+                                              ordinal=int(datetime.now(timezone.utc).timestamp() * 1_000_000),
+                                              extra={'file_id': source.id}),
+                        change_type=ChangeType.DELETE, timestamp=datetime.now(timezone.utc))
             
             # Parse event timestamp
             created_at = event_data.created_at
@@ -505,6 +532,65 @@ class BoxDetector(ChangeDetector):
             logger.warning(f"Error parsing Box event: {e}")
             return None
     
+    @staticmethod
+    def _box_path(file) -> Optional[str]:
+        """A Box file's path ("All Files/<folders>/<name>"), from its path_collection."""
+        entries = getattr(getattr(file, 'path_collection', None), 'entries', None)
+        if entries is None:
+            return None
+        return "/".join([e.name for e in entries if getattr(e, 'name', None)] + [file.name])
+
+    async def _tracked(self, file_id: str):
+        if not (self.state_manager and self.config_id):
+            return None
+        try:
+            return await self.state_manager.get_state_by_source_id(self.config_id, file_id)
+        except Exception as e:
+            logger.debug(f"Could not check Box file {file_id}: {e}")
+            return None
+
+    async def _folder_changed(self, event_data) -> bool:
+        """A folder created, copied, moved or renamed in (or into) what this sync follows: its folder
+        cache is rebuilt, and its files are checked (_follow_folder)."""
+        source = event_data.source
+        if getattr(getattr(source, 'type', None), 'value', None) != 'folder' or self.file_ids:
+            return False
+        event_type = event_data.event_type.value if hasattr(event_data.event_type, 'value') else str(event_data.event_type)
+        if event_type not in ('ITEM_CREATE', 'ITEM_COPY', 'ITEM_MOVE', 'ITEM_RENAME', 'ITEM_UNDELETE_VIA_TRASH'):
+            return False
+        if self.folder_id and self.folder_id != '0':
+            parent = getattr(source, 'parent', None)
+            if source.id not in self.folder_cache and (not parent or parent.id not in self.folder_cache):
+                return False
+            await self._build_folder_cache()
+            if source.id not in self.folder_cache:
+                return False  # moved out: the refresh removes its files
+        return True
+
+    async def _follow_folder(self, folder_id: str) -> AsyncGenerator[ChangeEvent, None]:
+        """A folder's files after it was moved or renamed (or moved in): they changed path with no
+        events of their own. Each is replaced under its new path (a Box document's id follows its
+        path), and one that came in with the folder is ingested."""
+        from ..recovery import comparable_path
+        files: List[FileMetadata] = []
+        await self._list_folder_items(folder_id, files)
+        for f in files:
+            file_id, name = f.extra.get('file_id'), f.extra.get('file_name') or f.path
+            state = await self._tracked(file_id)
+            if state is None:
+                logger.info(f"Box EVENT: folder change brought in {f.extra.get('file_path')} -- ingesting it")
+                self.known_file_ids.add(file_id)
+                await self._process_via_backend(file_id, name)
+            elif f.extra.get('file_path') and comparable_path(state.source_path or "") != comparable_path(f.extra['file_path']):
+                logger.info(f"Box EVENT: {state.source_path} is now {f.extra['file_path']} (its folder moved or was renamed)")
+
+                async def add_callback(_id=file_id, _name=name):
+                    await self._process_via_backend(_id, _name)
+                yield ChangeEvent(metadata=FileMetadata(source_type='box', path=file_id, ordinal=f.ordinal,
+                                                        extra={'file_id': file_id}),
+                                  change_type=ChangeType.DELETE, timestamp=None,
+                                  is_modify_delete=True, modify_callback=add_callback)
+
     async def _item_to_metadata(self, item) -> Optional[FileMetadata]:
         """Convert Box file item to FileMetadata"""
         try:
@@ -532,6 +618,8 @@ class BoxDetector(ChangeDetector):
                 modified_timestamp=modified_time.isoformat(),
                 extra={
                     'file_id': file.id,
+                    'file_name': file.name,
+                    'file_path': self._box_path(file),  # "All Files/sample-docs/a.txt", as its state records it
                     'etag': file.etag if hasattr(file, 'etag') else None,
                 }
             )
@@ -556,8 +644,10 @@ class BoxDetector(ChangeDetector):
         logger.info(f"Processing {filename} (file_id: {file_id}) via backend (full pipeline)")
         
         try:
-            skip_graph = getattr(self, 'skip_graph', False)
-            processing_id = f"incremental_box_{file_id[:8]}"
+            from incremental_updates.doc_graphs import datasource_graphs, synced_times
+            graphs = datasource_graphs(self)  # which graphs it builds
+            from .. import sync_jobs
+            processing_id = sync_jobs.processing_id("box", file_id)
             
             # Build Box config
             box_config = {
@@ -582,7 +672,7 @@ class BoxDetector(ChangeDetector):
                 processing_id=processing_id,
                 data_source='box',
                 config_id=self.config_id,
-                skip_graph=skip_graph,
+                graphs=graphs,
                 box_config=box_config
             )
             
@@ -592,12 +682,13 @@ class BoxDetector(ChangeDetector):
             if self.state_manager:
                 try:
                     from post_ingestion_state import PostIngestionStateManager
-                    post_state_manager = PostIngestionStateManager(self.state_manager.postgres_url)
+                    post_state_manager = PostIngestionStateManager(getattr(self.state_manager, "postgres_url", None))
                     await post_state_manager.create_document_states_after_ingestion(
                         processing_id=processing_id,
                         config_id=self.config_id,
                         paths=[],  # Box doesn't use paths
-                        data_source='box'
+                        data_source='box',
+                        graphs=graphs,
                     )
                     logger.info(f"Created document_state for {filename} via PostIngestionStateManager")
                 except Exception as e:

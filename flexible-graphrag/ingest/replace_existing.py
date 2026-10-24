@@ -28,11 +28,7 @@ async def known_doc_ids(doc_ids: List[str]) -> Optional[Set[str]]:
     mgr = IncrementalSystemManager._instance
     if mgr is None or not mgr.is_initialized() or mgr.state_manager is None:
         return None
-    async with mgr.state_manager.pool.acquire() as conn:
-        rows = await conn.fetch(
-            "SELECT doc_id FROM document_state WHERE doc_id = ANY($1::text[])", doc_ids
-        )
-    return {r["doc_id"] for r in rows}
+    return await mgr.state_manager.known_doc_ids(doc_ids)
 
 
 async def delete_previous_versions(system, documents: List, replace_doc_ids: Optional[Iterable[str]] = None) -> int:
@@ -49,12 +45,15 @@ async def delete_previous_versions(system, documents: List, replace_doc_ids: Opt
     if not targets:
         return 0
     logger.info("Re-ingest: deleting the previous version of %d document(s) before inserting", len(targets))
-    return await delete_doc_ids(system, targets)
+    # OpenArch updates its document in place on the next write (same source identity)
+    return await delete_doc_ids(system, targets, openarch=False)
 
 
-async def delete_doc_ids(system, doc_ids: Iterable[str], targets: Optional[Iterable[str]] = None) -> int:
+async def delete_doc_ids(system, doc_ids: Iterable[str], targets: Optional[Iterable[str]] = None,
+                         openarch: bool = True) -> int:
     """Delete each document from every configured store, or only from ``targets`` (see
-    engine.DELETE_TARGETS). Returns how many were processed."""
+    engine.DELETE_TARGETS). ``openarch=False`` leaves OpenArch's copy. Returns how many were
+    processed."""
     doc_ids = list(dict.fromkeys(doc_ids))
     if not doc_ids:
         return 0
@@ -73,5 +72,5 @@ async def delete_doc_ids(system, doc_ids: Iterable[str], targets: Optional[Itera
     stores = None if targets is None else list(targets)
     for doc_id in doc_ids:
         logger.info("  deleting %s from %s", doc_id, ", ".join(stores) if stores else "all stores")
-        await engine._delete_from_all_indexes(doc_id, stores)
+        await engine._delete_from_all_indexes(doc_id, stores, openarch=openarch)
     return len(doc_ids)

@@ -96,7 +96,7 @@ def db_label(key: str) -> str:
 
 
 def store_labels(config, targets) -> list:
-    """The configured stores behind delete targets ("vector", "search", "graph"), named like the
+    """The configured stores behind delete targets ("vector", "search", "graph", "rdf"), named like the
     completion message: ["Qdrant vector", "Elasticsearch search", "Neo4j property graph",
     "Ontotext GraphDB rdf graph"]. A store set to "none" is left out."""
     def on(name: str) -> bool:
@@ -106,31 +106,35 @@ def store_labels(config, targets) -> list:
     vdb = str(getattr(getattr(config, "vector_db", None), "value", getattr(config, "vector_db", "")))
     sdb = str(getattr(getattr(config, "search_db", None), "value", getattr(config, "search_db", "")))
     labels = []
-    if {"vector", "search"} <= targets and vdb.lower() == sdb.lower() == "opensearch":
+    if {"vector", "search"} <= targets and getattr(config, "enable_openarch", False):
+        labels.append("OpenArch hybrid search+vector")
+    elif {"vector", "search"} <= targets and vdb.lower() == sdb.lower() == "opensearch":
         labels.append("OpenSearch hybrid search+vector")
     else:
         if "vector" in targets and on("vector_db"):
             labels.append(f"{db_label(vdb)} vector")
         if "search" in targets and on("search_db"):
             labels.append(f"{db_label(sdb)} search")
-    if "graph" in targets:
-        if on("pg_graph_db"):
-            labels.append(f"{db_label(getattr(config, 'pg_graph_db'))} property graph")
-        if on("rdf_graph_db"):
-            labels.append(f"{db_label(getattr(config, 'rdf_graph_db'))} rdf graph")
+    if "graph" in targets and on("pg_graph_db"):
+        labels.append(f"{db_label(getattr(config, 'pg_graph_db'))} property graph")
+    if "rdf" in targets and on("rdf_graph_db"):
+        labels.append(f"{db_label(getattr(config, 'rdf_graph_db'))} rdf graph")
     return labels
 
 
-def generate_completion_message(config, doc_count: int, skip_graph: bool = False) -> str:
+def generate_completion_message(config, doc_count: int, skip_graph: bool = False, graphs=None) -> str:
     """Generate dynamic completion message based on enabled features.
 
     Args:
         config: AppSettings instance
         doc_count: Number of documents ingested
-        skip_graph: If True, graph was skipped for this ingest
+        skip_graph: If True, graph was skipped for this ingest (older flag; ``graphs`` wins)
+        graphs: graph_flags.GraphFlags -- which graphs this ingest built
     """
+    from graph_flags import GraphFlags
+    flags = graphs if graphs is not None else GraphFlags.of(skip_graph, default=GraphFlags.defaults(config))
     has_vector = str(config.vector_db) != "none"
-    has_graph = str(config.pg_graph_db) != "none" and config.enable_knowledge_graph and not skip_graph
+    has_graph = str(config.pg_graph_db) != "none" and config.enable_knowledge_graph and flags.graph
     # OpenSearch hybrid mode: both VECTOR_DB and SEARCH_DB are opensearch.
     # The search index is never written to; one vector index serves both KNN + BM25.
     # Show a combined "hybrid search+vector" label instead of two separate entries.
@@ -142,14 +146,17 @@ def generate_completion_message(config, doc_count: int, skip_graph: bool = False
     has_rdf_graph = (
         str(getattr(config, "rdf_graph_db", "none")).lower() not in ("none", "")
         and config.enable_knowledge_graph
-        and not skip_graph
+        and flags.rdf
     )
 
 
     _db_label = db_label
 
     features = []
-    if _os_hybrid:
+    if getattr(config, "enable_openarch", False):
+        # ENABLE_OPENARCH: OpenArch is the search and vector store (VECTOR_DB / SEARCH_DB unused)
+        features.append("OpenArch hybrid search+vector")
+    elif _os_hybrid:
         features.append("OpenSearch hybrid search+vector")
     elif has_vector:
         features.append(f"{_db_label(config.vector_db)} vector")

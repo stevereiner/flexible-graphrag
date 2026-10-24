@@ -85,7 +85,7 @@ Click **Connect** — you can now browse and test all the tools interactively (1
 | `wikipedia` | `titles` — list of article titles |
 | `youtube` | `urls` — list of YouTube video URLs |
 
-All sources support `skip_graph: true` to skip KG extraction (vector + search only).
+All sources support `skip_graph: true` to skip KG extraction (vector + search only), and `enabled_graph` / `enabled_rdf` to build only the property graph or only the RDF graph.
 
 ---
 

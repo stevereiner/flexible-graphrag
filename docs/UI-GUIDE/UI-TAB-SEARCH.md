@@ -53,7 +53,9 @@ at `storage.cloud.google.com`. Amazon S3 and Azure Blob links open the file itse
 short-lived signed URL made with your own sign-in (an S3 presigned URL, or an Azure
 user-delegation SAS); without an S3 sign-in, S3 links go to the object's page in the AWS console.
 In KG Spaces, Alfresco documents open in ACA's viewer in the same tab, and closing the viewer
-(✕) brings you back to KG Spaces with your results and conversation.
+(✕) brings you back to KG Spaces with your results and conversation. In KG Spaces for Nuxeo
+(v0.9.0+), Nuxeo documents open in Web UI's own tab, reused each time (a document of another
+Nuxeo server opens in a new tab), so you keep one Web UI tab and one KG Spaces tab.
 
 When multiple databases return the same passage, duplicate filtering keeps only the highest-scoring copy — so not all configured databases will always appear in the results. This is expected behavior.
 

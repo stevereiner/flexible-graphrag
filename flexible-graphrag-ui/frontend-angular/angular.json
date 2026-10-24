@@ -30,7 +30,8 @@
               "src/assets"
             ],
             "styles": [
-              "src/styles.scss"
+              "src/styles.scss",
+              "projects/flexible-graphrag-angular-lib/styles/fg-theme.scss"
             ],
             "scripts": []
           },
@@ -126,7 +127,8 @@
               "src/assets"
             ],
             "styles": [
-              "src/styles.scss"
+              "src/styles.scss",
+              "projects/flexible-graphrag-angular-lib/styles/fg-theme.scss"
             ],
             "scripts": []
           }

@@ -8,15 +8,15 @@ The MCP server provides **12 tools** for document ingestion, search, AI Q&A and 
 | Tool | What it does |
 |---|---|
 | `get_system_status()` | Verify setup and database connections |
-| `ingest_documents(data_source, skip_graph, ...)` | Process documents from any of the 14 data sources |
-| `ingest_text(content, source_name, skip_graph)` | Ingest and analyze specific text content; `skip_graph=True` skips KG extraction |
+| `ingest_documents(data_source, skip_graph, enabled_graph, enabled_rdf, ...)` | Process documents from any of the 14 data sources |
+| `ingest_text(content, source_name, skip_graph, enabled_graph, enabled_rdf)` | Ingest and analyze specific text content; `skip_graph=True` skips KG extraction, `enabled_graph` / `enabled_rdf` pick the graphs |
 | `search_documents(query, top_k, source_auth, scope, sources)` | Hybrid search — find relevant document excerpts; `source_auth` filters to what that user may read, `sources` limits to chosen sources |
 | `query_documents(query, top_k, source_auth, scope, sources)` | AI-powered Q&A over your document corpus (same filtering arguments) |
 | `list_sources()` | The sources with documents in the stores, for the `sources` argument |
 | `get_auth_requirements()` | Which sign-ins the stored documents need before search / query |
 | `sign_in(source, username, password, url)` | Sign in to `alfresco`, `nuxeo`, `cmis` or `s3` (IAM access key); returns the credential for `source_auth` |
 | `start_sign_in(source)` / `finish_sign_in(handoff_id)` | Only with `MCP_BROWSER_SIGN_IN=true`: browser sign-in for Microsoft 365, Box, Google or Azure Storage |
-| `test_with_sample(skip_graph)` | Quick system verification with built-in sample content; `skip_graph=True` for vector-only |
+| `test_with_sample(skip_graph, enabled_graph, enabled_rdf)` | Quick system verification with built-in sample content; `skip_graph=True` for vector-only |
 | `check_processing_status(id)` | Track long-running async ingestion tasks |
 | `get_python_info()` | Python environment diagnostics |
 | `health_check()` | Verify backend API connectivity |
@@ -37,6 +37,8 @@ The MCP server provides **12 tools** for document ingestion, search, AI Q&A and 
 <tr><td><code>data_source</code></td><td><code>str</code></td><td><code>"filesystem"</code></td><td>Source type — see Data Source JSON Config Strings table below</td></tr>
 <tr><td><code>paths</code></td><td><code>str</code></td><td><code>None</code></td><td><strong><code>filesystem</code> only</strong> — file/directory paths; JSON array <code>["p1","p2"]</code>, comma-separated, or single path</td></tr>
 <tr><td><code>skip_graph</code></td><td><code>bool</code></td><td><code>false</code></td><td>Skip KG extraction and graph store writes; chunk + embed + vector/search only</td></tr>
+<tr><td><code>enabled_graph</code></td><td><code>bool</code></td><td><code>None</code></td><td>Build the property graph (<code>PG_GRAPH_DB</code>); <code>None</code> = the server's <code>DEFAULT_ENABLED_GRAPH</code></td></tr>
+<tr><td><code>enabled_rdf</code></td><td><code>bool</code></td><td><code>None</code></td><td>Build the RDF graph (<code>RDF_GRAPH_DB</code>); <code>None</code> = the server's <code>DEFAULT_ENABLED_RDF</code></td></tr>
 <tr><td><code>enable_sync</code></td><td><code>bool</code></td><td><code>false</code></td><td>Enable automatic change detection and incremental updates for the source</td></tr>
 <tr><td><code>&lt;source&gt;_config</code></td><td><code>str</code></td><td><code>None</code></td><td>JSON config string for non-filesystem sources (e.g. <code>alfresco_config</code>, <code>s3_config</code>) — see table below</td></tr>
 </tbody>
@@ -85,6 +87,13 @@ test_with_sample(skip_graph=True)
 ```
 
 When set, the document is chunked, embedded, and stored in vector + search indexes but KG extraction and property graph / RDF store writes are skipped. Useful for fast bulk ingest when graph queries are not needed.
+
+To build only one of the graphs, the same three tools take `enabled_graph` (property graph) and `enabled_rdf` (RDF graph); one left out follows the server's defaults (`DEFAULT_ENABLED_GRAPH` / `DEFAULT_ENABLED_RDF`, both true unless set):
+
+```python
+ingest_documents(data_source="filesystem", paths=["/docs"], enabled_rdf=False)   # property graph only
+ingest_text(content="...", source_name="doc.txt", enabled_graph=False)           # RDF graph only
+```
 
 ## Permission Filtering — Three Levels
 

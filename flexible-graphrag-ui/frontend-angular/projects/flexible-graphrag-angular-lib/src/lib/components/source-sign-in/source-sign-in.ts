@@ -138,10 +138,12 @@ export class SourceSignInComponent implements OnInit, OnDestroy {
         {{ docs ? docs + ' document(s) from ' + label + ' are in the stores. ' : 'The stores may hold ' + label + ' documents. ' }}
         Sign in to search and ask about the ones you may read.
       </p>
-      <mat-form-field *ngIf="reason === 'ask' && missing.length > 1; else oneServer" appearance="outline" class="full-width">
+      <!-- dynamic: the hint takes two lines in the dialog, and a fixed one-line subscript ran it into the field below -->
+      <mat-form-field *ngIf="reason === 'ask' && servers.length > 1; else oneServer" appearance="outline" class="full-width"
+                      subscriptSizing="dynamic">
         <mat-label>Server</mat-label>
         <mat-select [(ngModel)]="selectedKey">
-          <mat-option *ngFor="let p of missing" [value]="key(p)">
+          <mat-option *ngFor="let p of servers" [value]="key(p)">
             {{ labelOf(p.source) }}: {{ p.url }}{{ p.documents != null ? ' (' + p.documents + ' document' + (p.documents === 1 ? '' : 's') + ')' : '' }}
           </mat-option>
         </mat-select>
@@ -218,6 +220,8 @@ export class SourceSignInDialogComponent {
   get current(): AuthProvider | null {
     return this.missing.find((p) => providerKey(p) === this.selectedKey) || this.provider;
   }
+  /** One source per dialog (Alfresco, then Nuxeo, ...): its servers in the picker. */
+  get servers(): AuthProvider[] { return this.missing.filter((p) => p.source === this.current?.source); }
   get label(): string { return labelOf(this.current?.source || 'alfresco'); }
   get docs(): number | null | undefined { return this.current?.documents; }
   get isPopup(): boolean { return isPopupSource(this.current?.source); }
@@ -384,6 +388,8 @@ export class SourcePickerComponent implements OnInit, OnDestroy {
   ngOnInit(): void {
     this.subs.push(this.auth.picked$.subscribe((list) => { this.picked = new Set(list.map(sourceKey)); }));
     this.subs.push(this.auth.sessions$.subscribe(() => this.refresh()));
+    // a run added or removed documents: a new source's pill shows without leaving the page
+    this.subs.push(this.auth.storesChanged$.subscribe(() => this.refresh(true)));
     this.refresh(true);
   }
 

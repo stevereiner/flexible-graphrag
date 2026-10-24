@@ -1591,6 +1591,63 @@ def cleanup_rdf_stores():
         traceback.print_exc()
 
 
+# Trees the integration tests give their own backends (never a configured OPENARCH_ROOT_PATH /
+# OPENARCH_DATASOURCES_PATH): tests/integration/autosync and run_matrix.py --state-store openarch
+TEST_OPENARCH_ROOTS = ("/fg-e2e-sources", "/fg-e2e-datasources", "/fg-matrix-sources", "/fg-matrix-datasources")
+
+
+def cleanup_openarch():
+    """Delete what Flexible GraphRAG put into OpenArch: with INCREMENTAL_STATE_STORE=openarch, the
+    data sources under OPENARCH_DATASOURCES_PATH and the document state; with ENABLE_OPENARCH,
+    the documents it ingested and their chunks under OPENARCH_ROOT_PATH; then the folders left
+    empty. The rest of the repository, and anything else in those trees, stays."""
+    print("\n=== OpenArch Cleanup ===")
+    content = os.getenv("ENABLE_OPENARCH", "false").lower() in ("true", "1", "yes")
+    registry = os.getenv("INCREMENTAL_STATE_STORE", "postgres").strip().lower() == "openarch"
+    if not content and not registry:
+        print("  Skipped: neither ENABLE_OPENARCH nor INCREMENTAL_STATE_STORE=openarch")
+        return
+    try:
+        from config import openarch_settings
+        from openarch.client import OpenArchClient
+        from openarch.integration import remove_empty_folders, remove_ingested
+
+        cfg = openarch_settings(None)
+        root = "/" + cfg["root_path"].strip("/")
+        print(f"  Connecting to OpenArch: {cfg['url']} (repository {cfg['repository']}), tree {root}")
+        if registry:
+            from openarch.registry import remove_registry
+            counts = remove_registry(cfg)
+            print(f"  Deleted {counts['datasources']} data source(s) and the state of "
+                  f"{counts['documents']} document(s) (INCREMENTAL_STATE_STORE=openarch)")
+        client = OpenArchClient(cfg["url"], cfg["username"], cfg["password"], cfg["repository"])
+        try:
+            if content:
+                counts = remove_ingested(client, root)
+                print(f"  Deleted {counts['documents']} document(s) and {counts['folders']} empty folder(s)")
+            if registry:
+                folders = remove_empty_folders(client, cfg["datasources_path"])
+                if not content:
+                    folders += remove_empty_folders(client, root)
+                print(f"  Deleted {folders} empty folder(s) of the data source / state trees")
+            # The integration tests' own trees (tests/integration/autosync: /fg-e2e-*; run_matrix.py
+            # --state-store openarch: /fg-matrix-*), left by a run that kept them or stopped early
+            ours = {root, "/" + cfg["datasources_path"].strip("/")}
+            for path in TEST_OPENARCH_ROOTS:
+                if path in ours:
+                    continue
+                doc = client.get_by_path(path)
+                if doc and client.delete(doc["sys_id"]):
+                    print(f"  Deleted the integration tests' tree {path}")
+        finally:
+            client.close()
+        print("  OpenArch cleanup: SUCCESS")
+    except Exception as e:
+        print(f"  OpenArch cleanup: FAILED - {e}")
+        import traceback
+        traceback.print_exc()
+
+
 def cleanup_cocoindex():
     """Clear CocoIndex LMDB state and the cocoindex-docs source directory.
 
@@ -1683,6 +1740,7 @@ def main():
             "  --vector    clean vector store only\n"
             "  --search    clean search store only\n"
             "  --rdf       clean RDF stores only\n"
+            "  --openarch  clean what was put into OpenArch only (ENABLE_OPENARCH, INCREMENTAL_STATE_STORE=openarch)\n"
             "  --postgres  clean PostgreSQL incremental tables only\n"
             "  --cocoindex clean CocoIndex LMDB state only\n"
             "  --logs      clean log files only\n\n"
@@ -1696,6 +1754,7 @@ def main():
     ap.add_argument("--vector",    action="store_true", help="Clean vector store only.")
     ap.add_argument("--search",    action="store_true", help="Clean search store only.")
     ap.add_argument("--rdf",       action="store_true", help="Clean RDF stores only.")
+    ap.add_argument("--openarch",  action="store_true", help="Clean what was ingested into OpenArch only.")
     ap.add_argument("--postgres",  action="store_true", help="Clean PostgreSQL incremental tables only.")
     ap.add_argument("--cocoindex", action="store_true", help="Clean CocoIndex LMDB state only.")
     ap.add_argument("--logs",      action="store_true", help="Clean log files only.")
@@ -1713,6 +1772,7 @@ def main():
             ("search", cleanup_search_store),
             ("graph", cleanup_graph_store),
             ("rdf", cleanup_rdf_stores),
+            ("openarch", cleanup_openarch),
             ("cocoindex", cleanup_cocoindex),
             ("postgres", cleanup_postgres),
         ]
@@ -1731,7 +1791,7 @@ def main():
         return
 
     # --- selective mode (one or more store flags) ---
-    _selective = [args.graph, args.vector, args.search, args.rdf,
+    _selective = [args.graph, args.vector, args.search, args.rdf, args.openarch,
                   args.postgres, args.cocoindex, args.logs]
     if any(_selective):
         print("=" * 60)
@@ -1745,6 +1805,8 @@ def main():
             cleanup_search_store()
         if args.rdf:
             cleanup_rdf_stores()
+        if args.openarch:
+            cleanup_openarch()
         if args.postgres:
             cleanup_postgres()
         if args.cocoindex:
@@ -1766,6 +1828,8 @@ def main():
     print("  - Search Store (all fulltext indexes)")
     print("  - Graph Store (all nodes, relationships, constraints, indexes)")
     print("  - RDF Stores (all triples in configured stores)")
+    print("  - OpenArch (what Flexible GraphRAG ingested under OPENARCH_ROOT_PATH, if ENABLE_OPENARCH;")
+    print("    its data sources and document state, if INCREMENTAL_STATE_STORE=openarch)")
     print("  - CocoIndex LMDB state + source files (if PIPELINE_BACKEND=cocoindex)")
     print("  - Log files (all *.log in flexible-graphrag/)")
     print("\nThis action CANNOT be undone!")
@@ -1785,6 +1849,7 @@ def main():
     cleanup_search_store()
     cleanup_graph_store()
     cleanup_rdf_stores()
+    cleanup_openarch()
     cleanup_cocoindex()
     cleanup_log_files()
 

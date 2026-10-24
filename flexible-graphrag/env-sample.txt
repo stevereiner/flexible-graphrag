@@ -76,6 +76,34 @@ SEARCH_DB=elasticsearch
 
 
 # ====================================================================
+# OPENARCH CONTENT REPOSITORY (optional, default off)
+# ====================================================================
+# Hyland OpenArch (https://github.com/Hyland/OpenArch) as the search + vector store: when on,
+# VECTOR_DB and SEARCH_DB are not used (PG_GRAPH_DB and RDF_GRAPH_DB still are). Each document is
+# written once per source system at OPENARCH_ROOT_PATH/<source type>/<system id>/<source path>: a CinRemote
+# file with its parsed text (OpenArch's sys_fulltext) and its chunks + embeddings (OpenArch's kNN
+# index). Search fuses OpenArch's hybrid search+vector (kNN + chunk text, fused by OpenSearch
+# inside OpenArch) with the property graph and RDF graph retrievers.
+# OpenArch indexes 1024-dimension vectors only: set the embedding dimension to 1024
+# (OPENAI_EMBEDDING_DIMENSION=1024 for text-embedding-3-small / -large).
+# Needs the python-openarch-api client (until it is published:
+#   uv pip install --system-certs -e <path to python-openarch-api>).
+ENABLE_OPENARCH=false
+#OPENARCH_URL=http://localhost:8080
+#OPENARCH_USERNAME=admin
+#OPENARCH_PASSWORD=password
+#OPENARCH_REPOSITORY=default
+#OPENARCH_ROOT_PATH=/fg-sources
+# <system id> of a repository server: its name here (matched by host and port; a list for a server
+# reached under several addresses), else Alfresco's repository id, else host-port. Several Nuxeo or
+# Alfresco servers each get their own folder: OPENARCH_ROOT_PATH/nuxeo/nuxeo-repo-1/...
+#OPENARCH_SOURCE_IDS={"nuxeo-repo-1": "http://localhost:8081/nuxeo", "nuxeo-repo-2": ["http://nuxeo2:8080/nuxeo", "http://localhost:8082/nuxeo"]}
+#OPENARCH_EMBEDDING_TYPE=           # default: fg-<embedding kind>-<model>-<dimension>
+#OPENARCH_MAX_TEXT_CHARS=64000      # parsed text kept per document for fulltext search
+#OPENARCH_WRITE_CONCURRENCY=4       # documents written in parallel
+
+
+# ====================================================================
 # FRAMEWORK CONFIGURATION (LamaIndex, LangChain)
 # ====================================================================
 
@@ -96,6 +124,14 @@ SEARCH_DB=elasticsearch
 CHUNKER_BACKEND=llamaindex
 #CHUNKER_BACKEND=langchain
 #CHUNKER_BACKEND=cocoindex
+
+# Where LlamaIndex's SentenceSplitter (CHUNKER_BACKEND=llamaindex) finds NLTK's sentence tokenizer and stopwords.
+# Unset (default): the backend and Langflow use a plain copy of llama-index-core's own NLTK data, made once in the
+# user cache folder (flexible-graphrag/nltk_data) -- uv installs that data as hardlinks to its cache, and nltk 3.10.4+
+# refuses to open hardlinked files ("refusing multiply-linked file"). Set it for a folder of your own: an empty folder
+# is fine, the data (about 113 files) is downloaded into it on first use. A relative path is from the folder the
+# backend starts in.
+#NLTK_DATA=./nltk_data
 
 # CocoIndex splitter type — only active when CHUNKER_BACKEND=cocoindex
 # Options:
@@ -528,6 +564,14 @@ LLAMAPARSE_MODE=cost_effective
 # Enable knowledge graph extraction 
 #ENABLE_KNOWLEDGE_GRAPH=false
 ENABLE_KNOWLEDGE_GRAPH=true
+
+# Which graphs an ingest builds when it doesn't say: the Processing tab's Graph / RDF checkboxes start from
+# these (GET /api/ui-defaults), and a REST / MCP ingest without enabled_graph / enabled_rdf uses them too.
+# Unset, both are true; this sample starts them off: search + vector first, a row's graphs added when wanted.
+DEFAULT_ENABLED_GRAPH=false
+DEFAULT_ENABLED_RDF=false
+# Where the Deep checkbox (a folder's subfolders too) starts
+DEFAULT_RECURSIVE=true
 
 # Knowledge graph extractor type: "simple", "schema", or "dynamic"
 # simple: Basic extraction without schema constraints (uses SimpleLLMPathExtractor) 
@@ -1309,6 +1353,9 @@ ALFRESCO_PASSWORD=admin
 # ALFRESCO_STOMP_PORT: ActiveMQ STOMP port for real-time events (default: 61613)
 # Note: If you've changed the ActiveMQ STOMP port in docker-compose (e.g., to 8613), set it here
 ALFRESCO_STOMP_PORT=8613
+# ALFRESCO_STOMP_HOST: ActiveMQ's host when it is not Alfresco's (default: the host of the Alfresco URL),
+# e.g. the activemq service when the backend runs in the same Docker network (then port 61613)
+#ALFRESCO_STOMP_HOST=activemq
 # ALFRESCO SEARCH ENGINE (ACS 26.2+): set ALFRESCO_SEARCH_HOST in **docker/.env**, not here.
 # It is read by Docker Compose (which only consults docker/.env and the shell), never by the app.
 # ACS 26.2 dropped Solr and indexes into Elasticsearch or OpenSearch instead. Four accepted values:
@@ -1347,6 +1394,16 @@ NUXEO_PATH=/default-domain/workspaces/GraphRAG
 # NUXEO_OAUTH2_REFRESH_TOKEN=
 # NUXEO_OAUTH2_TOKEN_ENDPOINT=
 # NUXEO_OAUTH2_OPENID_CONFIG_URL=
+# The account above is also the backend's own account on the NUXEO_URL server (that server only): used
+# when an ingest or an auto sync brings no credentials, and by a sync whose own credentials stop
+# working (a revoked token). NUXEO_SYNC_CREDENTIALS says what an auto sync runs as:
+#   token (default): the credentials it was registered with (e.g. a user's token from KG Spaces for
+#                    Nuxeo Web UI); works for any Nuxeo server, and reads as that user
+#   account:         the backend's account above, for syncs of the NUXEO_URL server
+# NUXEO_SYNC_CREDENTIALS=token
+# Where the BROWSER opens Nuxeo Web UI, for the document links in search results and answers, when it
+# isn't NUXEO_URL + /ui (the backend reaching Nuxeo by another address, e.g. inside Docker, or a proxy)
+#NUXEO_WEBUI_URL=http://localhost:8080/nuxeo/ui
 
 # Amazon S3 Configuration (if using S3)
 # Note: These values serve as defaults/fallbacks when S3_CONFIG is not provided or incomplete
@@ -1398,7 +1455,8 @@ MAX_PATHS_PER_CHUNK=20
 
 # Enable incremental updates system (automatic monitoring and sync)
 # Set to "true" to enable auto-sync capabilities on the default LI/LC pipeline
-# Requires PostgreSQL for state management (document_state + datasource_config)
+# Requires PostgreSQL for state management (document_state + datasource_config), or OpenArch
+# with INCREMENTAL_STATE_STORE=openarch (see below)
 # Default: false (incremental updates disabled)
 # Mutually exclusive with PIPELINE_BACKEND=cocoindex — do not enable both
 # (startup will skip this orchestrator and log a warning if both are set).
@@ -1410,7 +1468,18 @@ ENABLE_INCREMENTAL_UPDATES=false
 #JOB_RETENTION_MINUTES=60
 #JOB_RETENTION_MAX=200
 
-# PostgreSQL connection for state management (required if ENABLE_INCREMENTAL_UPDATES=true)
+# Where the incremental registry (data source configs + document state) is kept:
+#   postgres (default): the datasource_config and document_state tables at POSTGRES_INCREMENTAL_URL
+#   openarch: the OpenArch tree (OPENARCH_* settings above; ENABLE_OPENARCH not needed, no PostgreSQL):
+#     data sources as folders at OPENARCH_DATASOURCES_PATH/<project>/<config id>, document state
+#     (per data source) on the source documents at OPENARCH_ROOT_PATH/<source type>/<system id>/<path>.
+#     The schemas (fgdatasource, fgdocstate) are added to the repository model on first start.
+#     The CocoIndex pipeline (PIPELINE_BACKEND=cocoindex) keeps using PostgreSQL.
+#INCREMENTAL_STATE_STORE=postgres
+#OPENARCH_DATASOURCES_PATH=/fg-datasources
+
+# PostgreSQL connection for state management (required if ENABLE_INCREMENTAL_UPDATES=true,
+# unless INCREMENTAL_STATE_STORE=openarch)
 # Recommended: Reuse existing postgres-pgvector service on port 5433
 # Create database: flexible_graphrag_incremental (separate from pgvector database)
 # Setup: See flexible-graphrag/incremental_updates/schema.sql

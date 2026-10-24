@@ -27,7 +27,8 @@ tests/integration/
   test_incremental.py      Tier 3: add/modify/delete file → verify index changes
   run_profile.py       Start backend with a profile + run tests + stop
   run_all_profiles.py  Iterate all profiles sequentially (CI)
-  results/             JSON result files from run_all_profiles.py
+  autosync/            Auto-sync matrix per data source on the OpenArch state store (autosync/README.md)
+  results/             JSON result files from run_all_profiles.py and autosync/
   envs/                Written .env files (generated, git-ignored)
 ```
 
@@ -47,6 +48,7 @@ Unit tests in **`tests/test_bm25_integration.py`** are *not* live REST integrati
 | 2 — Integration | `tests/integration/` | Live backend + one store (ingest, search) |
 | 2b — AI / Q&A | `tests/integration/test_ingest_search.py` | `POST /api/query` after ingest; checks grounded answers (`@pytest.mark.ai_qa`) |
 | 3 — E2E / Incremental | `tests/integration/` | Filesystem add/modify/delete → incremental sync → verify |
+| 3b — Auto-sync matrix | `tests/integration/autosync/` | Every writable data source: multiselect, recursive, add / edit / delete / move / rename, Auto Sync off rows, periodic refresh, graph removal; OpenArch state store ([autosync/README.md](autosync/README.md)) |
 
 ---
 
@@ -222,6 +224,15 @@ uv run tests/integration/run_matrix.py --rdf all --search bm25 --scope
   (`Scoped retriever: ... in-store filter on vector=... search=...`, `[scoped graph(...)]`,
   `[scoped lc graph(...)]`, `[scoped rdf]`, `[scoped bm25]`, and `Scope: kept N of M` when the
   safety filter had to drop something).
+
+## OpenArch state store (`run_matrix.py --state-store openarch`)
+
+`--state-store openarch` runs every job of a matrix with the incremental registry and document
+state in OpenArch (`ENABLE_INCREMENTAL_UPDATES=true`, `INCREMENTAL_STATE_STORE=openarch`,
+`OPENARCH_URL` and the OpenArch login from `.env`), under its own roots `/fg-matrix-sources` and
+`/fg-matrix-datasources`, so a matrix run never touches a backend's `/fg-sources` tree.
+`--state-store postgres` keeps the `.env` setting; without the option nothing is overridden. For
+auto-sync scenarios on the OpenArch state store, see [autosync/README.md](autosync/README.md).
 
 ## Available profiles
 

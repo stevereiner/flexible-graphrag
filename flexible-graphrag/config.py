@@ -64,6 +64,24 @@ class SearchDBType(str, Enum):
     ELASTICSEARCH = "elasticsearch"
     OPENSEARCH = "opensearch"
 
+
+def openarch_settings(settings) -> dict:
+    """Settings of the OpenArch content repository (ENABLE_OPENARCH), from the OPENARCH_* env vars."""
+    return {
+        "url": os.getenv("OPENARCH_URL", "http://localhost:8080"),
+        "username": os.getenv("OPENARCH_USERNAME", "admin"),
+        "password": os.getenv("OPENARCH_PASSWORD", "password"),
+        "repository": os.getenv("OPENARCH_REPOSITORY", "default"),
+        "root_path": os.getenv("OPENARCH_ROOT_PATH", "/fg-sources"),
+        # data source configs when INCREMENTAL_STATE_STORE=openarch (incremental_updates/stores.py)
+        "datasources_path": os.getenv("OPENARCH_DATASOURCES_PATH", "/fg-datasources"),
+        "embedding_type": os.getenv("OPENARCH_EMBEDDING_TYPE"),  # default: from the embedding settings
+        "embedding_kind": getattr(settings, "embedding_kind", None),
+        "embedding_model": getattr(settings, "embedding_model", None),
+        "max_text_chars": int(os.getenv("OPENARCH_MAX_TEXT_CHARS", "64000")),
+        "write_concurrency": int(os.getenv("OPENARCH_WRITE_CONCURRENCY", "4")),
+    }
+
 class LLMProvider(str, Enum):
     OLLAMA = "ollama"
     OPENAI = "openai"
@@ -201,6 +219,11 @@ an aristocratic family that rules the planet Caladan, the rainy planet, since 10
     
     # Knowledge graph extraction control
     enable_knowledge_graph: bool = Field(True, description="Enable knowledge graph extraction for graph functionality")
+    # What an ingest, data source or document builds when it does not say (graph_flags.py): the
+    # property graph (PG_GRAPH_DB) and the RDF graph (RDF_GRAPH_DB), each on its own
+    default_enabled_graph: bool = Field(True, description="Build the property graph unless an ingest says otherwise (DEFAULT_ENABLED_GRAPH)")
+    default_enabled_rdf: bool = Field(True, description="Build the RDF graph unless an ingest says otherwise (DEFAULT_ENABLED_RDF)")
+    default_recursive: bool = Field(True, description="Where the UIs' Deep checkbox (a folder's subfolders too) starts (DEFAULT_RECURSIVE); see /api/ui-defaults")
     kg_extractor_type: str = Field("schema", description="Type of KG extractor: 'simple', 'schema', or 'dynamic'")
     llm_extraction_mode: str = Field(
         "function",
@@ -474,11 +497,18 @@ an aristocratic family that rules the planet Caladan, the rainy planet, since 10
     search_flow_path: Optional[str] = Field(None, description="Path to the dedicated Langflow search-only flow JSON (SEARCH_FLOW_PATH; default flows/fg_search_flow.json). Avoids running the AI Query branch on a search.")
     aiquery_flow_path: Optional[str] = Field(None, description="Path to the dedicated Langflow AI-query-only flow JSON (AIQUERY_FLOW_PATH; default flows/fg_aiquery_flow.json). Avoids running the Hybrid Search branch on an AI query.")
 
+    # Hyland OpenArch content repository as the search + vector store (VECTOR_DB / SEARCH_DB are
+    # then not used; the property graph and RDF stores still are): each document (parsed text,
+    # chunks, embeddings) is written once per source system under OPENARCH_ROOT_PATH.
+    # Settings: openarch_settings().
+    enable_openarch: bool = Field(False, description="OpenArch as the search + vector store instead of VECTOR_DB / SEARCH_DB (ENABLE_OPENARCH)")
+    openarch_config: Dict[str, Any] = {}
+
     # Database connection parameters
     vector_db_config: Dict[str, Any] = {}
     graph_db_config: Dict[str, Any] = {}
     search_db_config: Dict[str, Any] = {}
-    
+
     # BM25 specific configuration
     bm25_persist_dir: Optional[str] = Field(None, description="Directory to persist BM25 index")
     bm25_similarity_top_k: int = Field(10, description="Number of top results for BM25 search")
@@ -956,6 +986,23 @@ an aristocratic family that rules the planet Caladan, the rainy planet, since 10
                     "username": os.getenv("ELASTICSEARCH_USERNAME"),
                     "password": os.getenv("ELASTICSEARCH_PASSWORD")
                 }
+
+        if self.enable_openarch:
+            if not self.openarch_config:
+                self.openarch_config = openarch_settings(self)
+            # OpenArch is the vector and search store: VECTOR_DB / SEARCH_DB are not used
+            # (the property graph and RDF stores still are)
+            _unused = [f"{name.upper()}={getattr(getattr(self, name), 'value', getattr(self, name))}"
+                       for name in ("vector_db", "search_db")
+                       if str(getattr(getattr(self, name), "value", getattr(self, name))).lower() != "none"]
+            if _unused:
+                import logging as _logging
+                _logging.getLogger(__name__).info(
+                    "ENABLE_OPENARCH: OpenArch is the vector and search store; ignoring %s", ", ".join(_unused))
+            self.vector_db = VectorDBType.NONE.value
+            self.search_db = SearchDBType.NONE.value
+            self.vector_db_config = {}
+            self.search_db_config = {}
 
         # --- Sync LangChain property-graph fusion flags (GRAPH_BACKEND, USE_LANGCHAIN_PG, LANGCHAIN_PG_STORE_TYPE)
         _db_type_str = (

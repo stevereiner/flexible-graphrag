@@ -48,6 +48,21 @@ class AzureBlobSource(BaseDataSource):
         
         return True
     
+    def _target_kwargs(self) -> Dict[str, Any]:
+        """What AzStorageBlobReader reads: one blob, or the blobs under the prefix (its own
+        "prefix" filters nothing: name_starts_with does). A single blob in a folder ("dir/a.txt") is
+        saved under its own name, which fails (the folder is not created), so it is listed by name
+        instead -- saved flattened -- and _only_selected_blob keeps just it."""
+        if self.blob_name:
+            return {"name_starts_with": self.blob_name} if "/" in self.blob_name else {"blob": self.blob_name}
+        return {"name_starts_with": self.prefix} if self.prefix else {}
+
+    def _only_selected_blob(self, docs: List[Document]) -> List[Document]:
+        """The selected blob's documents, when it was listed by name (_target_kwargs)."""
+        if not (self.blob_name and "/" in self.blob_name):
+            return docs
+        return [d for d in docs if (d.metadata or {}).get("name") in (self.blob_name, None)]
+
     def _create_azure_blob_reader(self, progress_callback=None):
         """Create AzStorageBlobReader with passthrough extractors"""
         try:
@@ -76,10 +91,7 @@ class AzureBlobSource(BaseDataSource):
             reader_kwargs["credential"] = self.account_key
         
         # Add blob name or prefix if specified
-        if self.blob_name:
-            reader_kwargs["blob"] = self.blob_name
-        elif self.prefix:
-            reader_kwargs["prefix"] = self.prefix
+        reader_kwargs.update(self._target_kwargs())
         
         reader = AzStorageBlobReader(**reader_kwargs)
         
@@ -124,13 +136,10 @@ class AzureBlobSource(BaseDataSource):
         elif self.account_url and self.account_key:
             reader_kwargs["account_url"] = self.account_url
             reader_kwargs["credential"] = self.account_key
-        if self.blob_name:
-            reader_kwargs["blob"] = self.blob_name
-        elif self.prefix:
-            reader_kwargs["prefix"] = self.prefix
+        reader_kwargs.update(self._target_kwargs())
 
         reader = AzStorageBlobReader(**reader_kwargs)
-        return reader.load_data()
+        return self._only_selected_blob(reader.load_data())
 
     def read_file_bytes(self, blob_name: str) -> bytes:
         """
@@ -160,7 +169,8 @@ class AzureBlobSource(BaseDataSource):
 
         reader_kwargs: Dict[str, Any] = {
             "container_name": self.container_name,
-            "blob": blob_name,  # single blob — restricts reader to one key
+            # single blob — restricts reader to one key (one in a folder is listed by name: _target_kwargs)
+            **({"name_starts_with": blob_name} if "/" in blob_name else {"blob": blob_name}),
             "file_extractor": file_extractor,
         }
         if self.connection_string:
@@ -170,7 +180,7 @@ class AzureBlobSource(BaseDataSource):
             reader_kwargs["credential"] = self.account_key
 
         reader = AzStorageBlobReader(**reader_kwargs)
-        docs = reader.load_data()
+        docs = [d for d in reader.load_data() if (d.metadata or {}).get("name") in (blob_name, None)]
         for d in docs:
             rb = d.metadata.get("raw_bytes")
             if rb is not None:
@@ -187,7 +197,7 @@ class AzureBlobSource(BaseDataSource):
             reader, _ = self._create_azure_blob_reader()
             
             # Use AzStorageBlobReader to discover and capture files (returns placeholder Documents)
-            placeholder_docs = reader.load_data()
+            placeholder_docs = self._only_selected_blob(reader.load_data())
             
             if not placeholder_docs:
                 logger.warning("No files found in Azure Blob Storage container")
@@ -273,16 +283,13 @@ class AzureBlobSource(BaseDataSource):
                 reader_kwargs["credential"] = self.account_key
             
             # Add blob name or prefix if specified
-            if self.blob_name:
-                reader_kwargs["blob"] = self.blob_name
-            elif self.prefix:
-                reader_kwargs["prefix"] = self.prefix
+            reader_kwargs.update(self._target_kwargs())
             
             reader = AzStorageBlobReader(**reader_kwargs)
             
             # Use AzStorageBlobReader to load and process documents
             # PassthroughExtractor will process each file immediately and return processed docs
-            placeholder_docs = reader.load_data()
+            placeholder_docs = self._only_selected_blob(reader.load_data())
             logger.info(f"Loaded {len(placeholder_docs)} Azure Blob files from container: {self.container_name}")
             
             # CRITICAL: AzStorageBlobReader returns file_path with blob_name
@@ -317,9 +324,14 @@ class AzureBlobSource(BaseDataSource):
             for doc in documents:
                 _md = doc.metadata or {}
                 file_name = _md.get('file_name', '')
-                # After our PassthroughExtractor fix, file_path is the blob name (e.g. 'cmispress.txt').
+                # The blob's full name in the container ('name', from the blob properties) names it. By now
+                # file_path can be the local temporary download path, which must not leak into the
+                # document's path ("container/C:\Users\...\Temp\tmpXXXX\cmispress.txt").
                 blob_path = _md.get('file_path', '')
-                if blob_path and not blob_path.startswith(self.container_name + '/'):
+                local_path = bool(blob_path) and (os.path.isabs(blob_path) or ":\\" in blob_path)
+                if _md.get('name'):
+                    correct_azure_path = f"{self.container_name}/{_md['name']}"
+                elif blob_path and not local_path and not blob_path.startswith(self.container_name + '/'):
                     correct_azure_path = f"{self.container_name}/{blob_path}"
                 else:
                     correct_azure_path = azure_path_mapping.get(file_name, None)

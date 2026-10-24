@@ -20,6 +20,7 @@ from cocoindex_integration.pipeline.env_config import load_config_from_env  # no
 from cocoindex_integration.pipeline.run import (  # noqa: F401
     set_progress_hook,
     set_runtime_skip_graph,
+    set_runtime_graphs,
 )
 from cocoindex_integration.pipeline.flexible_app import (  # noqa: F401
     flexible_app_main,
@@ -47,6 +48,7 @@ __all__ = [
     "load_config_from_env",
     "set_progress_hook",
     "set_runtime_skip_graph",
+    "set_runtime_graphs",
     "flexible_app_main",
     "build_flexible_source_app",
     "build_app_for_config",

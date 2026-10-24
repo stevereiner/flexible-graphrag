@@ -1,7 +1,7 @@
 import { Injectable, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { MatDialog } from '@angular/material/dialog';
-import { BehaviorSubject, firstValueFrom } from 'rxjs';
+import { BehaviorSubject, Subject, firstValueFrom } from 'rxjs';
 import { map } from 'rxjs/operators';
 import { FlexibleGraphragConfigService } from '../config.service';
 import {
@@ -99,6 +99,15 @@ export class SourceAuthService {
   readonly session$ = this.sessions$.pipe(map((list) => list.find((s) => s.source === 'alfresco') || null));
   private requirementsCache: { at: number; value: AuthRequirements } | null = null;
   private availableCache: { at: number; value: AvailableSource[] } | null = null;
+  /** The stores changed (an ingest or a removal finished): the source list and sign-ins needed may have too. */
+  readonly storesChanged$ = new Subject<void>();
+
+  /** Called when a run finished: forget the cached source list and requirements, and tell whoever shows them. */
+  storesChanged(): void {
+    this.availableCache = null;
+    this.requirementsCache = null;
+    this.storesChanged$.next();
+  }
   /** The source picker's choice (Search / AI Chat), shared by both; empty = all sources. */
   readonly picked$ = new BehaviorSubject<SourceSelector[]>(readPickedSources());
   private openDialog: Promise<boolean> | null = null;

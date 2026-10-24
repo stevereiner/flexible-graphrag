@@ -80,6 +80,8 @@ class AzureBlobDetector(ChangeDetector):
             raise ValueError("AzureBlobDetector requires either 'connection_string' or ('account_url' + 'account_key')")
         
         self.prefix = config.get('prefix', '')
+        # One selected blob, else everything under the prefix is followed
+        self.blob = config.get('blob') or None
         self.enable_change_feed = config.get('enable_change_feed', True)
         
         # Clients
@@ -226,10 +228,12 @@ class AzureBlobDetector(ChangeDetector):
         try:
             container_client = self.blob_service_client.get_container_client(self.container_name)
             
-            # List blobs with prefix filter
-            blobs = container_client.list_blobs(name_starts_with=self.prefix or None)
-            
+            # List blobs with prefix filter (the selected blob only, when there is one)
+            blobs = container_client.list_blobs(name_starts_with=self.blob or self.prefix or None)
+
             for blob in blobs:
+                if self.blob and blob.name != self.blob:
+                    continue
                 # Skip directories (blobs ending with /)
                 if blob.name.endswith('/'):
                     continue
@@ -538,7 +542,9 @@ class AzureBlobDetector(ChangeDetector):
             # Extract blob path
             blob_path = subject.split('/blobs/')[-1]
             
-            # Apply prefix filter
+            # Apply prefix filter (the selected blob only, when there is one)
+            if self.blob:
+                return blob_path == self.blob
             if self.prefix and not blob_path.startswith(self.prefix):
                 return False
             
@@ -628,7 +634,8 @@ class AzureBlobDetector(ChangeDetector):
         full_path = None
         _added_inflight = False
         try:
-            skip_graph = getattr(self, 'skip_graph', False)
+            from incremental_updates.doc_graphs import datasource_graphs, synced_times
+            graphs = datasource_graphs(self)  # which graphs it builds
 
             # Extract blob name from full path if needed
             # Full path format: container/blob_name
@@ -652,7 +659,8 @@ class AzureBlobDetector(ChangeDetector):
             self._in_flight.add(full_path)
             _added_inflight = True
 
-            processing_id = f"incremental_az_{blob_name.replace('/', '_').replace('.', '_')[:16]}"
+            from .. import sync_jobs
+            processing_id = sync_jobs.processing_id("az", blob_name)
 
             # Route ingestion through the backend's data-source pipeline — the SAME path used by
             # the initial ingest — instead of calling system.document_processor /
@@ -668,7 +676,7 @@ class AzureBlobDetector(ChangeDetector):
                 processing_id=processing_id,
                 data_source="azure_blob",
                 config_id=self.config_id,
-                skip_graph=skip_graph,
+                graphs=graphs,
                 azure_blob_config=azure_blob_config,
             )
 
@@ -695,7 +703,8 @@ class AzureBlobDetector(ChangeDetector):
                     content_hash = StateManager.compute_content_hash(updated.isoformat())
 
                     now = datetime.now(timezone.utc)
-                    skip_graph_flag = getattr(self, 'skip_graph', False)
+                    from incremental_updates.doc_graphs import datasource_graphs, synced_times
+                    graph_at, rdf_at = synced_times(self, datasource_graphs(self), now)
                     doc_id = f"{self.config_id}:{full_path}"
 
                     doc_state = DocumentState(
@@ -708,7 +717,8 @@ class AzureBlobDetector(ChangeDetector):
                         modified_timestamp=updated,  # datetime required by PostgreSQL TIMESTAMPTZ
                         vector_synced_at=now,
                         search_synced_at=now,
-                        graph_synced_at=now if not skip_graph_flag else None
+                        graph_synced_at=graph_at,
+                        rdf_synced_at=rdf_at
                     )
 
                     await self.state_manager.save_state(doc_state)
@@ -791,7 +801,8 @@ class AzureBlobDetector(ChangeDetector):
             modified_timestamp=modified_timestamp,
             vector_synced_at=now,
             search_synced_at=now,
-            graph_synced_at=now if not getattr(self, 'skip_graph', False) else None
+            graph_synced_at=synced_times(self, datasource_graphs(self), now)[0],
+            rdf_synced_at=synced_times(self, datasource_graphs(self), now)[1],
         )
         
         await self.state_manager.save_state(doc_state)

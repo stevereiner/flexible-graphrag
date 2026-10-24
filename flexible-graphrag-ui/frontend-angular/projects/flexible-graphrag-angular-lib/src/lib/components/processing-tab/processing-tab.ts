@@ -5,6 +5,7 @@ import { ApiService } from '../../services/api.service';
 import { FlexibleGraphragConfigService } from '../../config.service';
 import { ProcessingSessionService } from '../../services/processing-session.service';
 import { UiDefaultsService } from '../../services/ui-defaults.service';
+import { SourceAuthService } from '../../services/source-auth.service';
 import {
   AsyncProcessingResponse, ConfiguredStores, ProcessingStatusResponse,
   IngestStatusItem, IngestStatusRequest, ItemAction, ItemActionKind, ProcessingJob, RemoveTarget,
@@ -146,8 +147,12 @@ export class ProcessingTabComponent implements OnInit, OnChanges, OnDestroy {
   // Expose Math to template
   Math = Math;
 
+  private readonly sourceAuth = inject(SourceAuthService);
+
   constructor(private apiService: ApiService, public config: FlexibleGraphragConfigService,
-              private session: ProcessingSessionService) {}
+              private session: ProcessingSessionService) {
+    this.runInBackground = config.runInBackground;  // the host's default; a kept session overrides it
+  }
 
   ngOnInit(): void {
     this.uiDefaults.load();  // a new row's Graph / RDF defaults (read when the rows are drawn)
@@ -842,6 +847,8 @@ export class ProcessingTabComponent implements OnInit, OnChanges, OnDestroy {
       this.ingestStatusKey = '';
       this.refreshIngestStatus();
       this.autoSelectFiles();
+      // the source filter pills (title bar, search, chat): the run may have added a source
+      this.sourceAuth.storesChanged();
     }, 4000);
   }
 

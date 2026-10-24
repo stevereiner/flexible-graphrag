@@ -17,6 +17,8 @@ from llama_index.core import Document
 from llama_index.core import VectorStoreIndex, PropertyGraphIndex
 
 from . import sync_jobs
+from .recovery import (EVENT_DETECTORS, RecoveryTracker, predates_stream, process_args, source_changed,
+                       source_moved)
 from .detectors import ChangeEvent, ChangeType, FileMetadata
 from .state_manager import StateManager, DocumentState
 from process.document_processor import DocumentProcessor
@@ -26,7 +28,7 @@ logger = logging.getLogger("flexible_graphrag.incremental.engine")
 
 
 # Stores a document can be deleted from on its own; "graph" is the property graph and RDF.
-DELETE_TARGETS = ("vector", "search", "graph")
+DELETE_TARGETS = ("vector", "search", "graph", "rdf")  # graph: the property graph; rdf: the RDF graph
 
 
 def _is_benign_delete_conflict(e: Exception) -> bool:
@@ -80,7 +82,33 @@ class IncrementalUpdateEngine:
         self.config = app_config
         self.hybrid_system = hybrid_system  # Store for use in _insert_to_all_indexes
         self.config_manager = config_manager  # Store for accessing datasource configs
-    
+        self._recovery = RecoveryTracker()  # changes an event stream missed (recovery.py)
+
+    async def _recover(self, detector, metadata, key, what: str, by_time: bool = True) -> bool:
+        """Ingest a change an event stream missed (recovery.py), once the periodic refresh has seen
+        it for the grace period (at once when it was made before the stream started -- told by the
+        file's modification time, so not for a move); until then leave it to the stream. Returns
+        whether it ran."""
+        args = process_args(detector, metadata)
+        if args is None:
+            return False
+        if by_time and predates_stream(detector, metadata):
+            self._recovery.forget(key)
+            logger.info(f"{what}: {metadata.path}: changed before the event stream started -- "
+                        f"ingesting it from the periodic refresh")
+            with sync_jobs.updating():
+                await detector._process_via_backend(*args)
+            return True
+        if not self._recovery.ready(key):
+            logger.info(f"{what}: {metadata.path}: left to the event stream for now "
+                        f"(the periodic refresh takes it if it is still {what.lower()} after "
+                        f"{int(self._recovery.grace)} s)")
+            return True
+        logger.info(f"{what}: {metadata.path}: no event processed it -- ingesting it from the periodic refresh")
+        with sync_jobs.updating():
+            await detector._process_via_backend(*args)
+        return True
+
     async def _insert_to_all_indexes(self, llama_doc, doc_id: str, metadata: FileMetadata, datasource_config=None):
         """
         Insert document into all indexes (vector, search, graph).
@@ -92,7 +120,7 @@ class IncrementalUpdateEngine:
             llama_doc: The LlamaIndex Document to insert
             doc_id: The document ID
             metadata: File metadata
-            datasource_config: Optional datasource configuration (contains skip_graph flag)
+            datasource_config: Optional datasource configuration (its graphs: enabled_graph / enabled_rdf)
         """
         # Insert new version to all indexes
         # Option A: Use hybrid_system if available (RECOMMENDED - reuses all ingestion logic)
@@ -103,20 +131,16 @@ class IncrementalUpdateEngine:
                 # Since we already have the content, we need to use _ingest_source_documents() instead
                 # which takes Document objects directly
                 
-                # Determine skip_graph: prioritize datasource config, fallback to default (False)
-                if datasource_config and hasattr(datasource_config, 'skip_graph'):
-                    skip_graph = datasource_config.skip_graph
-                    logger.info(f"  Using datasource skip_graph={skip_graph}")
-                else:
-                    skip_graph = False  # Default: don't skip graph
-                    logger.info(f"  Using default skip_graph={skip_graph}")
-                
+                # The datasource's graphs (graph_flags.py), else the defaults
+                graphs = self._datasource_graphs(datasource_config)
+                logger.info(f"  Graphs: {graphs.describe()}")
+
                 # Call _ingest_source_documents() which is async
                 await self.hybrid_system._ingest_source_documents(
                     documents=[llama_doc],
                     processing_id=None,
                     status_callback=None,
-                    skip_graph=skip_graph
+                    graphs=graphs
                 )
                 
                 # Mark all targets as synced (only if databases are configured)
@@ -140,14 +164,12 @@ class IncrementalUpdateEngine:
                     except Exception as e:
                         logger.error(f"  ERROR: Failed to mark search as synced (fallback): {e}")
                 
-                # DON'T mark graph as synced if: skip_graph OR not enable_knowledge_graph OR graph_db is none
-                should_skip_graph = (
-                    skip_graph or 
-                    not self.config.enable_knowledge_graph or 
-                    self.config.pg_graph_db.lower() == 'none'
-                )
-                if self.graph_index is not None and not should_skip_graph:
+                # each graph marked only if it was built (its store configured, knowledge graphs on)
+                built = graphs.built(self.config)
+                if self.graph_index is not None and built.graph:
                     await self.state_manager.mark_target_synced(doc_id, 'graph')
+                if built.rdf:
+                    await self.state_manager.mark_target_synced(doc_id, 'rdf')
                 
                 logger.info(f"  All indexes updated via hybrid_system")
                 return
@@ -187,19 +209,10 @@ class IncrementalUpdateEngine:
                     logger.exception(f"  ERROR: Error inserting to search index: {e}")
                     raise
         
-        # Insert to Graph Index
-        # Determine skip_graph: prioritize datasource config, fallback to default (False)
-        if datasource_config and hasattr(datasource_config, 'skip_graph'):
-            skip_graph = datasource_config.skip_graph
-        else:
-            skip_graph = False  # Default: don't skip graph
-        
-        # DON'T do graph if: skip_graph OR not enable_knowledge_graph OR graph_db is none
-        should_skip_graph = (
-            skip_graph or 
-            not self.config.enable_knowledge_graph or 
-            self.config.pg_graph_db.lower() == 'none'
-        )
+        # Insert to Graph Index: only when the datasource builds the property graph and its store
+        # is configured (graph_flags.py)
+        graphs = self._datasource_graphs(datasource_config)
+        should_skip_graph = not graphs.built(self.config).graph
         
         if self.graph_index is not None and not should_skip_graph:
             try:
@@ -211,9 +224,17 @@ class IncrementalUpdateEngine:
                 logger.exception(f"  ERROR: Error inserting to graph index: {e}")
                 raise
         elif should_skip_graph:
-            logger.info(f"  SKIP: Graph extraction (skip_graph={skip_graph}, enable_knowledge_graph={self.config.enable_knowledge_graph}, graph_db={self.config.pg_graph_db})")
+            logger.info(f"  SKIP: Graph extraction ({graphs.describe()}, enable_knowledge_graph={self.config.enable_knowledge_graph}, graph_db={self.config.pg_graph_db})")
     
-    async def _delete_from_all_indexes(self, doc_id: str, targets: Optional[Iterable[str]] = None) -> None:
+    @staticmethod
+    def _datasource_graphs(datasource_config):
+        """A datasource's graphs (graph_flags.GraphFlags), else the defaults."""
+        from graph_flags import GraphFlags
+        graphs = getattr(datasource_config, "graphs", None)
+        return graphs if isinstance(graphs, GraphFlags) else GraphFlags.of(datasource_config)
+
+    async def _delete_from_all_indexes(self, doc_id: str, targets: Optional[Iterable[str]] = None,
+                                       openarch: bool = True) -> None:
         """
         Delete document from all indexes by doc_id.
 
@@ -221,7 +242,8 @@ class IncrementalUpdateEngine:
         this simple doc_id-based delete will work correctly!
 
         ``targets`` limits the delete to some of ``DELETE_TARGETS``: "vector", "search", and
-        "graph" (property graph and RDF together). None deletes from every store.
+        "graph" (the property graph) and "rdf" (the RDF graph). None deletes from every store.
+        ``openarch=False`` keeps the OpenArch copy (a re-ingest updates it in place).
         """
         targets = set(DELETE_TARGETS if targets is None else targets)
         unknown = targets - set(DELETE_TARGETS)
@@ -234,7 +256,21 @@ class IncrementalUpdateEngine:
             await self._delete_from_search(doc_id)
         if "graph" in targets:
             self._delete_from_property_graph(doc_id)
+        if "rdf" in targets:
             self._delete_from_rdf(doc_id)
+        if openarch and "vector" in targets and "search" in targets:
+            # OpenArch holds the document's text and chunks: they go with search + vector
+            await self._delete_from_openarch(doc_id)
+
+    async def _delete_from_openarch(self, doc_id: str) -> None:
+        store = getattr(self.hybrid_system, "openarch_store", None) if self.hybrid_system else None
+        if store is None:
+            return
+        try:
+            await asyncio.to_thread(store.delete, doc_id)
+            logger.info(f"  Removed from OpenArch (ref_doc_id={doc_id})")
+        except Exception as e:
+            _log_delete_outcome("OpenArch", e)
 
     async def _delete_from_vector(self, doc_id: str) -> None:
         hs = self.hybrid_system
@@ -656,13 +692,13 @@ class IncrementalUpdateEngine:
             path_for_doc_id = normalize_filesystem_path(metadata.path)
         doc_id = StateManager.make_doc_id(config_id, path_for_doc_id)
         
-        # Load datasource config to get skip_graph setting
+        # Load datasource config (its graphs, among others)
         datasource_config = None
         if self.config_manager:
             try:
                 datasource_config = await self.config_manager.get_config(config_id)
                 if datasource_config:
-                    logger.info(f"Loaded datasource config: skip_graph={datasource_config.skip_graph}")
+                    logger.info(f"Loaded datasource config: {datasource_config.graphs.describe()}")
             except Exception as e:
                 logger.debug(f"Could not load datasource config: {e}")
         
@@ -730,6 +766,18 @@ class IncrementalUpdateEngine:
                     await self.state_manager._update_source_path(doc_id, metadata.path)
                 return
 
+            if event.is_modify_delete and event.modify_callback and type(detector).__name__ != 'BoxDetector':
+                # An UPDATE: re-ingest in place instead of deleting first. The ingest replaces the
+                # stored version once the new content has loaded (ingest/replace_existing.py), so a
+                # failed download or parse leaves the previous version in the stores. Not for Box:
+                # its document ids follow the file's path, and its UPDATEs are also renames and
+                # moves, after which the new version has another id -- so the old one is deleted first.
+                logger.info(f"MODIFY: {metadata.path}: re-ingesting (the previous version stays until "
+                            f"the new one has loaded)")
+                with sync_jobs.updating():
+                    await event.modify_callback()
+                return
+
             logger.info(f"DELETE: Document found in database, proceeding with deletion...")
             
             # Determine which ID to use for index deletion (must match ref_doc_id in vector/search):
@@ -755,9 +803,13 @@ class IncrementalUpdateEngine:
             await self._delete_from_all_indexes(delete_id)
             
             # HARD DELETE: Remove state from PostgreSQL completely -- except the delete half of an
-            # UPDATE for a document whose graph was removed: its row carries skip_graph, which
-            # the ADD half reads, so keep it and just mark the document out of the stores.
-            if event.is_modify_delete and await self.state_manager.doc_skip_graph(doc_id):
+            # UPDATE for a document with a graph removed that its datasource builds: its row
+            # carries that graph's flag, which the ADD half reads (doc_graphs.graphs_for), so keep
+            # it and just mark the document out of the stores. A datasource that builds no graph
+            # (or fewer) has nothing to carry: its old row would outlive a rename (a new doc_id).
+            from graph_flags import ALL
+            ds_graphs = self._datasource_graphs(datasource_config) if datasource_config else ALL
+            if event.is_modify_delete and (ds_graphs & await self.state_manager.doc_graphs(doc_id)) != ds_graphs:
                 await self.state_manager.clear_targets(doc_id)
             else:
                 await self.state_manager.mark_deleted(doc_id)
@@ -782,11 +834,11 @@ class IncrementalUpdateEngine:
         # For cloud sources with source_id, look up by source_id instead of doc_id
         # This handles the case where metadata.path is just a filename (Box, etc.)
         existing_state = None
-        # (Alfresco carries its node id as node_id: its doc ids are "<config_id>:alfresco://<node>",
-        # which a path-based doc_id never matches -- a synced file looked NEW to the periodic refresh)
-        if hasattr(metadata, 'extra') and metadata.extra and (metadata.extra.get('file_id') or metadata.extra.get('node_id')):
-            # Cloud source with file_id - look up by source_id
-            source_id = metadata.extra.get('file_id') or metadata.extra.get('id') or metadata.extra.get('node_id')
+        if hasattr(metadata, 'extra') and metadata.extra:
+            # Look up by the source's own id where the listing has one (file_id: Box, Drive; node_id:
+            # Alfresco, Nuxeo; s3_uri: S3) -- a path-based doc id does not match those documents
+            source_id = (metadata.extra.get('file_id') or metadata.extra.get('id') or
+                         metadata.extra.get('node_id') or metadata.extra.get('s3_uri'))
             if source_id:
                 existing_state = await self.state_manager.get_state_by_source_id(config_id, source_id)
                 if existing_state:
@@ -833,7 +885,10 @@ class IncrementalUpdateEngine:
                 # For detectors with event streams (polling or webhooks), skip NEW files in periodic refresh
                 # Let the event stream handle new file detection and processing
                 # BUT: Check if the event stream is actually enabled before skipping!
-                if detector_name in ['BoxDetector', 'GoogleDriveDetector', 'S3Detector', 'AlfrescoDetector', 'NuxeoDetector']:
+                if detector_name in EVENT_DETECTORS:
+                    if from_periodic and await self._recover(
+                            detector, metadata, (config_id, 'new', metadata.path), "NEW FILE"):
+                        return
                     logger.info(f"NEW FILE: {metadata.path}: Skipping in periodic refresh (will be processed by event stream)")
                     return
                 
@@ -844,6 +899,8 @@ class IncrementalUpdateEngine:
                 # (Skipping both is why a newly added file was ingested by nothing.)
                 if detector_name == 'MicrosoftGraphDetector':
                     if from_periodic and getattr(detector, 'enable_change_polling', False):
+                        if await self._recover(detector, metadata, (config_id, 'new', metadata.path), "NEW FILE"):
+                            return
                         logger.info(f"NEW FILE: {metadata.path}: Skipping in periodic refresh (will be processed by delta stream)")
                         return
                     elif from_periodic:
@@ -924,6 +981,57 @@ class IncrementalUpdateEngine:
                 # the event stream already handles MODIFY events.
                 # For GCS/Azure periodic mode without real-time events, updating would require
                 # downloading content to compare; skip for now (rely on timestamp check above).
+                # OneDrive / SharePoint: the delta stream's own CREATE/UPDATE events come back through
+                # here (MicrosoftGraphDetector, see the NEW-file branch): a newer version, or a move /
+                # rename, is re-ingested now (it replaces the previous version once loaded)
+                if detector_name == 'MicrosoftGraphDetector' and not from_periodic and (
+                        source_changed(metadata, existing_state) or source_moved(detector, metadata, existing_state)):
+                    args = process_args(detector, metadata)
+                    if args:
+                        logger.info(f"CHANGED: {metadata.path}: newer or moved (delta stream) -- re-ingesting")
+                        with sync_jobs.updating():
+                            await detector._process_via_backend(*args)
+                        return
+                changed = from_periodic and source_changed(metadata, existing_state)
+                path_moved = from_periodic and source_moved(detector, metadata, existing_state)
+                moved = path_moved and not changed
+                if path_moved and detector_name == 'BoxDetector':
+                    # A Box document's id follows its path: replace it (delete, then ingest) -- also
+                    # when it changed too (a Box rename bumps modified_at), else the old id's row stays
+                    key = (config_id, 'changed', existing_state.doc_id)
+                    args = process_args(detector, metadata)
+                    if args and self._recovery.ready(key):
+                        logger.info(f"MOVED: {existing_state.source_path} -> {metadata.extra.get('file_path')}: replacing it")
+
+                        async def _replace():
+                            await detector._process_via_backend(*args)
+                        await self.process_change_event(ChangeEvent(
+                            metadata=FileMetadata(source_type='box', path=metadata.extra.get('file_id'),
+                                                  ordinal=metadata.ordinal, extra={'file_id': metadata.extra.get('file_id')}),
+                            change_type=ChangeType.DELETE, timestamp=None,
+                            is_modify_delete=True, modify_callback=_replace), detector, config_id, from_periodic=True)
+                    elif args:
+                        logger.info(f"MOVED: {metadata.path}: left to the event stream for now")
+                    return
+                if moved:
+                    key = (config_id, 'changed', existing_state.doc_id)
+                    if await self._recover(detector, metadata, key, "MOVED", by_time=False):
+                        return
+                if changed:
+                    key = (config_id, 'changed', existing_state.doc_id)
+                    if detector_name in EVENT_DETECTORS + ('MicrosoftGraphDetector',):
+                        if await self._recover(detector, metadata, key, "CHANGED"):
+                            return
+                    elif detector_name in ('GCSDetector', 'AzureBlobDetector'):
+                        if predates_stream(detector, metadata) or self._recovery.ready(key):
+                            self._recovery.forget(key)
+                            logger.info(f"CHANGED: {metadata.path}: newer than the stored version -- re-ingesting")
+                            with sync_jobs.updating():
+                                await detector._process_via_backend(metadata.path)
+                        else:
+                            logger.info(f"CHANGED: {metadata.path}: re-ingested by the next periodic refresh "
+                                        f"unless an event does it first")
+                        return
                 logger.info(f"SKIP: {metadata.path}: Backend-integrated detector (existing file)")
                 return
         

@@ -9,7 +9,7 @@ The Incremental Update System automatically monitors data sources and keeps your
 ## Prerequisites
 
 - **Flexible GraphRAG** backend installed and running
-- **PostgreSQL** 12+ (can reuse existing postgres-pgvector service)
+- **PostgreSQL** 12+ (can reuse existing postgres-pgvector service), or OpenArch instead (`INCREMENTAL_STATE_STORE=openarch`, see [OpenArch as the Auto-Sync State Store](../../DATABASES/OPENARCH/OPENARCH-STATE-STORE.md); then skip Step 1)
 - **Docker** (recommended) or local PostgreSQL installation
 - **Python** 3.12+ with backend dependencies installed
 

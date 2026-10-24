@@ -1,6 +1,6 @@
 [project]
 name = "flexible-graphrag"
-version = "0.8.6"
+version = "0.9.0"
 description = "Open source AI context platform: document processing, knowledge graph auto-building, ontologies, GraphRAG/RAG, hybrid search (vector, property graph, RDF/SPARQL, fulltext), 13 LLM providers, 15 property graph DBs, 4 RDF triple stores, 10 vector DBs, LlamaIndex + LangChain, FastAPI, MCP server"
 readme = "README.md"
 requires-python = ">=3.12,<3.15"
@@ -108,6 +108,8 @@ dependencies = [
     "ollama",
     "pydantic",
     "pydantic-settings",
+    # OpenArch REST client (openarch/: ENABLE_OPENARCH, INCREMENTAL_STATE_STORE=openarch); httpx + pydantic only
+    "python-openarch-api>=0.1.0",
     # LlamaIndex core and integrations
     "llama-index-core",
     "llama-index-llms-openai",
@@ -458,10 +460,12 @@ only-include = [
     "doc_refs.py",            # result / answer source documents (name, node id, open link)
     "factories.py",
     "flow_service.py",   # Langflow flow-mode REST client (backend imports it when ENABLE_LANGFLOW_FLOWS)
+    "graph_flags.py",         # per-graph flags: property graph and RDF graph each on / off
     "hybrid_system.py",
     "incremental_system.py",
     "job_retention.py",       # Jobs list retention (PROCESSING_STATUS pruning)
     "main.py",
+    "nltk_compat.py",         # NLTK_DATA default: a plain copy of LlamaIndex's NLTK data (nltk 3.10.4+ vs uv hardlinks)
     "permission_filter.py",   # query-time permission filter (per-source sign-ins)
     "post_ingestion_state.py",
     "query_engine.py",
@@ -483,6 +487,7 @@ only-include = [
     "llamaindex",
     "langflow_components",
     "cocoindex_integration",
+    "openarch",               # OpenArch store (ENABLE_OPENARCH) and state store (INCREMENTAL_STATE_STORE=openarch)
 ]
 
 # App/deploy files shipped inside the wheel (previously [tool.setuptools.data-files]).
@@ -497,7 +502,7 @@ include = [
     "*.py",
     "adapters/", "ingest/", "process/", "sources/", "observability/",
     "incremental_updates/", "rdf/", "langchain/", "stores/", "llamaindex/",
-    "langflow_components/", "cocoindex_integration/",
+    "langflow_components/", "cocoindex_integration/", "openarch/",
     "Dockerfile", "env-sample.txt", "uv.toml", "extras-overrides.txt",
     "pyproject.toml", "README.md",
 ]

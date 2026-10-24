@@ -13,7 +13,8 @@ ENABLE_INCREMENTAL_UPDATES is on), and last from the doc id's own shape (a path'
 which a host such as ACA opens in its own viewer. ``open_url`` is a plain link for every other UI:
 for Alfresco, ACA's viewer (ACA at ``ALFRESCO_ACA_URL``, default ``<ALFRESCO_URL>/content-app``), or
 Share's document page with ``ALFRESCO_VIEWER=share``, or ``ALFRESCO_OPEN_URL`` (a template with
-``{node_id}``) for anything else; for Nuxeo, the Web UI's document page; for a web page,
+``{node_id}``) for anything else; for Nuxeo, the Web UI's document page (Web UI at ``NUXEO_WEBUI_URL`` for
+the ``NUXEO_URL`` server, where the browser reaches it, else ``<repository URL>/ui``); for a web page,
 Wikipedia article or YouTube video, its URL from the chunk (a video at the segment's start).
 """
 from __future__ import annotations
@@ -37,13 +38,13 @@ def set_asker_alfresco(auth_by_server: Dict[str, str]) -> None:
 
 _REPO_MARKS = ("alfresco", "nuxeo")
 
-# main.py supplies the incremental registry's asyncpg pool (None while it is not running)
-_pool_provider: Optional[Callable[[], Any]] = None
+# main.py supplies the incremental registry's state manager (None while it is not running)
+_registry_provider: Optional[Callable[[], Any]] = None
 
 
-def set_pool_provider(provider: Callable[[], Any]) -> None:
-    global _pool_provider
-    _pool_provider = provider
+def set_registry_provider(provider: Callable[[], Any]) -> None:
+    global _registry_provider
+    _registry_provider = provider
 
 
 def node_doc_ids(node: Any) -> List[str]:
@@ -191,13 +192,22 @@ def _open_url(source_type: Optional[str], node_id: Optional[str], repo_url: str,
             return f"{aca}/#/search;q={term}/(viewer:view/{node_id})"
         return f"{aca}/#/personal-files/(viewer:view/{node_id})"
     if source_type == "nuxeo":
-        base = (repo_url or os.getenv("NUXEO_URL", "")).rstrip("/")
+        backend_url = os.getenv("NUXEO_URL", "")
+        # The repository URL is where the BACKEND reaches Nuxeo (http://nuxeo:8080/nuxeo in Docker); a browser
+        # may reach the same server elsewhere (through a proxy): NUXEO_WEBUI_URL, for the NUXEO_URL server
+        webui = os.getenv("NUXEO_WEBUI_URL", "").rstrip("/")
+        if webui:
+            from sources.nuxeo_accounts import server_key
+            if not repo_url or server_key(repo_url) == server_key(backend_url):
+                return f"{webui}/#!/doc/{node_id}"
+        base = (repo_url or backend_url).rstrip("/")
         return f"{base}/ui/#!/doc/{node_id}" if base else ""
     return ""
 
 
 _PARENT_TTL = 600.0  # seconds a node's parent folder is reused
 _parents: Dict[str, tuple] = {}  # node_id -> (fetched at, parent id or "")
+_names: Dict[str, str] = {}  # node_id -> its name in Alfresco, from the same lookup
 
 
 async def _alfresco_parents(nodes: Dict[str, str]) -> Dict[str, str]:
@@ -225,10 +235,13 @@ async def _alfresco_parents(nodes: Dict[str, str]) -> Dict[str, str]:
     async def one(client, node_id, base):
         try:
             r = await client.get(f"{base}/alfresco/api/-default-/public/alfresco/versions/1/nodes/{node_id}",
-                                 params={"fields": "parentId"}, headers={"Authorization": auth_for(base)})
+                                 params={"fields": "parentId,name"}, headers={"Authorization": auth_for(base)})
             if r.status_code == 200:
-                parent = (r.json().get("entry") or {}).get("parentId") or ""
+                entry = r.json().get("entry") or {}
+                parent = entry.get("parentId") or ""
                 _parents[node_id] = (now, parent)
+                if entry.get("name"):
+                    _names[node_id] = entry["name"]
                 if parent:
                     out[node_id] = parent
         except Exception as e:  # only the link's landing place depends on it
@@ -243,30 +256,24 @@ async def _alfresco_parents(nodes: Dict[str, str]) -> Dict[str, str]:
 
 
 async def _registry_rows(doc_ids: List[str]) -> Dict[str, dict]:
-    pool = _pool_provider() if _pool_provider else None
-    if pool is None or not doc_ids:
+    state_manager = _registry_provider() if _registry_provider else None
+    if state_manager is None or not doc_ids:
         return {}
     try:
-        async with pool.acquire() as conn:
-            records = await conn.fetch(
-                "SELECT d.doc_id, d.source_id, d.source_path, c.source_type, c.connection_params "
-                "FROM document_state d LEFT JOIN datasource_config c ON c.config_id = d.config_id "
-                "WHERE d.doc_id = ANY($1::text[])",
-                doc_ids,
-            )
+        rows = await state_manager.registry_rows(doc_ids)
     except Exception as e:  # the lookup only adds names; never fail a search over it
         logger.warning(f"doc_refs: document_state lookup failed: {e}")
         return {}
     out = {}
-    for r in records:
-        params = r["connection_params"] or {}
+    for doc_id, r in rows.items():
+        params = r.get("connection_params") or {}
         if isinstance(params, str):
             try:
                 params = json.loads(params)
             except ValueError:
                 params = {}
-        out[r["doc_id"]] = {"source_id": r["source_id"], "source_path": r["source_path"] or "",
-                            "source_type": r["source_type"] or "", "url": params.get("url") or ""}
+        out[doc_id] = {"source_id": r.get("source_id"), "source_path": r.get("source_path") or "",
+                       "source_type": r.get("source_type") or "", "url": params.get("url") or ""}
     return out
 
 
@@ -290,9 +297,14 @@ async def describe(doc_ids: Iterable[str], known: Optional[Dict[str, Dict[str, s
                 ref["node_id"] = row["source_id"] or ref["node_id"]
         ref["repo_url"] = (row or {}).get("url", "")
         ref.update(known.get(d, {}))
-        if not ref["name"]:
-            ref["name"] = ref["node_id"] or d
         out[d] = ref
+    # A copy nothing names (one the registry has no row for, e.g. another data source's, met through a
+    # graph fact that carries no file name): the name of another copy of the same document here
+    named = {(r["source_type"], r["node_id"]): r for r in out.values() if r["node_id"] and r["name"]}
+    for ref in out.values():
+        if not ref["name"] and ref["node_id"] and (ref["source_type"], ref["node_id"]) in named:
+            other = named[(ref["source_type"], ref["node_id"])]
+            ref["name"], ref["path"] = other["name"], ref["path"] or other["path"]
     # Alfresco documents: their folder, for ACA links that open over it (and for a host such as
     # KG Spaces that builds its own)
     from permission_filter import _rest_base  # a datasource URL may end in /alfresco
@@ -300,6 +312,10 @@ async def describe(doc_ids: Iterable[str], known: Optional[Dict[str, Dict[str, s
                 for r in out.values() if r["source_type"] == "alfresco" and r["node_id"]}
     parents = await _alfresco_parents(alfresco) if alfresco else {}
     for ref in out.values():
+        if not ref["name"]:
+            # an Alfresco document: its name in Alfresco (same lookup as its folder); else its id
+            alfresco_name = _names.get(ref["node_id"], "") if ref["source_type"] == "alfresco" else ""
+            ref["name"] = alfresco_name or ref["node_id"] or ref["doc_id"]
         repo_url = ref.pop("repo_url", "")
         ref["parent_id"] = parents.get(ref["node_id"], "") if ref["source_type"] == "alfresco" else ""
         if not ref["open_url"]:
@@ -325,4 +341,18 @@ async def answer_sources(source_nodes: Iterable[Any], limit: int = 10) -> List[D
         return list(refs.values())[:limit]
     ranked = sorted(order, key=order.get, reverse=True)[:limit]
     refs = await describe(ranked, chunk_refs(nodes))
-    return [refs[d] for d in ranked]
+    # One entry per source object: a repository document two data sources hold (two copies, two doc
+    # ids) is listed once, at its best rank, named by whichever copy knows its name
+    out: List[Dict[str, Any]] = []
+    seen: Dict[tuple, Dict[str, Any]] = {}
+    for d in ranked:
+        ref = refs[d]
+        key = (ref["source_type"], ref["node_id"]) if ref["node_id"] else None
+        first = seen.get(key) if key else None
+        if first is None:
+            if key:
+                seen[key] = ref
+            out.append(ref)
+        elif first["name"] in (first["node_id"], first["doc_id"]) and ref["name"] not in (ref["node_id"], ref["doc_id"]):
+            first["name"], first["path"] = ref["name"], ref["path"] or first["path"]
+    return out

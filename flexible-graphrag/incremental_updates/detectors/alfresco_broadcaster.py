@@ -26,6 +26,17 @@ import queue
 from typing import Dict, Set, Optional
 from datetime import datetime
 
+
+def _client_id() -> str:
+    """The STOMP client id: one per backend process, since ActiveMQ refuses a second connection
+    with the same id (two backends following one Alfresco, e.g. a deployment and a dev backend).
+    The subscription is not durable, so the id only names the connection. ALFRESCO_STOMP_CLIENT_ID
+    sets it."""
+    import os
+    import socket
+    return os.getenv("ALFRESCO_STOMP_CLIENT_ID") or \
+        f"flexible-graphrag-broadcaster-{socket.gethostname()}-{os.getpid()}"
+
 logger = logging.getLogger("flexible_graphrag.incremental.detectors.alfresco_broadcaster")
 
 try:
@@ -92,6 +103,12 @@ class SharedAlfrescoEventListener(stomp.ConnectionListener if STOMP_AVAILABLE el
             logger.info(f"   Type: {node_type}")
             logger.info(f"   Is File: {is_file}, Is Folder: {is_folder}")
             
+            change = folder_change(event_type, resource, resource_before)
+            if change:
+                count = self.broadcaster.broadcast_event(folder_event(event_type, event_time, resource))
+                logger.info(f"   FOLDER {change}: sent to {count} detector(s) to check its files")
+                return
+
             # Only broadcast file events
             if not is_file:
                 logger.info(f"   SKIPPED: Not a file (folder or other type)")
@@ -131,6 +148,27 @@ class SharedAlfrescoEventListener(stomp.ConnectionListener if STOMP_AVAILABLE el
             logger.error(f"Failed to parse event JSON: {e}")
         except Exception as e:
             logger.error(f"Error broadcasting event: {e}", exc_info=True)
+
+
+def folder_change(event_type: str, resource: dict, resource_before: dict) -> str:
+    """'renamed' / 'moved' when an event is a folder's rename or move (its files' paths change
+    with no events of their own), else ''."""
+    if not resource.get("isFolder") or "Updated" not in event_type:
+        return ""
+    if resource_before.get("name") and resource_before.get("name") != resource.get("name"):
+        return "renamed"
+    parent_before = (resource_before.get("primaryHierarchy") or [None])[0]
+    hierarchy = resource.get("primaryHierarchy") or []
+    if parent_before and hierarchy and parent_before != hierarchy[0]:
+        return "moved"
+    return ""
+
+
+def folder_event(event_type: str, event_time: str, resource: dict) -> dict:
+    """The queued event for a folder's rename or move (AlfrescoDetector._follow_folder_change)."""
+    return {'node_id': resource.get("id"), 'name': resource.get("name"), 'change_type': 'FOLDER',
+            'modified_at': resource.get("modifiedAt"), 'primary_hierarchy': resource.get("primaryHierarchy", []),
+            'event_type': event_type, 'event_time': event_time}
 
 
 class AlfrescoEventBroadcaster:
@@ -197,7 +235,7 @@ class AlfrescoEventBroadcaster:
                 username=self.username,
                 passcode=self.password,
                 wait=True,
-                headers={'client-id': 'flexible-graphrag-broadcaster'}
+                headers={'client-id': _client_id()}
             )
             logger.info(f"SUCCESS: Connected to ActiveMQ on {self.host}:{self.port}")
             

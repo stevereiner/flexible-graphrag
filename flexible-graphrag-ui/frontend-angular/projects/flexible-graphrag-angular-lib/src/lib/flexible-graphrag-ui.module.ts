@@ -27,6 +27,8 @@ import { ProcessingTabComponent } from './components/processing-tab/processing-t
 import { SearchTabComponent } from './components/search-tab/search-tab';
 import { ChatTabComponent } from './components/chat-tab/chat-tab';
 import { SourceDocsComponent } from './components/source-docs/source-docs';
+import { HostIdentityComponent } from './components/host-identity/host-identity';
+import { TitleBarComponent } from './components/title-bar/title-bar';
 import { SourcePickerComponent, SourceSignInComponent, SourceSignInDialogComponent, SourceSignInSectionComponent } from './components/source-sign-in/source-sign-in';
 import {
   BaseSourceFormComponent,
@@ -57,6 +59,8 @@ const COMPONENTS = [
   SourceSignInDialogComponent,
   SourceSignInSectionComponent,
   SourcePickerComponent,
+  HostIdentityComponent,
+  TitleBarComponent,
   BaseSourceFormComponent,
   FileUploadFormComponent,
   WebSourceFormComponent,

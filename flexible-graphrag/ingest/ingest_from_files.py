@@ -18,6 +18,7 @@ from ingest._helpers import _check_cancellation, _get_loop, generate_completion_
 from ingest.run_chunk_pipeline import run_chunk_pipeline
 from ingest.update_vector import update_vector
 from ingest.update_search import update_search
+from ingest.update_openarch import update_openarch
 from ingest.update_pg_graph import update_pg_graph
 from ingest.update_rdf_graph import update_rdf_graph
 
@@ -36,6 +37,7 @@ async def ingest_documents(
     file_paths: List[Union[str, Path]],
     processing_id: str = None,
     status_callback=None,
+    graphs=None,
     skip_graph: bool = False,
 ):
     """Process and ingest documents from file paths into all search modalities.
@@ -45,7 +47,8 @@ async def ingest_documents(
         file_paths: List of file paths to ingest
         processing_id: Optional ID for cancellation/progress tracking
         status_callback: Optional callable(processing_id, status, message, progress, ...)
-        skip_graph: If True, skip KG extraction for this ingest (temporary override)
+        graphs: which graphs to build (graph_flags.GraphFlags: property graph, RDF)
+        skip_graph: older single flag, both graphs off (used when ``graphs`` is not given)
     """
     from retriever_setup import setup_hybrid_retriever
     from ingest._helpers import warmup_hybrid_retriever
@@ -129,19 +132,31 @@ async def ingest_documents(
     if _check_cancellation(processing_id):
         raise RuntimeError("Processing cancelled by user")
 
+    # Step 3.6: OpenArch content repository (ENABLE_OPENARCH)
+    if getattr(system, "openarch_store", None) is not None:
+        _update_progress("Writing documents to OpenArch...", 62, current_phase="openarch_indexing")
+        await update_openarch(system, nodes, documents)
+        if _check_cancellation(processing_id):
+            raise RuntimeError("Processing cancelled by user")
+
     # Step 4: PG graph
     _update_progress("Extracting knowledge graph...", 70, current_phase="kg_extraction")
+    # which graphs this ingest builds (graph_flags.py; skip_graph is the older single flag)
+    from graph_flags import GraphFlags
+    flags = graphs if graphs is not None else GraphFlags.of(
+        skip_graph, default=GraphFlags.defaults(system.config))
+
     nodes, nodes_kg_extracted, kg_duration, graph_duration, _, _ = await update_pg_graph(
-        system, nodes, documents, loop, skip_graph=skip_graph,
+        system, nodes, documents, loop, graphs=flags,
     )
     if not system.graph_intentionally_skipped:
         _update_progress("Knowledge graph ready", 78, current_phase="kg_extraction")
 
     # Step 4b: RDF graph
-    if not skip_graph and str(getattr(system.config, "rdf_graph_db", "none")) != "none":
+    if flags.rdf and str(getattr(system.config, "rdf_graph_db", "none")) != "none":
         _update_progress("Writing RDF graph…", 85, current_phase="rdf_indexing")
     rdf_kg_duration, rdf_store_duration = await update_rdf_graph(
-        system, nodes, nodes_kg_extracted=nodes_kg_extracted, skip_graph=skip_graph
+        system, nodes, nodes_kg_extracted=nodes_kg_extracted, graphs=flags
     )
 
     if _check_cancellation(processing_id):
@@ -191,7 +206,7 @@ async def ingest_documents(
         else:
             doc_count = len(documents)
 
-        ui_message = generate_completion_message(system.config, doc_count, skip_graph=skip_graph)
+        ui_message = generate_completion_message(system.config, doc_count, graphs=flags)
         logger.info(f"Ingestion complete: {ui_message} ({timing_summary})")
         status_callback(
             processing_id=processing_id,

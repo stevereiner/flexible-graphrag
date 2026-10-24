@@ -135,12 +135,20 @@ async def get_system_status() -> Dict[str, Any]:
     except Exception as e:
         return {"success": False, "error": _fmt_error(e)}
 
+def _graph_fields(enabled_graph: Optional[bool], enabled_rdf: Optional[bool]) -> Dict[str, bool]:
+    """enabled_graph / enabled_rdf for a request, only those given (else the server's defaults)."""
+    return {k: bool(v) for k, v in (("enabled_graph", enabled_graph), ("enabled_rdf", enabled_rdf))
+            if v is not None}
+
+
 @mcp.tool()
 async def ingest_documents(
     data_source: str = "filesystem", 
     paths: Optional[Union[str, List[str]]] = None,  # List[str], not bare list: typed array items (MCP schema portability)
     enable_sync: Optional[bool] = False,
     skip_graph: Optional[bool] = False,
+    enabled_graph: Optional[bool] = None,
+    enabled_rdf: Optional[bool] = None,
     cmis_config: Optional[Union[str, dict]] = None,
     alfresco_config: Optional[Union[str, dict]] = None,
     nuxeo_config: Optional[Union[str, dict]] = None,
@@ -163,7 +171,9 @@ async def ingest_documents(
         data_source: Source type (filesystem, cmis, alfresco, nuxeo, web, wikipedia, youtube, s3, gcs, azure_blob, etc.)
         paths: File path(s) as JSON array for filesystem source
         enable_sync: Enable automatic change detection and incremental updates
-        skip_graph: Skip knowledge graph extraction (faster, vector+search only)
+        skip_graph: Skip knowledge graph extraction (faster, vector+search only): both graphs off
+        enabled_graph: Build the property graph (PG_GRAPH_DB); unset = the server's DEFAULT_ENABLED_GRAPH
+        enabled_rdf: Build the RDF graph (RDF_GRAPH_DB); unset = the server's DEFAULT_ENABLED_RDF
         *_config: JSON configuration string for the selected data source. Required for
             data_source="alfresco": alfresco_config with url, path and credentials
             (username/password, or alfresco_ticket below); the server's own Alfresco settings
@@ -179,9 +189,10 @@ async def ingest_documents(
         
         request_data = {"data_source": data_source}
         
-        # Add skip_graph flag if set
+        # Add skip_graph flag if set, and which graphs to build when given
         if skip_graph:
             request_data["skip_graph"] = skip_graph
+        request_data.update(_graph_fields(enabled_graph, enabled_rdf))
         
         # Add enable_sync flag if set
         if enable_sync:
@@ -514,31 +525,43 @@ async def query_documents(query: str, top_k: int = 10, alfresco_ticket: Optional
     return await _ask("/api/query", query, top_k, alfresco_ticket, source_auth, scope, sources)
 
 @mcp.tool()
-async def test_with_sample(skip_graph: bool = False) -> Dict[str, Any]:
-    """Test the system with sample text for quick verification"""
+async def test_with_sample(skip_graph: bool = False, enabled_graph: Optional[bool] = None,
+                           enabled_rdf: Optional[bool] = None) -> Dict[str, Any]:
+    """Test the system with sample text for quick verification
+
+    Args:
+        skip_graph: Skip knowledge graph extraction (both graphs off)
+        enabled_graph: Build the property graph (PG_GRAPH_DB); unset = the server's DEFAULT_ENABLED_GRAPH
+        enabled_rdf: Build the RDF graph (RDF_GRAPH_DB); unset = the server's DEFAULT_ENABLED_RDF
+    """
     try:
         request_data = {}
         if skip_graph:
             request_data["skip_graph"] = skip_graph
+        request_data.update(_graph_fields(enabled_graph, enabled_rdf))
         result = await make_api_call("POST", "/api/test-sample", request_data or None)
         return {"success": True, "data": result}
     except Exception as e:
         return {"success": False, "error": _fmt_error(e)}
 
 @mcp.tool()
-async def ingest_text(content: str, source_name: str = "mcp-input", skip_graph: bool = False) -> Dict[str, Any]:
+async def ingest_text(content: str, source_name: str = "mcp-input", skip_graph: bool = False,
+                      enabled_graph: Optional[bool] = None, enabled_rdf: Optional[bool] = None) -> Dict[str, Any]:
     """
     Ingest raw text content into the knowledge graph
     
     Args:
         content: Text content to ingest
         source_name: Name/identifier for this text source
-        skip_graph: Skip knowledge graph extraction (faster, vector+search only)
+        skip_graph: Skip knowledge graph extraction (faster, vector+search only): both graphs off
+        enabled_graph: Build the property graph (PG_GRAPH_DB); unset = the server's DEFAULT_ENABLED_GRAPH
+        enabled_rdf: Build the RDF graph (RDF_GRAPH_DB); unset = the server's DEFAULT_ENABLED_RDF
     """
     try:
         request_data = {"content": content, "source_name": source_name}
         if skip_graph:
             request_data["skip_graph"] = skip_graph
+        request_data.update(_graph_fields(enabled_graph, enabled_rdf))
         result = await make_api_call("POST", "/api/ingest-text", request_data)
         return {"success": True, "data": result}
     except Exception as e:
@@ -622,7 +645,7 @@ def main():
     
     sys.stderr.write("🛠️  Available tools:\n")
     sys.stderr.write("   • get_system_status\n")
-    sys.stderr.write("   • ingest_documents (supports paths, skip_graph, enable_sync, nodeDetails, all 14 data sources)\n")
+    sys.stderr.write("   • ingest_documents (supports paths, skip_graph, enabled_graph/enabled_rdf, enable_sync,nodeDetails, all 14 data sources)\n")
     sys.stderr.write("   • get_auth_requirements\n")
     sys.stderr.write("   • sign_in\n")
     sys.stderr.write("   • list_sources\n")

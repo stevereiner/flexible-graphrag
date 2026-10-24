@@ -150,12 +150,13 @@ def setup_databases(config) -> Tuple:
     has_rdf = str(getattr(config, "rdf_graph_db", "none")) != "none"
     has_search = str(config.search_db) != "none"
     has_langchain_pg = getattr(config, "use_langchain_pg", False)
+    has_openarch = getattr(config, "enable_openarch", False)
 
-    if not (has_vector or has_graph or has_rdf or has_search or has_langchain_pg):
+    if not (has_vector or has_graph or has_rdf or has_search or has_langchain_pg or has_openarch):
         raise ValueError(
             "Invalid configuration: All search modalities are disabled! "
-            "At least one of VECTOR_DB, PG_GRAPH_DB, RDF_GRAPH_DB, SEARCH_DB, or "
-            "USE_LANGCHAIN_PG must be enabled (not 'none'). "
+            "At least one of VECTOR_DB, PG_GRAPH_DB, RDF_GRAPH_DB, SEARCH_DB, "
+            "USE_LANGCHAIN_PG or ENABLE_OPENARCH must be enabled. "
             f"Current config: VECTOR_DB={config.vector_db}, "
             f"PG_GRAPH_DB={config.pg_graph_db}, RDF_GRAPH_DB={getattr(config, 'rdf_graph_db', 'none')}, "
             f"SEARCH_DB={config.search_db}"

@@ -33,6 +33,8 @@ _EVENT_MAP = {
     "documentModified": "UPDATE",
     "documentRemoved": "DELETE",
     "documentTrashed": "DELETE",
+    "documentUntrashed": "CREATE",
+    "documentMoved": "MOVE",  # a file's or a folder's new place (NuxeoDetector)
 }
 
 

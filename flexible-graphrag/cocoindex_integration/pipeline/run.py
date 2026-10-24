@@ -74,6 +74,21 @@ def set_runtime_skip_graph(value: "bool | None") -> None:
     _state._runtime_skip_graph = value if value is True else None
 
 
+def set_runtime_graphs(graphs) -> None:
+    """Set (a graph_flags.GraphFlags) or clear (None) which graphs the next update() cycle
+    builds: the property graph and the RDF graph, each on its own."""
+    _state._runtime_graphs = graphs
+
+
+def _resolve_graphs(cfg: Dict[str, Any]):
+    """Which graphs this document gets: the runtime flags of this cycle, else cfg_json's
+    (_enabled_graph / _enabled_rdf, _skip_graph), else DEFAULT_ENABLED_GRAPH / _RDF."""
+    from graph_flags import GraphFlags
+    if _state._runtime_graphs is not None:
+        return _state._runtime_graphs
+    return GraphFlags.resolve(cfg.get("_enabled_graph"), cfg.get("_enabled_rdf"), cfg.get("_skip_graph"))
+
+
 def _resolve_enable_kg(cfg: Dict[str, Any]) -> bool:
     """True when KG extraction should run for this document (before target checks)."""
     if _state._runtime_skip_graph is True:
@@ -336,6 +351,12 @@ async def _run_pipeline(
     vector_target = _sel._pick_vector_target(cfg)
     pg_target = _sel._pick_pg_target(cfg)
     rdf_target = _sel._pick_rdf_target(cfg)
+    # each graph only when this ingest builds it (graph_flags.py)
+    _graphs = _resolve_graphs(cfg)
+    if not _graphs.graph:
+        pg_target = None
+    if not _graphs.rdf:
+        rdf_target = None
     search_target = _sel._pick_search_target(cfg)
 
     _kg_will_run = enable_kg and (pg_target is not None or rdf_target is not None)

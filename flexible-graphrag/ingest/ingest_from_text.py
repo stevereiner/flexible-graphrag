@@ -11,6 +11,7 @@ from ingest._helpers import _check_cancellation, _get_loop
 from ingest.run_chunk_pipeline import run_chunk_pipeline
 from ingest.update_vector import update_vector
 from ingest.update_search import update_search
+from ingest.update_openarch import update_openarch
 from ingest.update_pg_graph import update_pg_graph
 from ingest.update_rdf_graph import update_rdf_graph
 
@@ -22,6 +23,7 @@ async def ingest_text(
     content: str,
     source_name: str = "text_input",
     processing_id: str = None,
+    graphs=None,
     skip_graph: bool = False,
 ):
     """Ingest raw text content.
@@ -31,7 +33,8 @@ async def ingest_text(
         content: Raw text to ingest
         source_name: Display name for the text source
         processing_id: Optional ID for cancellation checking
-        skip_graph: Skip knowledge graph extraction (faster, vector+search only)
+        graphs: which graphs to build (graph_flags.GraphFlags: property graph, RDF)
+        skip_graph: older single flag, both graphs off (used when ``graphs`` is not given)
     """
     from retriever_setup import setup_hybrid_retriever
     from ingest._helpers import warmup_hybrid_retriever
@@ -66,14 +69,30 @@ async def ingest_text(
     if _check_cancellation(processing_id):
         raise RuntimeError("Processing cancelled by user")
 
+    # Step 3b: OpenArch content repository (ENABLE_OPENARCH), under the "text" source
+    if getattr(system, "openarch_store", None) is not None:
+        from openarch.source_system import use_source_system
+        token = use_source_system(("text", "default"))
+        try:
+            await update_openarch(system, nodes, [document])
+        finally:
+            token.var.reset(token)
+        if _check_cancellation(processing_id):
+            raise RuntimeError("Processing cancelled by user")
+
     # Step 4: PG graph
+    # which graphs this ingest builds (graph_flags.py; skip_graph is the older single flag)
+    from graph_flags import GraphFlags
+    flags = graphs if graphs is not None else GraphFlags.of(
+        skip_graph, default=GraphFlags.defaults(system.config))
+
     nodes, nodes_kg_extracted, kg_duration, graph_duration, _, _ = await update_pg_graph(
-        system, nodes, [document], loop, skip_graph=skip_graph
+        system, nodes, [document], loop, graphs=flags
     )
 
     # Step 4b: RDF graph
     rdf_kg_duration, rdf_store_duration = await update_rdf_graph(
-        system, nodes, nodes_kg_extracted=nodes_kg_extracted, skip_graph=skip_graph
+        system, nodes, nodes_kg_extracted=nodes_kg_extracted, graphs=flags
     )
 
     if _check_cancellation(processing_id):

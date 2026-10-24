@@ -25,12 +25,9 @@ export class UiDefaultsService {
   defaults: UiDefaults = {};
 
   load(): Promise<UiDefaults> {
-    // v0.9.0: restore the request below. The 0.8.6 backend has no /api/ui-defaults, and asking it only
-    // logs a 404; until then every caller gets {} and uses its fallback.
-    // this.request ||= firstValueFrom(this.http.get<UiDefaults>(`${this.fgConfig.apiUrl}/ui-defaults`))
-    //   .then((d) => (this.defaults = d || {}))
-    //   .catch(() => ({}));
-    this.request ||= Promise.resolve(this.defaults);
+    this.request ||= firstValueFrom(this.http.get<UiDefaults>(`${this.fgConfig.apiUrl}/ui-defaults`))
+      .then((d) => (this.defaults = d || {}))
+      .catch(() => ({}));
     return this.request;
   }
 }

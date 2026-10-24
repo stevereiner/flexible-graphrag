@@ -24,7 +24,7 @@ class DataSourceConfig:
     refresh_interval_seconds: int = 3600  # Default 1 hour (periodic full scan)
     watchdog_filesystem_seconds: int = 60  # Default 1 minute (delay before processing file changes detected by watchdog filesystem monitor)
     enable_change_stream: bool = False
-    skip_graph: bool = False  # If True, skip graph extraction for this datasource
+    skip_graph: bool = False  # older single flag: True = neither graph (kept equal to graphs.none)
     is_active: bool = True
     auto_sync: bool = True  # False: recorded by an ingest without auto change sync; never monitored
     sync_status: str = 'idle'  # idle, syncing, error
@@ -33,6 +33,36 @@ class DataSourceConfig:
     last_error: Optional[str] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
+    # Which graphs this datasource builds (graph_flags.py): the property graph and the RDF graph.
+    # None = from skip_graph, else DEFAULT_ENABLED_GRAPH / DEFAULT_ENABLED_RDF.
+    enabled_graph: Optional[bool] = None
+    enabled_rdf: Optional[bool] = None
+
+    @property
+    def graphs(self):
+        from graph_flags import GraphFlags
+        return GraphFlags.resolve(self.enabled_graph, self.enabled_rdf, self.skip_graph)
+
+
+def graph_updates(kwargs: Dict) -> Dict:
+    """update_config's graph fields kept consistent: ``graphs`` (a GraphFlags) or skip_graph alone
+    sets all three; enabled_graph / enabled_rdf clear skip_graph unless both are off."""
+    kwargs = dict(kwargs)
+    if "graphs" in kwargs:
+        g = kwargs.pop("graphs")
+        kwargs["enabled_graph"], kwargs["enabled_rdf"], kwargs["skip_graph"] = graph_columns(g)
+    elif "skip_graph" in kwargs and "enabled_graph" not in kwargs and "enabled_rdf" not in kwargs:
+        off = bool(kwargs["skip_graph"])
+        # off: neither graph; on again: back to the defaults (NULL)
+        kwargs["enabled_graph"] = kwargs["enabled_rdf"] = (False if off else None)
+    elif "enabled_graph" in kwargs or "enabled_rdf" in kwargs:
+        kwargs["skip_graph"] = kwargs.get("enabled_graph") is False and kwargs.get("enabled_rdf") is False
+    return kwargs
+
+
+def graph_columns(graphs) -> tuple:
+    """(enabled_graph, enabled_rdf, skip_graph) to store for a GraphFlags."""
+    return bool(graphs.graph), bool(graphs.rdf), bool(graphs.none)
 
 
 class ConfigManager:
@@ -84,6 +114,13 @@ class ConfigManager:
                 ALTER TABLE datasource_config
                 ADD COLUMN IF NOT EXISTS auto_sync BOOLEAN NOT NULL DEFAULT TRUE
             """)
+            # Which graphs the datasource builds (graph_flags.py); NULL = from skip_graph, else the
+            # DEFAULT_ENABLED_GRAPH / DEFAULT_ENABLED_RDF defaults (rows written before these columns)
+            await conn.execute("""
+                ALTER TABLE datasource_config
+                ADD COLUMN IF NOT EXISTS enabled_graph BOOLEAN,
+                ADD COLUMN IF NOT EXISTS enabled_rdf BOOLEAN
+            """)
 
             # Create indexes
             await conn.execute("""
@@ -115,8 +152,8 @@ class ConfigManager:
                 INSERT INTO datasource_config 
                 (config_id, project_id, source_type, source_name, connection_params,
                  refresh_interval_seconds, watchdog_filesystem_seconds, enable_change_stream, skip_graph, is_active,
-                 auto_sync)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+                 auto_sync, enabled_graph, enabled_rdf)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
                 ON CONFLICT (config_id) DO UPDATE
                     SET source_name                 = EXCLUDED.source_name,
                         connection_params           = EXCLUDED.connection_params,
@@ -124,14 +161,16 @@ class ConfigManager:
                         watchdog_filesystem_seconds = EXCLUDED.watchdog_filesystem_seconds,
                         enable_change_stream        = EXCLUDED.enable_change_stream,
                         skip_graph                  = EXCLUDED.skip_graph,
+                        enabled_graph               = EXCLUDED.enabled_graph,
+                        enabled_rdf                 = EXCLUDED.enabled_rdf,
                         is_active                   = EXCLUDED.is_active,
                         auto_sync                   = EXCLUDED.auto_sync,
                         updated_at                  = NOW()
             """, config.config_id, config.project_id, config.source_type,
                 config.source_name, json.dumps(config.connection_params),
                 config.refresh_interval_seconds, config.watchdog_filesystem_seconds,
-                config.enable_change_stream, config.skip_graph,
-                config.is_active, config.auto_sync)
+                config.enable_change_stream, graph_columns(config.graphs)[2],
+                config.is_active, config.auto_sync, *graph_columns(config.graphs)[:2])
         
         return config.config_id
     
@@ -223,8 +262,9 @@ class ConfigManager:
         """Update datasource config fields"""
         allowed_fields = {
             'source_name', 'connection_params', 'refresh_interval_seconds',
-            'enable_change_stream', 'is_active', 'skip_graph', 'auto_sync'
+            'enable_change_stream', 'is_active', 'skip_graph', 'auto_sync', 'enabled_graph', 'enabled_rdf'
         }
+        kwargs = graph_updates(kwargs)
         
         updates = []
         values = []
@@ -251,6 +291,73 @@ class ConfigManager:
         async with self.pool.acquire() as conn:
             await conn.execute(query, *values)
     
+    async def register_ingest_only(self, config: DataSourceConfig) -> None:
+        """Record a datasource ingested WITHOUT auto change sync (inactive, auto_sync FALSE).
+        An auto sync's row is left alone -- an ingest-only repeat must not switch a real sync
+        off or overwrite its stored credentials -- except that an ingest that built the graph
+        makes it a graph datasource again (its graph may have been removed, which marked it
+        skip_graph -- see incremental_updates/removal.py)."""
+        async with self.pool.acquire() as conn:
+            await conn.execute("""
+                INSERT INTO datasource_config
+                (config_id, project_id, source_type, source_name, connection_params,
+                 skip_graph, is_active, auto_sync, enabled_graph, enabled_rdf)
+                VALUES ($1, $2, $3, $4, $5, $6, FALSE, FALSE, $7, $8)
+                ON CONFLICT (config_id) DO UPDATE
+                    SET source_name       = EXCLUDED.source_name,
+                        connection_params = EXCLUDED.connection_params,
+                        skip_graph        = EXCLUDED.skip_graph,
+                        enabled_graph     = EXCLUDED.enabled_graph,
+                        enabled_rdf       = EXCLUDED.enabled_rdf,
+                        updated_at        = NOW()
+                    WHERE datasource_config.auto_sync = FALSE
+            """,
+                config.config_id, config.project_id, config.source_type, config.source_name,
+                json.dumps(config.connection_params), graph_columns(config.graphs)[2],
+                *graph_columns(config.graphs)[:2],
+            )
+            # An ingest that built a graph makes an auto sync of the same source build it again
+            # (its graph may have been removed, which turned it off -- see removal.py)
+            graphs = config.graphs
+            if graphs.graph or graphs.rdf:
+                await conn.execute(
+                    "UPDATE datasource_config SET skip_graph = FALSE, "
+                    "enabled_graph = CASE WHEN $2 THEN TRUE ELSE enabled_graph END, "
+                    "enabled_rdf = CASE WHEN $3 THEN TRUE ELSE enabled_rdf END, updated_at = NOW() "
+                    "WHERE config_id = $1 AND auto_sync = TRUE",
+                    config.config_id, graphs.graph, graphs.rdf,
+                )
+
+    async def get_auto_sync(self, config_id: str) -> Optional[bool]:
+        """A datasource's auto_sync, or None when it is not registered."""
+        async with self.pool.acquire() as conn:
+            return await conn.fetchval(
+                "SELECT auto_sync FROM datasource_config WHERE config_id = $1", config_id)
+
+    async def get_paused_configs(self) -> List[DataSourceConfig]:
+        """Auto syncs that are switched off (ingest-only records are inactive by design, not
+        paused)."""
+        async with self.pool.acquire() as conn:
+            rows = await conn.fetch(
+                "SELECT * FROM datasource_config WHERE is_active = FALSE AND auto_sync = TRUE "
+                "ORDER BY created_at")
+            return [self._row_to_config(row) for row in rows]
+
+    def follows_rules(self, source_type: str) -> bool:
+        """Whether this source's auto syncs watch the objects the scope rules follow instead of
+        their stored root lists (INCREMENTAL_STATE_STORE=openarch, openarch/scope.py)."""
+        return False
+
+    async def apply_rule_roots(self, source_type: str) -> list:
+        """Point the auto syncs of a source at what the scope rules follow (follows_rules).
+        PostgreSQL keeps no rules: the roots stay as stored."""
+        return []
+
+    async def ensure_ready(self) -> None:
+        """Reopen the connection pool if it was closed."""
+        if self.pool is None or self.pool._closed:
+            await self.initialize()
+
     async def delete_config(self, config_id: str):
         """Delete datasource config (hard delete)"""
         async with self.pool.acquire() as conn:
@@ -308,6 +415,8 @@ class ConfigManager:
             watchdog_filesystem_seconds=row.get('watchdog_filesystem_seconds', 60),
             enable_change_stream=row['enable_change_stream'],
             skip_graph=row.get('skip_graph', False),
+            enabled_graph=row.get('enabled_graph'),
+            enabled_rdf=row.get('enabled_rdf'),
             is_active=row['is_active'],
             auto_sync=row.get('auto_sync', True),
             sync_status=row['sync_status'],

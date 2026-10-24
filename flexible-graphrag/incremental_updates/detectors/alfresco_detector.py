@@ -8,6 +8,7 @@ Detects changes in Alfresco repositories through:
 
 import asyncio
 import logging
+import os
 import json
 from datetime import datetime, timezone
 from typing import Dict, Optional, AsyncGenerator, List
@@ -100,6 +101,15 @@ class DirectAlfrescoEventListener(stomp.ConnectionListener if STOMP_AVAILABLE el
             if primary_hierarchy:
                 logger.info(f"   Parent: {primary_hierarchy[0] if primary_hierarchy else 'N/A'}")
             
+            # A folder renamed or moved: its files' paths changed with no events of their own
+            # (AlfrescoDetector._follow_folder_change)
+            from .alfresco_broadcaster import folder_change, folder_event
+            change = folder_change(event_type, resource, resource_before)
+            if change:
+                logger.info(f"   FOLDER {change}: queuing a check of its files")
+                self.detector._event_queue_sync.put(folder_event(event_type, event_time, resource))
+                return
+
             # Only process file events (skip folders)
             if not is_file:
                 logger.info(f"   SKIPPED: Not a file (folder or other type)")
@@ -320,8 +330,11 @@ class AlfrescoDetector(ChangeDetector):
         self.backend = None
         
         # Event deduplication (to avoid processing duplicate UPDATE events)
-        self._recent_events: Dict[str, float] = {}  # node_id -> timestamp
-        self._dedup_window_seconds = 60  # Ignore duplicate events within 60 seconds (after processing completes)
+        # node_id -> (time, (modified_at, name, parent)) of the last event processed for it: an UPDATE
+        # repeating it is a duplicate notification (_is_duplicate)
+        self._recent_events: Dict[str, tuple] = {}
+        self._dedup_window_seconds = 60  # how long an event's signature is remembered
+        self._pair_window_seconds = 10   # the UPDATE Alfresco sends right after a CREATE
         
         # Validate required config
         if not self.url:
@@ -339,8 +352,9 @@ class AlfrescoDetector(ChangeDetector):
             if not self.password:
                 raise ValueError("AlfrescoDetector requires 'password' in config")
         
-        # Extract host from URL for event client
-        self.host = self._extract_host(self.url)
+        # ActiveMQ's STOMP host: ALFRESCO_STOMP_HOST (ActiveMQ apart from Alfresco, e.g. the activemq
+        # service in Docker), else Alfresco's own host
+        self.host = os.getenv("ALFRESCO_STOMP_HOST") or self._extract_host(self.url)
         
         logger.info(f"AlfrescoDetector initialized - host={self.host}, path={self.path}, "
                    f"recursive={self.recursive}, polling_interval={self.polling_interval}s")
@@ -866,24 +880,47 @@ class AlfrescoDetector(ChangeDetector):
 
                         # Convert to ChangeEvent
                         logger.info(f"STOMP EVENT PROCESSING: {event_data['change_type']} for {event_data['name']}")
-                        
-                        # FILTER: Check if this event is for our monitored folder
-                        primary_hierarchy = event_data.get('primary_hierarchy', [])
-                        # A datasource for one file (selected in ACA) "monitors" that file itself:
-                        # its own events list only its parent folders, so match the node too
-                        is_monitored_node = event_data.get('node_id') == self._monitored_folder_id
-                        if self._monitored_folder_id and primary_hierarchy and not is_monitored_node:
-                            if self._monitored_folder_id not in primary_hierarchy:
-                                logger.info(f"   SKIPPED: Event not in monitored folder")
-                                logger.info(f"      Event hierarchy: {primary_hierarchy[:2] if len(primary_hierarchy) > 2 else primary_hierarchy}")
-                                logger.info(f"      Monitored folder: {self._monitored_folder_id}")
-                                continue  # Skip this event
 
-                        # Construct path
-                        if is_monitored_node:
-                            file_path = self.path  # the datasource is this one file
-                        else:
+                        if event_data['change_type'] == 'FOLDER':
+                            if self._in_roots(event_data['node_id'], event_data.get('primary_hierarchy') or []):
+                                await self._follow_folder_change(event_data['node_id'], event_data['name'])
+                            else:
+                                logger.info(f"   SKIPPED: folder {event_data['name']} is not in this sync's folders")
+                            continue
+                        
+                        # FILTER: only what this sync watches -- its selected files and folders (a
+                        # folder's direct children, or any depth when recursive), else its folder
+                        primary_hierarchy = event_data.get('primary_hierarchy', [])
+                        if not self._in_roots(event_data['node_id'], primary_hierarchy):
+                            # A document it follows that moved out of them is no longer its to keep
+                            moved_out = None
+                            if event_data['change_type'] == 'UPDATE' and self.state_manager and self.config_id:
+                                try:
+                                    moved_out = await self.state_manager.get_state_by_source_id(
+                                        self.config_id, event_data['node_id'])
+                                except Exception as e:
+                                    logger.debug(f"Could not check {event_data['node_id']}: {e}")
+                                if moved_out is not None:
+                                    from ..recovery import moved_out as was_moved_out
+                                    current = await self._event_path(event_data['node_id'], event_data['name'])
+                                    if not was_moved_out(moved_out, current):
+                                        moved_out = None  # kept with its auto sync off, or not moved
+                            if moved_out:
+                                logger.info(f"STOMP EVENT: {moved_out.source_path} moved out of this sync's folders -- removing it")
+                                yield ChangeEvent(
+                                    change_type=ChangeType.DELETE, timestamp=None,
+                                    metadata=FileMetadata(source_type='alfresco', path=moved_out.source_path,
+                                                          ordinal=int(datetime.now(timezone.utc).timestamp() * 1_000_000),
+                                                          extra={'node_id': event_data['node_id']}))
+                            else:
+                                logger.info(f"   SKIPPED: {event_data['name']} is not in this sync's folders")
+                            continue
+
+                        # Its repository path (a file in a subfolder is not at the folder + its name)
+                        if event_data['change_type'] == 'DELETE':
                             file_path = f"{self.path}{event_data['name']}" if self.path.endswith('/') else f"{self.path}/{event_data['name']}"
+                        else:
+                            file_path = await self._event_path(event_data['node_id'], event_data['name'])
                         
                         # Create FileMetadata
                         metadata = FileMetadata(
@@ -913,17 +950,18 @@ class AlfrescoDetector(ChangeDetector):
                             # For CREATE, process via backend (full pipeline) or yield for CocoIndex
                             logger.info(f"STOMP EVENT: CREATE for {file_path}")
                             
-                            # Record this event to block subsequent UPDATE events
+                            # Record this event to block the UPDATE that repeats it
                             import time
                             node_id = event_data['node_id']
-                            self._recent_events[node_id] = time.time()
+                            self._remember(event_data, time.time())
                             
                             if self.backend:
                                 try:
                                     await self._process_via_backend(
                                         node_id=event_data['node_id'],
                                         filename=event_data['name'],
-                                        file_path=file_path
+                                        file_path=file_path,
+                                        ancestor_ids=event_data.get('primary_hierarchy')
                                     )
                                     logger.info(f"SUCCESS: Processed CREATE for {file_path} via backend (full pipeline)")
                                 except Exception as e:
@@ -938,15 +976,13 @@ class AlfrescoDetector(ChangeDetector):
                             node_id = event_data['node_id']
                             filename = event_data['name']
                             
-                            # Check if this is a duplicate event (within dedup window)
+                            # A repeat of the event just processed for this node (same name, folder and
+                            # modification time, or the UPDATE right after its CREATE)? A rename, a
+                            # move or a later edit is not one.
                             import time
                             current_time = time.time()
-                            last_event_time = self._recent_events.get(node_id, 0)
-                            time_since_last = current_time - last_event_time if last_event_time > 0 else 999999
-                            
-                            if time_since_last < self._dedup_window_seconds:
-                                logger.info(f"STOMP EVENT: Ignoring duplicate UPDATE for {file_path} "
-                                          f"(last event {time_since_last:.1f}s ago)")
+                            if self._is_duplicate(event_data, current_time):
+                                logger.info(f"STOMP EVENT: Ignoring duplicate UPDATE for {file_path}")
                                 continue
                             
                             logger.info(f"STOMP EVENT: UPDATE for {file_path}")
@@ -976,14 +1012,15 @@ class AlfrescoDetector(ChangeDetector):
                                 logger.info(f"STOMP EVENT: UPDATE for NEW document - treating as CREATE for {file_path}")
                                 
                                 # Record this event BEFORE processing
-                                self._recent_events[node_id] = current_time
-                                
+                                self._remember(event_data, current_time)
+
                                 if self.backend:
                                     try:
                                         await self._process_via_backend(
                                             node_id=node_id,
                                             filename=filename,
-                                            file_path=file_path
+                                            file_path=file_path,
+                                            ancestor_ids=event_data.get('primary_hierarchy')
                                         )
                                         logger.info(f"SUCCESS: Processed CREATE for {file_path} via backend (full pipeline)")
                                     except Exception as e:
@@ -997,17 +1034,20 @@ class AlfrescoDetector(ChangeDetector):
                                 logger.info(f"STOMP EVENT: UPDATE for EXISTING document for {file_path}")
                                 
                                 # Record this event BEFORE processing
-                                self._recent_events[node_id] = current_time
-                                
+                                self._remember(event_data, current_time)
+
                                 if self.backend:
                                     # Backend mode: DELETE event with ADD callback
+                                    ancestors = event_data.get('primary_hierarchy')
+
                                     async def add_callback():
                                         logger.info(f"UPDATE: DELETE completed, now processing ADD for {file_path}")
                                         try:
                                             await self._process_via_backend(
                                                 node_id=node_id,
                                                 filename=filename,
-                                                file_path=file_path
+                                                file_path=file_path,
+                                                ancestor_ids=ancestors
                                             )
                                             logger.info(f"SUCCESS: UPDATE completed for {file_path}")
                                         except Exception as e:
@@ -1030,8 +1070,8 @@ class AlfrescoDetector(ChangeDetector):
                             # Clean up old entries (older than 2x dedup window)
                             cutoff_time = current_time - (self._dedup_window_seconds * 2)
                             self._recent_events = {
-                                k: v for k, v in self._recent_events.items() 
-                                if v > cutoff_time
+                                k: v for k, v in self._recent_events.items()
+                                if v[0] > cutoff_time
                             }
                         
                         continue
@@ -1124,6 +1164,106 @@ class AlfrescoDetector(ChangeDetector):
                 await asyncio.sleep(10)
                 yield None
     
+    @staticmethod
+    def _event_signature(event_data: dict) -> tuple:
+        hierarchy = event_data.get('primary_hierarchy') or []
+        return (event_data.get('modified_at'), event_data.get('name'), hierarchy[0] if hierarchy else None)
+
+    def _remember(self, event_data: dict, now: float) -> None:
+        self._recent_events[event_data['node_id']] = (now, self._event_signature(event_data))
+
+    def _is_duplicate(self, event_data: dict, now: float) -> bool:
+        """Whether an UPDATE only repeats the last event processed for its node: the same name and
+        folder, and the same modification time or within seconds of it (Alfresco follows a CREATE
+        with an UPDATE). A rename, a move or a later edit is processed."""
+        last = self._recent_events.get(event_data['node_id'])
+        if not last or now - last[0] >= self._dedup_window_seconds:
+            return False
+        signature = self._event_signature(event_data)
+        if signature[1:] != last[1][1:]:
+            return False  # renamed or moved
+        return signature[0] == last[1][0] or now - last[0] < self._pair_window_seconds
+
+    def _in_roots(self, node_id: str, hierarchy: Optional[List[str]]) -> bool:
+        """Whether an event's node is in what this sync watches: one of its selected nodes
+        (nodeDetails / nodeIds) -- a file itself, a folder's direct children, or any depth below it
+        when recursive -- else its folder (path) the same way. ``hierarchy`` is the event's primary
+        hierarchy, parent first. Unknown (no roots, no hierarchy): yes."""
+        roots: Dict[str, bool] = {}  # node id -> is a folder
+        for nd in self.node_details or []:
+            if isinstance(nd, dict) and nd.get("id"):
+                roots[nd["id"]] = bool(nd.get("isFolder", not nd.get("isFile", False)))
+        for nid in self.node_ids or []:
+            roots.setdefault(nid, True)
+        if not roots and self._monitored_folder_id:
+            roots = {self._monitored_folder_id: True}
+        if not roots or node_id in roots:
+            return True
+        if not hierarchy:
+            return True
+        for depth, ancestor in enumerate(hierarchy, 1):
+            if roots.get(ancestor):
+                return depth == 1 or bool(self.recursive)
+        return False
+
+    async def _follow_folder_change(self, folder_id: str, name: str) -> None:
+        """A folder in this sync's folders was renamed or moved (or moved in): its files' paths
+        changed with no events of their own. Re-ingest the files this sync follows under their new
+        paths, and ingest the ones that came in with it."""
+        from .. import sync_jobs
+        from ..recovery import comparable_path
+        folder_path = await self._event_path(folder_id, name)
+        prefix = comparable_path(folder_path) + "/"
+        try:
+            files = [f for f in await self.list_all_files() if comparable_path(f.path).startswith(prefix)]
+        except Exception as e:
+            logger.warning(f"Folder {folder_path} changed, but its files could not be listed ({e}): "
+                           f"the periodic refresh will take them")
+            return
+        for f in files:
+            node_id = (f.extra or {}).get('node_id')
+            if not node_id:
+                continue
+            state = None
+            if self.state_manager and self.config_id:
+                state = await self.state_manager.get_state_by_source_id(self.config_id, node_id)
+            if state and comparable_path(state.source_path or "") == comparable_path(f.path):
+                continue
+            logger.info(f"STOMP EVENT: folder {folder_path} was renamed or moved -- "
+                        f"{'re-ingesting' if state else 'ingesting'} {f.path}")
+            try:
+                with sync_jobs.updating():
+                    await self._process_via_backend(node_id, (f.extra or {}).get('name') or os.path.basename(f.path), f.path)
+            except Exception as e:
+                logger.error(f"Failed to ingest {f.path} after its folder changed: {e}")
+
+    async def _event_path(self, node_id: str, name: str) -> str:
+        """A node's repository path (``/Shared/KG/Sub/a.txt``), asked of Alfresco; else this sync's
+        folder + the name (the node may be gone, e.g. after a delete)."""
+        fallback = f"{self.path}{name}" if self.path.endswith('/') else f"{self.path}/{name}"
+        try:
+            import httpx
+            from sources.alfresco_auth import alfresco_authorization
+            base = self.url.rstrip('/')
+            base = base[:-len('/alfresco')] if base.endswith('/alfresco') else base
+            authorization = await asyncio.to_thread(
+                alfresco_authorization, base, self.auth_method, username=self.username,
+                password=self.password, ticket=self.ticket, oauth2=self.oauth2)
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                r = await client.get(f"{base}/alfresco/api/-default-/public/alfresco/versions/1/nodes/{node_id}",
+                                     params={"include": "path", "fields": "name,path"},
+                                     headers={"Authorization": authorization} if authorization else None)
+            if r.status_code != 200:
+                return fallback
+            entry = r.json().get("entry") or {}
+            folder = ((entry.get("path") or {}).get("name") or "")
+            if folder.startswith("/Company Home"):
+                folder = folder[len("/Company Home"):]
+            return f"{folder.rstrip('/')}/{entry.get('name') or name}"
+        except Exception as e:
+            logger.debug(f"Could not resolve the path of {node_id}: {e}")
+            return fallback
+
     def _build_auth_util(self, api_base_url):
         """Build a python-alfresco-api auth util for the configured auth_method (None for basic)."""
         from sources.alfresco_auth import build_alfresco_auth_util
@@ -1482,7 +1622,8 @@ class AlfrescoDetector(ChangeDetector):
             logger.error(f"Error listing Alfresco files: {e}")
             raise
     
-    async def _process_via_backend(self, node_id: str, filename: str, file_path: str):
+    async def _process_via_backend(self, node_id: str, filename: str, file_path: str,
+                                   ancestor_ids: Optional[List[str]] = None):
         """
         Process Alfresco file by calling backend._process_documents_async() directly.
         Uses the complete pipeline with DocumentProcessor.
@@ -1499,12 +1640,15 @@ class AlfrescoDetector(ChangeDetector):
         logger.info(f"Processing {filename} (node: {node_id}) via backend (full pipeline)")
         
         try:
-            skip_graph = getattr(self, 'skip_graph', False)
-            # ...or just this document's graph was removed (document_state.skip_graph)
-            if not skip_graph and self.state_manager and self.config_id:
-                skip_graph = await self.state_manager.doc_skip_graph(
-                    config_id=self.config_id, source_id=node_id)
-            processing_id = f"incremental_alf_{node_id[:8]}"
+            # The data source's graphs, as its own / its folders' scope rules (matched by node id
+            # and the event's primary hierarchy, nearest first) or this document's own flags have
+            # them (incremental_updates/doc_graphs.py); None: the rules say not to follow it
+            from incremental_updates.doc_graphs import graphs_for
+            graphs = await graphs_for(self, file_path, node_id, ancestor_ids)
+            if graphs is None:
+                return
+            from .. import sync_jobs
+            processing_id = sync_jobs.processing_id("alf", node_id)
             
             # Build nodeDetails like KG Spaces does (this already works in AlfrescoSource)
             node_details = [{
@@ -1533,7 +1677,7 @@ class AlfrescoDetector(ChangeDetector):
                 processing_id=processing_id,
                 data_source='alfresco',
                 config_id=self.config_id,
-                skip_graph=skip_graph,
+                graphs=graphs,
                 alfresco_config=alfresco_config
             )
             
@@ -1545,7 +1689,7 @@ class AlfrescoDetector(ChangeDetector):
             if self.state_manager:
                 try:
                     await self._create_document_state_from_processing_status(
-                        processing_id, filename, node_id, file_path, skip_graph=skip_graph
+                        processing_id, filename, node_id, file_path, graphs=graphs
                     )
                 except Exception as e:
                     logger.error(f"Failed to create document_state for {filename}: {e}")
@@ -1556,7 +1700,7 @@ class AlfrescoDetector(ChangeDetector):
     
     async def _create_document_state_from_processing_status(
         self, processing_id: str, filename: str, node_id: str, file_path: str,
-        skip_graph: Optional[bool] = None
+        graphs=None
     ):
         """Create document_state record after successful processing"""
         from backend import PROCESSING_STATUS
@@ -1616,6 +1760,8 @@ class AlfrescoDetector(ChangeDetector):
         
         # Record synced timestamps (document is already in vector/search stores)
         now = datetime.now(timezone.utc)
+        from incremental_updates.doc_graphs import datasource_graphs, synced_times
+        graph_at, rdf_at = synced_times(self, graphs if graphs is not None else datasource_graphs(self), now)
         
         # Create document state with real data
         doc_state = DocumentState(
@@ -1628,7 +1774,8 @@ class AlfrescoDetector(ChangeDetector):
             modified_timestamp=modified_timestamp,
             vector_synced_at=now,
             search_synced_at=now,
-            graph_synced_at=now if not (getattr(self, 'skip_graph', False) if skip_graph is None else skip_graph) else None
+            graph_synced_at=graph_at,
+            rdf_synced_at=rdf_at,
         )
         
         await self.state_manager.save_state(doc_state)

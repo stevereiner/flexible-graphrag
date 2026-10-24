@@ -852,6 +852,7 @@ class CocoIndexBridge:
         finally:
             # Clear runtime skip_graph flag after each cycle so background
             # polling / subsequent requests aren't affected.
+            self._get_pipeline_module().set_runtime_graphs(None)
             if self._effective_skip_graph is not None:
                 _pipeline_mod = self._get_pipeline_module()
                 _pipeline_mod.set_runtime_skip_graph(None)
@@ -900,6 +901,7 @@ class CocoIndexBridge:
         config_id: Optional[str] = None,
         source_name: Optional[str] = None,
         skip_graph: bool = False,
+        graphs=None,
         enable_sync: bool = False,
         progress_cb: Optional[Any] = None,
         run_id: Optional[str] = None,
@@ -1033,8 +1035,8 @@ class CocoIndexBridge:
             except Exception as _he:  # noqa: BLE001
                 logger.debug("CocoIndexBridge.ingest_source: hook install failed: %s", _he)
 
-        # Apply skip_graph via the runtime flag for this cycle.
-        self._apply_skip_graph(skip_graph)
+        # Apply the graphs (or the older skip_graph) via the runtime flags for this cycle.
+        self._apply_skip_graph(skip_graph, graphs)
 
         t0 = time.perf_counter()
         result: Dict[str, Any] = {
@@ -1076,6 +1078,7 @@ class CocoIndexBridge:
             )
             result = {"status": "error", "error": str(exc), "app_name": app_name}
         finally:
+            self._get_pipeline_module().set_runtime_graphs(None)
             if self._effective_skip_graph is not None:
                 self._get_pipeline_module().set_runtime_skip_graph(None)
                 self._effective_skip_graph = None
@@ -1113,6 +1116,7 @@ class CocoIndexBridge:
         file_paths: List[str],
         *,
         skip_graph: bool = False,
+        graphs=None,
         move: bool = False,
         progress_cb: Optional[Any] = None,
         run_id: Optional[str] = None,
@@ -1168,8 +1172,8 @@ class CocoIndexBridge:
             move: if True, move source files instead of copying (disk I/O saving
                 when source and destination are on the same filesystem).
         """
-        # ── skip_graph: rebuild app if the setting changed ─────────────────────
-        self._apply_skip_graph(skip_graph)
+        # ── graphs / skip_graph: runtime flags for this cycle ──────────────────
+        self._apply_skip_graph(skip_graph, graphs)
 
         if self._data_source not in ("filesystem", ""):
             # For cloud / remote sources the FlexibleDataSource polls the remote
@@ -1342,6 +1346,7 @@ class CocoIndexBridge:
         source_name: str = "text_input.txt",
         *,
         skip_graph: bool = False,
+        graphs=None,
         progress_cb: Optional[Any] = None,
     ) -> Dict[str, Any]:
         """Ingest raw text via the CocoIndex filesystem path.
@@ -1369,6 +1374,7 @@ class CocoIndexBridge:
         return await self.ingest_files(
             [str(dest)],
             skip_graph=skip_graph,
+            graphs=graphs,
             progress_cb=progress_cb,
         )
 
@@ -1407,7 +1413,7 @@ class CocoIndexBridge:
     # Internal helpers
     # ------------------------------------------------------------------
 
-    def _apply_skip_graph(self, skip_graph: bool) -> None:
+    def _apply_skip_graph(self, skip_graph: bool, graphs=None) -> None:
         """Apply a per-request skip_graph override for the next update() cycle.
 
         Only ``skip_graph=True`` forces KG off for this cycle.  ``skip_graph=False``
@@ -1423,8 +1429,14 @@ class CocoIndexBridge:
 
         Args:
             skip_graph: the value requested by the current ingest call.
+            graphs: which graphs it builds (graph_flags.GraphFlags); when given it decides,
+                graph by graph (``pipeline/run.py`` _resolve_graphs).
         """
         _pipeline = self._get_pipeline_module()
+        _pipeline.set_runtime_graphs(graphs)
+        if graphs is not None:
+            logger.info("CocoIndexBridge: this update cycle builds %s", graphs.describe())
+            skip_graph = graphs.none
         if skip_graph:
             if self._effective_skip_graph is True:
                 return

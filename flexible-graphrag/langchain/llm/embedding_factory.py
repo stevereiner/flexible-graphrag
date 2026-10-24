@@ -54,8 +54,19 @@ def build_lc_embedding(config: "AppSettings"):
             _openai_key = llm_cfg.get("api_key") or os.getenv("OPENAI_API_KEY")
         else:
             _openai_key = os.getenv("OPENAI_API_KEY")
+        _model = embedding_model or "text-embedding-3-small"
+        # text-embedding-3-* can return shorter vectors (OPENAI_EMBEDDING_DIMENSION /
+        # EMBEDDING_DIMENSION), as the LlamaIndex embedding does
+        _dims = {}
+        if _model.startswith("text-embedding-3"):
+            from llamaindex.llm.embedding_factory import get_embedding_dimension
+            _native = 3072 if "large" in _model else 1536
+            _target = get_embedding_dimension("openai", _model, getattr(config, "embedding_dimension", None))
+            if _target and _target != _native:
+                _dims = {"dimensions": _target}
         return OpenAIEmbeddings(
-            model=embedding_model or "text-embedding-3-small",
+            model=_model,
+            **_dims,
             **({} if _openai_key is None else {"api_key": _openai_key}),
         )
 

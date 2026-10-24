@@ -462,6 +462,7 @@
 import { defineComponent, ref, computed, watch, onBeforeUnmount } from 'vue';
 import axios from 'axios';
 import { loadUiDefaults } from '../uiDefaults';
+import { storesChanged } from '../auth/sourceAuth';
 
 /**
  * A failed request as a message the user can act on. The backend is not reachable when there is
@@ -1548,6 +1549,7 @@ export default defineComponent({
         awaitingStatus = false;
         ingestStatusKey = '';
         refreshIngestStatus();
+        storesChanged();  // the source filter pills (search, chat): the run may have added or emptied a source
       }, 4000);
     };
 

@@ -40,5 +40,21 @@ services:
       timeout: 10s
       retries: 3
 
+  # One-off: the search pipeline Flexible GraphRAG's OpenSearch hybrid queries name
+  # (hybrid-search-pipeline, from ../config/opensearch-hybrid-search-pipeline.json), as
+  # scripts/setup-opensearch-pipeline.sh does by hand. PUT is idempotent: it runs on every start.
+  opensearch-init:
+    image: curlimages/curl:8.11.1
+    container_name: flexible-graphrag-opensearch-init
+    restart: "no"
+    depends_on:
+      opensearch:
+        condition: service_healthy
+    volumes:
+      - ../config/opensearch-hybrid-search-pipeline.json:/hybrid-search-pipeline.json:ro
+    command: >-
+      -fsS -X PUT http://opensearch:9200/_search/pipeline/hybrid-search-pipeline
+      -H "Content-Type: application/json" --data-binary @/hybrid-search-pipeline.json
+
 volumes:
   opensearch_data:

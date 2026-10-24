@@ -208,7 +208,9 @@ class FlexibleDataSourceComponent(Component):
         source_type = rc.get("source_type") or self.source_type or "filesystem"
         config_path = rc.get("config_path") or self.config_path
         skip_graph = bool(rc.get("skip_graph"))
-        config_id = rc.get("config_id")  # stable doc_id prefix for incremental sync (app mode)
+        # which graphs to build (None = DEFAULT_ENABLED_GRAPH / _RDF); see _fg_shared.run_graphs
+        graph_fields = {k: rc[k] for k in ("enabled_graph", "enabled_rdf") if rc.get(k) is not None}
+        config_id = rc.get("config_id")# stable doc_id prefix for incremental sync (app mode)
         # doc_ids an earlier ingest of this source stored; replaced, not duplicated (app mode)
         replace_doc_ids = rc.get("replace_doc_ids") or []
 
@@ -227,7 +229,7 @@ class FlexibleDataSourceComponent(Component):
             # Filesystem: produce file paths; the Document Processor node parses them.
             file_paths = self._resolve_paths(cfg)
             run_key = start_run(system, file_paths=file_paths, skip_graph=skip_graph, config_id=config_id,
-                            replace_doc_ids=replace_doc_ids)
+                            replace_doc_ids=replace_doc_ids, **graph_fields)
             self.status = f"Source ready (filesystem): {len(file_paths)} file(s)."
             return make_payload(run_key, "source", num_files=len(file_paths))
 
@@ -243,6 +245,6 @@ class FlexibleDataSourceComponent(Component):
         system._last_ingested_documents.extend(documents)
 
         run_key = start_run(system, documents=documents, skip_graph=skip_graph, config_id=config_id,
-                            replace_doc_ids=replace_doc_ids)
+                            replace_doc_ids=replace_doc_ids, **graph_fields)
         self.status = f"Source ready ({source_type}): {len(documents)} document(s)."
         return make_payload(run_key, "source", num_documents=len(documents))

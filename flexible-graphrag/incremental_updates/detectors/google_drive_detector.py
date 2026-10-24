@@ -67,6 +67,8 @@ class GoogleDriveDetector(ChangeDetector):
         # Configuration
         self.folder_id = config.get('folder_id', '')  # Empty = root
         self.recursive = config.get('recursive', True)
+        # The selected files (a multi-select), else the whole folder is followed
+        self.file_ids = {str(i) for i in (config.get('file_ids') or [])}
         self.polling_interval = config.get('polling_interval', 60)
         
         # Store config_id for backend calls
@@ -218,28 +220,33 @@ class GoogleDriveDetector(ChangeDetector):
             self.folder_cache = {self.folder_id: True}
             
             if self.recursive:
-                # Find all subfolders recursively
-                query = f"'{self.folder_id}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false"
-                
-                page_token = None
-                while True:
-                    response = await asyncio.to_thread(
-                        self.drive_service.files().list(
-                            q=query,
-                            spaces='drive',
-                            fields='nextPageToken, files(id, name)',
-                            pageToken=page_token,
-                            supportsAllDrives=True,
-                            includeItemsFromAllDrives=True
-                        ).execute
-                    )
-                    
-                    for folder in response.get('files', []):
-                        self.folder_cache[folder['id']] = True
-                    
-                    page_token = response.get('nextPageToken')
-                    if not page_token:
-                        break
+                # Find all subfolders recursively (every level: the listing and the events
+                # follow files in any of them)
+                pending = [self.folder_id]
+                while pending:
+                    parent_id = pending.pop()
+                    query = f"'{parent_id}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false"
+                    page_token = None
+                    while True:
+                        response = await asyncio.to_thread(
+                            self.drive_service.files().list(
+                                q=query,
+                                spaces='drive',
+                                fields='nextPageToken, files(id, name)',
+                                pageToken=page_token,
+                                supportsAllDrives=True,
+                                includeItemsFromAllDrives=True
+                            ).execute
+                        )
+
+                        for folder in response.get('files', []):
+                            if folder['id'] not in self.folder_cache:
+                                self.folder_cache[folder['id']] = True
+                                pending.append(folder['id'])
+
+                        page_token = response.get('nextPageToken')
+                        if not page_token:
+                            break
                 
                 logger.info(f"Built folder cache with {len(self.folder_cache)} folders")
             
@@ -260,9 +267,27 @@ class GoogleDriveDetector(ChangeDetector):
         
         files = []
         try:
+            if self.file_ids:
+                for file_id in sorted(self.file_ids):
+                    try:
+                        file = await asyncio.to_thread(self.drive_service.files().get(
+                            fileId=file_id, fields='id, name, mimeType, modifiedTime, size, parents, trashed',
+                            supportsAllDrives=True).execute)
+                    except HttpError:
+                        continue  # deleted: the refresh removes it
+                    metadata = None if file.get('trashed') else self._file_to_metadata(file)
+                    if metadata:
+                        files.append(metadata)
+                logger.info(f"Listed {len(files)} selected files from Google Drive")
+                return files
+            if self.folder_id and self.recursive and len(getattr(self, 'folder_cache', {})) > 1:
+                # every followed folder, not only the top one's direct children
+                for folder_id in list(self.folder_cache):
+                    files.extend(await self._list_folder_files(folder_id))
+                logger.info(f"Listed {len(files)} files from Google Drive ({len(self.folder_cache)} folders)")
+                return files
             # Build query
             query_parts = []
-            
             if self.folder_id:
                 query_parts.append(f"'{self.folder_id}' in parents")
             
@@ -308,6 +333,49 @@ class GoogleDriveDetector(ChangeDetector):
         
         return files
     
+    async def _list_folder_files(self, folder_id: str) -> List[FileMetadata]:
+        """The (non-folder, not trashed) files directly in one folder."""
+        files: List[FileMetadata] = []
+        query = f"'{folder_id}' in parents and mimeType != 'application/vnd.google-apps.folder' and trashed = false"
+        page_token = None
+        while True:
+            response = await asyncio.to_thread(self.drive_service.files().list(
+                q=query, spaces='drive', fields='nextPageToken, files(id, name, mimeType, modifiedTime, size, parents)',
+                pageToken=page_token, supportsAllDrives=True, includeItemsFromAllDrives=True).execute)
+            for file in response.get('files', []):
+                metadata = self._file_to_metadata(file)
+                if metadata:
+                    files.append(metadata)
+            page_token = response.get('nextPageToken')
+            if not page_token:
+                return files
+
+    async def _scope_change(self, change: Dict) -> Optional[ChangeEvent]:
+        """Before _parse_change: a folder created / moved / renamed in what this sync follows
+        rebuilds the folder cache; a followed file moved out of it is removed (a DELETE). None
+        when _parse_change should take the change."""
+        file = change.get('file') or {}
+        if not file or change.get('removed') or file.get('trashed') or self.file_ids or not self.folder_id:
+            return None
+        if file.get('mimeType') == 'application/vnd.google-apps.folder':
+            if file.get('id') in self.folder_cache or any(p in self.folder_cache for p in file.get('parents', [])):
+                await self._build_folder_cache()
+            return None
+        if self._is_file_in_monitored_folder(file) or not (self.state_manager and self.config_id):
+            return None
+        try:
+            state = await self.state_manager.get_state_by_source_id(self.config_id, file.get('id'))
+        except Exception:
+            state = None
+        if state is None or getattr(state, 'auto_sync', None) is False:
+            return None
+        logger.info(f"Google Drive EVENT: {state.source_path} moved out of this sync's folder -- removing it")
+        return ChangeEvent(
+            metadata=FileMetadata(source_type='google_drive', path=file.get('id'),
+                                  ordinal=int(datetime.now(timezone.utc).timestamp() * 1_000_000),
+                                  extra={'file_id': file.get('id')}),
+            change_type=ChangeType.DELETE, timestamp=datetime.now(timezone.utc))
+
     async def get_changes(self) -> AsyncGenerator[ChangeEvent, None]:
         """
         Stream change events from Google Drive Changes API (polling).
@@ -342,7 +410,7 @@ class GoogleDriveDetector(ChangeDetector):
                     
                     # Process changes
                     for change in response.get('changes', []):
-                        event = self._parse_change(change)
+                        event = await self._scope_change(change) or self._parse_change(change)
                         if event:
                             self.events_processed += 1
                             
@@ -548,8 +616,11 @@ class GoogleDriveDetector(ChangeDetector):
             if file.get('mimeType') == 'application/vnd.google-apps.folder':
                 return None
             
-            # Skip if not in monitored folders
-            if self.folder_id and not self._is_file_in_monitored_folder(file):
+            # Skip if not what this sync follows: its selected files, else its folders
+            if self.file_ids:
+                if str(file.get('id')) not in self.file_ids:
+                    return None
+            elif self.folder_id and not self._is_file_in_monitored_folder(file):
                 return None
             
             # Determine if CREATE or UPDATE by comparing timestamps
@@ -661,11 +732,12 @@ class GoogleDriveDetector(ChangeDetector):
         logger.info(f"Processing {filename} via backend (full pipeline)")
         
         try:
-            # Use injected skip_graph (set by orchestrator)
-            skip_graph = getattr(self, 'skip_graph', False)
+            from incremental_updates.doc_graphs import datasource_graphs, synced_times
+            graphs = datasource_graphs(self)  # which graphs it builds
             
             # Create processing ID
-            processing_id = f"incremental_{file_id[:8]}"
+            from .. import sync_jobs
+            processing_id = sync_jobs.processing_id("gdrive", file_id)
             
             # Convert credentials dict back to JSON string (datasource expects string)
             credentials_json = json.dumps(self.service_account_key) if self.service_account_key else None
@@ -676,9 +748,11 @@ class GoogleDriveDetector(ChangeDetector):
                 processing_id=processing_id,
                 data_source='google_drive',
                 config_id=self.config_id,
-                skip_graph=skip_graph,
+                graphs=graphs,
                 google_drive_config={
                     'credentials': credentials_json,  # Pass as JSON string
+                    # key-file configs have no inline credentials; without the path the re-ingest can't authenticate
+                    'credentials_path': self.credentials_path or '',
                     'file_ids': [file_id],  # Process just this one file
                     'folder_id': None,
                     'query': ''
@@ -750,9 +824,9 @@ class GoogleDriveDetector(ChangeDetector):
         # Get current time for sync timestamps (file was just ingested)
         now = datetime.now(timezone.utc)
         
-        # Determine if graph was synced based on skip_graph setting
-        skip_graph = getattr(self, 'skip_graph', False)
-        graph_synced = now if not skip_graph else None
+        # each graph's sync time, only where a store is behind it
+        from incremental_updates.doc_graphs import datasource_graphs, synced_times
+        graph_synced, rdf_synced = synced_times(self, datasource_graphs(self), now)
         
         # Create document state with sync timestamps marked
         # (backend just ingested to vector, search, and optionally graph indexes)
@@ -768,7 +842,8 @@ class GoogleDriveDetector(ChangeDetector):
             modified_timestamp=modified_timestamp,
             vector_synced_at=now,        # Mark as synced (just ingested)
             search_synced_at=now,        # Mark as synced (just ingested)
-            graph_synced_at=graph_synced  # Mark as synced if graph extraction was performed
+            graph_synced_at=graph_synced,  # each graph only if it was built
+            rdf_synced_at=rdf_synced
         )
         
         await self.state_manager.save_state(doc_state)

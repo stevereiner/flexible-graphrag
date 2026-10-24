@@ -3,7 +3,8 @@ import { readPickedSources, sameServer, sourceAuthBody } from './services/source
 import {
   FLEXIBLE_GRAPHRAG_CONFIG,
   FLEXIBLE_GRAPHRAG_DEFAULTS,
-  FlexibleGraphragConfig
+  FlexibleGraphragConfig,
+  HostSourceAuth
 } from './flexible-graphrag.config';
 import type { SourceDocument } from './models/api.models';
 
@@ -32,6 +33,7 @@ export class FlexibleGraphragConfigService {
   get chatWelcomeTitle(): string { return this.cfg.chatWelcomeTitle!; }
   get chatWelcomeLines(): string[] { return this.cfg.chatWelcomeLines!; }
   get showChatScope(): boolean { return !!this.cfg.showChatScope; }
+  get runInBackground(): boolean { return !!this.cfg.runInBackground; }
   /** The host passes its own signed-in user's Alfresco ticket with every question (KG Spaces in
    *  ACA): Alfresco ingests to that host's server use it too, so no credentials are asked for. */
   get hostSuppliesAlfrescoTicket(): boolean { return !!this.hostHeaders()['X-Alfresco-Ticket']; }
@@ -51,7 +53,29 @@ export class FlexibleGraphragConfigService {
   }
   /** The host already identifies the user on this server: the library needs no sign-in there. */
   hostCovers(source: string, url: string): boolean {
-    return source === 'alfresco' && this.hostSuppliesAlfrescoTicket && sameServer('alfresco', url, this.hostAlfrescoUrl);
+    if (source === 'alfresco' && this.hostSuppliesAlfrescoTicket && sameServer('alfresco', url, this.hostAlfrescoUrl)) {
+      return true;
+    }
+    const host = this.hostIdentity();
+    return !!host && host.source === source && sameServer(source, url, host.url);
+  }
+
+  /** Who is using the app (currentUser): the owner of its ingests and of its Jobs list; null when unknown. */
+  currentUser(): string | null {
+    try {
+      return this.cfg.currentUser?.() || null;
+    } catch {
+      return null;
+    }
+  }
+
+  /** The host's own identity on a repository (hostSourceAuth), or null. */
+  hostIdentity(): HostSourceAuth | null {
+    try {
+      return this.cfg.hostSourceAuth?.() || null;
+    } catch {
+      return null;
+    }
   }
   /** Open a source document in the host's viewer; false when the host does not handle it. */
   openDocument(doc: SourceDocument): boolean {
@@ -77,8 +101,11 @@ export class FlexibleGraphragConfigService {
   /** The library's sign-ins as a question's source_auth (one identity per server; servers the
    *  host already covers are left out), or undefined when there are none. */
   questionSourceAuth(): Record<string, any[]> | undefined {
-    if (!this.searchSignIn) return undefined;
-    const body = sourceAuthBody((s) => this.hostCovers(s.source, s.url));
+    const body = this.searchSignIn ? sourceAuthBody((s) => this.hostCovers(s.source, s.url)) : {};
+    const host = this.hostIdentity();   // the host's own identity goes in whether sign-ins are on or not
+    if (host) {
+      (body[host.source] ||= []).unshift({ url: host.url, ...host.auth });
+    }
     return Object.keys(body).length ? body : undefined;
   }
 

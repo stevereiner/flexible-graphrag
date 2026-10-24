@@ -72,6 +72,26 @@ class S3Source(BaseDataSource):
             return False
         return True
     
+    def _reader_target(self) -> Dict[str, str]:
+        """S3Reader's ``key`` (one object) or ``prefix`` (a folder) for this source's prefix. The
+        prefix used to go in as ``key`` alone, so a folder prefix ("docs/") failed with "does not
+        exist"; the auto sync's single-object ingests pass the object's key as the prefix, which
+        stays a ``key``."""
+        if not self.prefix:
+            return {}
+        if not self.prefix.endswith("/"):
+            try:
+                import boto3
+                kwargs = {"region_name": self.region_name}
+                if self.aws_access_key_id and self.aws_secret_access_key:
+                    kwargs.update(aws_access_key_id=self.aws_access_key_id,
+                                  aws_secret_access_key=self.aws_secret_access_key)
+                boto3.client("s3", **kwargs).head_object(Bucket=self.bucket_name, Key=self.prefix)
+                return {"key": self.prefix}
+            except Exception:
+                pass  # not an object: a prefix
+        return {"prefix": self.prefix}
+
     def _create_s3_reader(self, progress_callback=None):
         """Create S3Reader with passthrough extractors"""
         try:
@@ -92,8 +112,7 @@ class S3Source(BaseDataSource):
             "file_extractor": file_extractor,
         }
         
-        if self.prefix:
-            reader_kwargs["key"] = self.prefix
+        reader_kwargs.update(self._reader_target())
         
         if self.aws_access_key_id and self.aws_secret_access_key:
             reader_kwargs["aws_access_id"] = self.aws_access_key_id
@@ -131,8 +150,7 @@ class S3Source(BaseDataSource):
             "bucket": self.bucket_name,
             "file_extractor": file_extractor,
         }
-        if self.prefix:
-            reader_kwargs["key"] = self.prefix
+        reader_kwargs.update(self._reader_target())
         if self.aws_access_key_id and self.aws_secret_access_key:
             reader_kwargs["aws_access_id"] = self.aws_access_key_id
             reader_kwargs["aws_access_secret"] = self.aws_secret_access_key

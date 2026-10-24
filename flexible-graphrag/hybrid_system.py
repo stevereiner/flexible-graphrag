@@ -161,6 +161,10 @@ class HybridSearchSystem:
         # Unified adapter layer (wraps the raw stores created above)
         self._init_adapters(config)
 
+        # OpenArch content repository target (ENABLE_OPENARCH): openarch_store / openarch_index
+        from openarch.integration import setup_openarch
+        setup_openarch(self)
+
         # Runtime state
         self.hybrid_retriever = None
         self.graph_intentionally_skipped = False
@@ -241,17 +245,17 @@ class HybridSearchSystem:
     # Ingestion
     # -----------------------------------------------------------------------
 
-    async def ingest_documents(self, file_paths: List[Union[str, Path]], processing_id: str = None, status_callback=None, skip_graph: bool = False):
+    async def ingest_documents(self, file_paths: List[Union[str, Path]], processing_id: str = None, status_callback=None, skip_graph: bool = False, graphs=None):
         """Process and ingest documents from file paths into all search modalities."""
-        return await _ingest_documents(self, file_paths, processing_id=processing_id, status_callback=status_callback, skip_graph=skip_graph)
+        return await _ingest_documents(self, file_paths, processing_id=processing_id, status_callback=status_callback, skip_graph=skip_graph, graphs=graphs)
 
-    async def ingest_text(self, content: str, source_name: str = "text_input", processing_id: str = None, skip_graph: bool = False):
+    async def ingest_text(self, content: str, source_name: str = "text_input", processing_id: str = None, skip_graph: bool = False, graphs=None):
         """Ingest raw text content."""
-        return await _ingest_text(self, content, source_name=source_name, processing_id=processing_id, skip_graph=skip_graph)
+        return await _ingest_text(self, content, source_name=source_name, processing_id=processing_id, skip_graph=skip_graph, graphs=graphs)
 
-    async def _ingest_source_documents(self, documents: List, processing_id: str = None, status_callback=None, skip_graph: bool = False, config_id: str = None):
+    async def _ingest_source_documents(self, documents: List, processing_id: str = None, status_callback=None, skip_graph: bool = False, config_id: str = None, graphs=None):
         """Process documents directly (web/YouTube/Wikipedia/incremental updates)."""
-        return await _ingest_source_documents(self, documents, processing_id=processing_id, status_callback=status_callback, skip_graph=skip_graph, config_id=config_id)
+        return await _ingest_source_documents(self, documents, processing_id=processing_id, status_callback=status_callback, skip_graph=skip_graph, config_id=config_id, graphs=graphs)
 
     # -----------------------------------------------------------------------
     # Search
@@ -311,9 +315,9 @@ class HybridSearchSystem:
         )
         return extracted_nodes, num_entities, num_relations
 
-    def _generate_completion_message(self, doc_count: int, skip_graph: bool = False) -> str:
+    def _generate_completion_message(self, doc_count: int, skip_graph: bool = False, graphs=None) -> str:
         """Generate dynamic completion message based on enabled features."""
-        return generate_completion_message(self.config, doc_count, skip_graph=skip_graph)
+        return generate_completion_message(self.config, doc_count, skip_graph=skip_graph, graphs=graphs)
 
     # -----------------------------------------------------------------------
     # State property
@@ -325,6 +329,7 @@ class HybridSearchSystem:
             "has_vector_index": self.vector_index is not None,
             "has_graph_index": self.graph_index is not None,
             "has_hybrid_retriever": self.hybrid_retriever is not None,
+            "has_openarch": getattr(self, "openarch_store", None) is not None,
             "config": {
                 "data_source": self.config.data_source,
                 "vector_db": self.config.vector_db,

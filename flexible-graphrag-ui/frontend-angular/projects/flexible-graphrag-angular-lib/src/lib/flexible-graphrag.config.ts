@@ -46,11 +46,31 @@ export interface FlexibleGraphragConfig {
    */
   showChatScope?: boolean;
   /**
+   * Where the Processing tab's "Run in background" starts (default off). A host the user leaves
+   * while a job runs -- KG Spaces, whose user goes back to ACA or Web UI, or starts another
+   * "Add to KG Spaces" -- turns it on, so jobs carry on and are followed on the Jobs sub-tab.
+   */
+  runInBackground?: boolean;
+  /**
    * Extra HTTP headers for search / chat questions, evaluated per request. KG Spaces sends the
    * signed-in user's Alfresco ticket (X-Alfresco-Ticket) so answers come only from documents
    * that user may read.
    */
   requestHeaders?: () => Record<string, string>;
+  /**
+   * The host's own identity on one repository, for search / chat questions: KG Spaces for Nuxeo
+   * passes the Web UI user's Nuxeo token. Evaluated per question and added to its `source_auth`
+   * (sign-ins on or off); the library then treats that server as covered (no sign-in for it, its
+   * source chip not greyed), as requestHeaders' Alfresco ticket. Return null while there is none.
+   */
+  hostSourceAuth?: () => HostSourceAuth | null;
+  /**
+   * Who is using the app (KG Spaces: the ACA or Web UI user), evaluated per request. Sent as the
+   * `owner` of the ingests the Processing tab starts, and its Jobs sub-tab then lists (and Clear
+   * clears) only that user's jobs, plus the auto-sync runs everyone sees. A view filter, not access
+   * control. Unset or null: every job, as before.
+   */
+  currentUser?: () => string | null;
   /**
    * Repository sign-in for search / AI chat (planning/SOURCE-AUTH-LOGIN.md): before a question,
    * when the stores hold Alfresco, Nuxeo or CMIS documents, ask the user to sign in to each such
@@ -85,12 +105,20 @@ export interface FlexibleGraphragConfig {
   canOpenDocument?: (doc: SourceDocument) => boolean;
 }
 
+/** A host's identity on a repository: its source, server and the question's source_auth entry
+ *  (e.g. nuxeo, the server, { auth_method: 'token', token }). */
+export interface HostSourceAuth {
+  source: string;
+  url: string;
+  auth: Record<string, any>;
+}
+
 export const FLEXIBLE_GRAPHRAG_CONFIG = new InjectionToken<FlexibleGraphragConfig>(
   'FLEXIBLE_GRAPHRAG_CONFIG'
 );
 
 /** Defaults for anything the host leaves unset. */
-export const FLEXIBLE_GRAPHRAG_DEFAULTS: Required<Omit<FlexibleGraphragConfig, 'enabledSources' | 'requestHeaders' | 'openDocument' | 'canOpenDocument' | 'searchSignIn'>> = {
+export const FLEXIBLE_GRAPHRAG_DEFAULTS: Required<Omit<FlexibleGraphragConfig, 'enabledSources' | 'requestHeaders' | 'hostSourceAuth' | 'currentUser' | 'openDocument' | 'canOpenDocument' | 'searchSignIn'>> = {
   apiUrl: '/api',
   defaultFolderPath: '/Shared/GraphRAG',
   cmisBaseUrl: 'http://localhost:8080',
@@ -107,5 +135,6 @@ export const FLEXIBLE_GRAPHRAG_DEFAULTS: Required<Omit<FlexibleGraphragConfig, '
     'Ask questions about your documents and get conversational answers.',
     'The AI will provide detailed responses based on your processed documents.',
   ],
-  showChatScope: false
+  showChatScope: false,
+  runInBackground: false
 };

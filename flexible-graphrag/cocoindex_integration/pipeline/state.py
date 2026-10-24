@@ -75,6 +75,9 @@ _native_pg_write_skipped: bool = False
 # True  = force KG extraction OFF for every file in this update() call
 # False = force KG extraction ON
 _runtime_skip_graph: "bool | None" = None
+# Which graphs the next update() cycle builds (graph_flags.GraphFlags), set per request by the
+# bridge; None = enable_knowledge_graph / skip_graph from cfg_json and the defaults
+_runtime_graphs = None
 
 # Per-file / per-stage progress hook — installed by bridge for one update cycle.
 _progress_hook: "Optional[Callable[[dict], None]]" = None

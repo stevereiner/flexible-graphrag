@@ -532,6 +532,10 @@ def _build_overrides(
 
     # -- Knowledge graph extraction --------------------------------------------
     overrides["ENABLE_KNOWLEDGE_GRAPH"] = "true" if (has_pg or has_rdf) else "false"
+    # The tests ingest without enabled_graph / enabled_rdf, so whatever .env says the UIs' boxes start
+    # as (DEFAULT_ENABLED_GRAPH / _RDF), an ingest here builds every graph the combination has
+    overrides["DEFAULT_ENABLED_GRAPH"] = "true"
+    overrides["DEFAULT_ENABLED_RDF"] = "true"
 
     # -- Retrieval fusion ------------------------------------------------------
     overrides["RETRIEVAL_FUSION"] = fusion
@@ -588,6 +592,16 @@ def _label(pg, rdf, vector, search, backend, fusion, llm=None, embedding=None, c
 
 
 _SCOPE_REGISTRY_URL = "postgresql://postgres:password@localhost:5433/fg_scope_matrix"
+
+# --state-store openarch: the incremental registry and document state in OpenArch (OPENARCH_URL
+# from .env), under their own roots so a matrix run never touches a backend's /fg-sources tree
+_OPENARCH_STATE = {
+    "ENABLE_INCREMENTAL_UPDATES": "true",
+    "INCREMENTAL_STATE_STORE": "openarch",
+    "OPENARCH_ROOT_PATH": "/fg-matrix-sources",
+    "OPENARCH_DATASOURCES_PATH": "/fg-matrix-datasources",
+    "POSTGRES_INCREMENTAL_URL": "",
+}
 
 
 def _ensure_database(url: str) -> None:
@@ -769,6 +783,11 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--fusion",   default=None,
                    help="RETRIEVAL_FUSION: llamaindex | langchain | both  "
                         "(default: matches --backends — langchain when backends=langchain, else llamaindex)")
+    p.add_argument("--state-store", default=None, choices=["postgres", "openarch"],
+                   help="Incremental registry / document state store for every job: 'openarch' turns "
+                        "the registry on with INCREMENTAL_STATE_STORE=openarch (OPENARCH_URL from .env) "
+                        "under /fg-matrix-sources and /fg-matrix-datasources; 'postgres' = the .env "
+                        "setting. Default: no override. Auto-sync scenarios: autosync/run_autosync.py.")
     p.add_argument("--scope", action="store_true",
                    help="Run the scoped-Ask tests (test_scope.py) per combination: two Alfresco "
                         "documents ingested, questions scoped to one, nothing from the other may "
@@ -1309,6 +1328,8 @@ def main() -> int:
             )
             if incremental_watch_dir:
                 overrides["ENABLE_INCREMENTAL_UPDATES"] = "true"
+            if args.state_store == "openarch":
+                overrides.update(_OPENARCH_STATE)
             if scope_registry_url:
                 overrides["ENABLE_INCREMENTAL_UPDATES"] = "true"
                 overrides["POSTGRES_INCREMENTAL_URL"] = scope_registry_url

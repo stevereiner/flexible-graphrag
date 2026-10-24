@@ -133,6 +133,10 @@ NUXEO_PATH=/default-domain/workspaces
 
 Incremental updates supported via the **Kafka audit stream** (real-time).
 
+**KG Spaces for Nuxeo** (v0.9.0+) adds a KG Spaces menu to Nuxeo Web UI to add documents and
+folders, or ask about one, as KG Spaces does in ACA; see
+[Nuxeo Setup Guide — KG Spaces for Nuxeo](README-nuxeo.md#kg-spaces-for-nuxeo).
+
 See [Nuxeo Setup Guide](README-nuxeo.md).
 
 ### Microsoft SharePoint

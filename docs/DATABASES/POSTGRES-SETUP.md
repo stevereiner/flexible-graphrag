@@ -102,6 +102,8 @@ CREATE TABLE datasource_config (
     connection_params JSONB,
     is_active BOOLEAN,   -- monitor this source now
     auto_sync BOOLEAN,   -- FALSE: recorded by an ingest without auto change sync (v0.8.2+)
+    enabled_graph BOOLEAN,  -- builds the property graph (v0.9.0+; NULL: from skip_graph / DEFAULT_ENABLED_GRAPH)
+    enabled_rdf BOOLEAN,    -- builds the RDF graph (v0.9.0+; NULL: from skip_graph / DEFAULT_ENABLED_RDF)
     ...
 );
 
@@ -112,6 +114,9 @@ CREATE TABLE document_state (
     vector_synced_at TIMESTAMPTZ,
     search_synced_at TIMESTAMPTZ,
     graph_synced_at TIMESTAMPTZ,
+    rdf_synced_at TIMESTAMPTZ,       -- the RDF graph's own sync time (v0.9.0+)
+    enabled_graph BOOLEAN,           -- this document keeps the property graph (v0.9.0+)
+    enabled_rdf BOOLEAN,             -- this document keeps the RDF graph (v0.9.0+)
     ...
 );
 ```
@@ -269,7 +274,9 @@ CREATE TABLE datasource_config (
     connection_params JSONB NOT NULL,        -- Source-specific config
     refresh_interval_seconds INTEGER,        -- Polling interval
     enable_change_stream BOOLEAN,            -- Real-time monitoring
-    skip_graph BOOLEAN,                      -- Skip graph extraction
+    skip_graph BOOLEAN,                      -- Skip graph extraction (both graphs off)
+    enabled_graph BOOLEAN,                   -- Build the property graph (v0.9.0+)
+    enabled_rdf BOOLEAN,                     -- Build the RDF graph (v0.9.0+)
     is_active BOOLEAN,                       -- Enable/disable source
     sync_status TEXT,                        -- idle, syncing, error
     last_sync_ordinal BIGINT,                -- Last processed timestamp
@@ -295,6 +302,9 @@ CREATE TABLE document_state (
     vector_synced_at TIMESTAMPTZ,            -- Vector index sync time
     search_synced_at TIMESTAMPTZ,            -- Search index sync time
     graph_synced_at TIMESTAMPTZ,             -- Graph index sync time
+    rdf_synced_at TIMESTAMPTZ,               -- RDF graph sync time (v0.9.0+)
+    enabled_graph BOOLEAN,                   -- Document keeps the property graph (v0.9.0+)
+    enabled_rdf BOOLEAN,                     -- Document keeps the RDF graph (v0.9.0+)
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );

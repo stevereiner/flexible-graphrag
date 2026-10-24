@@ -70,3 +70,8 @@ Detailed setup instructions for cloud-hosted and less common stores:
 ## PostgreSQL
 
 - **[PostgreSQL Setup](POSTGRES-SETUP.md)** — pgvector store (port 5433) and incremental state DB; pgAdmin at port 5050
+
+## OpenArch (optional, v0.9.0+)
+
+- **[Hyland OpenArch](OPENARCH/OPENARCH.md)** — Hyland OpenArch as the search + vector store (`ENABLE_OPENARCH=true`, in place of `VECTOR_DB` / `SEARCH_DB`; 1024-dimension embeddings)
+- **[OpenArch as the Auto-Sync State Store](OPENARCH/OPENARCH-STATE-STORE.md)** — the incremental registry in OpenArch instead of PostgreSQL (`INCREMENTAL_STATE_STORE=openarch`), with per-folder / per-document scope rules

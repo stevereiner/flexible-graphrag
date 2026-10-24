@@ -272,7 +272,7 @@ _DB_NAME_MAP = {
     "spanner": "Spanner Graph", "hugegraph": "HugeGraph", "tigergraph": "TigerGraph",
     "surrealdb": "SurrealDB", "fuseki": "Apache Jena Fuseki",
     "oxigraph": "Oxigraph", "graphdb": "Ontotext GraphDB", "bm25": "BM25",
-    "postgres": "PostgreSQL",
+    "postgres": "PostgreSQL", "openarch": "OpenArch",
 }
 
 
@@ -303,6 +303,9 @@ def _retriever_label_to_display(label: str, config: Any) -> str:
         return f"{_pretty_db(lo)} search"
     if lo == "bm25":
         return "BM25 search"
+    if lo == "openarch":
+        # one hybrid query: OpenArch's full-text and vector search fused by its OpenSearch
+        return "OpenArch search+vector"
     if lo in ("langchain_pg", "langchain_pg_vector", "pg_neighborhood"):
         pgdb = str(getattr(config, "pg_graph_db", "") or "")
         return f"{_pretty_db(pgdb)} property graph" if pgdb and pgdb != "none" else "Property Graph"

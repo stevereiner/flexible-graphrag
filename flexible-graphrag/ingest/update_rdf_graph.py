@@ -12,11 +12,11 @@ from ingest._helpers import make_kg_extractor
 logger = logging.getLogger(__name__)
 
 
-def _should_export_rdf(config, skip_graph: bool) -> bool:
+def _should_export_rdf(config, flags) -> bool:
     return (
         str(getattr(config, "rdf_graph_db", "none")).lower() not in ("none", "")
         and config.enable_knowledge_graph
-        and not skip_graph
+        and flags.rdf
     )
 
 
@@ -25,6 +25,7 @@ async def update_rdf_graph(
     nodes: list,
     *,
     nodes_kg_extracted: bool = False,
+    graphs=None,
     skip_graph: bool = False,
     span_name: str = "rag.graph_extraction.rdf",
 ) -> tuple:
@@ -35,9 +36,14 @@ async def update_rdf_graph(
     call.  Otherwise a standalone extraction pass is run first on a copy of
     the nodes (LC backend path, or any path where extraction wasn't done).
 
+    ``graphs`` (graph_flags.GraphFlags) says which graphs this ingest builds (only its ``rdf``
+    matters here); ``skip_graph`` is the older single flag, used when ``graphs`` is not given.
+
     Returns (kg_extraction_seconds, rdf_store_seconds) — both 0.0 if skipped.
     """
-    if not _should_export_rdf(system.config, skip_graph):
+    from graph_flags import GraphFlags
+    flags = graphs if graphs is not None else GraphFlags.of(skip_graph, default=GraphFlags.defaults(system.config))
+    if not _should_export_rdf(system.config, flags):
         return 0.0, 0.0
 
     from stores.rdf_manager import export_nodes_to_rdf_stores

@@ -17,33 +17,18 @@ def _n(meta, score=1.0):
     return NodeWithScore(node=TextNode(text="t", metadata=meta), score=score)
 
 
-class _Conn:
+class _Registry:
+    """A state manager's registry_rows over fixed rows."""
     def __init__(self, rows):
         self.rows = rows
 
-    async def fetch(self, sql, ids):
-        return [r for r in self.rows if r["doc_id"] in ids]
-
-
-class _Pool:
-    def __init__(self, rows):
-        self.conn = _Conn(rows)
-
-    def acquire(self):
-        pool = self
-
-        class _Ctx:
-            async def __aenter__(self):
-                return pool.conn
-
-            async def __aexit__(self, *a):
-                return False
-        return _Ctx()
+    async def registry_rows(self, ids):
+        return {r["doc_id"]: r for r in self.rows if r["doc_id"] in ids}
 
 
 @pytest.fixture(autouse=True)
 def _no_registry(monkeypatch):
-    monkeypatch.setattr(doc_refs, "_pool_provider", None)
+    monkeypatch.setattr(doc_refs, "_registry_provider", None)
 
     async def no_parents(nodes):  # never call a live Alfresco from unit tests
         return {}
@@ -62,17 +47,17 @@ def test_node_doc_ids_own_id_first_then_rdf_list():
 def test_describe_from_doc_id_alone():
     refs = asyncio.run(describe([ALF, FS]))
     assert refs[ALF]["source_type"] == "alfresco" and refs[ALF]["node_id"] == "c0f6"
-    assert refs[ALF]["open_url"] == "http://localhost:8080/content-app/#/search/(viewer:view/c0f6)"
+    assert refs[ALF]["open_url"] == "http://localhost:8080/content-app/#/search;q=c0f6/(viewer:view/c0f6)"
     assert refs[FS]["name"] == "space-station.txt" and refs[FS]["open_url"] == ""
 
 
 def test_describe_uses_registry_then_known_names(monkeypatch):
     rows = [{"doc_id": ALF, "source_id": "c0f6", "source_path": "/Shared/GraphRAG/cmispress.txt",
              "source_type": "alfresco", "connection_params": '{"url": "http://alf:8080/"}'}]
-    monkeypatch.setattr(doc_refs, "_pool_provider", lambda: _Pool(rows))
+    monkeypatch.setattr(doc_refs, "_registry_provider", lambda: _Registry(rows))
     ref = asyncio.run(describe([ALF]))[ALF]
     assert (ref["name"], ref["path"]) == ("cmispress.txt", "/Shared/GraphRAG/cmispress.txt")
-    assert ref["open_url"] == "http://alf:8080/content-app/#/search/(viewer:view/c0f6)"
+    assert ref["open_url"] == "http://alf:8080/content-app/#/search;q=cmispress.txt/(viewer:view/c0f6)"
     assert asyncio.run(describe([ALF], {ALF: {"name": "Renamed.txt"}}))[ALF]["name"] == "Renamed.txt"
 
 
@@ -118,7 +103,7 @@ def test_alfresco_url_with_alfresco_suffix(monkeypatch):
     monkeypatch.setattr(doc_refs, "_alfresco_parents", parents)
     rows = [{"doc_id": ALF, "source_id": "c0f6", "source_path": "/Shared/a.txt", "source_type": "alfresco",
              "connection_params": '{"url": "http://alf:8080/alfresco/"}'}]
-    monkeypatch.setattr(doc_refs, "_pool_provider", lambda: _Pool(rows))
+    monkeypatch.setattr(doc_refs, "_registry_provider", lambda: _Registry(rows))
     ref = asyncio.run(describe([ALF]))[ALF]
     assert seen == {"c0f6": "http://alf:8080"}
     assert ref["open_url"].startswith("http://alf:8080/content-app/#/repository/f01d/")
@@ -126,7 +111,7 @@ def test_alfresco_url_with_alfresco_suffix(monkeypatch):
 
 def test_alfresco_viewer_switch(monkeypatch):
     monkeypatch.setenv("ALFRESCO_ACA_URL", "http://localhost:4200/")
-    assert asyncio.run(describe([ALF]))[ALF]["open_url"] == "http://localhost:4200/#/search/(viewer:view/c0f6)"
+    assert asyncio.run(describe([ALF]))[ALF]["open_url"] == "http://localhost:4200/#/search;q=c0f6/(viewer:view/c0f6)"
     monkeypatch.setenv("ALFRESCO_VIEWER", "share")
     assert asyncio.run(describe([ALF]))[ALF]["open_url"].endswith(
         "/share/page/document-details?nodeRef=workspace://SpacesStore/c0f6")
@@ -146,6 +131,27 @@ def test_answer_sources_one_per_document_best_first():
              _n({"doc_id": FS}, 0.6)]
     out = asyncio.run(answer_sources(nodes))
     assert [s["name"] for s in out] == ["cmispress.txt", "space-station.txt"]
+
+
+def test_answer_sources_list_a_document_two_data_sources_hold_once():
+    other = "37e4bd04-c5fe-5df3-b1ce-e497f97a3430:alfresco://c0f6"   # the same node, another data source
+    # the best-ranked copy knows no name (no registry row, no file_name): the other copy's names it
+    out = asyncio.run(answer_sources([_n({"doc_id": other}, 0.9), _n({"doc_id": ALF, "file_name": "helios.txt"}, 0.5),
+                                      _n({"doc_id": FS, "file_name": "space-station.txt"}, 0.4)]))
+    assert [(s["doc_id"], s["name"]) for s in out] == [(other, "helios.txt"), (FS, "space-station.txt")]
+
+
+def test_a_copy_nothing_names_takes_another_copys_name_or_alfrescos(monkeypatch):
+    other = "37e4bd04-c5fe-5df3-b1ce-e497f97a3430:alfresco://c0f6"
+    refs = asyncio.run(describe([ALF, other], {ALF: {"name": "helios.txt"}}))
+    assert refs[other]["name"] == "helios.txt"          # a graph fact's copy, in the same results
+    # alone: the name Alfresco gives the node (from the lookup that finds its folder)
+    async def parents(nodes):
+        doc_refs._names["c0f6"] = "helios.txt"
+        return {"c0f6": "f01d"}
+    monkeypatch.setattr(doc_refs, "_alfresco_parents", parents)
+    monkeypatch.setattr(doc_refs, "_names", {})
+    assert asyncio.run(describe([other]))[other]["name"] == "helios.txt"
 
 
 def test_answer_sources_without_doc_ids_falls_back_to_file_names():

@@ -30,7 +30,9 @@
 
 <p align="center"><em>Can use 1 of 3 ingest pipelines with same configured data sources and database targets, with same UI and same REST / MCP APIs</em></p>
 
-**Flexible GraphRAG** is an open source AI context platform supporting a document processing pipeline (Docling, LlamaParse, or LiteParse), knowledge graph auto-building, ontologies, schemas, many LLM providers, GraphRAG and RAG, hybrid semantic search (fulltext, vector, property graph, RDF/SPARQL), AI query, and AI chat. The backend is **Python** with **LlamaIndex** and **LangChain** as peer frameworks. **LlamaIndex** is the default for each pipeline stage; **LangChain** can be selected per stage in environment configuration. The API is a REST **FastAPI** service. **Angular**, **React**, and **Vue** TypeScript frontends and an **MCP** server are included. The stack supports 14 data sources (10 with incremental auto-sync), 15 property graph databases, 4 RDF triple stores (Apache Jena Fuseki, Ontotext GraphDB, Oxigraph, Amazon Neptune RDF), 10 vector databases, OpenSearch / Elasticsearch / BM25 search, Alfresco, and Nuxeo. Databases and dashboards can be enabled with the provided Docker Compose layout. Optionally, the ingest pipeline, hybrid search, and AI query can run through customizable **Langflow** visual flows (12 custom Langflow components). As a further option, ingest can run on a **CocoIndex** (Rust engine) pipeline that reuses the same sources, targets, parsers and KG extractors, adding step-level memoization and automatic delete reconciliation.  
+**Flexible GraphRAG** is an open source AI context platform supporting a document processing pipeline (Docling, LlamaParse, or LiteParse), knowledge graph auto-building, ontologies, schemas, many LLM providers, GraphRAG and RAG, hybrid semantic search (fulltext, vector, property graph, RDF/SPARQL), AI query, and AI chat. The backend is **Python** with **LlamaIndex** and **LangChain** as peer frameworks. **LlamaIndex** is the default for each pipeline stage; **LangChain** can be selected per stage in environment configuration. The API is a REST **FastAPI** service. **Angular**, **React**, and **Vue** TypeScript frontends and an **MCP** server are included. The stack supports 14 data sources (10 with incremental auto-sync), 15 property graph databases, 4 RDF triple stores (Apache Jena Fuseki, Ontotext GraphDB, Oxigraph, Amazon Neptune RDF), 10 vector databases, OpenSearch / Elasticsearch / BM25 search, Alfresco, and Nuxeo. Databases and dashboards can be enabled with the provided Docker Compose layout. Optionally, the ingest pipeline, hybrid search, and AI query can run through customizable **Langflow** visual flows (12 custom Langflow components). As a further option, ingest can run on a **CocoIndex** (Rust engine) pipeline that reuses the same sources, targets, parsers and KG extractors, adding step-level memoization and automatic delete reconciliation. And optionally, **[Hyland OpenArch](https://github.com/Hyland/OpenArch)**, an AI-ready content repository for documents with their extracted text and vector embeddings, can be the search + vector store and the store for data sources and document state.  
+
+**New 10/23/26 — v0.9.0 release:** Optional **[Hyland OpenArch](https://github.com/Hyland/OpenArch)** as the search + vector store (`ENABLE_OPENARCH`) and as the store for data sources and document state, with no PostgreSQL (`INCREMENTAL_STATE_STORE=openarch`) (see [usage](docs/DATABASES/OPENARCH/OPENARCH.md)); separate **Graph** and **RDF** choices per row and ingest; a per-user Jobs list; a title bar with Dark / Light theme in the Angular UI library; and **[KG Spaces for Nuxeo](https://github.com/stevereiner/kg-spaces-nuxeo)** (Add to KG Spaces and Ask from Nuxeo Web UI).
 
 **New 10/19/26 — v0.8.6 release:** **Sign-in and permission-aware search for every repository and cloud source**: Alfresco, Nuxeo, CMIS, SharePoint / OneDrive, Box, Google Drive / Cloud Storage, Azure Blob and Amazon S3, with one sign-in pill in the header whose drop-down signs you in and out of each data source and server, and a Sources picker, in the React, Vue and Angular UIs and in KG Spaces; S3 and Azure Blob results open the file through short-lived signed links; per-row Processing columns for every data source and a Deep (subfolders) checkbox; MCP permission levels and browser sign-in. See the [Sign-In Guide](docs/DATA-SOURCES/SIGN-IN-GUIDE.md).
 
@@ -71,6 +73,7 @@
 - **4 RDF Triple Stores**: Apache Jena Fuseki, Ontotext GraphDB, Oxigraph, Amazon Neptune RDF.
 - **10 Vector Databases**: Qdrant, Elasticsearch, OpenSearch, Neo4j, Chroma, Milvus, Weaviate, Pinecone, PostgreSQL pgvector, LanceDB — for semantic similarity search
 - **3 Search Databases**: Elasticsearch, OpenSearch, BM25 (built-in) — for full-text search and hybrid ranking
+- **Hyland OpenArch (optional)**: [Hyland OpenArch](https://github.com/Hyland/OpenArch), an AI-ready content repository for documents with their extracted text and vector embeddings, as a combined search + vector store (`ENABLE_OPENARCH=true`) and/or as the auto-sync state store in place of PostgreSQL (`INCREMENTAL_STATE_STORE=openarch`), with per-folder / per-document scope rules — see [docs/DATABASES/OPENARCH/OPENARCH.md](docs/DATABASES/OPENARCH/OPENARCH.md)
 - **LLM providers (KG extraction & chat)**: Ollama, OpenAI, Azure OpenAI, Google Gemini, Anthropic Claude, Google Vertex AI, Amazon Bedrock, Groq, Fireworks AI, OpenAI-compatible endpoints (`openai_like`), OpenRouter, LiteLLM proxy, and vLLM — configurable via `LLM_PROVIDER`; see [Supported LLM Providers](#supported-llm-providers)
 - **Embedding providers**: OpenAI, Ollama, Azure OpenAI, Google GenAI, Vertex AI, Bedrock, Fireworks, OpenAI-like (`EMBEDDING_KIND=openai_like`), and LiteLLM — see [LLM Configuration](#llm-configuration)
 - **Dual-framework pipeline**: **LlamaIndex** and **LangChain** are first-class choices for chunking, vector and search adapters, property graphs, KG extraction, RDF text-to-SPARQL retrieval, and hybrid fusion—each stage can be set independently (**LlamaIndex** defaults). See [Framework Configuration](#framework-configuration).
@@ -193,6 +196,7 @@ Flexible GraphRAG supports **14 different data sources** for ingesting documents
    - **[KG Spaces ACA Extension](https://github.com/stevereiner/kg-spaces-aca)** - Integrates the Flexible GraphRAG Angular UI as an extension plugin within the Alfresco Content Application (ACA), enabling multi-select document/folder ingestion with nodeIds directly from the Alfresco interface. Its title bar has a sign-in pill for the other sources and servers (Angular lib option `searchSignIn`), so KG Spaces search and chat can also use other sources' documents the user may read
    - **Flexible GraphRAG Alfresco Data Source** - Direct integration using Alfresco paths (e.g., /Shared/GraphRAG, /Company Home/Shared/GraphRAG, or /Shared/GraphRAG/cmispress.txt)
 8. **Nuxeo** - Nuxeo content repository (File and Note documents); basic / token (X-Authentication-Token) / OAuth2 auth, path or node selection, and real-time incremental sync via the Nuxeo audit event stream (Kafka)
+   - **[KG Spaces for Nuxeo](https://github.com/stevereiner/kg-spaces-nuxeo)** - A Nuxeo Web UI add-on (a KG Spaces menu with "Add to KG Spaces" and "Ask KG Spaces about this document / folder") plus an Angular app on the same shared Angular UI library, sharing the Web UI session; ingest and answers use the Web UI user's Nuxeo token, so only documents that user may read
 9. **SharePoint** - Microsoft SharePoint document libraries
 10. **Box** - Box.com cloud storage
 11. **CMIS (Content Management Interoperability Services)** - Industry-standard content repository interface
@@ -244,17 +248,18 @@ ENABLE_INCREMENTAL_UPDATES=true
 POSTGRES_INCREMENTAL_URL=postgresql://postgres:password@localhost:5433/postgres
 ```
 
-**Note**: The incremental updates system uses PostgreSQL to track document state. The `docker-compose.yaml` includes a pgvector container that can be used both as a vector database option and for incremental updates state management. The database connection creates the necessary tables automatically on first use.
+**Note**: The incremental updates system uses PostgreSQL to track document state. The `docker-compose.yaml` includes a pgvector container that can be used both as a vector database option and for incremental updates state management. The database connection creates the necessary tables automatically on first use. Or keep the state in OpenArch instead, with no PostgreSQL (`INCREMENTAL_STATE_STORE=openarch`, v0.9.0+): see [`docs/DATABASES/OPENARCH/OPENARCH-STATE-STORE.md`](docs/DATABASES/OPENARCH/OPENARCH-STATE-STORE.md).
 
 **Usage**: 
-- Tick the **Auto Sync** column for the row(s) in the Processing tab (with the incremental registry on, every data source has per-row Search+Vector / Graphs / Auto Sync columns; the older **"Enable auto change sync"** checkbox appears only when the registry is off)
-- **Deep** on the Alfresco, Nuxeo and Box forms includes subfolders (recursive) in the ingest and its auto sync
+- Tick the **Auto Sync** column for the row(s) in the Processing tab (with the incremental registry on, every data source has per-row Search+Vector / Graph / RDF / Auto Sync columns (one Graphs column before v0.9.0); the older **"Enable auto change sync"** checkbox appears only when the registry is off)
+- **Deep** on the Alfresco, Nuxeo and Box forms includes subfolders (recursive) in the ingest and its auto sync; it starts at the backend's `DEFAULT_RECURSIVE` (true unless set)
+- A new row's **Graph** and **RDF** checkboxes start at the backend's `DEFAULT_ENABLED_GRAPH` and `DEFAULT_ENABLED_RDF` (true unless set; `env-sample.txt` sets both to false: search + vector first, a row's graphs added when wanted). A REST or MCP ingest that doesn't say `enabled_graph` / `enabled_rdf` uses them too
 - For **S3**: Also provide the "SQS Queue URL" for event notifications
 - For **GCS**: Also provide the "Pub/Sub Subscription Name" for real-time updates
 
 **PostgreSQL for State Management**:
 
-The `docker/includes/postgres-pgvector.yaml` sets up two databases automatically on first start: `flexible_graphrag` (for optional pgvector vector storage) and `flexible_graphrag_incremental` (for incremental update state management, with its schema created automatically). pgAdmin is also configured at http://localhost:5050 with both databases pre-registered — just enter the master password `admin` when prompted, then use `password` for the server connection and save it. See [docs/DATABASES/POSTGRES-SETUP.md](docs/DATABASES/POSTGRES-SETUP.md) for details.
+The `docker/includes/postgres-pgvector.yaml` sets up two databases automatically on first start: `flexible_graphrag` (for optional pgvector vector storage) and `flexible_graphrag_incremental` (for incremental update state management, with its schema created automatically). pgAdmin is also configured at http://localhost:5050 with both databases pre-registered (no master password) — use `password` for the server connection and save it. See [docs/DATABASES/POSTGRES-SETUP.md](docs/DATABASES/POSTGRES-SETUP.md) for details.
 
 **Documentation**:
 - System overview: [`docs/DATA-SOURCES/INCREMENTAL-UPDATE-AUTO-SYNC/README.md`](docs/DATA-SOURCES/INCREMENTAL-UPDATE-AUTO-SYNC/README.md)
@@ -262,6 +267,7 @@ The `docker/includes/postgres-pgvector.yaml` sets up two databases automatically
 - Detailed setup: [`docs/DATA-SOURCES/INCREMENTAL-UPDATE-AUTO-SYNC/SETUP-GUIDE.md`](docs/DATA-SOURCES/INCREMENTAL-UPDATE-AUTO-SYNC/SETUP-GUIDE.md)
 - API reference: [`docs/DATA-SOURCES/INCREMENTAL-UPDATE-AUTO-SYNC/API-REFERENCE.md`](docs/DATA-SOURCES/INCREMENTAL-UPDATE-AUTO-SYNC/API-REFERENCE.md)
 - PostgreSQL setup: [`docs/DATABASES/POSTGRES-SETUP.md`](docs/DATABASES/POSTGRES-SETUP.md)
+- OpenArch as the state store: [`docs/DATABASES/OPENARCH/OPENARCH-STATE-STORE.md`](docs/DATABASES/OPENARCH/OPENARCH-STATE-STORE.md)
 
 **Scripts**:
 - `scripts/incremental/sync-now.sh|.ps1|.bat` - Trigger immediate synchronization
@@ -1205,7 +1211,7 @@ Process your selected documents and monitor progress:
 
 - **Start Processing**: Click "START PROCESSING" to begin document ingestion
 - **Monitor Progress**: View real-time progress bars for each file
-- **Per-row columns**: With the incremental registry on, every data source gets **Search+Vector**, **Graphs** and **Auto Sync** checkbox columns (single-folder / bucket sources get one row for the whole datasource); unticking removes from those stores, ticking re-ingests. A v0.9.0+ backend splits **Graphs** into **Graph** and **RDF** columns. See [Tab 2 — Processing](docs/UI-GUIDE/UI-TAB-PROCESSING.md)
+- **Per-row columns**: With the incremental registry on, every data source gets **Search+Vector**, **Graph**, **RDF** (one **Graphs** column before v0.9.0) and **Auto Sync** checkbox columns (single-folder / bucket sources get one row for the whole datasource); unticking removes from those stores, ticking re-ingests. A v0.9.0+ backend splits **Graphs** into **Graph** and **RDF** columns. See [Tab 2 — Processing](docs/UI-GUIDE/UI-TAB-PROCESSING.md)
 - **File Management**: Click a row's **✕** to take it off the list (not from your system or the stores)
 - **Processing Pipeline**: Documents are processed through Docling conversion, vector indexing, and knowledge graph creation
 
@@ -1402,6 +1408,7 @@ The FastAPI backend provides the following REST API endpoints:
 | `/api/status` | GET | System status and configuration (databases, LLM, feature flags) |
 | `/api/info` | GET | System information and package versions |
 | `/api/python-info` | GET | Python environment diagnostics |
+| `/api/ui-defaults` | GET | Where the UIs' Deep, Graph and RDF checkboxes start, and which graph columns to show (v0.9.0+) |
 
 **Ingestion**
 
@@ -1610,7 +1617,7 @@ See [docs/DEVELOPER/OBSERVABILITY/OBSERVABILITY.md](docs/DEVELOPER/OBSERVABILITY
 
 - `/scripts`: Utility scripts
   - `create_opensearch_pipeline.py`: OpenSearch hybrid search pipeline setup
-  - `setup-opensearch-pipeline.sh/.bat`: Cross-platform pipeline creation
+  - `setup-opensearch-pipeline.sh/.bat`: Cross-platform pipeline creation (for an OpenSearch you run yourself; `docker/includes/opensearch.yaml` creates it on start)
   - `rdf_cleanup.py`: RDF store CLI tool — list-docs, count, clear-doc, clear-all
   - `litellm_config.yaml`: Sample LiteLLM proxy config (copy to your LiteLLM install dir)
   - `/incremental`: Incremental updates control scripts

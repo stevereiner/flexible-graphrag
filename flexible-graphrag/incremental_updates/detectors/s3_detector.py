@@ -307,40 +307,22 @@ class S3Detector(ChangeDetector):
         consecutive_errors = 0
         max_consecutive_errors = 5
         
-        # Use thread pool executor for blocking boto3 calls
-        import concurrent.futures
-        executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
-        
+        # The queue's messages come from its shared reader (s3_queue.py), which receives and
+        # deletes each one once and hands every S3 sync on the queue a copy
+        from .s3_queue import S3QueueFanout
+        fanout = S3QueueFanout.get(self.sqs_queue_url, self.sqs_client)
+        inbox = fanout.register(self)
+
         try:
             while self._running:
                 try:
-                    # Run blocking SQS call in executor with timeout
-                    loop = asyncio.get_event_loop()
-                    response = await asyncio.wait_for(
-                        loop.run_in_executor(
-                            executor,
-                            lambda: self.sqs_client.receive_message(
-                                QueueUrl=self.sqs_queue_url,
-                                MaxNumberOfMessages=10,
-                                WaitTimeSeconds=20,  # Max long-poll for efficiency
-                                AttributeNames=['ApproximateReceiveCount']
-                            )
-                        ),
-                        timeout=25.0  # Slightly longer than WaitTimeSeconds
-                    )
-                    
-                    messages = response.get('Messages', [])
-                    
-                    if not messages:
-                        # No messages, yield None to allow other processing
-                        yield None
-                        continue
-                    
+                    messages = [await asyncio.wait_for(inbox.get(), timeout=25.0)]
+                    while not inbox.empty():
+                        messages.append(inbox.get_nowait())
+
                     logger.debug(f"Received {len(messages)} SQS messages")
                     
                     for message in messages:
-                        receipt_handle = message['ReceiptHandle']
-                        
                         try:
                             # Parse message body
                             body = json.loads(message['Body'])
@@ -551,20 +533,7 @@ class S3Detector(ChangeDetector):
                             logger.exception(f"Error processing S3 event: {e}")
                             self.errors_count += 1
                         
-                        finally:
-                            # Always delete message from queue (even on error)
-                            try:
-                                # Run delete in executor too (non-blocking)
-                                await loop.run_in_executor(
-                                    executor,
-                                    lambda: self.sqs_client.delete_message(
-                                        QueueUrl=self.sqs_queue_url,
-                                        ReceiptHandle=receipt_handle
-                                    )
-                                )
-                            except Exception as e:
-                                logger.error(f"Failed to delete SQS message: {e}")
-                    
+
                     # Reset error counter on successful batch
                     consecutive_errors = 0
                 
@@ -606,9 +575,7 @@ class S3Detector(ChangeDetector):
                     await asyncio.sleep(5)
         
         finally:
-            # Cleanup executor
-            executor.shutdown(wait=False)
-            logger.debug("SQS executor shut down")
+            fanout.unregister(self)
     
     async def _process_via_backend(self, key: str):
         """
@@ -625,8 +592,10 @@ class S3Detector(ChangeDetector):
         logger.info(f"Processing {key} via backend (full pipeline)")
         
         try:
-            skip_graph = getattr(self, 'skip_graph', False)
-            processing_id = f"incremental_s3_{key.replace('/', '_')[:16]}"
+            from incremental_updates.doc_graphs import datasource_graphs, synced_times
+            graphs = datasource_graphs(self)  # which graphs it builds
+            from .. import sync_jobs
+            processing_id = sync_jobs.processing_id("s3", key)
             
             # Build S3 config
             s3_config = {
@@ -645,7 +614,7 @@ class S3Detector(ChangeDetector):
                 processing_id=processing_id,
                 data_source='s3',
                 config_id=self.config_id,
-                skip_graph=skip_graph,
+                graphs=graphs,
                 s3_config=s3_config
             )
             
@@ -722,10 +691,9 @@ class S3Detector(ChangeDetector):
         # Get current time for sync timestamps (file was just ingested)
         now = datetime.now(timezone.utc)
         
-        # Determine if graph was synced based on skip_graph setting
-        # If skip_graph=False, graph extraction was performed, so mark as synced
-        # If skip_graph=True, graph extraction was skipped, so leave as None
-        graph_synced = now if not getattr(self, 'skip_graph', False) else None
+        # each graph's sync time, only where a store is behind it
+        from incremental_updates.doc_graphs import datasource_graphs, synced_times
+        graph_synced, rdf_synced = synced_times(self, datasource_graphs(self), now)
         
         # Create document state with sync timestamps marked
         # (backend just ingested to vector, search, and optionally graph indexes)
@@ -739,7 +707,8 @@ class S3Detector(ChangeDetector):
             modified_timestamp=modified_timestamp,
             vector_synced_at=now,        # Mark as synced (just ingested)
             search_synced_at=now,        # Mark as synced (just ingested)
-            graph_synced_at=graph_synced  # Mark as synced if graph extraction was performed
+            graph_synced_at=graph_synced,  # each graph only if it was built
+            rdf_synced_at=rdf_synced
         )
         
         await self.state_manager.save_state(doc_state)

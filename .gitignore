@@ -11,6 +11,8 @@ site/
 .env.test.local
 .env.production.local
 .env.*
+# per-machine copies, e.g. .env-<hostname>
+.env-*
 
 # Docker environment files
 docker/.env   # Compose also auto-loads this for ${...} substitution
@@ -20,6 +22,9 @@ docker/neptune.env
 docker/ontotext-graphdb/
 
 # Python
+# uv lock files (uv sync / uv build): the backend and MCP server are libraries, their dependencies are pyproject ranges
+flexible-graphrag/uv.lock
+flexible-graphrag-mcp/uv.lock
 __pycache__/
 *.py[cod]
 *$py.class
@@ -209,6 +214,9 @@ tests/integration/results/
 flexible-graphrag/parsing_output/
 parsing_output/
 
+# NLTK data downloaded on first use (NLTK_DATA=./nltk_data)
+nltk_data/
+
 # CocoIndex pipeline source staging directory (default WATCH_DIR)
 flexible-graphrag/cocoindex-docs/
 cocoindex-docs/
@@ -248,3 +256,6 @@ pyrightconfig.json
 
 # Internal planning docs (not published)
 planning/
+
+# Chroma store written by tests/test_basic.py (relative to where pytest runs)
+test_chroma_db/

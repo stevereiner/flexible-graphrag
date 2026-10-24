@@ -16,13 +16,18 @@ cd flexible-graphrag
 python ../scripts/cleanup.py [flags]
 ```
 
+**Stop the backend first, and start it again after cleanup** (the same for the backend container in Docker:
+`docker compose ... stop flexible-graphrag-backend`, then `start`). The backend sets up the graph stores' indexes when
+it starts, e.g. Neo4j's `entity` vector index, and cleanup drops them: run under a running backend, searches then fail
+until it restarts (`There is no such vector schema index: entity`).
+
 ### Full cleanup (all stores)
 
 ```bash
 python ../scripts/cleanup.py
 ```
 
-Prompts for confirmation then wipes **everything**: PostgreSQL incremental tables and CocoIndex monitoring tables (`cocoindex_ingest_log`, `cocoindex_run_log`), vector store, search store, property graph store, RDF stores, CocoIndex LMDB state, and log files.
+Prompts for confirmation then wipes **everything**: PostgreSQL incremental tables and CocoIndex monitoring tables (`cocoindex_ingest_log`, `cocoindex_run_log`), vector store, search store, property graph store, RDF stores, what was put into OpenArch (when `ENABLE_OPENARCH` or `INCREMENTAL_STATE_STORE=openarch` is set), CocoIndex LMDB state, and log files.
 
 To skip the prompt:
 
@@ -43,6 +48,7 @@ Selective flags skip the confirmation prompt and touch only the specified store(
 | `--vector` | Vector store only (Qdrant / LanceDB / Milvus / etc.) |
 | `--search` | Search store only (Elasticsearch / OpenSearch / BM25) |
 | `--rdf` | RDF triple stores only (Fuseki / GraphDB / Oxigraph) |
+| `--openarch` | What was put into OpenArch only: the documents under `OPENARCH_ROOT_PATH` (`ENABLE_OPENARCH`), and with `INCREMENTAL_STATE_STORE=openarch` the data sources and their document state |
 | `--postgres` | PostgreSQL incremental-update tables (`document_state`, `datasource_config`) and CocoIndex monitoring tables (`cocoindex_ingest_log`, `cocoindex_run_log`) |
 | `--cocoindex` | CocoIndex LMDB pipeline state + source staging directory only |
 | `--logs` | Log files (`*.log`) in `flexible-graphrag/` only |
@@ -70,8 +76,23 @@ python ../scripts/cleanup.py --matrix-clean
 ```
 
 Non-interactive mode for the integration test matrix runner. Cleans vector, search, graph, RDF,
-and CocoIndex stores without prompting. If `ENABLE_INCREMENTAL_UPDATES=true` is set in the
-environment, also clears the PostgreSQL incremental tables.
+OpenArch (when set up, as `--openarch`) and CocoIndex stores without prompting. If
+`ENABLE_INCREMENTAL_UPDATES=true` is set in the environment, also clears the PostgreSQL
+incremental tables.
+
+### Integration tests
+
+The live integration tests are described in
+[tests/integration/README.md](https://github.com/stevereiner/flexible-graphrag/blob/main/tests/integration/README.md):
+store profiles (`run_profile.py`, `run_all_profiles.py`), store combinations (`run_matrix.py`;
+`--state-store openarch` runs them with the incremental registry in OpenArch, under its own
+`/fg-matrix-sources` and `/fg-matrix-datasources` roots), scoped Ask (`run_matrix.py --scope`),
+and, new in v0.9.0, the auto-sync matrix
+([tests/integration/autosync/README.md](https://github.com/stevereiner/flexible-graphrag/blob/main/tests/integration/autosync/README.md)):
+live auto-sync checks per data source on the OpenArch state store (multiselect, recursive, add /
+edit / delete / move / rename, Auto Sync off rows, periodic refresh, graph removal), run with
+`tests/integration/autosync/run_autosync.py`. The vector, search and graph stores they use are
+those in `.env`, so run `cleanup.py` afterwards.
 
 ### Common workflows
 
@@ -155,4 +176,4 @@ TRUNCATE TABLE cocoindex_run_log;
 
 Or use the cleanup script: `python ../scripts/cleanup.py --postgres`
 
-Or use pgAdmin at http://localhost:5050 (master password: `admin`, server password: `password`).
+Or use pgAdmin at http://localhost:5050 (no master password; server password: `password`).

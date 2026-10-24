@@ -14,9 +14,11 @@ export class ApiService {
   constructor(private http: HttpClient) {}
 
   ingestDocuments(request: IngestRequest): Observable<AsyncProcessingResponse> {
+    // who started it (currentUser), so the Jobs list can show a user their own runs
+    const owner = request.owner || this.fgConfig.currentUser();
     return this.http.post<AsyncProcessingResponse>(
       `${this.apiUrl}/ingest`,
-      request
+      owner ? { ...request, owner } : request
     ).pipe(
       catchError(this.handleError)
     );
@@ -39,16 +41,19 @@ export class ApiService {
     );
   }
 
-  listJobs(owner?: string): Observable<{ jobs: ProcessingJob[] }> {
+  /** The Jobs list: the current user's ingests and every auto-sync run (all jobs without a currentUser). */
+  listJobs(owner: string | null = this.fgConfig.currentUser()): Observable<{ jobs: ProcessingJob[] }> {
     const q = owner ? `?owner=${encodeURIComponent(owner)}` : '';
     return this.http.get<{ jobs: ProcessingJob[] }>(`${this.apiUrl}/processing-status${q}`).pipe(
       catchError(this.handleError)
     );
   }
 
-  /** Forget finished jobs (the backend keeps ones that finished in the last two minutes). */
-  clearJobs(): Observable<{ cleared: number; kept: number }> {
-    return this.http.delete<{ cleared: number; kept: number }>(`${this.apiUrl}/processing-status`).pipe(
+  /** Forget finished jobs (the backend keeps ones that finished in the last two minutes): with a
+   *  currentUser, only that user's (other users' jobs and auto-sync runs stay). */
+  clearJobs(owner: string | null = this.fgConfig.currentUser()): Observable<{ cleared: number; kept: number }> {
+    const q = owner ? `?owner=${encodeURIComponent(owner)}` : '';
+    return this.http.delete<{ cleared: number; kept: number }>(`${this.apiUrl}/processing-status${q}`).pipe(
       catchError(this.handleError)
     );
   }

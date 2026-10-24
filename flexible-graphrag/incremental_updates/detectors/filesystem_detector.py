@@ -42,6 +42,16 @@ if WATCHDOG_AVAILABLE:
             self.watch_file = watch_file  # If set, only process events for this specific file
             self.detector = detector  # Reference to FilesystemDetector for deduplication
         
+        def _put(self, change_event: ChangeEvent) -> None:
+            """Queue an event from watchdog's thread: an asyncio queue is not thread-safe, so it is
+            handed to the detector's event loop (put_nowait from this thread can leave the waiting
+            reader unwoken, stalling the stream until the next periodic refresh)."""
+            loop = getattr(self.detector, "_loop", None)
+            if loop is not None and loop.is_running():
+                loop.call_soon_threadsafe(self.event_queue.put_nowait, change_event)
+            else:
+                self.event_queue.put_nowait(change_event)
+
         def _create_event(self, src_path: str, change_type: ChangeType) -> ChangeEvent:
             """Create a ChangeEvent from filesystem event"""
             path = Path(src_path)
@@ -90,7 +100,7 @@ if WATCHDOG_AVAILABLE:
                     if self.detector:
                         self.detector.recent_events[event.src_path] = (ChangeType.CREATE, datetime.now(timezone.utc))
                     
-                    self.event_queue.put_nowait(self._create_event(event.src_path, ChangeType.CREATE))
+                    self._put(self._create_event(event.src_path, ChangeType.CREATE))
                     logger.info(f"WATCHDOG: Event queued successfully")
                 except Exception as e:
                     logger.error(f"WATCHDOG: Failed to queue event: {e}")
@@ -117,11 +127,35 @@ if WATCHDOG_AVAILABLE:
                 logger.info(f"WATCHDOG: UPDATE event queued for: {event.src_path}")
                 
                 try:
-                    self.event_queue.put_nowait(self._create_event(event.src_path, ChangeType.UPDATE))
+                    self._put(self._create_event(event.src_path, ChangeType.UPDATE))
                     logger.info(f"WATCHDOG: Event queued successfully")
                 except Exception as e:
                     logger.error(f"WATCHDOG: Failed to queue event: {e}")
         
+        def on_moved(self, event):
+            """A file renamed or moved within the watched directory (a moved directory's files come
+            as their own moved events): its old path is removed, its new one ingested. A selected
+            file renamed away is no longer the selected file."""
+            if event.is_directory:
+                return
+            src, dest = Path(event.src_path), Path(event.dest_path)
+            if self.watch_file:
+                follows_src, follows_dest = src == self.watch_file, dest == self.watch_file
+            else:
+                root = self.watch_root.resolve()
+                follows_src = True
+                follows_dest = dest.resolve().is_relative_to(root)
+            logger.info(f"WATCHDOG: MOVE {event.src_path} -> {event.dest_path}")
+            try:
+                if follows_src:
+                    self._put(self._create_event(event.src_path, ChangeType.DELETE))
+                if follows_dest:
+                    if self.detector:
+                        self.detector.recent_events[event.dest_path] = (ChangeType.CREATE, datetime.now(timezone.utc))
+                    self._put(self._create_event(event.dest_path, ChangeType.CREATE))
+            except Exception as e:
+                logger.error(f"WATCHDOG: Failed to queue move events: {e}")
+
         def on_deleted(self, event):
             """Handle file deletion events"""
             if not event.is_directory:
@@ -135,7 +169,7 @@ if WATCHDOG_AVAILABLE:
                 logger.info(f"WATCHDOG: DELETE event queued for: {event.src_path}")
                 
                 try:
-                    self.event_queue.put_nowait(self._create_event(event.src_path, ChangeType.DELETE))
+                    self._put(self._create_event(event.src_path, ChangeType.DELETE))
                     logger.info(f"WATCHDOG: Event queued successfully")
                 except Exception as e:
                     logger.error(f"WATCHDOG: Failed to queue event: {e}")
@@ -272,6 +306,7 @@ class FilesystemDetector(ChangeDetector):
             raise ImportError("watchdog library required for filesystem detector")
         
         self._running = True
+        self._loop = asyncio.get_running_loop()  # watchdog's thread queues events onto it
         self.observer = Observer()
         
         # Populate known_file_paths before starting monitoring
@@ -375,8 +410,9 @@ class FilesystemDetector(ChangeDetector):
                     # Resolve full path for the event (metadata.path is already normalized from _create_event)
                     full_path = None
                     for watch_path in self.paths:
-                        if watch_path.is_file():
-                            if watch_path.name == Path(event.metadata.path).name or normalize_filesystem_path(str(watch_path.absolute())) == event.metadata.path:
+                        if watch_path.is_file() or (event.change_type == ChangeType.DELETE and not watch_path.exists()):
+                            # a selected file: this event's file only (not another of that name)
+                            if normalize_filesystem_path(str(watch_path.absolute())) == event.metadata.path:
                                 full_path = str(watch_path)
                                 break
                         else:
@@ -411,6 +447,10 @@ class FilesystemDetector(ChangeDetector):
                     # Handle UPDATE events
                     elif event.change_type == ChangeType.UPDATE:
                         is_new = full_path not in self.known_file_paths
+                        if not is_new and await self._unchanged(full_path, event.metadata.ordinal):
+                            logger.info(f"UPDATE event for {event.metadata.path}: modification time "
+                                        f"unchanged -- skipping")
+                            continue
                         logger.info(
                             f"UPDATE event for {event.metadata.path}: is_new={is_new}"
                         )
@@ -431,6 +471,19 @@ class FilesystemDetector(ChangeDetector):
         finally:
             logger.info("Filesystem detector: exiting event stream")
     
+    async def _unchanged(self, full_path: str, ordinal: Optional[int]) -> bool:
+        """Whether a file's modification time (its ordinal) is the one already ingested: an UPDATE
+        event that changed nothing (e.g. attributes only)."""
+        if not (self.state_manager and self.config_id and ordinal):
+            return False
+        try:
+            from incremental_updates.state_manager import StateManager
+            state = await self.state_manager.get_state(StateManager.make_doc_id(self.config_id, full_path))
+        except Exception as e:
+            logger.debug(f"Could not check the state of {full_path}: {e}")
+            return False
+        return bool(state and state.ordinal and state.ordinal >= ordinal)
+
     def set_quiet_period(self, seconds: int = 5):
         """
         Set a quiet period to ignore file changes.
@@ -461,20 +514,28 @@ class FilesystemDetector(ChangeDetector):
         if full_path in self._in_flight:
             logger.info(f"Filesystem: {full_path} already being ingested (periodic/watchdog overlap) — skipping duplicate")
             return
+
+        # The data source's graphs, as its folder's / its own scope rules or this document's own
+        # flags have them (incremental_updates/doc_graphs.py); None: the rules say not to follow it
+        from incremental_updates.doc_graphs import graphs_for
+        from incremental_updates.path_utils import normalize_filesystem_path
+        graphs = await graphs_for(self, full_path, normalize_filesystem_path(full_path))
+        if graphs is None:
+            return
         self._in_flight.add(full_path)
 
         logger.info(f"Processing {relative_path} via backend (full pipeline)")
 
         try:
-            skip_graph = getattr(self, 'skip_graph', False)
-            processing_id = f"incremental_fs_{Path(full_path).stem[:8]}"
+            from .. import sync_jobs
+            processing_id = sync_jobs.processing_id("fs", full_path)
             
             # Call backend method directly (skips REST API layer)
             await self.backend._process_documents_async(
                 processing_id=processing_id,
                 data_source='filesystem',
                 config_id=self.config_id,
-                skip_graph=skip_graph,
+                graphs=graphs,
                 filesystem_config={
                     'paths': [full_path]  # Process just this one file
                 }
@@ -486,7 +547,7 @@ class FilesystemDetector(ChangeDetector):
             if self.state_manager:
                 try:
                     await self._create_document_state_from_processing_status(
-                        processing_id, relative_path, full_path
+                        processing_id, relative_path, full_path, graphs=graphs
                     )
                 except Exception as e:
                     logger.error(f"Failed to create document_state for {relative_path}: {e}")
@@ -498,7 +559,7 @@ class FilesystemDetector(ChangeDetector):
             self._in_flight.discard(full_path)
 
     async def _create_document_state_from_processing_status(
-        self, processing_id: str, filename: str, full_path: str
+        self, processing_id: str, filename: str, full_path: str, graphs=None
     ):
         """Create document_state record after successful processing"""
         from backend import PROCESSING_STATUS
@@ -554,6 +615,8 @@ class FilesystemDetector(ChangeDetector):
         
         # Record synced timestamps (document is already in vector/search stores after initial ingest)
         now = datetime.now(timezone.utc)
+        from incremental_updates.doc_graphs import datasource_graphs, synced_times
+        graph_at, rdf_at = synced_times(self, graphs if graphs is not None else datasource_graphs(self), now)
         
         # Create document state
         doc_state = DocumentState(
@@ -566,7 +629,8 @@ class FilesystemDetector(ChangeDetector):
             modified_timestamp=modified_timestamp,
             vector_synced_at=now,
             search_synced_at=now,
-            graph_synced_at=now if not getattr(self, 'skip_graph', False) else None
+            graph_synced_at=graph_at,
+            rdf_synced_at=rdf_at,
         )
         
         await self.state_manager.save_state(doc_state)

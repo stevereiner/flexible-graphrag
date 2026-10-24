@@ -164,6 +164,51 @@ Nuxeo returns the same token for the same user, application (`flexible-graphrag`
 (`flexible-graphrag-ui`), so signing in again does not create more tokens. Revoke it in the Nuxeo
 Web UI under user settings, Authentication Tokens.
 
+## Which Credentials an Ingest and an Auto Sync Use (v0.9.0+)
+
+An ingest request brings its own credentials (a signed-in user's token, a user name and password
+from the form, or a token from [KG Spaces for Nuxeo](#kg-spaces-for-nuxeo)), and they may be for
+any Nuxeo server. The backend's own account in `.env` (`NUXEO_AUTH_METHOD`, `NUXEO_USERNAME` /
+`NUXEO_PASSWORD`, `NUXEO_TOKEN` or `NUXEO_OAUTH2_*`) belongs to the `NUXEO_URL` server only, and is
+used for that server:
+
+- when an ingest or an auto sync brings no credentials;
+- by a running auto sync whose own credentials stop working (a revoked token, say): it switches to
+  the backend's account;
+- for every auto sync of that server when `NUXEO_SYNC_CREDENTIALS=account`.
+
+```bash
+# token (default): an auto sync keeps the credentials it was registered with, so it reads as
+#                  the user who started it; works for any Nuxeo server
+# account:         auto syncs of the NUXEO_URL server run as the backend's account above
+NUXEO_SYNC_CREDENTIALS=token
+```
+
+## Document Links (`NUXEO_WEBUI_URL`)
+
+Nuxeo documents named in search results and answers open in the Nuxeo Web UI, at
+`<repository URL>/ui/#!/doc/<uid>`. When the browser reaches Web UI at another address than the
+backend's `NUXEO_URL` (the backend runs inside Docker and reaches `http://nuxeo:8080/nuxeo`, or
+Web UI is behind a proxy), set where the browser opens it; it applies to documents of the
+`NUXEO_URL` server:
+
+```bash
+NUXEO_WEBUI_URL=http://localhost:8080/nuxeo/ui
+```
+
+## KG Spaces for Nuxeo
+
+[KG Spaces for Nuxeo](https://github.com/stevereiner/kg-spaces-nuxeo) (new with v0.9.0) uses
+Flexible GraphRAG from Nuxeo Web UI, as [KG Spaces for ACA](https://github.com/stevereiner/kg-spaces-aca)
+does from the Alfresco Content App: a **KG Spaces** menu on Web UI's document and selection
+toolbars with **Add to KG Spaces** and **Ask KG Spaces about this document / folder**, opening an
+Angular app built on the shared `@flexible-graphrag/angular-ui` library. The app is served from
+the same host as Nuxeo, shares the Web UI session, and sends the user's Nuxeo token with ingests
+and questions, so ingest reads, and answers use, only what that user may read. Its title bar
+shows **Nuxeo · \<user\>**, a sign-in pill for the other sources, and a Dark / Light switch.
+[KG Spaces Deployment](https://github.com/stevereiner/kg-spaces-deployment) runs it with Nuxeo,
+Flexible GraphRAG and a proxy in one Docker Compose stack.
+
 ## Real-Time Change Sync (optional, via Kafka)
 
 With auto-sync enabled, Nuxeo document changes (create / modify / delete) flow into the graph in
@@ -261,6 +306,7 @@ delete, resolves the live document, and ingests it. Version snapshots (`versionC
 ## File Structure (Nuxeo-specific)
 
 - `sources/nuxeo.py` — Nuxeo data source connector (File + Note documents).
+- `sources/nuxeo_accounts.py` — which credentials an ingest or auto sync uses (`NUXEO_SYNC_CREDENTIALS`).
 - `incremental_updates/detectors/nuxeo_audit.py` — Kafka audit consumer + JSON decoder.
 - `incremental_updates/detectors/nuxeo_detector.py` — real-time change detector.
 

@@ -57,14 +57,20 @@ async def update_pg_graph(
     documents: list,
     loop,
     *,
+    graphs=None,
     skip_graph: bool = False,
     pre_extracted: bool = False,
     span_name: str = "rag.graph_extraction",
 ) -> tuple:
     """Run KG extraction and update the PG graph index (LI or LC backend).
 
+    ``graphs`` (graph_flags.GraphFlags) says which graphs this ingest builds; ``skip_graph`` is
+    the older single flag (both off), used when ``graphs`` is not given. With the property graph
+    off but RDF on, extraction still runs here (for update_rdf_graph to reuse) and the property
+    graph is not written -- the same as PG_GRAPH_DB=none.
+
     Handles:
-    - skip_graph / enable_knowledge_graph gating
+    - graphs / enable_knowledge_graph gating
     - LC backend (LLMGraphTransformer via aingest_lc_graph)
     - LI backend: first-time create and incremental update
     - pg_disabled path (extraction runs for RDF, PropertyGraphIndex skipped)
@@ -78,12 +84,19 @@ async def update_pg_graph(
 
     Sets system.graph_index and system.graph_intentionally_skipped as side-effects.
     """
-    should_skip_graph = skip_graph or not system.config.enable_knowledge_graph
-    pg_disabled = str(system.config.pg_graph_db) == "none"
+    from graph_flags import GraphFlags
+    flags = graphs if graphs is not None else GraphFlags.of(skip_graph, default=GraphFlags.defaults(system.config))
+    config = system.config
+    pg_configured = str(config.pg_graph_db) != "none"
+    rdf_configured = str(getattr(config, "rdf_graph_db", "none")).lower() not in ("none", "")
+    want_pg = flags.graph and pg_configured
+    want_rdf = flags.rdf and rdf_configured
+    # Extraction is for the property graph, or only for RDF to reuse (written to no PG store)
+    pg_disabled = not want_pg
 
-    if should_skip_graph:
-        if skip_graph and system.config.enable_knowledge_graph:
-            logger.info("Knowledge graph SKIPPED (per-ingest skip_graph flag)")
+    if not config.enable_knowledge_graph or not (want_pg or want_rdf):
+        if config.enable_knowledge_graph and (pg_configured or rdf_configured):
+            logger.info(f"Knowledge graph SKIPPED for this ingest ({flags.describe()})")
             system.graph_intentionally_skipped = True
         else:
             logger.info("Knowledge graph disabled in config")
@@ -96,10 +109,17 @@ async def update_pg_graph(
     llm_model_name = getattr(system.llm, "model", type(system.llm).__name__)
     logger.info(
         f"PG graph — {len(nodes)} nodes, store={graph_store_type}, LLM={llm_model_name}"
+        + ("" if want_pg else " (extraction for RDF only, no property graph write)")
     )
 
     _kg_backend = (getattr(system.config, "kg_extractor_backend", "llamaindex") or "llamaindex").lower()
     _is_lc_adapter = getattr(system.pg_adapter, "is_langchain", lambda: False)()
+
+    if _is_lc_adapter and _kg_backend == "langchain" and not want_pg:
+        # LC extraction writes the property graph as it goes: leave it to update_rdf_graph's
+        # own extraction when only RDF is wanted
+        logger.info("Property graph off for this ingest: RDF extracts on its own (LC backend)")
+        return nodes, False, 0.0, 0.0, 0, 0
 
     # LC backend with LC extractor — extraction and graph update handled together.
     if _is_lc_adapter and _kg_backend == "langchain":

@@ -18,6 +18,7 @@ from ingest._helpers import _check_cancellation, _get_loop, generate_completion_
 from ingest.run_chunk_pipeline import run_chunk_pipeline
 from ingest.update_vector import update_vector
 from ingest.update_search import update_search
+from ingest.update_openarch import update_openarch
 from ingest.update_pg_graph import update_pg_graph
 from ingest.update_rdf_graph import update_rdf_graph
 
@@ -111,6 +112,22 @@ def _assign_stable_doc_ids(documents: List, config_id: str) -> None:
             stable_doc_id = f"{config_id}:{stable_fp}" if stable_fp else (
                 f"{config_id}:{file_path}" if file_path else f"{config_id}:{file_name}"
             )
+        elif source_type == 'cmis':
+            # The repository's object id: stable across renames and moves, like Alfresco's node
+            # id (post_ingestion_state records the same). Never a filesystem-normalized path:
+            # that made "config_id:\shared\a.txt" here and "config_id:/Shared/a.txt" there.
+            stable_fp = doc.metadata.get('stable_file_path', '')
+            if stable_fp:
+                stable_doc_id = f"{config_id}:{stable_fp}"
+            elif doc.metadata.get('cmis_id'):
+                stable_doc_id = f"{config_id}:cmis://{doc.metadata['cmis_id']}"
+            elif file_path:
+                stable_doc_id = f"{config_id}:{file_path}"
+            else:
+                stable_doc_id = f"{config_id}:{file_name}"
+        elif file_path and "://" in file_path:
+            # A source's own URL-style id (youtube://<video>/<start>, ...): kept as it is
+            stable_doc_id = f"{config_id}:{file_path}"
         elif file_path:
             # Normalize filesystem paths on Windows so the doc_id stored in metadata
             # and vector stores matches what the filesystem detector produces (lowercase).
@@ -156,6 +173,7 @@ async def ingest_source_documents(
     documents: List,
     processing_id: str = None,
     status_callback=None,
+    graphs=None,
     skip_graph: bool = False,
     config_id: str = None,
     replace_doc_ids=None,
@@ -171,7 +189,8 @@ async def ingest_source_documents(
         documents: List of LlamaIndex Document objects
         processing_id: Optional ID for cancellation/progress tracking
         status_callback: Optional callable for progress updates
-        skip_graph: If True, skip KG extraction for this ingest
+        graphs: which graphs to build (graph_flags.GraphFlags: property graph, RDF)
+        skip_graph: older single flag, both graphs off (used when ``graphs`` is not given)
         config_id: Optional stable config_id for incremental sync (assigns stable doc_ids)
         replace_doc_ids: ids known to be in the stores already; None = look them up in
             document_state. Those documents are deleted before being inserted again.
@@ -234,17 +253,29 @@ async def ingest_source_documents(
     if _check_cancellation(processing_id):
         raise RuntimeError("Processing cancelled by user")
 
+    # Step 3b: OpenArch content repository (ENABLE_OPENARCH)
+    if getattr(system, "openarch_store", None) is not None:
+        _update_progress("Writing documents to OpenArch…", 64, current_phase="openarch_indexing")
+        await update_openarch(system, nodes, documents)
+        if _check_cancellation(processing_id):
+            raise RuntimeError("Processing cancelled by user")
+
     # Step 4: PG graph
     _update_progress("Extracting knowledge graph…", 70, current_phase="kg_extraction")
+    # which graphs this ingest builds (graph_flags.py; skip_graph is the older single flag)
+    from graph_flags import GraphFlags
+    flags = graphs if graphs is not None else GraphFlags.of(
+        skip_graph, default=GraphFlags.defaults(system.config))
+
     nodes, nodes_kg_extracted, kg_duration, graph_duration, _, _ = await update_pg_graph(
-        system, nodes, documents, loop, skip_graph=skip_graph
+        system, nodes, documents, loop, graphs=flags
     )
 
     # Step 4b: RDF graph
-    if not skip_graph and str(getattr(system.config, "rdf_graph_db", "none")) != "none":
+    if flags.rdf and str(getattr(system.config, "rdf_graph_db", "none")) != "none":
         _update_progress("Writing RDF graph…", 82, current_phase="rdf_indexing")
     rdf_kg_duration, rdf_store_duration = await update_rdf_graph(
-        system, nodes, nodes_kg_extracted=nodes_kg_extracted, skip_graph=skip_graph
+        system, nodes, nodes_kg_extracted=nodes_kg_extracted, graphs=flags
     )
 
     if _check_cancellation(processing_id):
@@ -300,7 +331,7 @@ async def ingest_source_documents(
         else:
             doc_count = len(documents)
 
-        ui_message = generate_completion_message(system.config, doc_count, skip_graph=skip_graph)
+        ui_message = generate_completion_message(system.config, doc_count, graphs=flags)
         if data_source != "youtube" and sources and file_count and file_count > len(sources):
             # e.g. an unsupported file type: say so instead of counting it as ingested
             failed = file_count - len(sources)

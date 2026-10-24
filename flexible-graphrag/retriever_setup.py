@@ -370,11 +370,13 @@ def setup_hybrid_retriever(system, scope_doc_ids=None):
         and _pg_adapter.is_langchain()
     )
     has_langchain_pg = _pg_adapter_is_lc
+    # OpenArch content repository (ENABLE_OPENARCH): the search + vector modality
+    has_openarch = getattr(system, "openarch_index", None) is not None
 
-    logger.info(f"Hybrid retriever modalities: vector_index={system.vector_index is not None}, vector_store={system.vector_store is not None}, graph_index={system.graph_index is not None}, search_index={getattr(system, 'search_index', None) is not None}")
+    logger.info(f"Hybrid retriever modalities: vector_index={system.vector_index is not None}, vector_store={system.vector_store is not None}, graph_index={system.graph_index is not None}, search_index={getattr(system, 'search_index', None) is not None}, openarch={has_openarch}")
     logger.debug(f"Modalities check: has_vector={has_vector}, has_graph={has_graph}, has_search={has_search}, has_langchain_rdf={has_langchain_rdf}, has_langchain_pg={has_langchain_pg}")
 
-    if not (has_vector or has_graph or has_search or has_langchain_rdf or has_langchain_pg):
+    if not (has_vector or has_graph or has_search or has_langchain_rdf or has_langchain_pg or has_openarch):
         logger.warning("Cannot setup hybrid retriever: no search modalities available")
         return
 
@@ -708,6 +710,31 @@ def setup_hybrid_retriever(system, scope_doc_ids=None):
     else:
         logger.info("No text search retriever available")
 
+    if has_openarch:
+        # Search + vector in one query: kNN + the chunks' text, fused by OpenSearch's RRF inside
+        # OpenArch; a scoped question filters on the documents' source identities
+        try:
+            from llama_index.core.vector_stores.types import VectorStoreQueryMode
+            _oa_kw = {}
+            if scope_doc_ids is not None:
+                from llama_index.core.vector_stores.types import (
+                    FilterOperator, MetadataFilter, MetadataFilters,
+                )
+                _oa_kw = {"filters": MetadataFilters(filters=[MetadataFilter(
+                    key="doc_id", value=sorted(set(scope_doc_ids)), operator=FilterOperator.IN)])}
+            _oa_retriever = system.openarch_index.as_retriever(
+                similarity_top_k=10,
+                embed_model=system.embed_model,
+                vector_store_query_mode=VectorStoreQueryMode.HYBRID,
+                **_oa_kw,
+            )
+            retrievers.append(_wrap(_syn.wrap(_oa_retriever, "llamaindex_vector"), "openarch"))
+            retriever_types.append("openarch")
+            retriever_frameworks.append("LI")
+            logger.info("Added OpenArch hybrid search+vector retriever to fusion")
+        except Exception as e:
+            logger.warning(f"Failed to create the OpenArch retriever: {e} - continuing without it")
+
     if graph_retriever is not None:
         retrievers.append(_wrap(_syn.wrap(graph_retriever, "llamaindex_pg_graph"), f"graph({config.pg_graph_db})", prescore_graph=True))
         retriever_types.append("graph")
@@ -893,6 +920,7 @@ def setup_hybrid_retriever(system, scope_doc_ids=None):
             "graph": "llamaindex_pg_graph",
             "langchain_pg_vector": "langchain_pg_vector",
             "pg_neighborhood": "langchain_pg_neighborhood",
+            "openarch": "llamaindex_vector",
         }
         for _rt in retriever_types:
             if _rt in _syn_tag_map:
@@ -912,7 +940,8 @@ def setup_hybrid_retriever(system, scope_doc_ids=None):
             str(config.search_db) != "none" or
             (str(config.pg_graph_db) != "none" and config.enable_knowledge_graph) or
             (str(getattr(config, "rdf_graph_db", "none")) != "none") or
-            getattr(config, "use_langchain_pg", False)
+            getattr(config, "use_langchain_pg", False) or
+            getattr(config, "enable_openarch", False)
         )
         if has_any_configured:
             error_msg = (

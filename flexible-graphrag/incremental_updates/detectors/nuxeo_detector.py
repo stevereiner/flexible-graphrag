@@ -38,8 +38,15 @@ class NuxeoDetector(ChangeDetector):
         self.password = config.get("password")
         self.token = config.get("token")
         self.oauth2 = config.get("oauth2")
+        # switched to the backend's own account after these credentials were rejected
+        self._using_backend_account = False
         self.path = config.get("path", "/")
         self.recursive = config.get("recursive", False)
+        # The selected documents (a multi-select), else the whole path is followed
+        self.node_details = config.get("nodeDetails") or None
+        self.node_ids = config.get("nodeIds") or None
+        self._root_paths: Dict[str, str] = {}
+        self._root_paths_at = 0.0
 
         # Kafka
         import os
@@ -63,11 +70,11 @@ class NuxeoDetector(ChangeDetector):
         self._consumer: Optional[NuxeoAuditConsumer] = None
         self._running = False
 
-        # Dedup by the live doc's dc:modified (keyed by uid): collapses the per-save burst
-        # (documentCreated-version + documentModified all share one dc:modified) while still
-        # processing SEPARATE saves, which each bump dc:modified. A time window would wrongly
-        # drop legitimate edits made within the window.
-        self._last_seen_modified: Dict[str, str] = {}
+        # Dedup by the live doc's dc:modified, path and name (keyed by uid): collapses the
+        # per-save burst (documentCreated-version + documentModified all share one dc:modified)
+        # while still processing SEPARATE saves, which each bump dc:modified, and moves, which
+        # don't. A time window would wrongly drop legitimate edits made within the window.
+        self._last_seen_modified: Dict[str, tuple] = {}
 
         # Cached NuxeoSource for path→uid resolution and listing
         self._source = None
@@ -91,6 +98,52 @@ class NuxeoDetector(ChangeDetector):
             cfg["oauth2"] = self.oauth2
         return cfg
 
+    async def _credentials_status(self) -> Optional[int]:
+        """HTTP status of GET /api/v1/me with this sync's credentials (None: Nuxeo not reachable)."""
+        import httpx
+        headers: Dict[str, str] = {}
+        auth = None
+        access_token = (self.oauth2 or {}).get("access_token") if isinstance(self.oauth2, dict) else None
+        if self.token:
+            headers["X-Authentication-Token"] = self.token
+        elif access_token:
+            headers["Authorization"] = f"Bearer {access_token}"
+        elif self.username and self.password:
+            auth = httpx.BasicAuth(self.username, self.password)
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                res = await client.get(f"{(self.url or '').rstrip('/')}/api/v1/me", headers=headers, auth=auth)
+                return res.status_code
+        except Exception as e:
+            logger.warning(f"Nuxeo sync: could not check its credentials at {self.url}: {e}")
+            return None
+
+    async def _use_backend_account_if_rejected(self) -> bool:
+        """Credentials that stopped working (a revoked token, say): switch this sync to the backend's own account,
+        for the backend's own server (sources/nuxeo_accounts.py). True when it switched."""
+        if self._using_backend_account:
+            return False
+        status = await self._credentials_status()
+        if status not in (401, 403):
+            return False
+        from sources.nuxeo_accounts import backend_account
+        account = backend_account(self.url)
+        if account is None:
+            logger.error(f"Nuxeo sync {self.config_id}: its credentials were rejected ({status}) by {self.url}, and "
+                         "the backend has no account there (NUXEO_URL / NUXEO_USERNAME ...): it can't read Nuxeo "
+                         "until it is registered again with working credentials")
+            return False
+        self.auth_method = account.get("auth_method", "basic")
+        self.username = account.get("username")
+        self.password = account.get("password")
+        self.token = account.get("token")
+        self.oauth2 = account.get("oauth2")
+        self._source = None
+        self._using_backend_account = True
+        logger.warning(f"Nuxeo sync {self.config_id}: its credentials were rejected ({status}) by {self.url}; "
+                       "using the backend's own Nuxeo account from now on")
+        return True
+
     def _get_source(self):
         """Lazily build a reusable NuxeoSource (for path→uid resolution and listing)."""
         if self._source is None:
@@ -98,6 +151,10 @@ class NuxeoDetector(ChangeDetector):
             cfg = self._base_source_config()
             cfg["path"] = self.path
             cfg["recursive"] = self.recursive
+            if self.node_details:
+                cfg["nodeDetails"] = self.node_details
+            if self.node_ids:
+                cfg["nodeIds"] = self.node_ids
             self._source = NuxeoSource(cfg)
         return self._source
 
@@ -117,6 +174,78 @@ class NuxeoDetector(ChangeDetector):
         remainder = doc_path[len(base) + 1:]
         return "/" not in remainder
 
+    def _root_ids(self) -> List[str]:
+        ids = [nd.get("id") for nd in self.node_details or [] if isinstance(nd, dict) and nd.get("id")]
+        return ids + [i for i in self.node_ids or [] if i not in ids]
+
+    async def _in_roots(self, uid: str, doc_path: str) -> bool:
+        """Whether an event's document is in what this sync follows: one of its selected documents
+        (nodeDetails / nodeIds) -- a file itself, a folder's direct children, or any depth below it
+        when recursive -- else its path the same way (_in_scope). Selected folders are matched by
+        their current paths (they may have been moved since)."""
+        roots = self._root_ids()
+        if not roots:
+            return self._in_scope(doc_path)
+        if uid in roots:
+            return True
+        if not doc_path:
+            return False
+        import time
+        if time.monotonic() - self._root_paths_at > 10:
+            source = self._get_source()
+            loop = asyncio.get_event_loop()
+            paths = {}
+            for rid in roots:
+                try:
+                    doc = await loop.run_in_executor(None, lambda r=rid: source.nuxeo.documents.get(uid=r))
+                    paths[rid] = doc.path
+                except Exception as e:
+                    logger.debug(f"Could not look up selected document {rid}: {e}")
+            self._root_paths, self._root_paths_at = paths, time.monotonic()
+        for base in self._root_paths.values():
+            base = (base or "").rstrip("/")
+            if base and doc_path.startswith(base + "/"):
+                if self.recursive or "/" not in doc_path[len(base) + 1:]:
+                    return True
+        return False
+
+    async def _tracked(self, uid: str):
+        if not (self.state_manager and self.config_id):
+            return None
+        try:
+            return await self.state_manager.get_state(f"{self.config_id}:nuxeo://{uid}")
+        except Exception as e:
+            logger.debug(f"state check failed for nuxeo://{uid}: {e}")
+            return None
+
+    async def _follow_folder_change(self, folder_path: str) -> None:
+        """A folder in what this sync follows was moved (or moved in): its files' paths changed
+        with no events of their own. Re-ingest the files this sync follows under their new paths,
+        and ingest the ones that came in with it."""
+        from .. import sync_jobs
+        from ..recovery import comparable_path
+        prefix = comparable_path(folder_path) + "/"
+        try:
+            files = [f for f in await self.list_all_files()
+                     if comparable_path((f.extra or {}).get("file_path") or "").startswith(prefix)]
+        except Exception as e:
+            logger.warning(f"Folder {folder_path} moved, but its files could not be listed ({e}): "
+                           f"the periodic refresh will take them")
+            return
+        for f in files:
+            extra = f.extra or {}
+            state = await self._tracked(extra["node_id"])
+            if state and comparable_path(state.source_path or "") == comparable_path(extra["file_path"]):
+                continue
+            logger.info(f"NUXEO EVENT: folder {folder_path} was moved or renamed -- "
+                        f"{'re-ingesting' if state else 'ingesting'} {extra['file_path']}")
+            try:
+                with sync_jobs.updating():
+                    await self._process_via_backend(extra["node_id"], extra.get("name") or extra["node_id"],
+                                                    extra["file_path"])
+            except Exception as e:
+                logger.error(f"Failed to ingest {extra['file_path']} after its folder moved: {e}")
+
     # --------------------------------------------------------------- lifecycle
     async def start(self) -> None:
         if self._running:
@@ -124,6 +253,7 @@ class NuxeoDetector(ChangeDetector):
             return
         logger.info(f"Starting NuxeoDetector for {self.url}{self.path}")
         self._running = True
+        await self._use_backend_account_if_rejected()
         # Register with the shared audit consumer (starts the Kafka consumer thread once)
         loop = asyncio.get_event_loop()
         self._consumer = await loop.run_in_executor(
@@ -147,14 +277,17 @@ class NuxeoDetector(ChangeDetector):
         """Resolve a docPath to the LIVE supported file's info dict, or None.
 
         Uses NuxeoSource path mode (documents.get by path), which returns the current
-        document — never a version — so we always ingest with the live uid.
+        document — never a version — so we always ingest with the live uid. A folder's path
+        lists its children instead: that is None too (the caller handles folders), never a child
+        taken for the folder.
         """
+        from ..recovery import comparable_path
         try:
             source = self._get_source()
             loop = asyncio.get_event_loop()
             files = await loop.run_in_executor(None, lambda: source._process_folder_by_path(doc_path))
-            if files:
-                return files[0]  # single-file path yields exactly one entry
+            if files and comparable_path(files[0].get("path") or "") == comparable_path(doc_path):
+                return files[0]  # the file at that very path
         except Exception as e:
             logger.warning(f"Failed to resolve live doc at {doc_path}: {e}")
         return None
@@ -178,7 +311,16 @@ class NuxeoDetector(ChangeDetector):
                 doc_path = event["path"]
                 doc_uuid = event["uid"]
 
-                if not self._in_scope(doc_path):
+                if not await self._in_roots(doc_uuid, doc_path):
+                    # A document it follows that moved out of them is no longer its to keep
+                    from ..recovery import moved_out
+                    if change_type in ("UPDATE", "MOVE") and moved_out(await self._tracked(doc_uuid), doc_path):
+                        logger.info(f"NUXEO EVENT: {doc_path} moved out of this sync's folders -- removing it")
+                        yield ChangeEvent(
+                            metadata=FileMetadata(source_type="nuxeo", path=f"nuxeo://{doc_uuid}",
+                                                  ordinal=int(datetime.now(timezone.utc).timestamp() * 1_000_000),
+                                                  extra={"node_id": doc_uuid}),
+                            change_type=ChangeType.DELETE, timestamp=None)
                     continue
 
                 if change_type == "DELETE":
@@ -201,27 +343,28 @@ class NuxeoDetector(ChangeDetector):
                 # Resolve the LIVE doc (skips versions and non-supported docs/folders)
                 file_info = await self._resolve_live(doc_path)
                 if not file_info:
-                    logger.info(f"NUXEO EVENT: {change_type} {doc_path} not a supported live file - skipping")
+                    # a folder (or an unsupported document) moved -- or renamed, which comes as an
+                    # UPDATE: its files' paths changed with no events of their own
+                    if change_type in ("MOVE", "UPDATE"):
+                        await self._follow_folder_change(doc_path)
+                    else:
+                        logger.info(f"NUXEO EVENT: {change_type} {doc_path} not a supported live file - skipping")
                     continue
 
                 uid = file_info["id"]
                 filename = file_info["name"]
                 modified = str(file_info.get("modified_at") or "")
 
-                # Dedup by dc:modified (collapses the per-save burst; lets separate saves through)
-                if modified and self._last_seen_modified.get(uid) == modified:
+                # Dedup by dc:modified + place (collapses the per-save burst; lets separate saves
+                # and moves through)
+                seen = (modified, file_info.get("path"), filename)
+                if modified and self._last_seen_modified.get(uid) == seen:
                     logger.info(f"NUXEO EVENT: dedup {change_type} for {doc_path} (modified unchanged)")
                     continue
-                self._last_seen_modified[uid] = modified
+                self._last_seen_modified[uid] = seen
 
                 # New vs existing → CREATE (process directly) or UPDATE (DELETE + re-ingest)
-                exists = False
-                if self.state_manager and self.config_id:
-                    try:
-                        st = await self.state_manager.get_state(f"{self.config_id}:nuxeo://{uid}")
-                        exists = st is not None
-                    except Exception as e:
-                        logger.debug(f"state check failed for nuxeo://{uid}: {e}")
+                exists = await self._tracked(uid) is not None
 
                 if not exists:
                     logger.info(f"NUXEO EVENT: CREATE for {doc_path} (uid={uid}) - ingesting via backend")
@@ -266,9 +409,14 @@ class NuxeoDetector(ChangeDetector):
     async def list_all_files(self) -> List[FileMetadata]:
         """List all supported files under the monitored path (periodic/backstop sync)."""
         logger.info("Listing all files in Nuxeo repository...")
-        source = self._get_source()
         loop = asyncio.get_event_loop()
-        files = await loop.run_in_executor(None, source.list_files)
+        try:
+            files = await loop.run_in_executor(None, self._get_source().list_files)
+        except Exception:
+            # credentials that stopped working: once more with the backend's account, if it has one there
+            if not await self._use_backend_account_if_rejected():
+                raise
+            files = await loop.run_in_executor(None, self._get_source().list_files)
         result: List[FileMetadata] = []
         for fi in files:
             uid = fi["id"]
@@ -288,18 +436,20 @@ class NuxeoDetector(ChangeDetector):
         return result
 
     # ------------------------------------------------------------- ingest
-    async def _process_via_backend(self, uid: str, filename: str, file_path: str) -> None:
+    async def _process_via_backend(self, uid: str, filename: str, file_path: str, _retry: bool = True) -> None:
         """Ingest a single Nuxeo doc via the backend pipeline (nodeDetails mode)."""
         if not self.backend:
             logger.error("Backend not injected into NuxeoDetector - cannot process")
             return
 
-        skip_graph = getattr(self, "skip_graph", False)
-        # ...or just this document's graph was removed (document_state.skip_graph)
-        if not skip_graph and self.state_manager and self.config_id:
-            skip_graph = await self.state_manager.doc_skip_graph(
-                config_id=self.config_id, source_id=uid)
-        processing_id = f"incremental_nuxeo_{uid[:8]}"
+        # The data source's graphs, as its own / its folders' scope rules or this document's own
+        # flags have them (incremental_updates/doc_graphs.py); None: the rules say not to follow it
+        from incremental_updates.doc_graphs import graphs_for
+        graphs = await graphs_for(self, file_path, uid)
+        if graphs is None:
+            return
+        from .. import sync_jobs
+        processing_id = sync_jobs.processing_id("nuxeo", uid)
 
         nuxeo_config = self._base_source_config()
         nuxeo_config.update({
@@ -315,12 +465,16 @@ class NuxeoDetector(ChangeDetector):
             processing_id=processing_id,
             data_source="nuxeo",
             config_id=self.config_id,
-            skip_graph=skip_graph,
+            graphs=graphs,
             nuxeo_config=nuxeo_config,
         )
 
         from backend import PROCESSING_STATUS
         if PROCESSING_STATUS.get(processing_id, {}).get("status") == "failed":
+            # credentials that stopped working: once more with the backend's account, if it has one there
+            if _retry and await self._use_backend_account_if_rejected():
+                await self._process_via_backend(uid, filename, file_path, _retry=False)
+                return
             logger.error(f"Backend ingest failed for {filename} ({uid}); not recording document_state")
             return
 
@@ -328,13 +482,13 @@ class NuxeoDetector(ChangeDetector):
 
         if self.state_manager:
             try:
-                await self._create_document_state_from_processing_status(processing_id, filename, uid, file_path, skip_graph=skip_graph)
+                await self._create_document_state_from_processing_status(processing_id, filename, uid, file_path, graphs=graphs)
             except Exception as e:
                 logger.error(f"Failed to create document_state for {filename}: {e}")
 
     async def _create_document_state_from_processing_status(
         self, processing_id: str, filename: str, uid: str, file_path: str,
-        skip_graph: Optional[bool] = None
+        graphs=None
     ) -> None:
         from backend import PROCESSING_STATUS
         from incremental_updates.state_manager import DocumentState, StateManager
@@ -366,6 +520,8 @@ class NuxeoDetector(ChangeDetector):
             ordinal = int(datetime.now(timezone.utc).timestamp() * 1_000_000)
 
         now = datetime.now(timezone.utc)
+        from incremental_updates.doc_graphs import datasource_graphs, synced_times
+        graph_at, rdf_at = synced_times(self, graphs if graphs is not None else datasource_graphs(self), now)
         doc_state = DocumentState(
             doc_id=doc_id,
             config_id=self.config_id,
@@ -376,7 +532,8 @@ class NuxeoDetector(ChangeDetector):
             modified_timestamp=modified_timestamp,
             vector_synced_at=now,
             search_synced_at=now,
-            graph_synced_at=now if not (getattr(self, "skip_graph", False) if skip_graph is None else skip_graph) else None,
+            graph_synced_at=graph_at,
+            rdf_synced_at=rdf_at,
         )
         await self.state_manager.save_state(doc_state)
         logger.info(f"Created document_state for {filename}: {doc_id}")

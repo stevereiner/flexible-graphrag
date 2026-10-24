@@ -231,7 +231,10 @@ class AlfrescoSource(BaseDataSource):
                     elif node['isFolder']:
                         # Process all files in this folder using node ID (Alfresco API)
                         logger.info(f"Routing to _process_folder_by_id() for folder: {node['name']}")
-                        folder_docs = self._process_folder_by_id(node['id'], node['path'], node['name'])
+                        folder_name, folder_path = node['name'], node['path']
+                        if self.use_api and self.core_client:
+                            folder_name, folder_path = self._current_folder_path(node['id'], folder_path, folder_name)
+                        folder_docs = self._process_folder_by_id(node['id'], folder_path, folder_name)
                         logger.info(f"Folder {node['name']} returned {len(folder_docs)} documents")
                         documents.extend(folder_docs)
                     else:
@@ -350,6 +353,30 @@ class AlfrescoSource(BaseDataSource):
             logger.error(f"Error processing folder {name} (id: {node_id}): {str(e)}", exc_info=True)
             raise
     
+    @staticmethod
+    def _current_name_path(entry, name: str, path: str):
+        """A node's current name and repository path (without /Company Home) from its REST entry
+        (fetched with include=path), else the ones it was selected with."""
+        current = getattr(entry, 'name', None) or name
+        parent = getattr(getattr(entry, 'path', None), 'name', None)
+        if not parent:
+            return current, path
+        if parent.startswith('/Company Home'):
+            parent = parent[len('/Company Home'):]
+        current_path = f"{parent.rstrip('/')}/{current}"
+        if current_path != path:
+            logger.info(f"    {path} is now {current_path} (renamed or moved)")
+        return current, current_path
+
+    def _current_folder_path(self, node_id: str, path: str, name: str):
+        """A selected folder's current name and path (it may have been renamed or moved)."""
+        try:
+            entry = self.core_client.nodes.get(node_id=node_id, include=['path']).entry
+            return self._current_name_path(entry, name, path)
+        except Exception as e:
+            logger.warning(f"Could not look up the current path of folder {name}: {e}")
+            return name, path
+
     def _process_file_by_id(self, node_id: str, path: str, name: str) -> dict:
         """Process a specific file by node ID using Alfresco REST API"""
         try:
@@ -364,8 +391,9 @@ class AlfrescoSource(BaseDataSource):
                     logger.info(f"Attempting Alfresco REST API get for file: {name}")
                     logger.info(f"Calling: self.core_client.nodes.get(node_id='{node_id}')")
                     
-                    # Get node info using Alfresco REST API with node ID
-                    node_info = self.core_client.nodes.get(node_id=node_id)
+                    # Get node info using Alfresco REST API with node ID, with its path: the
+                    # selected file may have been renamed or moved since it was selected
+                    node_info = self.core_client.nodes.get(node_id=node_id, include=['path'])
                     
                     logger.info(f"API Response type: {type(node_info)}")
                     logger.info(f"Has 'entry' attr: {hasattr(node_info, 'entry')}")
@@ -375,7 +403,8 @@ class AlfrescoSource(BaseDataSource):
                         logger.info(f"Retrieved node entry for: {name}")
                         logger.info(f"    entry.is_file: {entry.is_file}")
                         logger.info(f"    entry.is_folder: {entry.is_folder}")
-                        
+                        name, path = self._current_name_path(entry, name, path)
+
                         # Check if it's a file (document)
                         if entry.is_file:
                             content_type = entry.content.mime_type if hasattr(entry, 'content') else ''

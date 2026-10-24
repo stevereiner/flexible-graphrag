@@ -6,7 +6,7 @@ done once by the KG Extraction node). For the LangChain backend the KG node alre
 the graph, so this node passes through.
 """
 
-from langflow_components.flexible_graphrag._fg_shared import get_run, make_payload, get_loop, has_ingest_chunks
+from langflow_components.flexible_graphrag._fg_shared import get_run, make_payload, get_loop, has_ingest_chunks, run_graphs
 
 from langflow.custom import Component
 from langflow.io import HandleInput, Output
@@ -45,8 +45,9 @@ class FlexibleGraphStoreComponent(Component):
                                 entities=run.get("entities", 0), relations=run.get("relations", 0))
         # Skip when KG was skipped (skip_graph / ENABLE_KNOWLEDGE_GRAPH=false) or there is no
         # property-graph store (PG_GRAPH_DB=none).
-        if not run.get("kg_extracted") or db.lower() == "none":
-            self.status = "Property graph skipped (no KG extracted / PG_GRAPH_DB=none)."
+        # ... or this run leaves the property graph out (enabled_graph=false).
+        if not run.get("kg_extracted") or db.lower() == "none" or not run_graphs(run).graph:
+            self.status = "Property graph skipped (no KG extracted / PG_GRAPH_DB=none / enabled_graph off)."
             return make_payload(run["_key"], "graph", db=db, entities=0, relations=0)
 
         nodes, _extracted, _kg_dur, graph_dur, num_e, num_r = await update_pg_graph(

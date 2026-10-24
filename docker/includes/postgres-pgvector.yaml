@@ -27,6 +27,7 @@ services:
       PGADMIN_DEFAULT_EMAIL: admin@flexible-graphrag.com
       PGADMIN_DEFAULT_PASSWORD: admin
       PGADMIN_CONFIG_SERVER_MODE: 'False'
+      PGADMIN_CONFIG_MASTER_PASSWORD_REQUIRED: 'False'  # no "Unlock Saved Passwords" prompt (pgpass logs in)
     depends_on:
       - postgres-pgvector
     restart: unless-stopped

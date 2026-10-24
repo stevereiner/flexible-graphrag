@@ -550,6 +550,10 @@ PROFILES: dict[str, dict[str, str]] = {
 # Keeps integration runs fast: no incremental Postgres/monitoring in lifespan unless a profile sets true.
 INTEGRATION_DEFAULT_OVERRIDES: dict[str, str] = {
     "ENABLE_INCREMENTAL_UPDATES": "false",
+    # the tests ingest without enabled_graph / enabled_rdf: every graph a profile has, whatever .env's
+    # DEFAULT_ENABLED_GRAPH / _RDF (where the UIs' boxes start) say
+    "DEFAULT_ENABLED_GRAPH": "true",
+    "DEFAULT_ENABLED_RDF": "true",
 }
 
 # Same as neo4j-llamaindex but re-enables incremental updates for tests/integration/test_incremental.py.

@@ -4,7 +4,7 @@
 [project]
 site_name    = "Flexible GraphRAG"
 site_url     = "https://stevereiner.github.io/flexible-graphrag/"
-site_description = "Hybrid search, knowledge graphs, and AI chat — 13 data sources, 10 vector DBs, 8 property graph DBs, 3 RDF triple stores, and 13 LLM providers."
+site_description = "Hybrid search, knowledge graphs, and AI chat — 14 data sources, 10 vector DBs, 15 property graph DBs, 4 RDF triple stores, and 13 LLM providers."
 site_author  = "Steve Reiner"
 docs_dir     = "docs"
 site_dir     = "site"
@@ -121,6 +121,10 @@ nav = [
     ]},
     {"Search Databases" = [
       {"Search Database Overview" = "DATABASES/SEARCH-DATABASES.md"}
+    ]},
+    {"OpenArch" = [
+      {"Hyland OpenArch" = "DATABASES/OPENARCH/OPENARCH.md"},
+      {"Auto-Sync State Store"       = "DATABASES/OPENARCH/OPENARCH-STATE-STORE.md"}
     ]}
   ]},
   {"MCP" = [
@@ -187,6 +191,10 @@ invalid_links = false
 [project.markdown_extensions.admonition]
 [project.markdown_extensions."pymdownx.details"]
 [project.markdown_extensions."pymdownx.superfences"]
+# ```mermaid code blocks render as diagrams (GitHub renders them too)
+custom_fences = [
+  { name = "mermaid", class = "mermaid", format = "pymdownx.superfences.fence_code_format" },
+]
 [project.markdown_extensions."pymdownx.inlinehilite"]
 [project.markdown_extensions."pymdownx.snippets"]
 [project.markdown_extensions.tables]

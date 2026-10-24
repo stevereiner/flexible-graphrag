@@ -23,6 +23,19 @@ from typing import Any, Dict, Iterator, List, Optional
 SYNC_PREFIX = "incremental_"
 FINISHED = ("completed", "failed", "cancelled")
 
+
+def processing_id(kind: str, key: str) -> str:
+    """A sync run's processing id for one document: ``incremental_<kind>_`` and a readable tail of
+    ``key`` (its path or id) plus a hash of all of it. One per document, never shared: a truncated
+    key alone gave every object under one prefix (S3, Azure, GCS) or one drive's item ids
+    (Microsoft Graph, Box) the same id, so concurrent runs overwrote each other's status and
+    their document_state was never written."""
+    import hashlib
+    import re
+    tail = re.sub(r"[^A-Za-z0-9]+", "_", str(key)).strip("_")[-16:]
+    digest = hashlib.sha1(str(key).encode("utf-8")).hexdigest()[:10]
+    return f"{SYNC_PREFIX}{kind}_{tail}_{digest}"
+
 _action: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar("fg_sync_action", default=None)
 
 

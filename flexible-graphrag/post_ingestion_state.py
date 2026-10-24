@@ -26,12 +26,13 @@ logger = logging.getLogger(__name__)
 class PostIngestionStateManager:
     """Manages document_state creation after ingestion completes."""
     
-    def __init__(self, postgres_url: str):
+    def __init__(self, postgres_url: Optional[str] = None):
         """
         Initialize the post-ingestion state manager.
         
         Args:
-            postgres_url: PostgreSQL connection URL for state manager
+            postgres_url: PostgreSQL connection URL for state manager (unused with
+                INCREMENTAL_STATE_STORE=openarch, see incremental_updates/stores.py)
         """
         self.postgres_url = postgres_url
     
@@ -41,10 +42,13 @@ class PostIngestionStateManager:
         config_id: str,
         paths: List[str],
         data_source: str = "filesystem",
-        skip_graph: Optional[bool] = None
+        skip_graph: Optional[bool] = None,
+        graphs=None,
     ):
         """
         Background task to create document_state records after ingestion completes.
+        ``graphs`` (graph_flags.GraphFlags): which graphs the run built (else ``skip_graph``, the
+        older single flag, else the datasource's).
         This prevents duplicate processing by incremental system.
         
         Args:
@@ -55,7 +59,7 @@ class PostIngestionStateManager:
         """
         try:
             from backend import PROCESSING_STATUS
-            from incremental_updates.state_manager import DocumentState, StateManager
+            from incremental_updates.stores import new_state_manager
             
             logger.info(f"Monitoring ingestion {processing_id} for completion to create document_state records...")
             # GET/DELETE /api/processing-status: this job's documents are still needed until the
@@ -78,7 +82,7 @@ class PostIngestionStateManager:
                     
                     # Create a NEW state manager with its own connection pool for this background task
                     # Don't use incremental_manager.state_manager because its pool may be closed
-                    state_mgr = StateManager(self.postgres_url)
+                    state_mgr = new_state_manager(self.postgres_url)
                     await state_mgr.initialize()
                     
                     try:
@@ -90,7 +94,8 @@ class PostIngestionStateManager:
                             paths,
                             data_source,
                             status_dict,
-                            skip_graph
+                            skip_graph,
+                            graphs,
                         )
                         
                         logger.info(f"SUCCESS: Created {created_count} document_state records for config {config_id}")
@@ -124,7 +129,8 @@ class PostIngestionStateManager:
         paths: List[str],
         data_source: str,
         status_dict: dict,
-        skip_graph: Optional[bool] = None
+        skip_graph: Optional[bool] = None,
+        graphs=None,
     ) -> int:
         """
         Create document_state records for all processed files.
@@ -133,31 +139,45 @@ class PostIngestionStateManager:
             Number of document_state records created
         """
         from incremental_updates.state_manager import DocumentState, StateManager
-        from incremental_updates.config_manager import ConfigManager
+        from incremental_updates.stores import new_config_manager
 
-        # skip_graph: prefer an explicitly-passed value so this can run BEFORE the datasource_config
-        # row is registered (see main.py enable_sync ordering — state must exist before the detector
-        # starts, or it re-ingests the just-ingested files). Fall back to reading it from the config.
-        if skip_graph is None:
-            config_mgr = ConfigManager(self.postgres_url)
+        # The run's graphs: prefer explicitly-passed ones so this can run BEFORE the
+        # datasource_config row is registered (see main.py enable_sync ordering — state must exist
+        # before the detector starts, or it re-ingests the just-ingested files). Fall back to the
+        # datasource's.
+        from graph_flags import GraphFlags
+        if graphs is None and skip_graph is not None:
+            graphs = GraphFlags.of(bool(skip_graph))
+        if graphs is None:
+            config_mgr = new_config_manager(self.postgres_url)
             await config_mgr.initialize()
             datasource_config = await config_mgr.get_config(config_id)
             await config_mgr.close()
-            skip_graph = bool(datasource_config.skip_graph) if datasource_config else False
+            graphs = datasource_config.graphs if datasource_config else GraphFlags.defaults()
         
         # Only record a target as synced when a store is behind it (any can be "none" in .env),
         # so ingest status and removal see what is really in the stores.
         from config import Settings
         from incremental_updates.removal import configured_stores
-        stores = configured_stores(Settings())
+        settings = Settings()
+        stores = configured_stores(settings)
 
         # Extract processed files and their metadata
         processed_files, documents_dict = self._extract_processed_files(status_dict, paths)
-        
+
+        # The source system the job wrote its documents under (backend._process_documents_async):
+        # with INCREMENTAL_STATE_STORE=openarch the state goes on those same documents, before
+        # the datasource may be registered
+        source_token = None
+        if status_dict.get("source_system"):
+            from openarch.source_system import use_source_system
+            source_token = use_source_system(status_dict["source_system"])
+
         logger.info(f"Creating document_state for {len(processed_files)} files: {processed_files}")
         
         created_count = 0
         ingest_only: dict = {}  # config_id -> datasource is ingest-only
+        config_mgr = None
         for filename in processed_files:
             try:
                 logger.info(f"Creating state for: {filename}")
@@ -193,10 +213,10 @@ class PostIngestionStateManager:
                 # A document of an ingest-only datasource is followed by no sync: auto_sync off
                 # (a sync turns its rows on itself when it is registered, main.py)
                 if doc_config_id not in ingest_only:
-                    async with state_mgr.pool.acquire() as _conn:
-                        ingest_only[doc_config_id] = (await _conn.fetchval(
-                            "SELECT auto_sync FROM datasource_config WHERE config_id = $1",
-                            doc_config_id)) is False
+                    if config_mgr is None:
+                        config_mgr = new_config_manager(self.postgres_url)
+                        await config_mgr.initialize()
+                    ingest_only[doc_config_id] = (await config_mgr.get_auto_sync(doc_config_id)) is False
                 
                 # Compute content hash based on data source
                 content_hash = self._compute_content_hash(
@@ -212,13 +232,21 @@ class PostIngestionStateManager:
                 # Get current UTC time for sync timestamps
                 now = datetime.now(timezone.utc)
                 
-                # Determine if graph was synced based on skip_graph setting -- per document when
-                # the run had a graph choice per row (backend.run_item_actions marks each doc)
+                # Which graphs this document got -- per document when the run had a graph choice
+                # per row (backend.run_item_actions marks each doc), else the run's
                 doc = documents_dict.get(filename)
-                doc_skip = (getattr(doc, 'metadata', None) or {}).get('_skip_graph') if doc is not None else None
-                skip_this = skip_graph if doc_skip is None else bool(doc_skip)
-                graph_synced = now if not skip_this and stores["graph"] else None
-                logger.info(f"Document state sync timestamps: vector={now}, search={now}, graph={'synced' if graph_synced else 'null (skip_graph=True)'}")
+                meta = (getattr(doc, 'metadata', None) or {}) if doc is not None else {}
+                if '_enabled_graph' in meta or '_enabled_rdf' in meta:
+                    doc_graphs = GraphFlags(bool(meta.get('_enabled_graph')), bool(meta.get('_enabled_rdf')))
+                elif meta.get('_skip_graph') is not None:
+                    doc_graphs = GraphFlags.of(bool(meta['_skip_graph']), default=graphs)
+                else:
+                    doc_graphs = graphs
+                built = doc_graphs.built(settings)
+                graph_synced = now if built.graph else None
+                rdf_synced = now if built.rdf else None
+                logger.info(f"Document state sync timestamps: vector={now}, search={now}, "
+                            f"graph={'synced' if graph_synced else 'null'}, rdf={'synced' if rdf_synced else 'null'}")
                 
                 # Create document state with all targets marked as synced
                 state = DocumentState(
@@ -232,8 +260,11 @@ class PostIngestionStateManager:
                     vector_synced_at=now if stores["vector"] else None,
                     search_synced_at=now if stores["search"] else None,
                     graph_synced_at=graph_synced,
-                    # per document when the run chose per row, else the run's own Skip graph
-                    skip_graph=bool(skip_this),
+                    rdf_synced_at=rdf_synced,
+                    # per document when the run chose per row, else the run's own graphs
+                    enabled_graph=doc_graphs.graph,
+                    enabled_rdf=doc_graphs.rdf,
+                    skip_graph=doc_graphs.none,
                     auto_sync=False if ingest_only.get(doc_config_id) else None,
                 )
                 
@@ -243,7 +274,11 @@ class PostIngestionStateManager:
                 
             except Exception as e:
                 logger.error(f"Error creating document_state for {filename}: {e}")
-        
+
+        if config_mgr is not None:
+            await config_mgr.close()
+        if source_token is not None:
+            source_token.var.reset(source_token)
         return created_count
     
     def _extract_processed_files(self, status_dict: dict, paths: List[str]) -> tuple:
@@ -352,6 +387,10 @@ class PostIngestionStateManager:
                     if stable_file_path:
                         stable_path = stable_file_path
                         logger.info(f"Alfresco: source_path={source_path}, stable_path={stable_path}")
+                    elif data_source == "cmis" and doc.metadata.get('cmis_id'):
+                        # the repository's object id, as ingest_from_source names it
+                        stable_path = f"cmis://{doc.metadata['cmis_id']}"
+                        logger.info(f"CMIS: source_path={source_path}, stable_path={stable_path}")
                     else:
                         # Fallback: construct from alfresco_id
                         alfresco_id = doc.metadata.get('alfresco_id')

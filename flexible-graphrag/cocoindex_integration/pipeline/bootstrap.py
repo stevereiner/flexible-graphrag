@@ -51,6 +51,14 @@ try:
 except ImportError:
     pass
 
+# NLTK_DATA when .env does not set it, as in main.py: a plain copy of LlamaIndex's NLTK data
+# (CHUNKER_BACKEND=llamaindex; nltk 3.10.4+ refuses the hardlinked files of a uv install)
+try:
+    from nltk_compat import use_plain_nltk_data as _use_plain_nltk_data
+    _use_plain_nltk_data()
+except ImportError:
+    pass
+
 logger = logging.getLogger(__name__)
 
 

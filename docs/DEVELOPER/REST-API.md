@@ -25,6 +25,7 @@ Both UIs are served by the running backend and let you try every endpoint direct
 | `/api/status` | GET | System status and configuration (databases, LLM, feature flags) |
 | `/api/info` | GET | System information and package versions |
 | `/api/python-info` | GET | Python environment diagnostics |
+| `/api/ui-defaults` | GET | Where the UIs' Deep, Graph and RDF checkboxes start, and which graph columns to show (v0.9.0+) |
 
 ### Ingestion
 
@@ -36,7 +37,7 @@ Both UIs are served by the running backend and let you try every endpoint direct
 | `/api/test-sample` | POST | Test the system with built-in sample content |
 | `/api/cleanup-uploads` | POST | Remove temporarily uploaded files |
 
-All three text ingestion endpoints (`/api/ingest`, `/api/ingest-text`, `/api/test-sample`) accept a `skip_graph` boolean to skip KG extraction and all graph writes for that document — vector and full-text stores are still updated.
+All three text ingestion endpoints (`/api/ingest`, `/api/ingest-text`, `/api/test-sample`) accept `enabled_graph` and `enabled_rdf` booleans: which graphs to build, the property graph (`PG_GRAPH_DB`) and the RDF graph (`RDF_GRAPH_DB`), each on its own. One not given follows the server's `DEFAULT_ENABLED_GRAPH` / `DEFAULT_ENABLED_RDF` (both true unless set). The older `skip_graph` boolean still works: it skips KG extraction and all graph writes — vector and full-text stores are still updated. `GET /api/ui-defaults` returns those defaults, plus `recursive` (`DEFAULT_RECURSIVE`, where the UIs' Deep checkbox starts) and `show_graph` / `show_rdf` (whether a graph store is configured with `ENABLE_KNOWLEDGE_GRAPH` on). See [the auto-sync API reference](../DATA-SOURCES/INCREMENTAL-UPDATE-AUTO-SYNC/API-REFERENCE.md) for ingest status, removal and per-row runs.
 
 ### Async Processing
 

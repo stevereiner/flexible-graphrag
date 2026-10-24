@@ -9,7 +9,7 @@ import asyncio
 import logging
 from typing import Dict, Optional
 from collections import defaultdict
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from .config_manager import ConfigManager, DataSourceConfig
 from .state_manager import StateManager
@@ -52,6 +52,9 @@ class SourceUpdater:
             # Add event stream if enabled
             if self.config.enable_change_stream:
                 tasks.append(asyncio.create_task(self._watch_changes()))
+            else:
+                # no events will come: the periodic refresh takes every change (recovery.py)
+                self.detector._events_live_since = datetime.max.replace(tzinfo=timezone.utc)
             
             self._tasks = tasks
             await asyncio.gather(*tasks)
@@ -154,7 +157,9 @@ class SourceUpdater:
         try:
             logger.info(f"WATCHING: for file changes in {self.config.source_name}...")
             
-            # Get the async generator ONCE and reuse it
+            # Get the async generator ONCE and reuse it. Changes made before now can't come as
+            # events: the periodic refresh takes them (recovery.py)
+            self.detector._events_live_since = datetime.now(timezone.utc)
             change_stream = self.detector.get_changes()
             logger.info(f"WATCH LOOP: change_stream created, starting loop...")
             
@@ -177,10 +182,9 @@ class SourceUpdater:
                             self.config.config_id
                         )
                         logger.info(f"SUCCESS: Processed {event.metadata.path}")
-                        
-                        # Set quiet period to ignore our own file changes
-                        if hasattr(self.detector, 'set_quiet_period'):
-                            self.detector.set_quiet_period(5)  # Ignore changes for 5 seconds
+                        # (No quiet period after an event: it dropped the events already queued --
+                        # a rename's CREATE, a folder move's other files, an edit seconds later.
+                        # The filesystem detector skips an UPDATE that changed nothing instead.)
                             
                     except Exception as e:
                         logger.exception(f"Error processing file change {event.metadata.path}: {e}")
@@ -327,7 +331,8 @@ class IncrementalUpdateOrchestrator:
                 detector.backend = self.backend
                 detector.state_manager = self.state_manager
                 detector.config_id = config.config_id
-                detector.skip_graph = config.skip_graph  # NEW: Inject skip_graph
+                detector.skip_graph = config.skip_graph  # the older single flag
+                detector.graphs = config.graphs  # which graphs it builds (graph_flags.py)
                 
                 # For MicrosoftGraphDetector, inject enable_change_polling from enable_change_stream
                 if hasattr(detector, 'enable_change_polling'):
@@ -335,6 +340,9 @@ class IncrementalUpdateOrchestrator:
                     logger.info(f"Set enable_change_polling={config.enable_change_stream} for {config.source_name}")
                 
                 logger.info(f"Injected backend, state_manager, config_id, and skip_graph into detector")
+                # one ingest per file at a time, whether an event or the periodic refresh asks
+                from .recovery import guard_in_flight
+                guard_in_flight(detector)
             elif hasattr(detector, 'state_manager'):
                 # Fallback for detectors that don't support backend yet
                 detector.state_manager = self.state_manager

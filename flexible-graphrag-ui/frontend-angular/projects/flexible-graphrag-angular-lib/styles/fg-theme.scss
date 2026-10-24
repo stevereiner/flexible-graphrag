@@ -1,0 +1,319 @@
+// Flexible GraphRAG dark / light theme for apps built on @flexible-graphrag/angular-ui: global rules
+// keyed on the body class FlexibleGraphragThemeService sets (dark-theme / light-theme). Material's
+// overlays (select panels, dialogs, menus) render under <body>, so they need these global rules; the
+// library's components style their own insides with :host-context(.dark-theme).
+// Add it to angular.json "styles" after the Material theme:
+//   "node_modules/@flexible-graphrag/angular-ui/styles/fg-theme.scss"
+// The app's main tab group takes the class full-width-tabs (blue active tab, grey inactive ones).
+
+// Dark theme styles
+.dark-theme {
+  background-color: #121212 !important;
+  color: #ffffff !important;
+  
+  // Material components dark theme overrides
+  .mat-mdc-card {
+    background-color: #1e1e1e !important;
+    color: #ffffff !important;
+  }
+  
+  .mat-mdc-form-field {
+    .mat-mdc-text-field-wrapper {
+      background-color: #2d2d2d !important;
+    }
+    
+    .mat-mdc-form-field-label {
+      color: #cccccc !important;
+    }
+    
+    input, textarea {
+      color: #ffffff !important;
+    }
+  }
+  
+  .mat-mdc-table {
+    background-color: #1e1e1e !important;
+    color: #ffffff !important;
+  }
+  
+  .mat-mdc-header-cell {
+    background-color: #2d2d2d !important;
+    color: #ffffff !important;
+  }
+  
+  .mat-mdc-cell {
+    color: #ffffff !important;
+  }
+  
+  .mat-mdc-row:hover {
+    background-color: #2d2d2d !important;
+  }
+}
+
+// Light theme styles (default)
+.light-theme {
+  background-color: #fafafa !important;
+  color: #333333 !important;
+  
+  .mat-mdc-card {
+    background-color: #ffffff !important;
+    color: #333333 !important;
+  }
+}
+
+// Form-field hints and placeholders in dark mode (Material keeps the light theme's dark grey,
+// unreadable on the dark form-field background; React and Vue show these light)
+.dark-theme {
+  .mat-mdc-form-field-hint,
+  .mat-mdc-form-field-hint-wrapper,
+  .mat-mdc-form-field-bottom-align::before,
+  mat-hint {
+    color: rgba(255, 255, 255, 0.7) !important;
+  }
+  .mat-mdc-form-field input::placeholder,
+  .mat-mdc-form-field textarea::placeholder {
+    color: rgba(255, 255, 255, 0.5) !important;
+  }
+}
+
+// Dialogs render in the overlay container under <body>, so in dark mode they already get the
+// .dark-theme form-field rules above; give the dialog itself a matching dark surface (e.g. the
+// Alfresco sign-in dialog), muted outlines, and keep Chrome's autofill from painting fields light.
+.dark-theme {
+  .mat-mdc-dialog-surface {
+    background-color: #1e1e1e !important;
+    color: #ffffff !important;
+  }
+  .mat-mdc-dialog-title,
+  .mat-mdc-dialog-content {
+    color: #ffffff !important;
+  }
+  .mat-mdc-dialog-container .mdc-notched-outline > * {
+    border-color: #616161 !important;
+  }
+  .mat-mdc-dialog-actions .mat-mdc-button:not(:disabled) {
+    color: #90caf9 !important;
+  }
+  .mat-mdc-dialog-actions .mat-mdc-button:disabled,
+  .mat-mdc-dialog-actions .mat-mdc-unelevated-button:disabled {
+    color: rgba(255, 255, 255, 0.38) !important;
+    background-color: rgba(255, 255, 255, 0.12) !important;
+  }
+  .mat-mdc-dialog-container input:-webkit-autofill,
+  .mat-mdc-dialog-container input:-webkit-autofill:focus {
+    -webkit-box-shadow: 0 0 0 1000px #2d2d2d inset !important;
+    -webkit-text-fill-color: #ffffff !important;
+    caret-color: #ffffff;
+  }
+}
+
+// The header's sign-in menu renders in the overlay container too: without this its panel stays
+// white while .dark-theme makes its text white, so the servers and accounts were invisible
+.dark-theme .fg-sign-in-menu.mat-mdc-menu-panel {
+  background-color: #2d2d2d !important;
+  .menu-text, .menu-title, .offline { color: #ffffff !important; }
+  .menu-url { color: rgba(255, 255, 255, 0.7) !important; }
+  .mat-mdc-button, .mat-mdc-outlined-button { color: #90caf9 !important; }
+  .mat-mdc-outlined-button { border-color: rgba(144, 202, 249, 0.5) !important; }
+}
+
+// The Alfresco form's sign-in row (Sign in / Sign out / "Use other credentials") in dark mode
+.dark-theme app-alfresco-source-form .sign-in-row {
+  .mat-mdc-button,
+  .mat-mdc-outlined-button {
+    color: #90caf9 !important;
+  }
+  .mat-mdc-outlined-button {
+    border-color: rgba(144, 202, 249, 0.5) !important;
+  }
+  .mat-mdc-checkbox label {
+    color: #ffffff !important;
+  }
+  .mdc-checkbox__background {
+    border-color: rgba(255, 255, 255, 0.7) !important;
+  }
+}
+
+// The Alfresco sign-in control in the toolbar: white text in light and dark mode
+mat-toolbar app-source-sign-in {
+  color: #ffffff;
+}
+
+// Global light theme overrides (body-level for maximum specificity)
+body.light-theme {
+  // Light theme active tabs - highest specificity (MAIN TABS ONLY)
+  .full-width-tabs .mat-mdc-tab.mdc-tab--active {
+    background-color: #1976d2 !important;
+    color: #ffffff !important;
+  }
+  
+  .full-width-tabs .mat-mdc-tab.mdc-tab--active .mdc-tab__text-label {
+    color: #ffffff !important;
+  }
+  
+  // Light theme inactive tabs (MAIN TABS ONLY)
+  .full-width-tabs .mat-mdc-tab:not(.mdc-tab--active) {
+    background-color: #f5f5f5 !important;
+    color: #666666 !important;
+  }
+  
+  .full-width-tabs .mat-mdc-tab:not(.mdc-tab--active) .mdc-tab__text-label {
+    color: #666666 !important;
+  }
+  
+  // SEARCH SUB-TABS: Override main tab styling - underline only in light mode
+  .search-tab-container .mat-mdc-tab.mdc-tab--active {
+    background-color: transparent !important; // Override main tab blue background
+    color: #1976d2 !important; // Blue text only
+  }
+  
+  .search-tab-container .mat-mdc-tab.mdc-tab--active .mdc-tab__text-label {
+    color: #1976d2 !important; // Blue text only
+  }
+  
+  .search-tab-container .mat-mdc-tab:not(.mdc-tab--active) {
+    background-color: transparent !important; // Override main tab gray background
+    color: #333333 !important; // Bright text
+  }
+  
+  .search-tab-container .mat-mdc-tab:not(.mdc-tab--active) .mdc-tab__text-label {
+    color: #333333 !important; // Bright text
+  }
+}
+
+// Global dark theme overrides (body-level for maximum specificity)
+body.dark-theme {
+  background-color: #121212 !important;
+  color: #ffffff !important;
+  
+  // Dropdown panel styling for Sources tab - high specificity
+  .mat-mdc-select-panel {
+    background-color: #424242 !important; // Medium gray background
+    
+    .mat-mdc-option {
+      color: #ffffff !important; // White text
+      background-color: transparent !important; // Ensure no default background
+      
+      &:hover {
+        background-color: #555555 !important; // Darker gray on hover
+        color: #ffffff !important;
+      }
+      
+      &.mdc-list-item--selected {
+        background-color: #616161 !important; // Lighter gray for selected (not blue)
+        color: #ffffff !important; // White text (not dark blue)
+        
+        // Override any nested text elements
+        .mdc-list-item__primary-text {
+          color: #ffffff !important;
+        }
+        
+        .mat-mdc-option-text {
+          color: #ffffff !important;
+        }
+      }
+      
+      // Override any Material theme colors with maximum specificity
+      &.mat-mdc-option.mdc-list-item--selected {
+        background-color: #616161 !important; // Lighter gray for selected
+        color: #ffffff !important; // White text
+        
+        .mdc-list-item__primary-text {
+          color: #ffffff !important;
+        }
+        
+        .mat-mdc-option-text {
+          color: #ffffff !important;
+        }
+        
+        // Override any span or text elements
+        span {
+          color: #ffffff !important;
+        }
+      }
+    }
+  }
+  
+  // Additional override for Sources tab specifically with maximum specificity
+  app-sources-tab .mat-mdc-select-panel {
+    .mat-mdc-option.mdc-list-item--selected {
+      background-color: #616161 !important; // Lighter gray for selected
+      color: #ffffff !important; // White text
+      
+      // Force white text on all child elements
+      .mdc-list-item__primary-text,
+      .mat-mdc-option-text,
+      span,
+      * {
+        color: #ffffff !important;
+      }
+    }
+    
+    // Even more specific override
+    .mat-mdc-option[aria-selected="true"] {
+      background-color: #616161 !important;
+      color: #ffffff !important;
+      
+      .mdc-list-item__primary-text,
+      .mat-mdc-option-text,
+      span,
+      * {
+        color: #ffffff !important;
+      }
+    }
+  }
+  
+  // Global form field styling for dark theme
+  .mat-mdc-form-field {
+    .mat-mdc-select-value,
+    .mat-mdc-select-value-text,
+    .mat-mdc-select-trigger,
+    .mat-mdc-input-element {
+      color: #ffffff !important;
+      caret-color: #ffffff !important; // White cursor
+    }
+    
+    .mat-mdc-select-arrow {
+      color: #ffffff !important;
+    }
+    
+    // Form field labels - always white in dark mode
+    .mat-mdc-floating-label,
+    .mat-mdc-form-field-label {
+      color: #ffffff !important; // Always white, not blue on focus
+    }
+    
+    // Input and textarea cursor
+    input, textarea {
+      caret-color: #ffffff !important;
+      color: #ffffff !important;
+    }
+    
+    // Outline borders - white in dark mode
+    .mat-mdc-outline {
+      color: #ffffff !important;
+    }
+    
+    &.mat-focused .mat-mdc-outline {
+      color: #ffffff !important; // Keep white on focus
+    }
+  }
+  
+  // Tab styling overrides with maximum specificity
+  .mat-mdc-tab:not(.mdc-tab--active) {
+    color: #ffffff !important;
+  }
+  
+  .mat-mdc-tab:not(.mdc-tab--active) .mdc-tab__text-label {
+    color: #ffffff !important;
+  }
+  
+  .mat-mdc-tab.mdc-tab--active {
+    background-color: #1976d2 !important;
+    color: #ffffff !important;
+  }
+  
+  .mat-mdc-tab.mdc-tab--active .mdc-tab__text-label {
+    color: #ffffff !important;
+  }
+}

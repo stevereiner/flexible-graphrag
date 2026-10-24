@@ -13,6 +13,14 @@ from .filesystem import is_docling_supported
 logger = logging.getLogger(__name__)
 
 
+
+def stable_cmis_id(file_info: dict) -> str:
+    """A document's id across its versions: cmis:versionSeriesId when the repository has one (Alfresco's object
+    ids carry the version, e.g. "<uuid>;1.0", and change with each version), else the object id."""
+    obj = file_info.get('cmis_object')
+    props = getattr(obj, 'properties', None) or {}
+    return props.get('cmis:versionSeriesId') or file_info['id']
+
 class CmisSource(BaseDataSource):
     """Data source for CMIS repositories"""
     
@@ -264,7 +272,7 @@ class CmisSource(BaseDataSource):
                                 pass
                         meta_update: dict = {
                             "source": "cmis",
-                            "cmis_id": file_info['id'],
+                            "cmis_id": stable_cmis_id(file_info),
                             "file_name": file_info['name'],
                             "file_path": file_info['path'],
                             "content_type": file_info['content_type'],
@@ -346,7 +354,7 @@ class CmisSource(BaseDataSource):
                             pass
                     meta_update: dict = {
                         "source": "cmis",
-                        "cmis_id": file_info['id'],
+                        "cmis_id": stable_cmis_id(file_info),
                         "file_name": file_info['name'],
                         "file_path": file_info['path'],
                         "content_type": file_info['content_type'],

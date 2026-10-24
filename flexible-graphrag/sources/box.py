@@ -44,6 +44,8 @@ class BoxSource(BaseDataSource):
         
         self.box_folder_id = config.get("box_folder_id", "0")  # "0" is root folder
         self.box_file_ids = config.get("box_file_ids", [])  # Optional: specific file IDs
+        # Subfolders too, as the Box auto sync follows them (BoxReader's own default is not recursive)
+        self.recursive = config.get("recursive", True) is not False
         
         # Box API credentials
         self.client_id = config.get("client_id", "")
@@ -172,7 +174,7 @@ class BoxSource(BaseDataSource):
                 logger.info(f"Loaded {len(self.box_file_ids)} specific Box files by ID")
             else:
                 # Load all files from folder
-                documents = reader.load_data(folder_id=self.box_folder_id)
+                documents = reader.load_data(folder_id=self.box_folder_id, is_recursive=self.recursive)
                 logger.info(f"Loaded {len(documents)} Box files from folder: {self.box_folder_id}")
             
             # Add source metadata to placeholder documents
@@ -259,7 +261,7 @@ class BoxSource(BaseDataSource):
                 logger.info(f"Loaded and processed {len(self.box_file_ids)} specific Box files by ID")
             else:
                 # Loading from folder
-                documents = reader.load_data(folder_id=self.box_folder_id)
+                documents = reader.load_data(folder_id=self.box_folder_id, is_recursive=self.recursive)
                 logger.info(f"Loaded and processed {len(documents)} Box files from folder: {self.box_folder_id}")
             
             # Add Box metadata to processed documents

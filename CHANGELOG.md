@@ -2,6 +2,44 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2026-10-23] — v0.9.0: OpenArch as store and state store, separate Graph / RDF, KG Spaces for Nuxeo
+
+### Added
+
+- **OpenArch** (Hyland's open source content repository):
+  - `ENABLE_OPENARCH=true`: OpenArch as the search + vector store. Each chunk's text and vector in one
+    record; hybrid search fuses full-text and kNN inside OpenArch. Needs 1024-dimension embeddings.
+  - `INCREMENTAL_STATE_STORE=openarch`: data sources and document state in the OpenArch tree,
+    no PostgreSQL. Data model with diagrams: `docs/DATABASES/OPENARCH/OPENARCH-STATE-STORE.md`.
+  - Uses `python-openarch-api` (PyPI), now a dependency.
+- **Separate Graph and RDF** per row and per ingest (`enabled_graph` / `enabled_rdf`); where the
+  checkboxes start: `DEFAULT_ENABLED_GRAPH`, `DEFAULT_ENABLED_RDF`, `DEFAULT_RECURSIVE`
+  (`/api/ui-defaults`).
+- **Jobs sub-tab per user**: each user sees and clears their own jobs; finished jobs kept 60 min /
+  200 jobs.
+- **Angular lib (`@flexible-graphrag/angular-ui` 0.9.0):** title bar, Dark / Light theme
+  (`styles/fg-theme.scss`), host identity chip, `hostSourceAuth`, `currentUser`, `runInBackground`.
+- **KG Spaces for Nuxeo** (separate repo): Add to KG Spaces / Ask from Nuxeo Web UI. KG Spaces ACA:
+  one toolbar menu for Add / Ask, Alfresco user chip.
+- Auto-sync test harness (`tests/integration/autosync/`): every auto-sync source, add / update /
+  rename / move / delete, with the PostgreSQL or OpenArch state store.
+
+### Fixed
+
+- Auto sync: Nuxeo folder renames, Box renames, stale rows after renames, job ids colliding across
+  documents; RDF left behind after Remove all.
+- The wheel now ships `graph_flags.py` and `openarch/`.
+- Hybrid search names OpenArch results ("OpenArch search+vector").
+- Text ingest (`/api/ingest-text`, MCP `ingest_text` / `test_with_sample`) now writes to OpenArch
+  (`/fg-sources/text/...`, each text its own document), and its completion message names the stores.
+- First ingest failing with nltk 3.10.4+ after a uv install ("refusing multiply-linked file"): unless
+  `NLTK_DATA` is set, the backend and Langflow use a plain copy of LlamaIndex's NLTK data.
+
+### Changed
+
+- Version 0.9.0 for the backend, MCP server, UIs, Angular library, Langflow components and flows.
+- Processing tab: Graphs column split into Graph and RDF.
+
 ## [2026-10-19] — v0.8.6: sign-in and permission-aware search for every repository and cloud source
 
 ### Added

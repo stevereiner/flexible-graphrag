@@ -53,3 +53,15 @@ def test_clear_finished_keeps_running_and_pending_rows():
     }
     assert jr.clear_finished(status) == {"cleared": 2, "kept": 2}
     assert set(status) == {"run", "writing"}
+
+
+def test_clear_finished_for_one_owner_leaves_others_and_syncs():
+    status = {
+        "mine": {"status": "completed", "updated_at": _at(1), "owner": "alice"},
+        "mine-1": {"status": "completed", "updated_at": _at(1), "pass_of": "mine"},
+        "theirs": {"status": "completed", "updated_at": _at(1), "owner": "bob"},
+        "nobody": {"status": "completed", "updated_at": _at(1)},
+        "incremental_s3_report_pdf_0123456789": {"status": "completed", "updated_at": _at(5)},
+    }
+    assert jr.clear_finished(status, owner="alice")["cleared"] == 1
+    assert set(status) == {"theirs", "nobody", "incremental_s3_report_pdf_0123456789"}
