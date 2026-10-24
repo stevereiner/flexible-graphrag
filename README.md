@@ -1,3 +1,5 @@
+[![MseeP.ai Security Assessment Badge](https://mseep.net/pr/stevereiner-flexible-graphrag-badge.png)](https://mseep.ai/app/stevereiner-flexible-graphrag)
+
 # Flexible GraphRAG
 
 [![PyPI - flexible-graphrag](https://img.shields.io/pypi/v/flexible-graphrag?label=flexible-graphrag&color=blue)](https://pypi.org/project/flexible-graphrag/)
