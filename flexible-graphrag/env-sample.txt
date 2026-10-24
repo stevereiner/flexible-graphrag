@@ -86,8 +86,8 @@ SEARCH_DB=elasticsearch
 # inside OpenArch) with the property graph and RDF graph retrievers.
 # OpenArch indexes 1024-dimension vectors only: set the embedding dimension to 1024
 # (OPENAI_EMBEDDING_DIMENSION=1024 for text-embedding-3-small / -large).
-# Needs the python-openarch-api client (until it is published:
-#   uv pip install --system-certs -e <path to python-openarch-api>).
+# Uses the python-openarch-api client (installed with flexible-graphrag). OPENARCH_URL: OpenArch's
+# own port is 8080; KG Spaces Deployment publishes it on 8088 (OPENARCH_URL=http://localhost:8088).
 ENABLE_OPENARCH=false
 #OPENARCH_URL=http://localhost:8080
 #OPENARCH_USERNAME=admin
