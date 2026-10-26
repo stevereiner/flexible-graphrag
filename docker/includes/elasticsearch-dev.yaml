@@ -3,6 +3,7 @@ services:
   elasticsearch:
     image: docker.elastic.co/elasticsearch/elasticsearch:8.17.10
     container_name: flexible-graphrag-elasticsearch
+    hostname: flexible-graphrag-elasticsearch
     environment:
       - discovery.type=single-node
       - xpack.security.enabled=false
