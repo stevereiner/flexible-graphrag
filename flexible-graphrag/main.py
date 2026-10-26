@@ -56,7 +56,8 @@ from nltk_compat import use_plain_nltk_data
 use_plain_nltk_data()
 
 from fastapi import FastAPI, HTTPException, Depends, status, UploadFile, File, Header, Request
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
+from urllib.parse import quote
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, model_validator
@@ -4331,6 +4332,40 @@ async def query_graph(request: QueryRequest, x_alfresco_ticket: Optional[str] = 
     except Exception as e:
         logger.error(f"Error querying system: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+
+_LOCAL_IMAGES_ROOT = os.path.realpath(os.environ["LOCAL_IMAGES_ROOT"]) if os.environ.get("LOCAL_IMAGES_ROOT") else None
+
+@app.get("/api/local-images")
+async def local_images(file_path: str):
+    """List image files in the 'images' folder next to a filesystem-ingested document, for a
+    local filesystem source whose own chunk text collapses each embedded image to a generic
+    placeholder (e.g. Docling's "<!-- image -->") with no file reference kept. Returns an empty
+    list, not an error, when LOCAL_IMAGES_ROOT is unset or the path falls outside it -- this is
+    an opt-in convenience for local filesystem ingestion, not a general file browser."""
+    if not _LOCAL_IMAGES_ROOT:
+        return {"images": []}
+    doc_dir = os.path.realpath(os.path.dirname(file_path))
+    images_dir = os.path.join(doc_dir, "images")
+    if not doc_dir.startswith(_LOCAL_IMAGES_ROOT) or not os.path.isdir(images_dir):
+        return {"images": []}
+    names = sorted(
+        f for f in os.listdir(images_dir)
+        if f.lower().endswith((".png", ".jpg", ".jpeg", ".gif", ".webp"))
+    )
+    return {"images": [f"/api/local-image?path={quote(os.path.join(images_dir, n))}" for n in names]}
+
+
+@app.get("/api/local-image")
+async def local_image(path: str):
+    """Serve one image file by absolute path, restricted to LOCAL_IMAGES_ROOT. See
+    /api/local-images; not a general file browser."""
+    if not _LOCAL_IMAGES_ROOT:
+        raise HTTPException(404, "not found")
+    real = os.path.realpath(path)
+    if not real.startswith(_LOCAL_IMAGES_ROOT) or not os.path.isfile(real):
+        raise HTTPException(404, "not found")
+    return FileResponse(real)
+
 
 @app.get("/api/status")
 async def get_status():

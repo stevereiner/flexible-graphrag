@@ -1888,3 +1888,14 @@ LANGFLOW_URL=http://localhost:7860
 #QUERY_FLOW_PATH=flows/fg_query_flow.json
 #SEARCH_FLOW_PATH=flows/fg_search_flow.json
 #AIQUERY_FLOW_PATH=flows/fg_aiquery_flow.json
+
+# ====================================================================
+# LOCAL IMAGES VIEWER (optional, filesystem source only)
+# ====================================================================
+# Docling collapses each embedded image to a generic placeholder (e.g. "<!-- image -->") in
+# the indexed chunk text, with no file reference kept. When a filesystem-ingested document
+# keeps its original images in a sibling "images/" folder, setting LOCAL_IMAGES_ROOT lets
+# /api/local-images and /api/local-image serve them back to a UI for display next to search
+# results (see flexible-graphrag-ui's SearchTab). Unset by default: both endpoints return
+# empty/404 and no path outside this root is ever served.
+#LOCAL_IMAGES_ROOT=/absolute/path/to/your/filesystem/source/root
