@@ -78,6 +78,9 @@ def _chunk_ref(meta: Dict[str, Any], doc_id: str = "") -> Dict[str, str]:
     fn = meta.get("file_name") or meta.get("title")
     if fn and fn != "Unknown":
         ref["name"] = fn
+    fp = meta.get("file_path")
+    if fp:
+        ref["path"] = fp
     source, url = meta.get("source"), meta.get("url")
     if source == "wikipedia" and not url and str(doc_id).isdigit():
         # Articles loaded by LlamaIndex's WikipediaReader before 0.8.4 carry no URL or title;
