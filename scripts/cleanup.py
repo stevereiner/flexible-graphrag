@@ -1595,6 +1595,42 @@ def cleanup_rdf_stores():
 # OPENARCH_DATASOURCES_PATH): tests/integration/autosync and run_matrix.py --state-store openarch
 TEST_OPENARCH_ROOTS = ("/fg-e2e-sources", "/fg-e2e-datasources", "/fg-matrix-sources", "/fg-matrix-datasources")
 
+# OpenArch's own OpenSearch (docker/includes/openarch.yaml OPENARCH_SEARCH_HOST): the shared one
+# on 9201 by default, includes/openarch-opensearch.yaml on 9204. OPENARCH_SEARCH_URL overrides.
+OPENARCH_SEARCH_URLS = ("http://localhost:9201", "http://localhost:9204")
+
+
+def purge_openarch_knn(roots):
+    """Delete the chunks left in OpenArch's kNN index (nuxeo_embeddings) under ``roots``.
+
+    OpenArch removes a deleted SysEmbeddings document's chunks from that index asynchronously,
+    and that work can be lost (an OpenArch restart before it runs). The repository is then clean
+    but the index is not, and every kNN query that hits such a chunk fails with a 404 naming its
+    deleted document - no OpenArch search results at all. Returns how many were deleted, or None
+    when no OpenSearch with that index answers."""
+    import urllib.request
+    import urllib.error
+
+    explicit = os.getenv("OPENARCH_SEARCH_URL")
+    urls = (explicit,) if explicit else OPENARCH_SEARCH_URLS
+    should = []
+    for root in roots:
+        root = "/" + root.strip("/")
+        should += [{"term": {"sys_parentPath": root}}, {"prefix": {"sys_parentPath": root + "/"}}]
+    body = json.dumps({"query": {"bool": {"should": should, "minimum_should_match": 1}}}).encode()
+    for url in urls:
+        url = url.rstrip("/")
+        try:
+            urllib.request.urlopen(f"{url}/nuxeo_embeddings", timeout=5).close()
+        except (urllib.error.URLError, OSError):
+            continue  # not up, or no OpenArch index there
+        req = urllib.request.Request(
+            f"{url}/nuxeo_embeddings/_delete_by_query?refresh=true&conflicts=proceed",
+            data=body, headers={"Content-Type": "application/json"}, method="POST")
+        with urllib.request.urlopen(req, timeout=60) as resp:
+            return int(json.load(resp).get("deleted", 0))
+    return None
+
 
 def cleanup_openarch():
     """Delete what Flexible GraphRAG put into OpenArch: with INCREMENTAL_STATE_STORE=openarch, the
@@ -1639,6 +1675,19 @@ def cleanup_openarch():
                 doc = client.get_by_path(path)
                 if doc and client.delete(doc["sys_id"]):
                     print(f"  Deleted the integration tests' tree {path}")
+            # Let OpenArch apply the deletions to its indexes, then remove any chunks it still
+            # left in the kNN index (see purge_openarch_knn)
+            try:
+                client.wait_for_indexing(timeout_seconds=30)
+            except Exception as e:
+                print(f"  OpenArch indexing wait failed: {e}")
+            if content:
+                left = purge_openarch_knn([root, *TEST_OPENARCH_ROOTS])
+                if left is None:
+                    print("  OpenArch kNN index (nuxeo_embeddings) not reachable: not checked for "
+                          "leftover chunks (set OPENARCH_SEARCH_URL)")
+                elif left:
+                    print(f"  Deleted {left} leftover chunk(s) from OpenArch's kNN index")
         finally:
             client.close()
         print("  OpenArch cleanup: SUCCESS")

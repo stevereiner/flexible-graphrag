@@ -57,8 +57,8 @@ class SchemaManager:
         use_ontology = ontology_manager and hasattr(self.app_config, 'use_ontology') and self.app_config.use_ontology
         disable_properties_global = self.app_config.disable_properties if (self.app_config and hasattr(self.app_config, 'disable_properties')) else False
 
-        # Use 4 workers for all LLM providers - Ollama parallel processing now properly configured
-        workers = 4
+        # Concurrent LLM calls per extractor (KG_EXTRACTION_WORKERS, default 4 for all providers)
+        workers = getattr(self.app_config, 'kg_extraction_workers', 4) if self.app_config else 4
 
         # Log LLM provider for debugging
         from config import LLMProvider

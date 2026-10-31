@@ -57,6 +57,11 @@ include:
    - includes/kibana-simple.yaml      # Kibana working configuration
    #- includes/opensearch.yaml      # Commented - using elasticsearch instead
    #- includes/opensearch-dashboards.yaml # OpenSearch web UI (5602); needs the include above
+   # Hyland OpenArch (port 8088) + MongoDB (27017). Its search engine: by default it SHARES the
+   # OpenSearch include above (own indexes); or enable its own below and set
+   # OPENARCH_SEARCH_HOST=openarch-opensearch in docker/.env. See includes/openarch.yaml.
+   #- includes/openarch.yaml
+   #- includes/openarch-opensearch.yaml     # OpenSearch for OpenArch only (9204)
    # Alfresco repository
    #- includes/alfresco.yaml        # Alfresco content management system (26.2 indexes into Elasticsearch/OpenSearch, not Solr)
    # Alfresco's search engine (26.2 dropped Solr). Enable ONE of the two, or NEITHER and set

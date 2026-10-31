@@ -367,6 +367,22 @@ MAX_PATHS_PER_CHUNK=20       # Default: 20, Range: 1-100
 - **Medium (20-30):** Balanced, works for most content ✅ **Recommended**
 - **High (50-100):** Comprehensive, slower, for complex documents
 
+### **Extraction Concurrency (KG_EXTRACTION_WORKERS)**
+
+How many LLM calls each KG extractor makes at once (LlamaIndex's `num_workers`). It applies to all three LlamaIndex extractors (`simple`, `schema`, `dynamic`) with `KG_EXTRACTOR_BACKEND=llamaindex` (the default):
+
+```bash
+KG_EXTRACTION_WORKERS=4      # Default: 4
+```
+
+KG extraction makes one LLM call per chunk and is usually most of an ingest's time. Nearly all of that is waiting on the LLM, so running more calls at once shortens it a lot.
+
+**Guidelines:**
+- **Cloud LLMs (OpenAI, Azure OpenAI, Gemini, Vertex AI, Anthropic, Bedrock, Groq, Fireworks, OpenRouter):** `8-16` makes KG extraction much faster. Lower it if you start getting rate-limit (HTTP 429) errors or retries, which depend on your provider account's limits.
+- **Local LLMs (Ollama, vLLM, LM Studio and other `openai_like` servers):** keep the default `4`. A local server only runs as many requests at once as it is configured for (for Ollama, `OLLAMA_NUM_PARALLEL`, see [Ollama Configuration](../../LLM/OLLAMA-CONFIGURATION.md)); more workers just queue up there and can run into request timeouts.
+
+It doesn't change what gets extracted, only how many chunks are being worked on at once. Restart the backend after changing it.
+
 ### **Combining Extractor with Schema**
 
 The relationship between `KG_EXTRACTOR_TYPE` and `SCHEMA_NAME`:

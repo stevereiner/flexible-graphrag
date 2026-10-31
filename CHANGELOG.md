@@ -2,6 +2,69 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2026-10-30] — OpenArch in the Docker stack, faster KG extraction, OpenArch search fix, Python 3.15 work
+
+### Added
+
+- **OpenArch in the Docker stack:** `docker/includes/openarch.yaml` (Hyland's
+  `openarch-app-jvm` image, default 1.0.81, + MongoDB, on port 8088). It shares
+  `includes/opensearch.yaml` by default, or `includes/openarch-opensearch.yaml` gives it its own
+  OpenSearch (port 9204, `OPENARCH_SEARCH_HOST=openarch-opensearch` in `docker/.env`).
+- **`KG_EXTRACTION_WORKERS`** (default 4): concurrent LLM calls per LlamaIndex KG extractor. 8-16
+  makes KG extraction much faster with cloud LLMs; keep 4 for local LLMs (Ollama etc.).
+- **`GRAPHDB_SPARQL_RESULTS_FORMAT`** (default `json`, or `xml`): RDF search on the LangChain
+  GraphDB graph gets SPARQL JSON / Turtle results instead of XML (see Python 3.15t below).
+
+### Fixed
+
+- **OpenArch search returning no results** after a cleanup: OpenArch can leave a deleted
+  document's chunks in its kNN index, and then every vector query fails. `scripts/cleanup.py` now
+  waits for OpenArch's indexing and removes chunks left under the FG trees (`OPENARCH_SEARCH_URL`
+  if its OpenSearch isn't on 9201 or 9204).
+- `pyarrow` is now a dependency (OpenArch chunk upload); it was only installed through LanceDB.
+
+### Changed
+
+- `env-sample.txt` OpenArch section: explains its two independent uses (`ENABLE_OPENARCH` =
+  search + vector store; `INCREMENTAL_STATE_STORE=openarch` = state store), with a line per
+  embedding kind for the 1024 dimensions OpenArch needs, and `OPENARCH_URL` on 8088.
+- `OPENARCH_URL` defaults to `http://localhost:8088` (was 8080, Alfresco's port), where
+  `docker/includes/openarch.yaml` and KG Spaces Deployment publish OpenArch.
+- Docs: `KG_EXTRACTION_WORKERS` in the README, `KNOWLEDGE-GRAPH-EXTRACTORS.md` and
+  `OLLAMA-CONFIGURATION.md`.
+
+### Python 3.15 and 3.15t
+
+Details, install steps and the full support list: `docs/ADVANCED/PYTHON-3.15.md`.
+
+- **Python 3.15 (regular): being checked, not enabled yet.** `requires-python` is still `<3.15`.
+  With only Chroma and LadybugDB left out (no 3.15 builds), the backend installs and passes
+  ingest, hybrid search and AI query (Qdrant, Elasticsearch, Neo4j, GraphDB RDF; liteparse,
+  LlamaParse, LangChain, CocoIndex); docling is being re-checked. It passed before the code
+  changes below, which apply on 3.15 too.
+- **Python 3.15t (free-threaded): experimental, in progress.** Code changes (they apply on every
+  Python version), each for a package with no free-threaded build or one that turns the GIL back
+  on:
+  - LLM / embedding providers imported only when used (transformers / tokenizers, fastuuid).
+  - Docling falls back to its pypdfium2 PDF backend and skips table structure (docling-parse,
+    opencv).
+  - GCS detector loads without grpcio.
+  - GraphDB RDF search uses SPARQL JSON results (`GRAPHDB_SPARQL_RESULTS_FORMAT`): rdflib's XML
+    parser loads lxml, which turns the GIL back on.
+- **3.15t status:** ingest, hybrid search and AI query pass with the GIL off (Elasticsearch /
+  OpenSearch, Neo4j, ArcadeDB, FalkorDB, GraphDB RDF, OpenArch, full LangChain, incremental sync,
+  LlamaParse, docling without PDF tables). Still blocked: Qdrant and GCS Pub/Sub (grpcio) and
+  liteparse. lxml (docling DOCX / PPTX) still turns the GIL back on.
+
+## [2026-10-24] — after v0.9.0: README and env-sample.txt updates
+
+### Changed
+
+- README: Hyland OpenArch badge; project structure updated for 0.9.0 (new top-level modules,
+  `openarch/`, the Angular UI library).
+- `env-sample.txt`: python-openarch-api is installed with flexible-graphrag (no separate install);
+  `OPENARCH_URL` port note (OpenArch's own 8080, published on 8088).
+
 ## [2026-10-23] — v0.9.0: OpenArch as store and state store, separate Graph / RDF, KG Spaces for Nuxeo
 
 ### Added

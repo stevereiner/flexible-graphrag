@@ -24,7 +24,7 @@ def build_openarch_store(config: Dict[str, Any], embed_dim: Optional[int] = None
             "text-embedding-3-*: OPENAI_EMBEDDING_DIMENSION=%d).",
             OPENARCH_DIMENSION, embed_dim, OPENARCH_DIMENSION, OPENARCH_DIMENSION)
     client = OpenArchClient(
-        url=config.get("url", "http://localhost:8080"),
+        url=config.get("url", "http://localhost:8088"),
         username=config.get("username", "admin"),
         password=config.get("password", "password"),
         repository=config.get("repository", "default"),

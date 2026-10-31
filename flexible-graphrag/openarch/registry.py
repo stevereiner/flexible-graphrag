@@ -305,7 +305,7 @@ class OpenArchRegistry:
 
     def __init__(self, settings: Dict[str, Any]):
         self.client = OpenArchClient(
-            url=settings.get("url", "http://localhost:8080"),
+            url=settings.get("url", "http://localhost:8088"),
             username=settings.get("username", "admin"),
             password=settings.get("password", "password"),
             repository=settings.get("repository", "default"),

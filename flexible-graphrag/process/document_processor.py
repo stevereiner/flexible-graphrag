@@ -141,9 +141,16 @@ class DocumentProcessor:
                     "(set DOCLING_OCR=true for scanned PDFs/images)"
                 )
 
+            # TableFormer (PDF table structure) imports cv2; opencv has no wheel for every
+            # Python build (e.g. free-threaded 3.15), so skip table structure without it
+            import importlib.util
+            do_table_structure = importlib.util.find_spec("cv2") is not None
+            if not do_table_structure:
+                logger.warning("Docling PDF table structure disabled: opencv (cv2) not installed")
+
             # Configure Docling for optimal PDF processing
             pdf_pipeline_kwargs = dict(
-                do_table_structure=True,
+                do_table_structure=do_table_structure,
                 do_picture_classification=True,
                 do_formula_enrichment=True,
                 do_ocr=do_ocr,
@@ -156,7 +163,17 @@ class DocumentProcessor:
                 pdf_pipeline_kwargs['ocr_options'] = ocr_options
 
             pdf_options = PdfPipelineOptions(**pdf_pipeline_kwargs)
-            
+
+            # docling-parse (the default PDF backend) is C++ and has no wheel for every Python
+            # build (e.g. free-threaded 3.15); fall back to docling's pypdfium2 backend then
+            pdf_format_kwargs = dict(pipeline_options=pdf_options)
+            try:
+                import docling_parse  # noqa: F401
+            except ImportError:
+                from docling.backend.pypdfium2_backend import PyPdfiumDocumentBackend
+                pdf_format_kwargs['backend'] = PyPdfiumDocumentBackend
+                logger.info("Docling PDF backend: pypdfium2 (docling-parse not installed)")
+
             # Configure all supported Docling formats
             self.converter = DocumentConverter(
                 allowed_formats=[
@@ -171,7 +188,7 @@ class DocumentProcessor:
                     InputFormat.CSV
                 ],
                 format_options={
-                    InputFormat.PDF: PdfFormatOption(pipeline_options=pdf_options)
+                    InputFormat.PDF: PdfFormatOption(**pdf_format_kwargs)
                 }
             )
             

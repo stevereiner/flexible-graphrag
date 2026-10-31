@@ -18,6 +18,7 @@ from typing import Dict, List, Any, Optional
 from rdflib import Graph
 import os
 import logging
+import threading
 
 try:
     from langchain_community.graphs import OntotextGraphDBGraph
@@ -34,6 +35,40 @@ _KG_NS     = DEFAULT_BASE_NS.rstrip("/") + "/"
 _KG_URI    = DEFAULT_BASE_NS.rstrip("/")
 _ONTO_NS   = DEFAULT_ONTO_NS.rstrip("#") + "#"
 _COMMON_NS = _ONTO_NS.replace("ontology#", "common#")
+
+
+# rdflib's SPARQLStore asks for SPARQL XML results by default, and its XML result parser imports
+# lxml, which re-enables the GIL on free-threaded Python. With "json", ASK/SELECT come back as
+# SPARQL JSON (stdlib json) and CONSTRUCT/DESCRIBE as Turtle (rdflib's own parser).
+_JSON_ACCEPT = "application/sparql-results+json, text/turtle;q=0.9, application/n-triples;q=0.8"
+_graph_construct_lock = threading.Lock()
+
+
+def _new_ontotext_graph(fmt: str, **kwargs):
+    """OntotextGraphDBGraph(**kwargs) whose SPARQLStore requests ``fmt`` results ("json" or "xml").
+
+    OntotextGraphDBGraph creates its store and runs its first queries (connectivity ASK, ontology
+    CONSTRUCT) inside __init__, so for "json" SPARQLStore.response_mime_types is swapped while it is
+    constructed; afterwards the store instance gets a subclass that keeps the JSON Accept header.
+    (Rebinding sparqlstore.SPARQLStore instead recurses: its __init__ calls super(SPARQLStore, ...).)
+    """
+    if (fmt or "json").lower() != "json":
+        return OntotextGraphDBGraph(**kwargs)
+    from rdflib.plugins.stores.sparqlstore import SPARQLStore
+
+    class _JsonResultsSPARQLStore(SPARQLStore):
+        def response_mime_types(self) -> str:
+            return _JSON_ACCEPT
+
+    with _graph_construct_lock:
+        original = SPARQLStore.response_mime_types
+        SPARQLStore.response_mime_types = lambda self: _JSON_ACCEPT
+        try:
+            graph = OntotextGraphDBGraph(**kwargs)
+        finally:
+            SPARQLStore.response_mime_types = original
+    graph.graph.store.__class__ = _JsonResultsSPARQLStore
+    return graph
 
 
 class GraphDBLangChainAdapter(RDFStoreAdapter):
@@ -133,8 +168,10 @@ class GraphDBLangChainAdapter(RDFStoreAdapter):
             }
             """
 
+        results_format = config.get("sparql_results_format") or "json"
         try:
-            self.lc_graph = OntotextGraphDBGraph(
+            self.lc_graph = _new_ontotext_graph(
+                results_format,
                 query_endpoint=self.query_endpoint,
                 query_ontology=ontology_query if not ontology_file else None,
                 local_file=ontology_file,
@@ -165,7 +202,8 @@ class GraphDBLangChainAdapter(RDFStoreAdapter):
                     tmp.write(_stub)
                     _stub_path = tmp.name
                 try:
-                    self.lc_graph = OntotextGraphDBGraph(
+                    self.lc_graph = _new_ontotext_graph(
+                        results_format,
                         query_endpoint=self.query_endpoint,
                         local_file=_stub_path,
                         local_file_format="turtle",

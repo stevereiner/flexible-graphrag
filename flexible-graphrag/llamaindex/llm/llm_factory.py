@@ -10,16 +10,12 @@ import logging
 import os
 
 from llama_index.llms.openai import OpenAI
-from llama_index.llms.openai_like import OpenAILike
-from llama_index.llms.litellm import LiteLLM
-from llama_index.llms.openrouter import OpenRouter
 from llama_index.core.types import PydanticProgramMode
 from llama_index.llms.ollama import Ollama
 from llama_index.llms.google_genai import GoogleGenAI
 from llama_index.llms.azure_openai import AzureOpenAI
 from llama_index.llms.anthropic import Anthropic
 from llama_index.llms.bedrock_converse import BedrockConverse
-from llama_index.llms.groq import Groq
 from llama_index.llms.fireworks import Fireworks
 from llama_index.core.base.llms.types import ChatResponse, MessageRole
 from llama_index.llms.openai.utils import to_openai_message_dicts
@@ -281,6 +277,9 @@ def create_llm(provider: LLMProvider, config: Dict[str, Any]):
         ctx_window, default_max = _GROQ_CONTEXT.get(model, (131072, 32768))
         max_tokens = config.get("max_tokens", default_max)
         logger.info(f"Groq context_window={ctx_window}, max_tokens={max_tokens} (model={model})")
+        # Groq, OpenRouter and OpenAILike are imported where used: they all load
+        # llama_index.llms.openai_like, which imports transformers at module level
+        from llama_index.llms.groq import Groq  # noqa: PLC0415
         return Groq(
             model=model,
             api_key=api_key,
@@ -325,6 +324,8 @@ def create_llm(provider: LLMProvider, config: Dict[str, Any]):
         if api_key_header:
             extra_headers[api_key_header] = config.get("api_key", "local")
             logger.info(f"OpenAI-Like: sending API key via custom header '{api_key_header}'")
+        # Imported here: llama_index.llms.openai_like imports transformers at module level
+        from llama_index.llms.openai_like import OpenAILike  # noqa: PLC0415
         return OpenAILike(
             model=model,
             api_base=api_base,
@@ -367,6 +368,7 @@ def create_llm(provider: LLMProvider, config: Dict[str, Any]):
             # VllmServer targets the non-OpenAI /generate endpoint (plain vllm/vllm image only).
             api_base = config.get("api_base", "http://localhost:8002/v1")
             logger.info("Configuring vLLM via OpenAI-compatible API - Model: %s, API Base: %s, function_calling=%s", model, api_base, is_fc)
+            from llama_index.llms.openai_like import OpenAILike  # noqa: PLC0415
             return OpenAILike(
                 model=model,
                 api_base=api_base,
@@ -403,6 +405,7 @@ def create_llm(provider: LLMProvider, config: Dict[str, Any]):
             kwargs["api_base"] = api_base
         if api_key:
             kwargs["api_key"] = api_key
+        from llama_index.llms.litellm import LiteLLM  # noqa: PLC0415
         return LiteLLM(**kwargs)
 
     elif provider == LLMProvider.OPENROUTER:
@@ -411,6 +414,7 @@ def create_llm(provider: LLMProvider, config: Dict[str, Any]):
             raise ValueError("OpenRouter requires 'api_key' parameter (OPENROUTER_API_KEY)")
         model = config.get("model", "openai/gpt-4o-mini")
         logger.info(f"Configuring OpenRouter LLM - Model: {model}")
+        from llama_index.llms.openrouter import OpenRouter  # noqa: PLC0415
         return OpenRouter(
             model=model,
             api_key=api_key,

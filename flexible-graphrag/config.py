@@ -68,7 +68,7 @@ class SearchDBType(str, Enum):
 def openarch_settings(settings) -> dict:
     """Settings of the OpenArch content repository (ENABLE_OPENARCH), from the OPENARCH_* env vars."""
     return {
-        "url": os.getenv("OPENARCH_URL", "http://localhost:8080"),
+        "url": os.getenv("OPENARCH_URL", "http://localhost:8088"),  # docker/includes/openarch.yaml, KG Spaces Deployment
         "username": os.getenv("OPENARCH_USERNAME", "admin"),
         "password": os.getenv("OPENARCH_PASSWORD", "password"),
         "repository": os.getenv("OPENARCH_REPOSITORY", "default"),
@@ -522,7 +522,8 @@ an aristocratic family that rules the planet Caladan, the rainy planet, since 10
     chunk_overlap: int = 128
     max_triplets_per_chunk: int = 20
     max_paths_per_chunk: int = 20
-    
+    kg_extraction_workers: int = Field(4, description="Concurrent LLM calls per KG extractor (LlamaIndex num_workers)")
+
     # Document processing timeouts (in seconds) - DIFFERENT from LLM timeouts
     docling_timeout: int = Field(600, description="Timeout for single document Docling conversion in seconds (default: 10 minutes) - separate from LLM request timeouts")
     docling_cancel_check_interval: float = Field(0.5, description="How often to check for cancellation during Docling processing in seconds - enables mid-file cancellation")
@@ -1159,7 +1160,8 @@ an aristocratic family that rules the planet Caladan, the rainy planet, since 10
     graphdb_repository: str = Field(default="flexible-graphrag", description="GraphDB repository name")
     graphdb_username: Optional[str] = Field(default="admin", description="GraphDB username")
     graphdb_password: Optional[str] = Field(default="admin", description="GraphDB password")
-    
+    graphdb_sparql_results_format: str = Field(default="json", description="SPARQL results format the LangChain GraphDB graph requests: json (ASK/SELECT as SPARQL JSON, CONSTRUCT as Turtle; no lxml) or xml (rdflib's default)")
+
     # Oxigraph
     oxigraph_store_path: Optional[str] = Field(default=None, description="Oxigraph embedded store directory path (pyoxigraph). Use only when NOT running the Docker container. Mutually exclusive with oxigraph_url.")
     oxigraph_url: Optional[str] = Field(default=None, description="Oxigraph HTTP server URL (e.g. http://localhost:7878). Preferred over oxigraph_store_path — no file locking issues.")
@@ -1244,6 +1246,7 @@ an aristocratic family that rules the planet Caladan, the rainy planet, since 10
                     "repository": self.graphdb_repository,
                     "username": self.graphdb_username,
                     "password": self.graphdb_password,
+                    "sparql_results_format": self.graphdb_sparql_results_format,
                 },
             }
         if rdf_db == "oxigraph":

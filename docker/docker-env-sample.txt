@@ -185,6 +185,11 @@ POSTGRES_INCREMENTAL_URL=postgresql://postgres:password@host.docker.internal:543
 # The two dedicated values need their include enabled in docker-compose.yaml; the two
 # shared values need both alfresco-*search includes left out.
 
+# OpenArch search engine (includes/openarch.yaml) - read by DOCKER COMPOSE, not by the app.
+# OpenArch keeps its own indexes (nuxeo*), so it can share FG's OpenSearch:
+#OPENARCH_SEARCH_HOST=opensearch           # SHARE includes/opensearch.yaml, 9201 (DEFAULT)
+#OPENARCH_SEARCH_HOST=openarch-opensearch  # includes/openarch-opensearch.yaml, 9204 (enable it too)
+
 # ====================================================================
 # LLM providers (host vs container networking)
 # ====================================================================

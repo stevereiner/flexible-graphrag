@@ -11,7 +11,6 @@ from llama_index.embeddings.azure_openai import AzureOpenAIEmbedding
 from llama_index.embeddings.google_genai import GoogleGenAIEmbedding
 from llama_index.embeddings.bedrock import BedrockEmbedding
 from llama_index.embeddings.fireworks import FireworksEmbedding
-from llama_index.embeddings.litellm import LiteLLMEmbedding
 from llama_index.embeddings.openai_like import OpenAILikeEmbedding
 from google.genai.types import EmbedContentConfig
 
@@ -319,6 +318,8 @@ def create_embedding_model(provider: LLMProvider, config: Dict[str, Any], settin
                 kwargs["api_base"] = api_base
             if api_key:
                 kwargs["api_key"] = api_key
+            # Imported here so the backend starts where litellm can't be installed (e.g. free-threaded 3.15)
+            from llama_index.embeddings.litellm import LiteLLMEmbedding  # noqa: PLC0415
             return LiteLLMEmbedding(**kwargs)
 
         elif embedding_kind in ("huggingface", "sentence_transformer"):

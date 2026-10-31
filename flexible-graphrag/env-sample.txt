@@ -78,18 +78,41 @@ SEARCH_DB=elasticsearch
 # ====================================================================
 # OPENARCH CONTENT REPOSITORY (optional, default off)
 # ====================================================================
-# Hyland OpenArch (https://github.com/Hyland/OpenArch) as the search + vector store: when on,
-# VECTOR_DB and SEARCH_DB are not used (PG_GRAPH_DB and RDF_GRAPH_DB still are). Each document is
-# written once per source system at OPENARCH_ROOT_PATH/<source type>/<system id>/<source path>: a CinRemote
-# file with its parsed text (OpenArch's sys_fulltext) and its chunks + embeddings (OpenArch's kNN
-# index). Search fuses OpenArch's hybrid search+vector (kNN + chunk text, fused by OpenSearch
-# inside OpenArch) with the property graph and RDF graph retrievers.
-# OpenArch indexes 1024-dimension vectors only: set the embedding dimension to 1024
-# (OPENAI_EMBEDDING_DIMENSION=1024 for text-embedding-3-small / -large).
-# Uses the python-openarch-api client (installed with flexible-graphrag). OPENARCH_URL: OpenArch's
-# own port is 8080; KG Spaces Deployment publishes it on 8088 (OPENARCH_URL=http://localhost:8088).
+# Hyland OpenArch (https://github.com/Hyland/OpenArch) can be used in two INDEPENDENT ways - turn on
+# either one or both. Both use the OPENARCH_* connection settings below and the
+# python-openarch-api client (installed with flexible-graphrag). OPENARCH_URL: OpenArch's own port
+# is 8080; docker/includes/openarch.yaml and KG Spaces Deployment publish it on 8088 (the default).
+#
+# 1) ENABLE_OPENARCH=true: OpenArch is the SEARCH + VECTOR store (despite the name, it is only
+#    this part; it does not turn on the state store in 2).
+#    VECTOR_DB and SEARCH_DB are then not used (PG_GRAPH_DB and RDF_GRAPH_DB still are). Each document
+#    is written once per source system at OPENARCH_ROOT_PATH/<source type>/<system id>/<source path>:
+#    a CinRemote file with its parsed text (OpenArch's sys_fulltext) and its chunks + embeddings
+#    (OpenArch's kNN index, in the OpenSearch OpenArch uses). Search fuses OpenArch's hybrid
+#    search+vector (kNN + chunk text, fused by OpenSearch inside OpenArch) with the property graph
+#    and RDF graph retrievers.
+#    OpenArch's kNN index takes 1024-dimension vectors only, so the embedding dimension must be 1024:
+#    uncomment the line below for your EMBEDDING_KIND, AND comment out the same variable's line in
+#    the EMBEDDING section (a later line in .env wins):
+#      openai:  text-embedding-3-small / -large shortened to 1024 (replaces OPENAI_EMBEDDING_DIMENSION=1536)
+#      ollama:  Ollama can't shorten vectors - use a 1024 model; mxbai-embed-large is detected as
+#               1024 (replaces OLLAMA_EMBEDDING_MODEL=nomic-embed-text, which is 768)
+#      bedrock: amazon.titan-embed-text-v2:0 is 1024 already (the EMBEDDING section default)
 ENABLE_OPENARCH=false
-#OPENARCH_URL=http://localhost:8080
+#ENABLE_OPENARCH=true
+#OPENAI_EMBEDDING_DIMENSION=1024
+#OLLAMA_EMBEDDING_MODEL=mxbai-embed-large
+
+#
+# 2) INCREMENTAL_STATE_STORE=openarch: OpenArch keeps the incremental registry (data source configs
+#    and document state) instead of PostgreSQL; ENABLE_OPENARCH is not needed for this.
+#    Data sources go in folders at OPENARCH_DATASOURCES_PATH, document state on the source documents
+#    at OPENARCH_ROOT_PATH. Default: postgres. Details, and OPENARCH_DATASOURCES_PATH, are in the
+#    INCREMENTAL UPDATES CONFIGURATION section.
+#INCREMENTAL_STATE_STORE=postgres
+#INCREMENTAL_STATE_STORE=openarch
+
+#OPENARCH_URL=http://localhost:8088   # docker/includes/openarch.yaml port (8080 is Alfresco's)
 #OPENARCH_USERNAME=admin
 #OPENARCH_PASSWORD=password
 #OPENARCH_REPOSITORY=default
@@ -1145,7 +1168,7 @@ EMBEDDING_KIND=openai
 # Per-kind dimension (wins over EMBEDDING_DIMENSION; matches your EMBEDDING_KIND above):
 OPENAI_EMBEDDING_DIMENSION=1536        # text-embedding-3-small
 #OPENAI_EMBEDDING_DIMENSION=3072       # text-embedding-3-large
-#OLLAMA_EMBEDDING_DIMENSION=768        # nomic-embed-text / mxbai-embed-large
+#OLLAMA_EMBEDDING_DIMENSION=768        # nomic-embed-text (mxbai-embed-large: 1024)
 #GOOGLE_EMBEDDING_DIMENSION=768        # gemini-embedding-2-preview
 #VERTEX_EMBEDDING_DIMENSION=768
 #AZURE_EMBEDDING_DIMENSION=1536
@@ -1174,7 +1197,7 @@ OPENAI_EMBEDDING_MODEL=text-embedding-3-small       # 1536 dims
 # WARNING: all-minilm (384 dims, 512 context) is NOT recommended - its 512-token limit causes errors
 # when embedding graph nodes (combined entity + relationship text). Use nomic-embed-text instead.
 # 768 dims, 8192 context - recommended
-OLLAMA_EMBEDDING_MODEL=nomic-embed-text
+OLLAMA_EMBEDDING_MODEL=nomic-embed-text             # 768 dims, 8192 context (OpenArch needs 1024: mxbai-embed-large)
 #OLLAMA_EMBEDDING_MODEL=mxbai-embed-large            # 1024 dims, 512 context - higher quality but limited context
 #OLLAMA_EMBEDDING_MODEL=all-minilm                   # 384 dims, 512 context - NOT RECOMMENDED (context too small)
 
@@ -1444,6 +1467,12 @@ CHUNK_OVERLAP=128
 
 MAX_TRIPLETS_PER_CHUNK=20
 MAX_PATHS_PER_CHUNK=20
+
+# KG_EXTRACTION_WORKERS: concurrent LLM calls per KG extractor (LlamaIndex num_workers). Default 4.
+# KG extraction is most of an ingest's time and is waiting on the LLM, so cloud LLMs (OpenAI etc.)
+# usually ingest much faster with 8-16, until provider rate limits apply. Keep it low for Ollama.
+#KG_EXTRACTION_WORKERS=4
+
 
 # KG_EXTRACTION_TIMEOUT=3600  # Knowledge graph extraction timeout per document
 # KG_CANCEL_CHECK_INTERVAL=2.0  # How often to check for cancellation during KG extraction
@@ -1735,6 +1764,10 @@ GRAPHDB_BASE_URL=http://localhost:7200
 GRAPHDB_REPOSITORY=flexible-graphrag
 GRAPHDB_USERNAME=admin
 GRAPHDB_PASSWORD=admin
+# SPARQL results format for RDF search (LangChain GraphDB graph). json (default): ASK/SELECT come back
+# as SPARQL JSON and CONSTRUCT as Turtle, parsed without lxml (so free-threaded Python keeps the GIL
+# off). xml: rdflib's default (SPARQL XML, parsed with lxml when it is installed).
+#GRAPHDB_SPARQL_RESULTS_FORMAT=json
 
 # Oxigraph  (used when RDF_GRAPH_DB=oxigraph)
 # HTTP mode (preferred — uses Docker container at port 7878, no file locking):

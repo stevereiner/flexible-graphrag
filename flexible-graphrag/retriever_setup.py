@@ -155,6 +155,7 @@ def create_rdf_graph_retriever(config, lc_graph_override=None, source_files=None
                 "repository": getattr(config, "graphdb_repository", "flexible-graphrag"),
                 "username": getattr(config, "graphdb_username", "admin"),
                 "password": getattr(config, "graphdb_password", "admin"),
+                "sparql_results_format": getattr(config, "graphdb_sparql_results_format", "json"),
             }
 
             # Resolve ontology file for schema loading — prefer local files over

@@ -668,6 +668,8 @@ Every pipeline stage can independently run on LlamaIndex or LangChain via env va
 | `KG_EXTRACTOR_BACKEND` | `llamaindex` \| `langchain` | KG extraction from chunks |
 | `RETRIEVAL_FUSION` | `llamaindex` \| `langchain` | Result fusion across retrievers |
 
+**KG extraction speed:** `KG_EXTRACTION_WORKERS` (default `4`) sets how many LLM calls the LlamaIndex KG extractors make at once. Extraction is most of an ingest's time and is mostly waiting on the LLM, so with a cloud LLM (OpenAI, Gemini, Anthropic, etc.) raising it to 8-16 makes KG extraction much faster, up to the provider's rate limits. With a local LLM (Ollama etc.) keep it at `4`. See [Knowledge Graph Extractors - Extraction Concurrency](docs/DATABASES/GRAPH-DATABASES/KNOWLEDGE-GRAPH-EXTRACTORS.md#extraction-concurrency-kg_extraction_workers).
+
 LangChain-only graph stores (ArangoDB, Apache AGE, HugeGraph, SurrealDB, TigerGraph, Cosmos Gremlin) auto-select `GRAPH_BACKEND=langchain`. LlamaIndex-only Spanner (`PG_GRAPH_DB=spanner`) forces `GRAPH_BACKEND=llamaindex` at startup and ignores `GRAPH_BACKEND=langchain` (no LangChain adapter).
 
 **Complete Documentation:** [docs/ADVANCED/LANGCHAIN/LANGCHAIN-GRAPH-INTEGRATION.md](docs/ADVANCED/LANGCHAIN/LANGCHAIN-GRAPH-INTEGRATION.md)
@@ -760,6 +762,7 @@ When using Ollama, configure system-wide environment variables before starting t
 **Key requirements**:
 - Configure environment variables **system-wide** (not in Flexible GraphRAG `.env` file)
 - `OLLAMA_NUM_PARALLEL=4` for optimal performance (or 1-2 if resource constrained)
+- Leave `KG_EXTRACTION_WORKERS` at its default `4` in the Flexible GraphRAG `.env` (the 8-16 suggested for cloud LLMs would just queue up in Ollama)
 - Always restart Ollama service after changing environment variables
 
 See [docs/LLM/OLLAMA-CONFIGURATION.md](docs/LLM/OLLAMA-CONFIGURATION.md) for complete setup instructions including platform-specific steps and performance optimization.

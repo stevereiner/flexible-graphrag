@@ -194,6 +194,7 @@ After configuration, verify the settings are active:
 - `OLLAMA_NUM_PARALLEL=4` enables 4 concurrent requests
 - Higher values require more memory but improve throughput
 - Match this value to your available resources
+- Keep Flexible GraphRAG's `KG_EXTRACTION_WORKERS` (concurrent KG extraction LLM calls, set in its `.env`) at its default `4`, in line with `OLLAMA_NUM_PARALLEL`. The 8-16 that speeds up KG extraction with cloud LLMs only queues up requests in Ollama. See [Extraction Concurrency](../DATABASES/GRAPH-DATABASES/KNOWLEDGE-GRAPH-EXTRACTORS.md#extraction-concurrency-kg_extraction_workers)
 
 ## Additional Resources
 

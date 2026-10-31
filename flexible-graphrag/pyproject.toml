@@ -110,6 +110,8 @@ dependencies = [
     "pydantic-settings",
     # OpenArch REST client (openarch/: ENABLE_OPENARCH, INCREMENTAL_STATE_STORE=openarch); httpx + pydantic only
     "python-openarch-api>=0.1.0",
+    # openarch/writer.py writes chunks + embeddings as Parquet; was only installed via lancedb
+    "pyarrow",
     # LlamaIndex core and integrations
     "llama-index-core",
     "llama-index-llms-openai",

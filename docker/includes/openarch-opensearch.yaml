@@ -1,0 +1,27 @@
+# OpenSearch for OpenArch only (host port 9204), as an alternative to sharing FG's
+# includes/opensearch.yaml. Use with includes/openarch.yaml and OPENARCH_SEARCH_HOST=openarch-opensearch
+# in docker/.env. Security disabled: development only, like OpenArch's own docker-compose.yml.
+
+services:
+  openarch-opensearch:
+    image: opensearchproject/opensearch:${OPENSEARCH_VERSION:-2.19.6}
+    container_name: flexible-graphrag-openarch-opensearch
+    restart: unless-stopped
+    environment:
+      discovery.type: single-node
+      cluster.routing.allocation.disk.threshold_enabled: "false"
+      plugins.security.disabled: "true"
+      DISABLE_INSTALL_DEMO_CONFIG: "true"
+      OPENSEARCH_JAVA_OPTS: -Xms512m -Xmx512m
+    ports:
+      - "${OPENARCH_SEARCH_PORT:-9204}:9200"
+    volumes:
+      - openarch_opensearch_data:/usr/share/opensearch/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs 'http://localhost:9200/_cluster/health?wait_for_status=yellow&timeout=5s' || exit 1"]
+      interval: 10s
+      timeout: 10s
+      retries: 30
+
+volumes:
+  openarch_opensearch_data:

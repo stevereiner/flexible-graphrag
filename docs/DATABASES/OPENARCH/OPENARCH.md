@@ -59,7 +59,7 @@ another port (for example 8088) and set `OPENARCH_URL` to it.
 | Setting | Default | Meaning |
 |---|---|---|
 | `ENABLE_OPENARCH` | `false` | OpenArch as the search + vector store |
-| `OPENARCH_URL` | `http://localhost:8080` | OpenArch's address |
+| `OPENARCH_URL` | `http://localhost:8088` | OpenArch's address (8088: `docker/includes/openarch.yaml` and KG Spaces Deployment; a standalone OpenArch listens on 8080) |
 | `OPENARCH_USERNAME` / `OPENARCH_PASSWORD` | `admin` / `password` | An OpenArch user (HTTP Basic) |
 | `OPENARCH_REPOSITORY` | `default` | The OpenArch repository to write to |
 | `OPENARCH_ROOT_PATH` | `/fg-sources` | The folder ingested documents go under |

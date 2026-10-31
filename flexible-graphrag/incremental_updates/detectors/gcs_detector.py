@@ -25,7 +25,9 @@ try:
     from google.cloud import pubsub_v1
     from google.api_core.exceptions import GoogleAPIError, NotFound
     GCS_AVAILABLE = True
-except ImportError:
+except (ImportError, AttributeError):
+    # AttributeError: without grpcio (e.g. free-threaded 3.15) google.api_core.gapic_v1
+    # loads partially and pubsub_v1 fails on gapic_v1.method instead of an ImportError
     GCS_AVAILABLE = False
     GoogleAPIError = Exception
     NotFound = Exception

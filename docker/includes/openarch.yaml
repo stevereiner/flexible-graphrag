@@ -1,0 +1,102 @@
+# Hyland OpenArch (ENABLE_OPENARCH=true; FG's OpenArch store and INCREMENTAL_STATE_STORE=openarch)
+# Repositories, key/value store, scheduler and configuration in MongoDB (a one-member replica set, so
+# OpenArch gets MongoDB transactions, as in Hyland's own docker-compose.yml). Search, fulltext and
+# embeddings (kNN) go to an OpenSearch, in OpenArch's own indexes: nuxeo, nuxeo_vocabularies,
+# nuxeo_configuration, nuxeo_embeddings (FG's are hybrid_search_vector / hybrid_search_fulltext,
+# Alfresco's alfresco* - they never mix). Which OpenSearch, like ALFRESCO_SEARCH_HOST for Alfresco:
+#
+#   OPENARCH_SEARCH_HOST   include to enable                    host port  notes
+#   opensearch             includes/opensearch.yaml             9201       SHARED with FG - DEFAULT
+#   openarch-opensearch    includes/openarch-opensearch.yaml    9204       OpenArch's own; must set the var
+#
+# Port 8088 (not 8080, Alfresco's). FG: OPENARCH_URL=http://localhost:8088
+# Image: Hyland's published ghcr.io/hyland/openarch-app-jvm at OPENARCH_VERSION, or OPENARCH_IMAGE.
+# Same definition as kg-spaces-deployment's compose.openarch.yaml, minus the graph-storage variants.
+
+services:
+
+  openarch:
+    image: ${OPENARCH_IMAGE:-ghcr.io/hyland/openarch-app-jvm:${OPENARCH_VERSION:-1.0.81}}
+    container_name: flexible-graphrag-openarch
+    restart: unless-stopped
+    # Hyland's image's user
+    user: "33010:1000"
+    depends_on:
+      openarch-mongodb-init:
+        condition: service_completed_successfully
+      openarch-data-init:
+        condition: service_completed_successfully
+      # No depends_on for the OpenSearch: it is either include (OPENARCH_SEARCH_HOST), and compose
+      # rejects one on an undefined service even with required: false. Like alfresco.yaml,
+      # restart: unless-stopped covers starting before it is up.
+    environment:
+      NUXEO_MONGODB_SERVER: openarch-mongodb:27017
+      NUXEO_MONGODB_DBNAME: openarch
+      OPENSEARCH_ADDRESSLIST: http://${OPENARCH_SEARCH_HOST:-opensearch}:9200
+      NUXEO_DATA_DIR: /var/lib/openarch/data
+      JAVA_OPTS: >-
+        -Dnuxeo.mongodb.server=openarch-mongodb:27017
+        -Dnuxeo.mongodb.dbname=openarch
+        -Dopensearch.addressList=http://${OPENARCH_SEARCH_HOST:-opensearch}:9200
+        -Dnuxeo.data.dir=/var/lib/openarch/data
+    # relative paths (the runtime's home) land on the volume too
+    working_dir: /var/lib/openarch
+    ports:
+      - "${OPENARCH_PORT:-8088}:8080"
+    volumes:
+      - openarch_data:/var/lib/openarch
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://localhost:8080/actuator/health | grep -q UP || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 60s
+
+  # One-off: gives the openarch_data volume to Hyland's image user. The published image has no
+  # /var/lib/openarch, so a new volume is root-owned and uploads fail with AccessDeniedException
+  # (kg-spaces' source-built image creates the directory with this owner, so it never hits it)
+  openarch-data-init:
+    image: busybox:1.37
+    container_name: flexible-graphrag-openarch-data-init
+    restart: "no"
+    user: "0:0"
+    command: ["chown", "-R", "33010:1000", "/var/lib/openarch"]
+    volumes:
+      - openarch_data:/var/lib/openarch
+
+  openarch-mongodb:
+    image: mongo:${MONGODB_VERSION:-7.0.39}
+    container_name: flexible-graphrag-openarch-mongodb
+    restart: unless-stopped
+    command: ["mongod", "--replSet", "rs0", "--bind_ip_all"]
+    ports:
+      - "${OPENARCH_MONGODB_PORT:-27017}:27017"
+    volumes:
+      - openarch_mongodb_data:/data/db
+    healthcheck:
+      test: ["CMD-SHELL", "mongosh --quiet --eval 'db.runCommand({ ping: 1 }).ok' | grep -q 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  # One-off: makes openarch-mongodb a one-member replica set (no-op once it is one)
+  openarch-mongodb-init:
+    image: mongo:${MONGODB_VERSION:-7.0.39}
+    container_name: flexible-graphrag-openarch-mongodb-init
+    restart: "no"
+    depends_on:
+      openarch-mongodb:
+        condition: service_healthy
+    command:
+      - mongosh
+      - --host
+      - openarch-mongodb:27017
+      - --quiet
+      - --eval
+      - >-
+        try { rs.status().ok } catch (e) {
+        rs.initiate({_id: "rs0", members: [{_id: 0, host: "openarch-mongodb:27017"}]}) }
+
+volumes:
+  openarch_data:
+  openarch_mongodb_data:
