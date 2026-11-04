@@ -3,6 +3,8 @@
 import logging
 from typing import Any
 
+from ..query_guard import write_reason
+
 _logger = logging.getLogger(__name__)
 
 
@@ -59,7 +61,19 @@ def build_aql_arangodb(graph: Any, llm: Any, include_intermediate: bool, common:
     chain_kwargs = {**common}
     if qa_prompt:
         chain_kwargs["qa_prompt"] = qa_prompt
-    return ArangoGraphQAChain.from_llm(
+    class _ReadOnlyArangoChain(ArangoGraphQAChain):
+        """Runs AQL through graph.db.aql.execute, not graph.query: check it here.
+
+        The library's own check is a plain substring test ('REMOVE' in 'removed'),
+        so it would refuse questions that only mention those words.
+        """
+
+        def _is_read_only_query(self, aql_query: str):
+            reason = write_reason(aql_query, "aql")
+            return reason is None, reason
+
+    chain_kwargs["force_read_only_query"] = True
+    return _ReadOnlyArangoChain.from_llm(
         aql_generation_prompt=AQL_GENERATION_PROMPT,
         aql_examples=_AQL_EXAMPLES,
         return_aql_query=True,

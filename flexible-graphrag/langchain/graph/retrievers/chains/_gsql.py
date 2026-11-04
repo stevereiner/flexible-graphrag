@@ -4,6 +4,8 @@ import logging
 import re as _re
 from typing import Any
 
+from ..query_guard import refuse_writes
+
 _logger = logging.getLogger(__name__)
 
 
@@ -138,6 +140,7 @@ GSQL Query:"""
             if not gsql or "INTERPRET QUERY" not in gsql.upper():
                 _logger.warning("TigerGraph: no valid GSQL generated: %r", gsql)
                 return []
+            refuse_writes(gsql, "gsql")
             _logger.info("TigerGraph GSQL query:\n%s", gsql)
             try:
                 result = self._conn.runInterpretedQuery(gsql)

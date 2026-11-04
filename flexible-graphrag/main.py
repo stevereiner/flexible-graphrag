@@ -3075,6 +3075,15 @@ async def ingest(request: IngestRequest):
         data_source = request.data_source or str(settings.data_source)
         paths = request.paths
 
+        if data_source == "filesystem" and paths:
+            bad = disallowed_ingest_paths(paths, ingest_allowed_roots())
+            if bad:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Path(s) outside the allowed ingest folders: {bad}. Allowed: uploads/, "
+                           "SOURCE_PATHS, and INGEST_ALLOWED_PATHS in the backend .env",
+                )
+
         if data_source == "alfresco" and not request.alfresco_config:
             # Never fall back to the backend's own ALFRESCO_* settings for someone else's ingest:
             # that fallback ignores `paths` (ALFRESCO_PATH, default "/" = the whole repository)
@@ -3311,6 +3320,45 @@ def safe_upload_filename(filename: str) -> Optional[str]:
         return None
 
     return name
+
+
+def disallowed_ingest_paths(paths: List[str], allowed_roots: List[str]) -> List[str]:
+    """The entries of a filesystem ingest's ``paths`` that are not inside an allowed root.
+
+    ``paths`` comes straight from the request body and the API is unauthenticated, so
+    without this any file the server can read (and whose extension the parser accepts)
+    could be ingested and then read back through /api/search (GHSA-2558-gvg9-whcx).
+    Paths are resolved first, so ``..`` segments and symlinks pointing out of a root
+    don't count as inside it.
+    """
+    roots = []
+    for root in allowed_roots:
+        root = str(root).strip().strip('"').strip("'")
+        if not root or "\x00" in root:
+            continue
+        try:
+            roots.append(Path(root).resolve())
+        except (OSError, ValueError):
+            continue
+    bad = []
+    for p in paths:
+        s = str(p).strip().strip('"').strip("'")
+        if not s or "\x00" in s:
+            bad.append(p)
+            continue
+        try:
+            resolved = Path(s).resolve()
+        except (OSError, ValueError):
+            bad.append(p)
+            continue
+        if not any(resolved == r or resolved.is_relative_to(r) for r in roots):
+            bad.append(p)
+    return bad
+
+
+def ingest_allowed_roots() -> List[str]:
+    """uploads/ (where /api/upload writes), SOURCE_PATHS and INGEST_ALLOWED_PATHS."""
+    return ["./uploads", *(settings.source_paths or []), *(settings.ingest_allowed_paths or [])]
 
 
 @app.post("/api/upload")

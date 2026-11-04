@@ -230,6 +230,34 @@ def _cleanup_postgres_vector_store(config: dict) -> None:
         import traceback
         traceback.print_exc()
 
+def _is_connection_error(e: Exception) -> bool:
+    """The store isn't running or reachable (vs. a missing collection / index, which is fine)."""
+    if isinstance(e, (ConnectionError, TimeoutError)):
+        return True
+    msg = f"{type(e).__name__} {e}".lower()
+    return any(s in msg for s in ("connectionerror", "connecterror", "connection refused",
+                                  "actively refused", "failed to establish a new connection",
+                                  "could not connect", "connection timed out"))
+
+def _unreachable_text(e: Exception) -> str:
+    """Short form of a connection error: 'localhost:9201 refused the connection'."""
+    import re
+    m = re.search(r"host='([^']+)', port=(\d+)", str(e))
+    where = f"{m.group(1)}:{m.group(2)}" if m else ""
+    if "refused" in str(e).lower():
+        return f"{where} refused the connection".strip()
+    return f"{where} not reachable".strip() if where else str(e)[:160]
+
+def _direct_client_failed(kind: str, db: str, e: Exception) -> bool:
+    """Report a direct-client failure. True when the store isn't reachable: cleanup FAILED,
+    and the caller returns (the LlamaIndex fallback would fail the same way)."""
+    if _is_connection_error(e):
+        print(f"  {kind} store cleanup: FAILED - {db} not reachable ({_unreachable_text(e)})")
+        return True
+    print(f"  Direct client cleanup failed: {e}")
+    print(f"  Falling back to LlamaIndex method...")
+    return False
+
 def cleanup_vector_store():
     """Delete vector store using LlamaIndex abstractions"""
     print("\n=== Vector Store Cleanup ===")
@@ -282,10 +310,10 @@ def cleanup_vector_store():
                 # Connect to Qdrant
                 if url:
                     client = QdrantClient(url=url, api_key=api_key, check_compatibility=False)
-                    print(f"  Connected to Qdrant: {url}")
+                    print(f"  Connecting to Qdrant: {url}")
                 else:
                     client = QdrantClient(host=host, port=port, check_compatibility=False)
-                    print(f"  Connected to Qdrant: {host}:{port}")
+                    print(f"  Connecting to Qdrant: {host}:{port}")
 
                 # Check if collection exists
                 collections = client.get_collections().collections
@@ -302,8 +330,8 @@ def cleanup_vector_store():
                 return
                 
             except Exception as e:
-                print(f"  Direct client cleanup failed: {e}")
-                print(f"  Falling back to LlamaIndex method...")
+                if _direct_client_failed("Vector", vector_db, e):
+                    return
         
         # For OpenSearch (when used as vector store), use direct client
         elif vector_db.lower() == 'opensearch':
@@ -326,7 +354,7 @@ def cleanup_vector_store():
                     ssl_show_warn=False
                 )
                 
-                print(f"  Connected to OpenSearch: {host}:{port}")
+                print(f"  Connecting to OpenSearch: {host}:{port}")
                 
                 # Check if index exists (OpenSearch uses indices as collections)
                 index_name = config.get('index_name', collection_name)
@@ -341,8 +369,8 @@ def cleanup_vector_store():
                 return
                 
             except Exception as e:
-                print(f"  Direct client cleanup failed: {e}")
-                print(f"  Falling back to LlamaIndex method...")
+                if _direct_client_failed("Vector", vector_db, e):
+                    return
         
         # For Neo4j, use the driver to clear vector index nodes directly
         elif vector_db.lower() == 'neo4j':
@@ -560,7 +588,7 @@ def cleanup_vector_store():
                     client_params['basic_auth'] = (config['username'], config['password'])
 
                 client = Elasticsearch(**client_params)
-                print(f"  Connected to Elasticsearch: {url}")
+                print(f"  Connecting to Elasticsearch: {url}")
 
                 if client.indices.exists(index=index_name):
                     client.indices.delete(index=index_name)
@@ -573,8 +601,8 @@ def cleanup_vector_store():
                 return
 
             except Exception as e:
-                print(f"  Elasticsearch vector cleanup failed: {e}")
-                print(f"  Falling back to LlamaIndex method...")
+                if _direct_client_failed("Vector", vector_db, e):
+                    return
 
         # Chroma: delete collection
         elif vector_db.lower() == 'chroma':
@@ -588,7 +616,7 @@ def cleanup_vector_store():
 
                 if host:
                     client = chromadb.HttpClient(host=host, port=port)
-                    print(f"  Connected to Chroma: {host}:{port}")
+                    print(f"  Connecting to Chroma: {host}:{port}")
                 else:
                     client = chromadb.PersistentClient(path=persist_dir)
                     print(f"  Opened Chroma at: {persist_dir}")
@@ -606,8 +634,8 @@ def cleanup_vector_store():
                 return
 
             except Exception as e:
-                print(f"  Chroma cleanup failed: {e}")
-                print(f"  Falling back to LlamaIndex method...")
+                if _direct_client_failed("Vector", vector_db, e):
+                    return
 
         # Fallback: Create vector store using factory and try LlamaIndex methods
         # (heavy imports deferred to here — direct-client stores never reach this)
@@ -644,6 +672,9 @@ def cleanup_vector_store():
                 else:
                     print(f"  WARNING: No known delete method for {vector_db}")
         except Exception as e:
+            if _is_connection_error(e):
+                print(f"  Vector store cleanup: FAILED - {vector_db} not reachable ({_unreachable_text(e)})")
+                return
             print(f"  Note: {e}")
             print(f"  (Collection may not exist yet)")
         
@@ -724,7 +755,7 @@ def cleanup_search_store():
                         ssl_show_warn=False
                     )
                     
-                    print(f"  Connected to OpenSearch: {host}:{port}")
+                    print(f"  Connecting to OpenSearch: {host}:{port}")
                     
                     # Check if index exists
                     if client.indices.exists(index=index_name):
@@ -761,7 +792,7 @@ def cleanup_search_store():
                     # Connect to Elasticsearch
                     client = Elasticsearch(**client_params)
                     
-                    print(f"  Connected to Elasticsearch: {url}")
+                    print(f"  Connecting to Elasticsearch: {url}")
                     
                     # Check if index exists
                     if client.indices.exists(index=index_name):
@@ -776,8 +807,8 @@ def cleanup_search_store():
                 return
                 
             except Exception as e:
-                print(f"  Direct client cleanup failed: {e}")
-                print(f"  Falling back to LlamaIndex method...")
+                if _direct_client_failed("Search", search_db, e):
+                    return
         
         # Fallback: Create search store using factory and try LlamaIndex methods
         # (heavy imports deferred to here — direct-client stores never reach this)
@@ -821,6 +852,9 @@ def cleanup_search_store():
                 else:
                     print(f"  WARNING: No known delete method for {search_db}")
         except Exception as e:
+            if _is_connection_error(e):
+                print(f"  Search store cleanup: FAILED - {search_db} not reachable ({_unreachable_text(e)})")
+                return
             print(f"  Note: {e}")
             print(f"  (Index may not exist yet)")
         
@@ -1692,6 +1726,13 @@ def cleanup_openarch():
             client.close()
         print("  OpenArch cleanup: SUCCESS")
     except Exception as e:
+        import httpx
+        if isinstance(e, (httpx.ConnectError, httpx.ConnectTimeout, ConnectionError)):
+            # Not running: one line, no traceback
+            url = os.getenv("OPENARCH_URL", "http://localhost:8088")
+            print(f"  OpenArch cleanup: FAILED - not reachable at {url} "
+                  "(is docker/includes/openarch.yaml running?)")
+            return
         print(f"  OpenArch cleanup: FAILED - {e}")
         import traceback
         traceback.print_exc()

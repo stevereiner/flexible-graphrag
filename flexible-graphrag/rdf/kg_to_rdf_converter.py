@@ -120,10 +120,12 @@ def _turtle_literal(value: Any, pred_key: str = None, xsd_type_map: dict = None)
     xsd_type = _infer_xsd_type(value, pred_key=pred_key, xsd_type_map=xsd_type_map)
     if xsd_type == XSD.boolean or isinstance(value, bool):
         return "true" if value else "false"
+    # The branch follows the ontology's declared type, not the value's own: an extracted
+    # string can land in the numeric branches, so they escape too (GHSA-fpmj-f9vr-5gh3).
     if xsd_type == XSD.integer or isinstance(value, int):
-        return f'"{value}"^^<{XSD.integer}>'
+        return f'"{_turtle_escape_string(str(value))}"^^<{XSD.integer}>'
     if xsd_type in (XSD.decimal, XSD.float, XSD.double) or isinstance(value, float):
-        return f'"{value}"^^<{XSD.decimal}>'
+        return f'"{_turtle_escape_string(str(value))}"^^<{XSD.decimal}>'
     # For all other declared types (xsd:date, xsd:dateTime, xsd:anyURI, etc.)
     # emit the value as a string with the declared datatype URI
     if xsd_type != XSD.string:

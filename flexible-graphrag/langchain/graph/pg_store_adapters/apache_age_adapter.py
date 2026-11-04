@@ -36,11 +36,25 @@ References:
 from __future__ import annotations
 
 import logging
+import secrets
 from typing import Any, Dict, List, Optional
 
-from ._graph_docs import normalize_graph_documents
+from ._graph_docs import bare_ident, normalize_graph_documents, sanitize_graph_types
 
 logger = logging.getLogger(__name__)
+
+
+def _dollar_quote(cypher_stmt: str) -> str:
+    """Dollar-quote *cypher_stmt* with a random tag that doesn't occur in it.
+
+    A fixed tag ($cypher$) could be closed by any label or value that contains it,
+    such as ingested document text, leaving the rest to run as SQL
+    (GHSA-3c56-jj76-gvhm).
+    """
+    while True:
+        tag = f"$c{secrets.token_hex(8)}$"
+        if tag not in cypher_stmt:
+            return tag + cypher_stmt + tag
 
 try:
     from langchain_age import AGEGraph, AGEGraphCypherQAChain, AGEVector, DistanceStrategy, SearchType
@@ -166,20 +180,21 @@ class _AGEGraphFixed(AGEGraph):
         producing \\xNN hex sequences for any non-ASCII characters.  PostgreSQL's
         AGE Cypher parser rejects \\x escapes (only JSON escapes are valid).
 
-        Dollar-quoting ($cypher$...$cypher$) passes content as a raw string with
+        Dollar-quoting ($tag$...$tag$) passes content as a raw string with
         no escape processing, so Unicode entity names and properties work cleanly.
         """
-        with self._conn.cursor() as cur:
-            cur.execute("LOAD 'age'")
-            cur.execute('SET search_path = ag_catalog, "$user", public')
-            # Dollar-quoting tag unlikely to appear in any generated Cypher
-            stmt = (
-                "SELECT * FROM cypher(%s, $cypher$"
-                + cypher_stmt
-                + "$cypher$) AS (v agtype)"
-            )
-            cur.execute(stmt, (self.graph_name,))
-        self._conn.commit()
+        try:
+            with self._conn.cursor() as cur:
+                cur.execute("LOAD 'age'")
+                cur.execute('SET search_path = ag_catalog, "$user", public')
+                stmt = "SELECT * FROM cypher(%s, " + _dollar_quote(cypher_stmt) + ") AS (v agtype)"
+                cur.execute(stmt, (self.graph_name,))
+            self._conn.commit()
+        except Exception:
+            # Without this one failed write leaves the transaction aborted and every
+            # later write on the connection fails too
+            self._conn.rollback()
+            raise
 
     def query(self, query_str: str, params: Optional[dict] = None) -> List[Dict[str, Any]]:
         """Override to use dollar-quoting for reads (mirrors _run_write fix).
@@ -207,13 +222,10 @@ class _AGEGraphFixed(AGEGraph):
         # Double-quote every alias so numeric tokens like '1' become '"1" agtype'
         # (a valid but unusual column name) rather than bare '1 agtype' which
         # is rejected by PostgreSQL as a syntax error.
-        col_defs = ", ".join(f'"{a}" agtype' for a in aliases)
+        # (an embedded " is doubled, so an alias can't end its quoted column name)
+        col_defs = ", ".join('"{}" agtype'.format(str(a).replace('"', '""')) for a in aliases)
 
-        stmt = (
-            "SELECT * FROM cypher(%s, $cypher$"
-            + query_str
-            + f"$cypher$) AS ({col_defs})"
-        )
+        stmt = "SELECT * FROM cypher(%s, " + _dollar_quote(query_str) + f") AS ({col_defs})"
 
         logger.debug("AGE read query: %s", query_str[:300])
 
@@ -467,6 +479,10 @@ class ApacheAGEAdapter:
         # Endpoints are frequently absent from doc.nodes; without this they were
         # written by a bare MERGE with no rid and survived incremental delete as
         # orphan stubs that graph QA kept answering from.
+        # Labels can't be parameters, so they go into the Cypher text: reduce every type
+        # to letters, digits and _ first so no write below can be broken out of
+        # (GHSA-3c56-jj76-gvhm). AGE rejects any other label name anyway.
+        sanitize_graph_types(graph_documents, ident=bare_ident)
         normalize_graph_documents(graph_documents, stamp_doc_id=True)
 
         for doc in graph_documents:

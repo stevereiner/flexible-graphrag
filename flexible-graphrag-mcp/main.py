@@ -169,7 +169,8 @@ async def ingest_documents(
 
     Args:
         data_source: Source type (filesystem, cmis, alfresco, nuxeo, web, wikipedia, youtube, s3, gcs, azure_blob, etc.)
-        paths: File path(s) as JSON array for filesystem source
+        paths: File path(s) as JSON array for filesystem source. The backend only accepts paths
+            under uploads/, SOURCE_PATHS or INGEST_ALLOWED_PATHS (its .env); others get a 400.
         enable_sync: Enable automatic change detection and incremental updates
         skip_graph: Skip knowledge graph extraction (faster, vector+search only): both graphs off
         enabled_graph: Build the property graph (PG_GRAPH_DB); unset = the server's DEFAULT_ENABLED_GRAPH

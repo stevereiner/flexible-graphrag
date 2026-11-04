@@ -20,11 +20,61 @@ re-derive endpoints are no longer needed.
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any, Dict, FrozenSet, Iterable, List, Optional
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["source_ref_doc_id", "normalize_graph_documents"]
+__all__ = [
+    "source_ref_doc_id",
+    "normalize_graph_documents",
+    "cypher_ident",
+    "bare_ident",
+    "sanitize_graph_types",
+]
+
+
+def cypher_ident(name: Any, fallback: str = "Entity") -> str:
+    """Make an LLM-extracted label / relationship type safe inside `backticks`.
+
+    Node and relationship types come from document content, so they are untrusted,
+    and Cypher cannot take a label as a parameter. A backtick is the only character
+    that can end a quoted identifier, so it is removed (GHSA-vqrg-773h-4wxc,
+    GHSA-g8hp-rhg7-hff5).
+    """
+    cleaned = str(name if name is not None else "").replace("`", "").strip()
+    return cleaned or fallback
+
+
+_NON_WORD = re.compile(r"\W+")
+
+
+def bare_ident(name: Any, fallback: str = "Entity") -> str:
+    """Make a type safe as an UNQUOTED identifier: letters, digits and ``_`` only.
+
+    For stores whose writes don't quote labels (Ladybug). Runs of anything else
+    become one ``_``; a leading digit gets an ``_`` prefix.
+    """
+    cleaned = _NON_WORD.sub("_", str(name if name is not None else "").strip())
+    if not cleaned.strip("_"):
+        return fallback
+    return "_" + cleaned if cleaned[0].isdigit() else cleaned
+
+
+def sanitize_graph_types(graph_documents: Iterable[Any], ident=cypher_ident) -> None:
+    """Run every node / relationship / endpoint type through *ident*, in place.
+
+    For adapters that hand the documents on (a library writer, DDL and data writes
+    alike), so every later use sees the same clean name.
+    """
+    for doc in graph_documents:
+        for node in getattr(doc, "nodes", None) or []:
+            node.type = ident(node.type, "Entity")
+        for rel in getattr(doc, "relationships", None) or []:
+            rel.type = ident(rel.type, "RELATED_TO")
+            for endpoint in (rel.source, rel.target):
+                if endpoint is not None:
+                    endpoint.type = ident(endpoint.type, "Entity")
 
 
 def source_ref_doc_id(doc: Any) -> str:

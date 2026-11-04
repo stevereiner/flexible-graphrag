@@ -19,6 +19,8 @@ from __future__ import annotations
 import logging
 from typing import Any, ClassVar, List, Optional, Self, Tuple
 
+from .query_guard import WriteQueryRefused, guard_graph, language_for_chain, read_only_queries
+
 logger = logging.getLogger(__name__)
 
 
@@ -306,6 +308,12 @@ try:
             self._top_k = top_k
             self._include_intermediate = include_intermediate
             self._source_files: List[str] = [f for f in (source_files or []) if f]
+            # The chain runs queries the LLM writes on a login that can write: refuse writes
+            try:
+                language = language_for_chain(_resolve_chain_key(graph))
+            except ValueError:
+                language = "cypher"
+            guard_graph(graph, language)
 
         @classmethod
         def from_graph(
@@ -461,8 +469,12 @@ try:
                 logger.debug("LCGraphQARetriever: graph schema is empty — skipping LLM chain call")
                 return []
             try:
-                result = self._chain.invoke({"query": query})
+                with read_only_queries():
+                    result = self._chain.invoke({"query": query})
                 return self._result_to_docs(result, query)
+            except WriteQueryRefused as exc:
+                logger.warning("LCGraphQARetriever: %s", exc)
+                return []
             except Exception as exc:
                 logger.error("LCGraphQARetriever error: %s", exc, exc_info=True)
                 return []
@@ -477,8 +489,12 @@ try:
                 logger.debug("LCGraphQARetriever: graph schema is empty — skipping LLM chain call")
                 return []
             try:
-                result = await self._chain.ainvoke({"query": query})
+                with read_only_queries():
+                    result = await self._chain.ainvoke({"query": query})
                 return self._result_to_docs(result, query)
+            except WriteQueryRefused as exc:
+                logger.warning("LCGraphQARetriever: %s", exc)
+                return []
             except Exception as exc:
                 logger.error("LCGraphQARetriever async error: %s", exc, exc_info=True)
                 return []

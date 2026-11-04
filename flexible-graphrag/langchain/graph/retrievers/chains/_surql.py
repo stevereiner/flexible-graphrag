@@ -4,6 +4,8 @@ import asyncio
 import logging
 from typing import Any
 
+from ..query_guard import refuse_writes
+
 _logger = logging.getLogger(__name__)
 
 
@@ -243,6 +245,7 @@ Answer:"""
             question = str(inputs)
         surql = self._generate_surql(question)
         _logger.debug("LCSurrealDB generated SurrealQL: %s", surql)
+        refuse_writes(surql, "surql")
         results = self._safe_query(surql)
         context = self._format_context(results)
         answer = self._generate_answer(question, context)

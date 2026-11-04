@@ -143,7 +143,10 @@ class Settings(BaseSettings):
     # Data source configuration
     data_source: DataSourceType = DataSourceType.FILESYSTEM
     source_paths: Optional[List[str]] = Field(None, description="Files or folders; CMIS/Alfresco config in env")
-    
+    # Folders a filesystem ingest's `paths` may point into, besides uploads/ and SOURCE_PATHS.
+    # Anything else is refused: the API is unauthenticated (GHSA-2558-gvg9-whcx).
+    ingest_allowed_paths: Optional[List[str]] = Field(None, description="Extra folders filesystem ingest paths may be under")
+
     # Document parser configuration
     document_parser: DocumentParser = DocumentParser.DOCLING
     llamaparse_api_key: Optional[str] = Field(None, description="LlamaParse API key (from env LLAMAPARSE_API_KEY if not set)")
@@ -169,7 +172,7 @@ an aristocratic family that rules the planet Caladan, the rainy planet, since 10
             return DataSourceType.NONE
         return v
 
-    @field_validator('source_paths', mode='before')
+    @field_validator('source_paths', 'ingest_allowed_paths', mode='before')
     @classmethod
     def parse_source_paths(cls, v):
         if isinstance(v, str):

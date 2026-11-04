@@ -534,14 +534,19 @@ class IncrementalUpdateEngine:
         if str(getattr(getattr(cfg, "pg_graph_db", ""), "value", getattr(cfg, "pg_graph_db", ""))).lower() != "nebula":
             return False
         store = graph_index.property_graph_store
-        lit = '"%s"' % doc_id.replace("\\", "\\\\").replace('"', '\\"')
+        def q(value) -> str:
+            # Backslashes first, then quotes: a VID ending in \ must not escape its own
+            # closing quote (GHSA-pq9f-7m69-2739). VIDs come from extracted entity ids.
+            return '"%s"' % str(value).replace("\\", "\\\\").replace('"', '\\"')
+
+        lit = q(doc_id)
         try:
             edges = store.structured_query(
                 "MATCH ()-[r:`Relation__`]->() WHERE r.doc_id == %s "
                 "RETURN src(r) AS s, dst(r) AS d, rank(r) AS k" % lit) or []
             for e in edges:
-                store.structured_query('DELETE EDGE `Relation__` "%s" -> "%s" @%s;' % (
-                    str(e["s"]).replace('"', '\\"'), str(e["d"]).replace('"', '\\"'), int(e["k"] or 0)))
+                store.structured_query('DELETE EDGE `Relation__` %s -> %s @%s;' % (
+                    q(e["s"]), q(e["d"]), int(e["k"] or 0)))
         except Exception as ex:
             logger.warning(f"  Could not delete {prefix}NebulaGraph relationships of {doc_id}: {ex}")
             return False
@@ -552,11 +557,11 @@ class IncrementalUpdateEngine:
         try:
             for row in store.structured_query(
                     "MATCH (e) WHERE e.Props__.ref_doc_id == %s OR id(e) == %s RETURN id(e) AS i" % (lit, lit)) or []:
-                store.structured_query('DELETE VERTEX "%s" WITH EDGE;' % str(row["i"]).replace('"', '\\"'))
+                store.structured_query('DELETE VERTEX %s WITH EDGE;' % q(row["i"]))
             for row in store.structured_query(
                     "MATCH (e:`Entity__`) WHERE e.Props__.doc_id == %s OPTIONAL MATCH (e)-[x]-() "
                     "WITH e, count(x) AS n WHERE n == 0 RETURN id(e) AS i" % lit) or []:
-                store.structured_query('DELETE VERTEX "%s";' % str(row["i"]).replace('"', '\\"'))
+                store.structured_query('DELETE VERTEX %s;' % q(row["i"]))
         except Exception as ex:
             logger.debug(f"  Could not delete {prefix}NebulaGraph chunks / unused entities of {doc_id}: {ex}")
         logger.info(f"  NebulaGraph: deleted {len(edges)} relationship(s) of {doc_id}")

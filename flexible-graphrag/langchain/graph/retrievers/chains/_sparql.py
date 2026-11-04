@@ -13,6 +13,8 @@ _logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 from rdf.kg_to_rdf_converter import DEFAULT_BASE_NS, DEFAULT_ONTO_NS
 
+from ..query_guard import refuse_writes
+
 _KG_NS   = DEFAULT_BASE_NS.rstrip("/") + "/"        # entity instance namespace
 _KG_URI  = DEFAULT_BASE_NS.rstrip("/")              # named-graph URI (no trailing slash)
 _ONTO_NS = DEFAULT_ONTO_NS.rstrip("#") + "#"        # ontology predicate/type namespace
@@ -504,6 +506,7 @@ def build_sparql_graphdb(graph: Any, llm: Any, include_intermediate: bool, commo
         def _execute_query(self, query: str):
             """POST query directly to GraphDB, bypassing rdflib SPARQLStore."""
             import requests as _requests
+            refuse_writes(query, "sparql")
             endpoint = _query_endpoint
             if not endpoint:
                 _logger.warning(

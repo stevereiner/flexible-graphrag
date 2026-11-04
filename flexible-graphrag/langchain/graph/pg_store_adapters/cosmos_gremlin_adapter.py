@@ -273,9 +273,10 @@ class CosmosDBGremlinAdapter:
 
     def _install_escape_patch(self) -> None:
         """Patch GremlinGraph.build_vertex_query / build_edge_query to escape
-        single quotes in property values.  langchain_community embeds values
-        directly into single-quoted Groovy strings with no escaping, which
-        breaks whenever document content contains apostrophes."""
+        single quotes in ids, types, property keys and values.  langchain_community
+        embeds them directly into single-quoted Groovy strings with no escaping, which
+        breaks whenever document content contains apostrophes, and an unescaped key
+        or value is LLM-extracted text that could add its own traversal steps."""
         from langchain_community.graphs.graph_document import Node as _Node, Relationship as _Rel
 
         def _esc(value: Any) -> str:
@@ -288,7 +289,7 @@ class CosmosDBGremlinAdapter:
             safe = _Node(
                 id=_esc(node.id),
                 type=_esc(node.type),
-                properties={k: _esc(v) for k, v in node.properties.items()},
+                properties={_esc(k): _esc(v) for k, v in node.properties.items()},
             )
             return _orig_bvq(safe)
 
@@ -297,7 +298,7 @@ class CosmosDBGremlinAdapter:
                 source=_Node(id=_esc(rel.source.id), type=_esc(rel.source.type)),
                 target=_Node(id=_esc(rel.target.id), type=_esc(rel.target.type)),
                 type=_esc(rel.type),
-                properties={k: _esc(v) for k, v in rel.properties.items()},
+                properties={_esc(k): _esc(v) for k, v in rel.properties.items()},
             )
             result = _orig_beq(safe)
             # langchain_community bug: build_edge_query uses a triple-quoted f-string

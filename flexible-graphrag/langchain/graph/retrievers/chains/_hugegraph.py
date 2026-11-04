@@ -3,6 +3,8 @@
 import logging
 from typing import Any
 
+from ..query_guard import refuse_writes
+
 _logger = logging.getLogger(__name__)
 
 
@@ -152,7 +154,8 @@ Cypher query:"""
             }
 
         def query(self, cypher_query: str, params: dict = {}) -> list:
-            url = f"http://{_hg.address}:{_hg.port}/graphs/{_hg.graph}/cypher"
+            refuse_writes(cypher_query, "cypher")  # this view only serves graph Q&A
+            url =f"http://{_hg.address}:{_hg.port}/graphs/{_hg.graph}/cypher"
             _user = getattr(_hg, "username", None)
             _pwd  = getattr(_hg, "password", None)
             _auth = (_user, _pwd) if _user and _pwd else None

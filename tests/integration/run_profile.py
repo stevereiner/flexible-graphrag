@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import argparse
 import datetime
+import json
 import os
 import shlex
 import signal
@@ -88,6 +89,12 @@ def start_backend(env_file: Path, log_path: Path | None = None) -> subprocess.Po
             env[k] = v
     env["ENV_FILE"] = str(env_file)
     env.setdefault("PYTHONUNBUFFERED", "1")
+    # The backend refuses filesystem ingest paths outside uploads/, SOURCE_PATHS and
+    # INGEST_ALLOWED_PATHS: allow the folders the tests ingest from, unless the env sets it.
+    allowed = [str(BACKEND_DIR.parent / "sample-docs"),
+               env.get("AUTOSYNC_FS_DIR") or str(Path(tempfile.gettempdir()) / "fg-autosync")]
+    allowed += [env[k] for k in ("INTEGRATION_TEST_DIR", "INTEGRATION_WATCH_DIR") if env.get(k)]
+    env.setdefault("INGEST_ALLOWED_PATHS", json.dumps(allowed))
 
     if log_path is None:
         stdout = stderr = None          # inherit terminal (fallback / --no-start mode)

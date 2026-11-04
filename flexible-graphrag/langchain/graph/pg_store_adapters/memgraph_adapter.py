@@ -4,6 +4,8 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict
 
+from ._graph_docs import cypher_ident
+
 logger = logging.getLogger(__name__)
 
 try:
@@ -75,6 +77,9 @@ class MemgraphAdapter:
         MAGE procedures not present in the base Memgraph image.  This override
         uses standard Cypher MERGE / SET so no MAGE installation is required.
         Bolt protocol handles dict parameters correctly (unlike FalkorDB).
+
+        Types are LLM-extracted from document content and Cypher can't parameterize
+        a label, so each one goes through cypher_ident (GHSA-g8hp-rhg7-hff5).
         """
         for document in graph_documents:
             for node in document.nodes:
@@ -82,16 +87,16 @@ class MemgraphAdapter:
                 props["id"] = node.id
                 props.setdefault("name", node.id)
                 self.lc_graph.query(
-                    f"MERGE (n:`{node.type}` {{id: $id}}) SET n += $props "
+                    f"MERGE (n:`{cypher_ident(node.type, 'Entity')}` {{id: $id}}) SET n += $props "
                     "RETURN distinct 'done' AS result",
                     params={"id": node.id, "props": props},
                 )
 
             for rel in document.relationships:
-                rel_type = rel.type.replace(" ", "_").upper()
+                rel_type = cypher_ident(rel.type.replace(" ", "_").upper(), "RELATED_TO")
                 self.lc_graph.query(
-                    f"MATCH (a:`{rel.source.type}` {{id: $src_id}}), "
-                    f"(b:`{rel.target.type}` {{id: $tgt_id}}) "
+                    f"MATCH (a:`{cypher_ident(rel.source.type, 'Entity')}` {{id: $src_id}}), "
+                    f"(b:`{cypher_ident(rel.target.type, 'Entity')}` {{id: $tgt_id}}) "
                     f"MERGE (a)-[r:`{rel_type}`]->(b) SET r += $props "
                     "RETURN distinct 'done' AS result",
                     params={

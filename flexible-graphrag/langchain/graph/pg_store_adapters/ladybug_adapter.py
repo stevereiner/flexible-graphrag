@@ -28,6 +28,8 @@ import logging
 import os
 from typing import Any, Dict, List
 
+from ._graph_docs import bare_ident, sanitize_graph_types
+
 logger = logging.getLogger(__name__)
 
 _ALREADY_EXISTS = "already exists"  # Ladybug error text for duplicate schema pairs
@@ -163,6 +165,11 @@ class LangChainLadybugAdapter:
             return
 
         conn = self.lc_graph.conn
+
+        # Types are LLM-extracted and every statement below uses them as UNQUOTED
+        # table / label names, so reduce them to letters, digits and _ first
+        # (GHSA-8w73-f3gx-g6f8).
+        sanitize_graph_types(graph_documents, ident=bare_ident)
 
         # ---- Phase 0: read existing schema ----------------------------------
         existing_node_types, existing_rel_pairs = self._load_existing_schema(conn)

@@ -4,6 +4,8 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict
 
+from ._graph_docs import cypher_ident
+
 logger = logging.getLogger(__name__)
 
 try:
@@ -103,10 +105,7 @@ class FalkorDBAdapter:
         cannot parameterize are reduced to a backtick-free identifier
         (GHSA-vqrg-773h-4wxc).
         """
-        def _ident(name: Any, fallback: str) -> str:
-            # A backtick is the only character that can end a `quoted` identifier.
-            cleaned = str(name).replace("`", "").strip()
-            return cleaned or fallback
+        _ident = cypher_ident
 
         def _props_clause(prefix: str, props: dict, params: Dict[str, Any]) -> str:
             pairs = []

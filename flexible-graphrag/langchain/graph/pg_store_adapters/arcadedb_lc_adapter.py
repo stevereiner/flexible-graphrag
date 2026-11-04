@@ -17,7 +17,7 @@ import logging
 from collections import defaultdict
 from typing import Any, Dict, Set
 
-from ._graph_docs import normalize_graph_documents
+from ._graph_docs import cypher_ident, normalize_graph_documents, sanitize_graph_types
 
 logger = logging.getLogger(__name__)
 
@@ -269,6 +269,11 @@ class ArcadeDBLangChainAdapter:
         password = self.config.get("password", "playwithdata")
         database = self.config.get("database", "flexible_graphrag")
 
+        # Types are LLM-extracted and go into Cypher / SQL text (DDL, the LangChain
+        # import, the stamp loop below): strip backticks once, here, so every use
+        # sees the same safe name (GHSA-mv9c-5phh-p8xr).
+        sanitize_graph_types(graph_documents)
+
         # Fold relationship endpoints into doc.nodes and stamp name/ref_doc_id so
         # the loops below (type collection, property DDL, post-import stamping)
         # all cover endpoints without re-deriving them.  Also strips the LI
@@ -399,13 +404,13 @@ class ArcadeDBLangChainAdapter:
             try:
                 if _rid:
                     self.lc_graph.query(
-                        f"MATCH (n:`{_vtype}` {{id: $id}}) "
+                        f"MATCH (n:`{cypher_ident(_vtype)}` {{id: $id}}) "
                         f"SET n.name = $name, n.ref_doc_id = $rid",
                         {"id": _vid, "name": _name, "rid": _rid},
                     )
                 else:
                     self.lc_graph.query(
-                        f"MATCH (n:`{_vtype}` {{id: $id}}) SET n.name = $name",
+                        f"MATCH (n:`{cypher_ident(_vtype)}` {{id: $id}}) SET n.name = $name",
                         {"id": _vid, "name": _name},
                     )
             except Exception as exc:

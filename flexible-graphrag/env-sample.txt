@@ -1274,6 +1274,11 @@ DATA_SOURCE=filesystem
 # so the repo's sample-docs/ at the project root is "../sample-docs/".
 SOURCE_PATHS=["../sample-docs/cmispress.txt"]
 
+# Folders that a filesystem ingest's "paths" (REST API / MCP ingest_documents) may point into.
+# uploads/ and SOURCE_PATHS are always allowed. Any other path is refused with a 400, because
+# the API has no authentication and would otherwise read any file on the host.
+# INGEST_ALLOWED_PATHS=["../sample-docs", "C:/Users/me/Documents/graphrag"]
+
 # CMIS Configuration (if using CMIS)
 CMIS_URL=http://localhost:8080/alfresco/api/-default-/public/cmis/versions/1.1/atom
 CMIS_USERNAME=admin
