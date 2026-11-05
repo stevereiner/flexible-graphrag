@@ -180,15 +180,17 @@ def create_llm(provider: LLMProvider, config: Dict[str, Any]):
         )
 
     elif provider == LLMProvider.OLLAMA:
-        model = config.get("model", "llama3.1:8b")
+        model = config.get("model", "gpt-oss:20b")
         base_url = config.get("base_url", "http://localhost:11434")
-        timeout = config.get("timeout", 900.0)
-        logger.info(f"Configuring Ollama LLM - Model: {model}, Base URL: {base_url}, Timeout: {timeout}s")
+        timeout = config.get("timeout", 300.0)
+        context_window = config.get("context_window", 8192)
+        logger.info(f"Configuring Ollama LLM - Model: {model}, Base URL: {base_url}, Timeout: {timeout}s, Context window: {context_window}")
         return Ollama(
             model=model,
             base_url=base_url,
             temperature=config.get("temperature", 0.1),
             request_timeout=timeout,
+            context_window=context_window,
         )
 
     elif provider == LLMProvider.GEMINI:

@@ -2,7 +2,35 @@
 
 All notable changes to this project will be documented in this file.
 
-## [Unreleased] — v0.9.1: security fixes
+## [2026-11-04] — Ollama: context window fix, gpt-oss:20b default, four models retested
+
+### Fixed
+
+- **Ollama: models no longer spill onto the CPU because of an oversized context.** LlamaIndex sent
+  each model's maximum context with every request (32k for `qwen2.5:14b`, 128k for `gpt-oss:20b`),
+  overriding Ollama's own context setting. With `OLLAMA_NUM_PARALLEL=4` that reserved memory for
+  4 such contexts, so on a 24 GB GPU `qwen2.5:14b` grew to 33 GB and ran 35% on the CPU. One LLM
+  call then took minutes, and search, AI query and ingest seemed to hang. The new
+  **`OLLAMA_CONTEXT_WINDOW`** setting (default `8192`) is now sent by both the LlamaIndex and the
+  LangChain Ollama clients.
+
+### Changed
+
+- **`OLLAMA_TIMEOUT` default lowered from 900 to 300 seconds.** It applies to each LLM call. With
+  the model on the GPU, a call takes seconds to about a minute, and a runaway call now fails after
+  5 minutes instead of 15. Set it higher in `.env` for a slow GPU.
+- **Two recommended Ollama models: `qwen2.5:14b` (Alibaba Qwen) and `gpt-oss:20b` (OpenAI).**
+  `gpt-oss:20b` is the `env-sample.txt` default and now also the code's fallback when
+  `OLLAMA_MODEL` isn't set (was `llama3.1:8b`). Four models were retested on an RTX 3090 with the context
+  fix, all fully on the GPU (`docs/LLM/LLM-TESTING-RESULTS.md`):
+  - `qwen2.5:14b`: the most entities on the ontology document.
+  - `gpt-oss:20b`: the cleanest graph on text outside the ontology.
+  - Meta's `llama3.1:8b` and `llama3.2:3b` stay not recommended, now for extraction quality rather
+    than speed. Their earlier "very slow" and "hangs" results were most likely the context bug.
+- `docs/LLM/OLLAMA-CONFIGURATION.md`: `OLLAMA_CONTEXT_WINDOW`, checking `ollama ps` for `100% GPU`,
+  and the Ollama app's Context length slider overriding `OLLAMA_CONTEXT_LENGTH`.
+
+## [2026-11-04] — v0.9.1: security fixes
 
 ### Security
 

@@ -940,13 +940,21 @@ OPENAI_TEMPERATURE=0.0
 # Ollama Configuration (if using Ollama - local LLM)
 # See docs/OLLAMA-CONFIGURATION.md for detailed setup and optimization
 # See docs/LLM/LLM-TESTING-RESULTS.md for full Ollama benchmark results
-# 20B params - RECOMMENDED for graph extraction
+# Two recommended models; either is fine (RTX 3090, 8192 ctx x 4 parallel, both 100% GPU):
+#   qwen2.5:14b (Alibaba Qwen): 15 GB; most entities on ontology docs (company-ontology-test.txt ~90s, 67-70)
+#   gpt-oss:20b (OpenAI):       12 GB; cleanest graph on text outside the ontology (~75-150s, 61-62; reasoning model, time varies)
 OLLAMA_MODEL=gpt-oss:20b
-#OLLAMA_MODEL=llama3.1:8b             # 8B params  - NOT RECOMMENDED: very slow, hangs on 2nd doc
-#OLLAMA_MODEL=llama3.2:3b             # 3B params  - NOT RECOMMENDED: stalls at 8192 context, low entity count
+#OLLAMA_MODEL=qwen2.5:14b
+#OLLAMA_MODEL=llama3.1:8b             # Meta, 8B - NOT RECOMMENDED: fast, but poor on text outside the ontology (metadata as entities, no types)
+#OLLAMA_MODEL=llama3.2:3b             # Meta, 3B - NOT RECOMMENDED: no entity typing, stalls on some documents
 OLLAMA_BASE_URL=http://localhost:11434
-# 15 minutes timeout for graph extraction (default: 900.0)
-OLLAMA_TIMEOUT=900.0
+# Timeout for each LLM call, in seconds (default: 300.0 = 5 minutes)
+OLLAMA_TIMEOUT=300.0
+# Context window sent with every request as num_ctx (default: 8192). This setting, not Ollama's own
+# context length (its app slider or OLLAMA_CONTEXT_LENGTH), decides the context for Flexible GraphRAG.
+# Memory for it is reserved OLLAMA_NUM_PARALLEL times: keep it low enough that `ollama ps` shows
+# 100% GPU. 8192 fits an AI query's retrieved chunks; 4096 can cut them short.
+OLLAMA_CONTEXT_WINDOW=8192
 
 # Azure OpenAI Configuration (if using Azure OpenAI)
 # See docs/LLM-EMBEDDING-CONFIG.md for detailed examples

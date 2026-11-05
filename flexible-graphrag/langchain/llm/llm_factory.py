@@ -76,8 +76,9 @@ def get_langchain_llm(config: Any) -> Any:
         if provider == "ollama":
             from langchain_ollama import ChatOllama
             return ChatOllama(
-                model=llm_config.get("model", "llama3.1:8b"),
+                model=llm_config.get("model", "gpt-oss:20b"),
                 base_url=llm_config.get("base_url", "http://localhost:11434"),
+                num_ctx=llm_config.get("context_window", 8192),
             )
 
         if provider == "gemini":

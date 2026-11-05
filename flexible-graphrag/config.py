@@ -608,11 +608,15 @@ an aristocratic family that rules the planet Caladan, the rainy planet, since 10
                 }
             elif self.llm_provider == LLMProvider.OLLAMA:
                 self.llm_config = {
-                    "model": os.getenv("OLLAMA_MODEL", "llama3.1:8b"),
+                    "model": os.getenv("OLLAMA_MODEL", "gpt-oss:20b"),
                     "base_url": os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"),
                     "embedding_model": os.getenv("EMBEDDING_MODEL", "nomic-embed-text"),
                     "temperature": float(os.getenv("OLLAMA_TEMPERATURE", "0.1")),
-                    "timeout": float(os.getenv("OLLAMA_TIMEOUT", "900.0")),  # 15 minutes for graph extraction
+                    "timeout": float(os.getenv("OLLAMA_TIMEOUT", "300.0")),  # per LLM call; 5 minutes
+                    # Sent as num_ctx on every request. Without it LlamaIndex sends the model's
+                    # maximum (32k-128k), which overrides Ollama's own context setting and,
+                    # times OLLAMA_NUM_PARALLEL, pushes the model partly onto the CPU.
+                    "context_window": int(os.getenv("OLLAMA_CONTEXT_WINDOW", "8192")),
                     "extraction_mode": os.getenv("LLM_EXTRACTION_MODE", "function"),
                 }
             elif self.llm_provider == LLMProvider.AZURE_OPENAI:

@@ -11,7 +11,7 @@ Comprehensive testing results for different LLM and embedding provider combinati
 | **Google Gemini** (gemini-3-flash-preview, gemini-3.1-pro-preview) | ✅ Full entities/relationships | ✅ Works | ✅ Works | **Fixed 2026-03-15**: AFC disabled + `pydantic_program_mode=FUNCTION` required. Note: gemini-3-pro-preview deprecated |
 | **Google Vertex AI** (gemini-2.5-flash) | ✅ Full entities/relationships | ✅ Works | ✅ Works | **Fixed 2026-03-15**: Same fixes as Gemini. Note: `gemini-3-flash-preview` not available on Vertex AI |
 | **Anthropic Claude** (sonnet-4-5, haiku-4-5) | ✅ Full entities/relationships | ✅ Works | ✅ Works | **Fixed 2026-01-09**: Event loop fix restored extraction |
-| **Ollama** (`gpt-oss:20b` recommended — see section below) | ✅ Full entities/relationships | ✅ Works | ✅ Works | Use `gpt-oss:20b` only; `llama3.1:8b`/`llama3.2:3b` not recommended |
+| **Ollama** (`gpt-oss:20b` or `qwen2.5:14b` recommended — see section below) | ✅ Full entities/relationships | ✅ Works | ✅ Works | Use `gpt-oss:20b` or `qwen2.5:14b`; `llama3.1:8b`/`llama3.2:3b` not recommended |
 | **Groq** (openai/gpt-oss-20b, llama-3.3-70b-versatile) | ✅ Full entities/relationships | ✅ Works | ✅ Works | **Fixed 2026-03-17**: LlamaIndex assigned wrong context_window (3900) for Groq models causing `finish_reason: length`. Now fixed with correct context/max_tokens. Uses `DynamicLLMPathExtractor`. |
 | **Fireworks AI** (gpt-oss-120b and others) | ✅ Full entities/relationships | ✅ Works | ✅ Works | **Fixed 2026-03-17**: `max_tokens` defaulted to 256 causing silent truncation. Now set to 32768. Uses `DynamicLLMPathExtractor`. |
 | **Amazon Bedrock** (claude-sonnet, gpt-oss, deepseek-r1, llama3) | ✅ Full entities/relationships | ✅ Works | ✅ Works | Auto-switches to `DynamicLLMPathExtractor`; `use_ontology=True` + `DISABLE_PROPERTIES=true` confirmed working (33 nodes/59 rels, both docs) |
@@ -427,9 +427,10 @@ Search and Q&A confirmed working with Azure OpenAI gpt-4o-mini.
 
 | Model | Status | Notes |
 |-------|--------|-------|
-| `gpt-oss:20b` | ✅ **RECOMMENDED** | Best speed/quality balance — use this |
-| `llama3.1:8b` | ❌ **NOT RECOMMENDED** | Very slow; second doc in same session hangs |
-| `llama3.2:3b` | ❌ **NOT RECOMMENDED** | Stalls at 8192 context on GPU; falls back to 4096 — low entity count |
+| `gpt-oss:20b` (OpenAI) | ✅ **RECOMMENDED** | 12 GB. Good typing on both test documents, including open types for text outside the ontology; doesn't turn file metadata into entities. Reasoning model, so its time varies more between runs |
+| `qwen2.5:14b` (Alibaba, Qwen team) | ✅ **RECOMMENDED** | 15 GB. Most entities and relationships on the ontology document; on `cmispress.txt` it also turns file metadata (path, file type, doc id) into entities |
+| `llama3.1:8b` (Meta) | ❌ **NOT RECOMMENDED** | Fast once on the GPU and fine on the ontology document, but poor on `cmispress.txt`: file metadata as entities, no types, generic `STRING` relationships |
+| `llama3.2:3b` (Meta) | ❌ **NOT RECOMMENDED** | No entity typing (copies ontology IRIs as entities); stalled on `cmispress.txt` even fully on the GPU |
 | `sciphi/triplex` | ❌ Not usable | Extracts 0 entities/relationships, extremely slow |
 
 ### gpt-oss:20b — Detailed Benchmarks (2026-03-14)
@@ -465,18 +466,66 @@ Search and Q&A confirmed working with Azure OpenAI gpt-4o-mini.
 
 `function` mode is faster and produces more Neo4j relationships. `dynamic` mode is slower but uses ontology guidance for entity typing and also produces RDF annotation triples.
 
-### llama3.1:8b — Why Not Recommended
+### Four Ollama models on a 24 GB GPU (2026-11-04)
 
-- ~240s per document (5x slower than `gpt-oss:20b`) on the same hardware (AMD 9950X3D, RTX 5090, 128 GB RAM)
-- Second document in the same session frequently hangs (likely `OLLAMA_NUM_PARALLEL=4` contention)
-- Higher raw entity count than `gpt-oss:20b` in some tests, but speed/reliability tradeoff is not worth it
+**Conditions:** `mxbai-embed-large` embeddings (1024-dim), `OLLAMA_CONTEXT_WINDOW=8192`
+(Flexible GraphRAG `.env`), `OLLAMA_NUM_PARALLEL=4`, `KG_EXTRACTION_WORKERS=4`,
+`SchemaLLMPathExtractor` with `strict=False` (schema + open types), `max_triplets_per_chunk=20`,
+Neo4j property graph only (no RDF store). Ontology: the same 3 files → 16 entity types, 22 relation
+types (the company ontology was used for `cmispress.txt` too). Hardware: NVIDIA RTX 3090 (24 GB),
+Windows 11. Every model fully on the GPU (`ollama ps`: `100% GPU`, context 8192). Graph cleared
+before each model; `cmispress.txt` ingested second, into the same graph.
 
-### llama3.2:3b — Why Not Recommended
+**`company-ontology-test.txt`** (5618 chars, 4 chunks). Two runs for the two recommended models:
 
-- `OLLAMA_CONTEXT_LENGTH=8192`: stalls indefinitely on GPU
-- `OLLAMA_CONTEXT_LENGTH=4096`: works but produces low entity counts; got more entities from `company-ontology-test.txt` than `cmispress.txt` (shorter doc extracted less)
-- Too small for complex SchemaLLMPathExtractor prompts with ontology schemas
-- Second doc in same session hangs
+| Model | Maker | `ollama ps` | Total | KG extraction | Neo4j write | Entities | Relationships (excl. `MENTIONS`) | Typing |
+|-------|-------|-------------|-------|---------------|-------------|----------|-------------------|--------|
+| `gpt-oss:20b` | OpenAI | 12 GB | 74.7s / 151.3s | 56.8s / 131.5s | 10.9s / 12.7s | 62 / 61 | 80 / 80 | ✅ ontology + open |
+| `qwen2.5:14b` | Alibaba (Qwen) | 15 GB | 88.8s / 93.2s | 69.3s / 72.9s | 17.1s / 13.2s | 67 / 70 | 100 / 113 | ✅ ontology |
+| `llama3.1:8b` | Meta | 9.2 GB | 90.8s | 70.0s | 13.7s | — | — | ✅ ontology |
+| `llama3.2:3b` | Meta | 5.9 GB | 48.9s | 35.6s | 5.8s | 39 | 34 | ❌ none |
+
+**`cmispress.txt`** (2480 chars, 2 chunks, 2nd document; a press release the company ontology barely fits):
+
+| Model | Total | KG extraction | Neo4j write | Entities | Relationships (excl. `MENTIONS`) | Result |
+|-------|-------|---------------|-------------|----------|-------------------|--------|
+| `gpt-oss:20b` | 52.1s | 40.5s | 9.3s | ~47 | ~45 | ✅ ORGANIZATION / COMPANY (SAP, Microsoft, Oracle, IBM, EMC, OpenText, Alfresco, OASIS), PERSON (John Newton) |
+| `qwen2.5:14b` | 51.5s | 39.0s | 8.2s | 37 | 36 | ⚠️ COMPANY (8), PERSON, but also file metadata as entities (FILE, PATH, TYPE, METHOD, DATETIME, ID) |
+| `llama3.1:8b` | 41.3s | 32.9s | 6.0s | — | — | ❌ file metadata as entities, no types, generic `STRING` relationships |
+| `llama3.2:3b` | — | stalled | — | — | — | ❌ no answer after 2m19s on 2 chunks (stopped) |
+
+- **Two recommended models,** each with a strength. `gpt-oss:20b` gives the cleanest graph on text
+  outside the ontology and is the smaller of the two. `qwen2.5:14b` extracts the most from text the
+  ontology fits.
+- **Speed is close; don't rank on one run.** `gpt-oss:20b` took 75s on one run and 151s on another
+  for the same output. It's a reasoning model, so the time it spends thinking varies, and its
+  first run came just after switching models. `qwen2.5:14b` varied less (89s and 93s).
+- **File metadata as entities:** LlamaIndex includes a chunk's metadata (`file_path`, `file_type`,
+  `doc_id`, `conversion_method`, `modified_at`) in the text the LLM sees. `gpt-oss:20b` ignores it;
+  `qwen2.5:14b` and `llama3.1:8b` sometimes extract it.
+- `llama3.1:8b` entity counts aren't given: its run wasn't counted in Neo4j. The log's extractor
+  totals (224 entities, 112 relations) count every entity mention, not distinct nodes.
+- Search and AI query respond quickly with each of these models once it is fully on the GPU.
+- Not directly comparable with the RTX 5090 `gpt-oss:20b` table above: different GPU, extractor
+  settings and chunking (4 chunks here, 2 there).
+- **Earlier "very slow" and "hangs" results were most likely a context bug,** not the models. Before
+  `OLLAMA_CONTEXT_WINDOW` existed, LlamaIndex sent the model's maximum context (32k–128k) with
+  every request. `qwen2.5:14b` then took 35 GB, ran 35% on the CPU, and one LLM call took minutes.
+
+### llama3.1:8b (Meta) — Why Not Recommended
+
+- 2026-11-04 (RTX 3090, 8192 context, fully on the GPU): fast (91s for `company-ontology-test.txt`)
+  and the 2nd document no longer hangs. But on `cmispress.txt` it extracted file metadata as
+  entities, typed nothing and linked most entities with a generic `STRING` relationship.
+- Earlier (RTX 5090, 2026-03): ~240s per document and hangs on the 2nd document. Most likely the
+  context bug above (its maximum context is 128k), not the model itself.
+
+### llama3.2:3b (Meta) — Why Not Recommended
+
+- 2026-11-04 (RTX 3090, 8192 context, fully on the GPU): no entity typing on
+  `company-ontology-test.txt`. It copied the ontology's own IRIs in as entities, linked by
+  `RDFS:LABEL` and `URI` relationships. It stalled on `cmispress.txt` (no answer after 2m19s).
+- Too small for complex SchemaLLMPathExtractor prompts with ontology schemas.
 
 ### Configuration Notes
 
@@ -487,7 +536,8 @@ Search and Q&A confirmed working with Azure OpenAI gpt-4o-mini.
 ### Recommended Ollama Config
 
 ```
-OLLAMA_MODEL=gpt-oss:20b
+OLLAMA_MODEL=gpt-oss:20b          # or qwen2.5:14b (both recommended)
+OLLAMA_CONTEXT_WINDOW=8192        # Flexible GraphRAG .env; sent with every request
 OLLAMA_CONTEXT_LENGTH=8192
 OLLAMA_KEEP_ALIVE=1440m
 OLLAMA_MAX_LOADED_MODELS=2
@@ -703,7 +753,7 @@ Successfully tested combinations:
 - ✅ **Google Gemini** (gemini-3-flash-preview, gemini-3.1-pro-preview) - Full graph extraction, SchemaLLMPathExtractor (default)
 - ✅ **Google Vertex AI** (gemini-2.5-flash) - Same as Gemini, SchemaLLMPathExtractor (default)
 - ✅ **Anthropic Claude** (sonnet-4-5, haiku-4-5) - Full graph extraction, SchemaLLMPathExtractor (default)
-- ✅ **Ollama** (`gpt-oss:20b` only) - Local deployment, `SchemaLLMPathExtractor` + function mode; `llama3.1:8b`/`llama3.2:3b` not recommended
+- ✅ **Ollama** (`gpt-oss:20b` or `qwen2.5:14b`) - Local deployment, `SchemaLLMPathExtractor` + function mode; `llama3.1:8b`/`llama3.2:3b` not recommended
 - ✅ **Groq** (gpt-oss-20b, llama-3.3-70b-versatile) - Fast LPU inference, DynamicLLMPathExtractor (auto-switched; SchemaLLMPathExtractor broken due to tool_choice conflict). **Fixed 2026-03-17.**
 - ✅ **Fireworks AI** (gpt-oss-120b, deepseek-v3, etc.) - Full graph extraction, DynamicLLMPathExtractor (streaming mode required). **Fixed 2026-03-17.**
 - ✅ **Amazon Bedrock** (claude-sonnet, gpt-oss, deepseek-r1, llama3) - AWS integration, DynamicLLMPathExtractor; `use_ontology=True` + `DISABLE_PROPERTIES=true` recommended
@@ -736,13 +786,16 @@ All providers listed above work correctly with full database stacks (vector + se
 Note: providers that auto-switch to `DynamicLLMPathExtractor` (Groq, Fireworks, Bedrock, OpenAI-Like, OpenRouter) are unaffected — Dynamic uses `apredict()` (plain text), not tool calls.
 
 ### Local Models (Ollama):
-- ✅ **Only recommended model: `gpt-oss:20b`** (2026-03-14 benchmark, function mode, both stores)
-  - 45s for `company-ontology-test.txt` → 35 Neo4j nodes, 96 rels
-  - 13s for `cmispress.txt` (2nd doc) → cumulative 67 nodes, 142 rels, 675 GraphDB RDF rows
-  - Use `SchemaLLMPathExtractor` + `nomic-embed-text` + `OLLAMA_CONTEXT_LENGTH=8192`
+- ✅ **Recommended: `gpt-oss:20b` (OpenAI, the default) and `qwen2.5:14b` (Alibaba Qwen)** — see
+  [Four Ollama models on a 24 GB GPU](#four-ollama-models-on-a-24-gb-gpu-2026-11-04)
+  - `gpt-oss:20b` on an RTX 5090 (2026-03-14, function mode, both stores): 45s for
+    `company-ontology-test.txt` → 35 Neo4j nodes, 96 rels; 13s for `cmispress.txt` (2nd doc) →
+    cumulative 67 nodes, 142 rels, 675 GraphDB RDF rows
+  - Set `OLLAMA_CONTEXT_WINDOW` (default 8192) and check `ollama ps` shows `100% GPU`
   - `ingestion_storage_mode=both` confirmed: Neo4j + RDF store in one pass
 - ❌ **Not recommended**
-  - `llama3.1:8b` — ~240s/doc (5x slower), second doc hangs — not worth it
-  - `llama3.2:3b` — stalls at 8192 context on GPU; falls back to 4096, low entity count — not usable for schema extraction
+  - `llama3.1:8b` (Meta) — fast once on the GPU, but poor on text outside the ontology (file
+    metadata as entities, no types)
+  - `llama3.2:3b` (Meta) — no entity typing; stalls on some documents
   - `sciphi/triplex` — extracts 0 entities/relationships, extremely slow
 

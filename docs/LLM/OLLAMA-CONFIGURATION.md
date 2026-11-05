@@ -20,6 +20,13 @@ OLLAMA_CONTEXT_LENGTH=8192
 - **16384**: For improved speed and extraction quality
 
 **Important Notes**:
+- This is only Ollama's *default*, used when a request doesn't say. The Ollama desktop app's
+  **Context length** slider overrides `OLLAMA_CONTEXT_LENGTH` (Ollama's `server.log` startup line
+  shows the value in effect).
+- **Flexible GraphRAG sends its own context with every request:** `OLLAMA_CONTEXT_WINDOW` in its
+  `.env` (default `8192`). That value is the one that counts for Flexible GraphRAG, whatever the
+  slider says. Before this setting, LlamaIndex sent the model's maximum (32k for `qwen2.5:14b`,
+  128k for `gpt-oss:20b`), which pushed models partly onto the CPU.
 - The full 128k possible context window for llama3.2:3b requires 16.4GB of RAM for the key-value (KV) cache alone, plus ~3GB for model weights
 - The 128K token context window allows processing ~96,240 words of text in a single interaction
 - By default, inference engines (llama.cpp, transformers, Ollama) store both model weights and KV cache in GPU VRAM when available (fastest)
@@ -142,6 +149,21 @@ After configuration, verify the settings are active:
    - **Windows**: `C:\Users\<username>\AppData\Local\Ollama\server.log`
    - Look for configuration values and GPU/CPU usage information
 
+4. After the first AI query or ingest with a graph, check where the LLM runs:
+   ```
+   ollama ps
+   NAME                        ID              SIZE      PROCESSOR    CONTEXT    UNTIL
+   gpt-oss:20b                 17052f91a42e    12 GB     100% GPU     8192       29 minutes from now
+   mxbai-embed-large:latest    468836162de7    624 MB    100% GPU     512        29 minutes from now
+   ```
+   - The LLM must be listed: Ollama loads it only on the first LLM call. Before that (for example
+     after an ingest without a graph) only the embedding model shows, which says nothing about the
+     LLM.
+   - **PROCESSOR** should say `100% GPU` for the LLM. A split such as `35%/65% CPU/GPU` means part of the
+     model runs on the CPU, and each LLM call can take minutes.
+   - **CONTEXT** should match `OLLAMA_CONTEXT_WINDOW` (default 8192).
+   - **SIZE** grows with the context × `OLLAMA_NUM_PARALLEL`.
+
 ## Troubleshooting
 
 ### Issue: Processing Errors with Multiple Files
@@ -160,16 +182,29 @@ After configuration, verify the settings are active:
 1. **GPU VRAM exhausted**: Context window too large for available VRAM
 2. **CPU fallback**: Model running on CPU instead of GPU
 
+**Check**: run `ollama ps` after the first AI query or graph ingest, once the LLM is listed (not
+just the embedding model). The **PROCESSOR** column should say `100% GPU` for it.
+A split such as `35%/65% CPU/GPU` means part of the model runs on the CPU, which can make one LLM
+call take minutes. **CONTEXT** shows the context in use: it should match `OLLAMA_CONTEXT_WINDOW`.
+
 **Solutions**:
-1. Reduce `OLLAMA_CONTEXT_LENGTH` to 4096
+1. Lower `OLLAMA_CONTEXT_WINDOW` in the Flexible GraphRAG `.env` (memory for it is reserved
+   `OLLAMA_NUM_PARALLEL` times), or lower `OLLAMA_NUM_PARALLEL`
 2. Check debug logs for GPU memory issues
-3. Close other GPU-intensive applications
-4. Consider using a smaller model (e.g., llama3.2:3b instead of gpt-oss:20b)
+3. Close other GPU-intensive applications, and unload models Ollama still holds from earlier
+   requests (`ollama ps`, then `ollama stop <model>`): with `OLLAMA_KEEP_ALIVE=30m` and
+   `OLLAMA_MAX_LOADED_MODELS=4` they stay in GPU memory, and Ollama's `server.log` shows less
+   `available` VRAM when the next model loads. **Docker Model Runner** (Docker Desktop's own local
+   model server on port 12434) holds GPU memory the same way. The Content Lake app deployment
+   requires it, for `ai/mxbai-embed-large` and an Olmo 3 7B or Qwen 2.5 chat model, so when both
+   stacks run on one machine, add up `ollama ps` and `docker model ps`. Free Model Runner's models
+   with `docker model unload`
+4. Consider a smaller model that fits in your GPU memory
 
 ### Issue: "Out of Memory" Errors
 
 **Solution**:
-1. Reduce `OLLAMA_CONTEXT_LENGTH`
+1. Reduce `OLLAMA_CONTEXT_WINDOW` (Flexible GraphRAG `.env`)
 2. Reduce `OLLAMA_MAX_LOADED_MODELS`
 3. Ensure adequate system RAM (16GB+ recommended)
 
@@ -177,9 +212,19 @@ After configuration, verify the settings are active:
 
 ### Model Selection
 
-- **llama3.2:3b**: Lightweight, fast, good for testing
-- **llama3.1:8b**: Balanced performance and quality
-- **gpt-oss:20b**: Higher quality, requires more resources
+Two recommended models; either is fine:
+
+- **gpt-oss:20b** (OpenAI): 12 GB at 8192 context × 4 parallel. The cleanest graph on text outside
+  the ontology. A reasoning model, so its time varies between runs
+- **qwen2.5:14b** (Alibaba, Qwen team): 15 GB. The most entities and relationships on documents the
+  ontology fits; sometimes extracts file metadata (path, file type) as entities
+
+Not recommended for KG extraction:
+
+- **llama3.1:8b** (Meta): fast, but poor on text outside the ontology (metadata as entities, no types)
+- **llama3.2:3b** (Meta): no entity typing, and stalls on some documents
+
+See [LLM Testing Results](LLM-TESTING-RESULTS.md#ollama-models) for the numbers.
 
 ### Resource Requirements
 
@@ -209,7 +254,8 @@ After configuration, verify the settings are active:
 2. ✓ `OLLAMA_NUM_PARALLEL=4` is **critical** for parallel processing
 3. ✓ Always **restart Ollama service** after changing environment variables
 4. ✓ Use `OLLAMA_DEBUG=1` to troubleshoot performance issues
-5. ✓ Adjust `OLLAMA_CONTEXT_LENGTH` based on available resources
+5. ✓ Adjust `OLLAMA_CONTEXT_WINDOW` (Flexible GraphRAG `.env`) based on available GPU memory;
+   `ollama ps` should show `100% GPU`
 
 These settings ensure optimal Ollama performance with Flexible GraphRAG's parallel document processing capabilities.
 

@@ -289,9 +289,10 @@ EMBEDDING_MODEL=nomic-ai/nomic-embed-text-v1.5
 
 ```bash
 LLM_PROVIDER=ollama
-OLLAMA_MODEL=gpt-oss:20b          # Recommended — only model that reliably extracts entities/relationships
-#OLLAMA_MODEL=llama3.1:8b         # Not recommended — 5x slower, hangs on 2nd doc
-#OLLAMA_MODEL=llama3.2:3b         # Not recommended — low entity count, hangs on 2nd doc
+OLLAMA_MODEL=gpt-oss:20b          # Recommended (OpenAI) — cleanest graph outside the ontology, 12 GB
+#OLLAMA_MODEL=qwen2.5:14b         # Recommended (Alibaba Qwen) — most entities on ontology docs, 15 GB
+#OLLAMA_MODEL=llama3.1:8b         # Not recommended (Meta) — poor typing outside the ontology
+#OLLAMA_MODEL=llama3.2:3b         # Not recommended (Meta) — no entity typing, stalls on some docs
 OLLAMA_BASE_URL=http://localhost:11434
 # No EMBEDDING_KIND - uses Ollama embeddings by default
 # EMBEDDING_MODEL=nomic-embed-text (768 dims) — use this, NOT all-minilm (256 token limit causes truncation)
