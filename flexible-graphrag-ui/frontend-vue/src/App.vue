@@ -30,7 +30,7 @@
             <v-tab value="processing">PROCESSING</v-tab>
             <v-tab value="search">HYBRID SEARCH</v-tab>
             <v-tab value="chat">AI CHAT</v-tab>
-            <!-- <v-tab value="graph">Graph</v-tab> -->
+            <v-tab value="graph">GRAPH</v-tab>
           </v-tabs>
 
           <v-card-text>
@@ -63,24 +63,25 @@
                   :configuration-timestamp="configurationTimestamp"
                   @go-to-sources="mainTab = 'sources'"
                   @files-removed="configuredFiles = $event"
+                  @show-graph="showGraph"
                 />
               </v-window-item>
 
               <!-- Search Tab -->
               <v-window-item value="search">
-                <search-tab />
+                <search-tab @show-graph="showGraph" />
               </v-window-item>
 
               <!-- Chat Tab -->
               <v-window-item value="chat">
-                <chat-tab />
+                <chat-tab @show-graph="showGraph" />
               </v-window-item>
-
-              <!-- Graph Tab (hidden for now) -->
-              <!-- <v-window-item value="graph">
-                <graph-tab />
-              </v-window-item> -->
             </v-window>
+            <!-- Graph tab: outside the v-window and kept mounted (hidden when another tab is
+                 selected) so the graph keeps its layout -->
+            <div v-show="mainTab === 'graph'">
+              <graph-tab :request="graphRequest" :active="mainTab === 'graph'" :is-dark-mode="isDarkMode" />
+            </div>
           </v-card-text>
         </v-card>
       </v-container>
@@ -94,6 +95,7 @@ import SourcesTab from './components/SourcesTab.vue';
 import ProcessingTab from './components/ProcessingTab.vue';
 import SearchTab from './components/SearchTab.vue';
 import ChatTab from './components/ChatTab.vue';
+import GraphTab, { GraphRequest } from './components/GraphTab.vue';
 import SourceSignIn from './auth/SourceSignIn.vue';
 
 export default defineComponent({
@@ -103,6 +105,7 @@ export default defineComponent({
     ProcessingTab,
     SearchTab,
     ChatTab,
+    GraphTab,
     SourceSignIn,
   },
   setup() {
@@ -131,6 +134,13 @@ export default defineComponent({
     watch(isDarkMode, (newValue) => {
       localStorage.setItem('vue-theme-mode', newValue ? 'dark' : 'light');
     }, { immediate: true });
+
+    // Graph tab: what to show; "View graph" on other tabs sets it and switches here
+    const graphRequest = ref<GraphRequest | null>(null);
+    const showGraph = (label: string, body: GraphRequest['body']) => {
+      graphRequest.value = { key: Date.now(), label, body };
+      mainTab.value = 'graph';
+    };
 
     const onConfigureProcessing = () => {
       mainTab.value = 'processing';
@@ -223,6 +233,8 @@ export default defineComponent({
       configurationTimestamp,
       onConfigureProcessing,
       onSourcesConfigured,
+      graphRequest,
+      showGraph,
       isDarkMode,
       isLightMode,
       currentTheme,

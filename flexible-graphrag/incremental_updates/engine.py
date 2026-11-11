@@ -7,6 +7,7 @@ Integrates with existing hybrid_system.py for document processing.
 
 import asyncio
 import functools
+import json
 import logging
 import os
 import time
@@ -445,7 +446,7 @@ class IncrementalUpdateEngine:
 
         # Cypher stores / NebulaGraph: by the document's own facts, not by node ownership
         # (see _cypher_graph_delete)
-        if self._cypher_graph_delete(doc_id, graph_index, prefix) or                 self._nebula_graph_delete(doc_id, graph_index, prefix):
+        if self._cypher_graph_delete(doc_id, graph_index, prefix) or                 self._nebula_graph_delete(doc_id, graph_index, prefix) or                 self._ladybug_graph_delete(doc_id, graph_index, prefix) or                 self._spanner_graph_delete(doc_id, graph_index, prefix):
             return
 
         try:
@@ -479,7 +480,28 @@ class IncrementalUpdateEngine:
             logger.debug(f"  Could not delete {prefix}graph data: {e}")
     
     # Property-graph stores that take Cypher through structured_query (ArcadeDB: no parameters)
-    _CYPHER_GRAPH_STORES = {"neo4j", "memgraph", "falkordb", "arcadedb"}
+    _CYPHER_GRAPH_STORES = {"neo4j", "memgraph", "falkordb", "arcadedb", "neptune", "neptune_analytics"}
+
+    # A relationship (or entity) two documents both produce is stored once, owned by one of them.
+    # Before deleting a document's own, hand those another document's chunk still supports (the
+    # chunk MENTIONS both ends) over to that document, so its graph keeps them. Memgraph
+    # creates a new relationship per write, so there the other document has its own copy
+    # already and this one is only deleted.
+    _CYPHER_HAND_OVER = (
+        ("MATCH (a)-[r]->(b) WHERE r.doc_id = $doc_id "
+         "OPTIONAL MATCH (a)-[o]->(b) WHERE type(o) = type(r) AND o.doc_id <> $doc_id "
+         "WITH a, r, b, count(o) AS copies WHERE copies = 0 "
+         "MATCH (c)-[:MENTIONS]->(a), (c)-[:MENTIONS]->(b) "
+         "WHERE c.ref_doc_id IS NOT NULL AND c.ref_doc_id <> $doc_id "
+         "WITH r, collect(c)[0] AS c "
+         "SET r.doc_id = c.ref_doc_id, r.triplet_source_id = c.id, "
+         "r.ref_doc_id = CASE WHEN r.ref_doc_id IS NULL THEN NULL ELSE c.ref_doc_id END", "relationships"),
+        ("MATCH (c)-[:MENTIONS]->(e) WHERE e.doc_id = $doc_id "
+         "AND c.ref_doc_id IS NOT NULL AND c.ref_doc_id <> $doc_id "
+         "WITH e, collect(c)[0] AS c "
+         "SET e.doc_id = c.ref_doc_id, e.triplet_source_id = c.id, "
+         "e.ref_doc_id = CASE WHEN e.ref_doc_id IS NULL THEN NULL ELSE c.ref_doc_id END", "entities"),
+    )
 
     def _cypher_graph_delete(self, doc_id: str, graph_index, prefix: str = "") -> bool:
         """Delete one document's graph data from a Cypher store; False when the store is not one.
@@ -487,9 +509,10 @@ class IncrementalUpdateEngine:
         Entities are shared across documents and carry the doc_id of whichever document created
         them first, so deleting nodes by doc_id (the generic path) both leaves this document's
         relationships between other documents' entities behind and detach-deletes entities that
-        other documents' relationships still use. Instead: the relationships extracted from this
-        document (each carries its doc_id), then its chunks, then entities of this document left
-        with no relationship at all, then the document node.
+        other documents' relationships still use. Instead: hand over what other documents also
+        produced (_CYPHER_HAND_OVER), then the relationships extracted from this document (each
+        carries its doc_id), then its chunks, then entities of this document left with no
+        relationship at all, then the document node.
         """
         cfg = self.config or getattr(self.hybrid_system, "config", None)
         store_type = str(getattr(getattr(cfg, "pg_graph_db", ""), "value", getattr(cfg, "pg_graph_db", ""))).lower()
@@ -506,6 +529,11 @@ class IncrementalUpdateEngine:
             else:
                 store.structured_query(cypher, param_map={"doc_id": doc_id})
 
+        for cypher, what in self._CYPHER_HAND_OVER:
+            try:
+                run(cypher)
+            except Exception as e:  # the delete still runs: as before, shared ones go too
+                logger.warning(f"  Could not hand over {prefix}shared {what} of {doc_id}: {e}")
         try:
             run("MATCH ()-[r]->() WHERE r.doc_id = $doc_id DELETE r")
         except Exception as e:
@@ -527,6 +555,76 @@ class IncrementalUpdateEngine:
                 logger.debug(f"  Could not delete {prefix}{what} of {doc_id}: {e}")
         return True
 
+    def _spanner_graph_delete(self, doc_id: str, graph_index, prefix: str = "") -> bool:
+        """_cypher_graph_delete for Spanner Graph (llama-index-spanner, flexible schema: one node
+        and one edge table, everything but id / label / name / text in a JSON `properties`
+        column). Spanner keeps an edge with its source node (interleaved) and refuses to delete a
+        node another edge points at, so the order is: hand over / delete this document's
+        relationships, hand over its entities, delete its chunks' MENTIONS edges and its chunks,
+        then its entities with no edge left. False when not Spanner (or not the flexible schema)."""
+        cfg = self.config or getattr(self.hybrid_system, "config", None)
+        if str(getattr(getattr(cfg, "pg_graph_db", ""), "value", getattr(cfg, "pg_graph_db", ""))).lower() != "spanner":
+            return False
+        store = graph_index.property_graph_store
+        schema = getattr(store, "schema", None)
+        if schema is None or not getattr(schema, "use_flexible_schema", False) or not schema.graph_exists:
+            return False
+        from adapters.graph.spanner_graph import delete_document
+        node_table = next(iter(schema.node_tables.values())).base_table_name
+        edge_table = next(iter(schema.edge_tables.values())).base_table_name if schema.edge_tables else None
+        try:
+            n = delete_document(lambda gql, params: store.structured_query(gql, param_map=params),
+                                store.impl, node_table, edge_table, doc_id, chunk_label="text_chunk")
+            logger.info(f"  Spanner: deleted {n['relationships_deleted']} relationship(s), {n['chunks']} "
+                        f"chunk(s) and {n['entities_deleted']} entit(y/ies) of {doc_id}; "
+                        f"{n['relationships_kept']} relationship(s) and {n['entities_kept']} entit(y/ies) "
+                        "passed to another document")
+        except Exception as ex:
+            logger.warning(f"  Could not delete {prefix}Spanner graph data of {doc_id}: {ex}")
+            return False
+        try:
+            graph_index.delete_ref_doc(ref_doc_id=doc_id, delete_from_docstore=True)
+        except Exception:
+            logger.debug(f"  {prefix}chunk nodes not found or already deleted")
+        return True
+
+    def _ladybug_graph_delete(self, doc_id: str, graph_index, prefix: str = "") -> bool:
+        """_cypher_graph_delete for Ladybug, whose store's delete(properties) detach-deletes every
+        entity this document mentions, other documents' too. A relationship carries the id of
+        one chunk that produced it (triplet_source_id), an entity its document's ref_doc_id.
+        False when not Ladybug."""
+        cfg = self.config or getattr(self.hybrid_system, "config", None)
+        if str(getattr(getattr(cfg, "pg_graph_db", ""), "value", getattr(cfg, "pg_graph_db", ""))).lower() != "ladybug":
+            return False
+        conn = graph_index.property_graph_store.connection
+        mine = "MATCH (x:Chunk) WHERE x.ref_doc_id = $doc_id MATCH (a)-[r]->(b) WHERE r.triplet_source_id = x.id "
+        steps = (
+            # hand over what another document's chunk also supports (it MENTIONS both ends)
+            (mine + "MATCH (c:Chunk)-[:MENTIONS]->(a), (c)-[:MENTIONS]->(b) WHERE c.ref_doc_id <> $doc_id "
+             "WITH r, min(c.id) AS heir SET r.triplet_source_id = heir", "shared relationships"),
+            ("MATCH (c:Chunk)-[:MENTIONS]->(e) WHERE e.ref_doc_id = $doc_id AND c.ref_doc_id <> $doc_id "
+             "WITH e, min(c.id) AS heir SET e.triplet_source_id = heir", "shared entities"),
+            ("MATCH (c:Chunk), (e) WHERE e.ref_doc_id = $doc_id AND e.triplet_source_id = c.id "
+             "AND c.ref_doc_id <> $doc_id SET e.ref_doc_id = c.ref_doc_id", "shared entities' owner"),
+            (mine + "DELETE r", "relationships"),
+            ("MATCH (c:Chunk) WHERE c.ref_doc_id = $doc_id DETACH DELETE c", "chunks"),
+            ("MATCH (e) WHERE e.ref_doc_id = $doc_id OPTIONAL MATCH (e)-[x]-() "
+             "WITH e, count(x) AS n WHERE n = 0 DELETE e", "unused entities"),
+        )
+        for i, (cypher, what) in enumerate(steps):
+            try:
+                conn.execute(cypher, parameters={"doc_id": doc_id})
+            except Exception as e:
+                if i == 3:  # this document's own relationships: leave it to the generic path
+                    logger.warning(f"  Could not delete {prefix}Ladybug relationships of {doc_id}: {e}")
+                    return False
+                logger.warning(f"  Could not delete/hand over {prefix}Ladybug {what} of {doc_id}: {e}")
+        try:
+            graph_index.delete_ref_doc(ref_doc_id=doc_id, delete_from_docstore=True)
+        except Exception:
+            logger.debug(f"  {prefix}chunk nodes not found or already deleted")
+        return True
+
     def _nebula_graph_delete(self, doc_id: str, graph_index, prefix: str = "") -> bool:
         """_cypher_graph_delete for NebulaGraph (nGQL): its Relation__ edges carrying this doc_id,
         its chunks, then its entities left with no edge at all. False when not NebulaGraph."""
@@ -540,16 +638,54 @@ class IncrementalUpdateEngine:
             return '"%s"' % str(value).replace("\\", "\\\\").replace('"', '\\"')
 
         lit = q(doc_id)
+        mentioned_by: Dict[str, List[str]] = {}  # entity -> chunks of other documents MENTIONing it
+        chunk_doc: Dict[str, str] = {}
+
+        def others(entity: str) -> List[str]:
+            if entity not in mentioned_by:
+                chunks = [str(r["c"]) for r in store.structured_query(
+                    "GO FROM %s OVER `MENTIONS` REVERSELY YIELD src(edge) AS c" % q(entity)) or []]
+                new = [c for c in chunks if c not in chunk_doc]
+                if new:
+                    for r in store.structured_query(
+                            "FETCH PROP ON `Props__` %s YIELD id(vertex) AS i, properties(vertex).ref_doc_id AS r"
+                            % ", ".join(q(c) for c in new)) or []:
+                        chunk_doc[str(r["i"])] = str(r["r"] or "")
+                mentioned_by[entity] = sorted(c for c in chunks if chunk_doc.get(c) not in (None, "", doc_id))
+            return mentioned_by[entity]
+
+        handed = 0
         try:
             edges = store.structured_query(
                 "MATCH ()-[r:`Relation__`]->() WHERE r.doc_id == %s "
                 "RETURN src(r) AS s, dst(r) AS d, rank(r) AS k" % lit) or []
             for e in edges:
-                store.structured_query('DELETE EDGE `Relation__` %s -> %s @%s;' % (
-                    q(e["s"]), q(e["d"]), int(e["k"] or 0)))
+                where = '`Relation__` %s -> %s @%s' % (q(e["s"]), q(e["d"]), int(e["k"] or 0))
+                # One edge per pair, so another document producing it shares this one: if one
+                # of its chunks MENTIONS both ends, hand the edge over instead of deleting it
+                both = sorted(set(others(str(e["s"]))) & set(others(str(e["d"]))))
+                if both:
+                    c = both[0]
+                    store.structured_query("UPDATE EDGE ON %s SET doc_id = %s, ref_doc_id = %s, "
+                                           "triplet_source_id = %s;" % (where, q(chunk_doc[c]), q(chunk_doc[c]), q(c)))
+                    handed += 1
+                else:
+                    store.structured_query("DELETE EDGE %s;" % where)
         except Exception as ex:
             logger.warning(f"  Could not delete {prefix}NebulaGraph relationships of {doc_id}: {ex}")
             return False
+        try:  # this document's entities another document's chunk MENTIONS pass to that document
+            for row in store.structured_query(
+                    "MATCH (e:`Entity__`) WHERE e.Props__.doc_id == %s OR e.Props__.ref_doc_id == %s "
+                    "RETURN id(e) AS i" % (lit, lit)) or []:
+                heirs = others(str(row["i"]))
+                if heirs:
+                    c = heirs[0]
+                    store.structured_query("UPDATE VERTEX ON `Props__` %s SET doc_id = %s, ref_doc_id = %s, "
+                                           "triplet_source_id = %s;" % (q(row["i"]), q(chunk_doc[c]),
+                                                                        q(chunk_doc[c]), q(c)))
+        except Exception as ex:
+            logger.warning(f"  Could not hand over {prefix}NebulaGraph shared entities of {doc_id}: {ex}")
         try:
             graph_index.delete_ref_doc(ref_doc_id=doc_id, delete_from_docstore=True)
         except Exception:
@@ -564,7 +700,8 @@ class IncrementalUpdateEngine:
                 store.structured_query('DELETE VERTEX %s;' % q(row["i"]))
         except Exception as ex:
             logger.debug(f"  Could not delete {prefix}NebulaGraph chunks / unused entities of {doc_id}: {ex}")
-        logger.info(f"  NebulaGraph: deleted {len(edges)} relationship(s) of {doc_id}")
+        logger.info(f"  NebulaGraph: deleted {len(edges) - handed} relationship(s) of {doc_id}, "
+                    f"{handed} shared one(s) passed to another document")
         return True
 
     async def _process_and_insert_to_graph(self, llama_doc, doc_id: str, metadata: FileMetadata) -> int:

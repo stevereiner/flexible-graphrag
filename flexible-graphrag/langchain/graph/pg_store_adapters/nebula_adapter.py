@@ -29,6 +29,14 @@ _PROPS_META_COLS = [
 ]
 
 
+def _edge_rank(doc_key: str, rel_type: str) -> int:
+    """Edge rank for one document's copy of a relationship (0 without a document id: as before)."""
+    if not doc_key:
+        return 0
+    from hashlib import md5
+    return int(md5(f"{doc_key}|{rel_type}".encode("utf-8")).hexdigest()[:15], 16)
+
+
 def _ensure_tags_and_edges(_ex, session=None) -> None:
     """Create all tags, edge types, and indexes that the NebulaGraph adapters need.
 
@@ -444,6 +452,15 @@ class NebulaGraphAdapter:
                 "RETURN type(r), src(r), dst(r), rank(r)")
             for etype, src, dst, rank in edges:
                 self._ex(f"DELETE EDGE `{etype}` {q(src)} -> {q(dst)} @{int(rank or 0)}", space)
+            # Entity vertices are shared and stamped with the document written last: one
+            # stamped with this document that other documents' edges still use passes to one
+            # of them (or a later delete of theirs would leave it behind)
+            for v, heir in rows(
+                    f"MATCH (v:`Props__`)-[x]-() WHERE v.`Props__`.doc_id == {_rid} OR v.`Props__`.ref_doc_id == {_rid} "
+                    "WITH v, collect(coalesce(properties(x).doc_id, properties(x).ref_doc_id)) AS ds "
+                    "RETURN id(v), ds[0]"):
+                if heir:
+                    self._ex(f"UPDATE VERTEX ON `Props__` {q(v)} SET doc_id = {q(heir)}, ref_doc_id = {q(heir)}", space)
             vids = [v for (v,) in rows(
                 f"MATCH (v:`Props__`) WHERE v.`Props__`.doc_id == {_rid} OR v.`Props__`.ref_doc_id == {_rid} "
                 "OPTIONAL MATCH (v)-[x]-() WITH v, count(x) AS n WHERE n == 0 RETURN id(v)")]
@@ -619,10 +636,16 @@ class NebulaGraphAdapter:
                 stored_nodes += 1
 
             # ---- Edges ----------------------------------------------------------
+            # NebulaGraph keeps one edge per (type, source, target, rank): a rank of its own
+            # per document (and relationship type, as Relation__ holds every type) keeps each
+            # document's copy, so a document producing the same relationship as another does
+            # not overwrite its doc_id, and the delete (by doc_id) leaves the other's copy.
+            doc_key = src_meta.get("ref_doc_id") or src_meta.get("doc_id") or ""
             for rel in doc.relationships:
                 src_vid = _esc(rel.source.id)
                 tgt_vid = _esc(rel.target.id)
                 rel_type = rel.type.replace(" ", "_").upper()
+                rank = _edge_rank(doc_key, rel_type)
 
                 if rel_type in existing_edges:
                     # Named edge type — use it directly, populate only columns
@@ -637,13 +660,13 @@ class NebulaGraphAdapter:
                         e_vals = ", ".join(f'"{_esc(v)}"' for v in edge_data.values())
                         self._ex(
                             f'INSERT EDGE `{rel_type}`({e_cols}) '
-                            f'VALUES "{src_vid}" -> "{tgt_vid}":({e_vals})',
+                            f'VALUES "{src_vid}" -> "{tgt_vid}"@{rank}:({e_vals})',
                             space,
                         )
                     else:
                         self._ex(
                             f'INSERT EDGE IF NOT EXISTS `{rel_type}`() '
-                            f'VALUES "{src_vid}" -> "{tgt_vid}":() ',
+                            f'VALUES "{src_vid}" -> "{tgt_vid}"@{rank}:() ',
                             space,
                         )
                 else:
@@ -655,7 +678,7 @@ class NebulaGraphAdapter:
                         rel_vals.append(f'"{_esc(val)}"')
                     self._ex(
                         f'INSERT EDGE `Relation__`({", ".join(rel_cols)}) '
-                        f'VALUES "{src_vid}" -> "{tgt_vid}":({", ".join(rel_vals)})',
+                        f'VALUES "{src_vid}" -> "{tgt_vid}"@{rank}:({", ".join(rel_vals)})',
                         space,
                     )
 

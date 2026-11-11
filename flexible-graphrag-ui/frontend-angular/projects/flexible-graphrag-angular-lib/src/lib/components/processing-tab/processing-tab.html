@@ -301,6 +301,8 @@
   <!-- Success/Error Messages -->
   <div *ngIf="successMessage" class="message success-message">
     {{ successMessage }}
+    <button *ngIf="showGraph.observed && lastStatusData?.status === 'completed' && lastStatusData?.processing_id"
+            mat-button class="graph-button fg-graph-button" (click)="showLastRunGraph()">View graph</button>
     <button mat-icon-button class="close-button" (click)="successMessage = ''" aria-label="Close">
       <mat-icon>close</mat-icon>
     </button>
@@ -367,6 +369,10 @@
             <button *ngIf="jobRunning(job) && job.kind === 'ingest'" mat-stroked-button color="warn"
                     (click)="cancelJob(job)">
               Cancel
+            </button>
+            <button *ngIf="showGraph.observed && job.kind === 'ingest' && job.status === 'completed'" mat-stroked-button
+                    class="nowrap fg-graph-button" (click)="showJobGraph(job)">
+              View graph
             </button>
           </td>
         </tr>

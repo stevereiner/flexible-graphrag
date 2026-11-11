@@ -34,7 +34,13 @@ interface SearchTabProps {
   onHasSearchedChange: (hasSearched: boolean) => void;
   onLastSearchQueryChange: (query: string) => void;
   onIsQueryingChange: (isQuerying: boolean) => void;
+  /** Open the Graph tab on these documents. */
+  onShowGraph?: (label: string, body: { doc_ids: string[] }) => void;
 }
+
+/** The distinct doc ids behind search results / an answer's sources. */
+const docIdsOf = (docs: Array<{ doc_id?: string }>): string[] =>
+  [...new Set(docs.map((d) => d.doc_id).filter((d): d is string => !!d))];
 
 export const SearchTab: React.FC<SearchTabProps> = ({ 
   currentTheme,
@@ -54,6 +60,7 @@ export const SearchTab: React.FC<SearchTabProps> = ({
   onHasSearchedChange,
   onLastSearchQueryChange,
   onIsQueryingChange,
+  onShowGraph,
 }) => {
   // Local state (only for UI-specific state that doesn't need persistence)
   // Search state now comes from props for persistence
@@ -172,9 +179,18 @@ export const SearchTab: React.FC<SearchTabProps> = ({
         <TabPanel value="search" sx={{ p: 0 }}>
           {searchResults.length > 0 && (
             <Box sx={{ mt: 2 }}>
-              <Typography variant="h6" gutterBottom>
-                Search Results ({searchResults.length})
-              </Typography>
+              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <Typography variant="h6" gutterBottom>
+                  Search Results ({searchResults.length})
+                </Typography>
+                {onShowGraph && docIdsOf(searchResults.flatMap((r) => r.documents || [])).length > 0 && (
+                  <Button variant="outlined" size="small"
+                          onClick={() => onShowGraph(`search "${lastSearchQuery}"`,
+                                                     { doc_ids: docIdsOf(searchResults.flatMap((r) => r.documents || [])) })}>
+                    View graph
+                  </Button>
+                )}
+              </Box>
               {searchResults.map((result, index) => (
                 <Paper key={index} sx={{ p: 2, mb: 2 }} elevation={1}>
                   <Typography variant="body2" color="text.secondary" gutterBottom>
@@ -217,6 +233,12 @@ export const SearchTab: React.FC<SearchTabProps> = ({
                 <Typography variant="body2" color="text.secondary" component="div" sx={{ mt: 1.5 }}>
                   <SourceDocs docs={qaSources} label="Sources:" />
                 </Typography>
+              )}
+              {onShowGraph && docIdsOf(qaSources).length > 0 && (
+                <Button variant="outlined" size="small" sx={{ mt: 1.5 }}
+                        onClick={() => onShowGraph(`sources of "${lastSearchQuery}"`, { doc_ids: docIdsOf(qaSources) })}>
+                  View graph of sources
+                </Button>
               )}
             </Paper>
           )}

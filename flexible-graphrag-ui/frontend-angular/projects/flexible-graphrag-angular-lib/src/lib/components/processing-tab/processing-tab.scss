@@ -435,3 +435,12 @@
   overflow-wrap: anywhere;
   line-height: 1.35;
 }
+
+.message .graph-button {
+  margin-left: auto;
+  color: inherit;
+}
+
+button.nowrap {
+  white-space: nowrap;
+}

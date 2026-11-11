@@ -64,8 +64,9 @@ Graph schema:
 CRITICAL RULES — follow every rule exactly or the query will fail:
 1. The ONLY vertex type is __Entity__ (properties: id, name, node_type, source).
    NEVER use any other vertex type name (no Company, Person, Employee, etc.).
-2. The ONLY edge type is __Relationship__ (properties: rel_type, source).
-   NEVER use any other edge type name.
+2. The ONLY edge type is __Relationship__ (properties: rel_type, source). It points from
+   subject to object (Person -WORKS_FOR-> Organization). To follow it backwards (object to
+   subject) use its reverse, reverse___Relationship__. NEVER use any other edge type name.
 3. Use GSQL v1 syntax ONLY.  NEVER use MATCH, v2 patterns, or mix v1 and v2.
 4. Vertex seed set:   Seed = {{__Entity__.*}};
 5. Filter vertices:   Result = SELECT s FROM Seed:s WHERE lower(s.name) LIKE "%keyword%";
@@ -86,7 +87,7 @@ Q: Who works for Acme?
 A: INTERPRET QUERY() FOR GRAPH MyGraph {{
   Seed = {{__Entity__.*}};
   Acme = SELECT s FROM Seed:s WHERE lower(s.name) LIKE "%acme%";
-  Workers = SELECT t FROM Acme:a -(__Relationship__:e)-> :t
+  Workers = SELECT t FROM Acme:a -(reverse___Relationship__:e)-> :t
               WHERE e.rel_type == "WORKS_FOR";
   PRINT Workers;
 }}
@@ -163,6 +164,13 @@ GSQL Query:"""
             answer_raw = self._llm.invoke(qa_prompt)
             answer = answer_raw.content if hasattr(answer_raw, "content") else str(answer_raw)
             return {"result": answer, "intermediate_steps": [{"query": gsql_text, "context": context}]}
+
+        async def ainvoke(self, inputs: dict) -> dict:
+            # The retriever's async path (hybrid search) calls ainvoke; pyTigerGraph is
+            # blocking, so run invoke in a thread (to_thread copies the context, so the
+            # read-only query guard still applies)
+            import asyncio
+            return await asyncio.to_thread(self.invoke, inputs)
 
         def __call__(self, inputs: dict) -> dict:
             return self.invoke(inputs)

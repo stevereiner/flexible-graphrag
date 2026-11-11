@@ -52,6 +52,11 @@ class OpenSearchSearchAdapter(LangChainSearchAdapter):
             http_auth=http_auth,
         )
         super().__init__(store=store, delete_key=delete_key)
+        if (config.get("analyzer") or "standard") != "standard":
+            # OpenSearchVectorSearch builds its own index body, with no settings of ours
+            logger.warning("OpenSearchSearchAdapter: SEARCH_ANALYZER=%s is not applied (LangChain's OpenSearch "
+                           "store sets no analyzer); the index uses OpenSearch's standard analyzer",
+                           config["analyzer"])
         logger.info(
             "OpenSearchSearchAdapter: index=%s at %s",
             config.get("index_name", "hybrid_search_fulltext"),

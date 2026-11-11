@@ -61,22 +61,48 @@ def _dedup_and_sum_scores(nodes: List[NodeWithScore]) -> List[NodeWithScore]:
     return sorted(groups.values(), key=lambda x: x.score or 0.0, reverse=True)
 
 
+def _rescale_and_cut(nodes: List[NodeWithScore], min_relative: float) -> List[NodeWithScore]:
+    """Drop results below ``min_relative`` × the top score, then rescale so the top is 1.0.
+
+    Fused ``relative_score`` scores only rank results against each other: a chunk only one of
+    N retrievers finds tops out at 1/N, and each retriever's weakest hit is 0 however close it
+    was. Weak vector matches from unrelated documents land far below the top
+    (SEARCH_MIN_RELATIVE_SCORE). ``nodes`` is sorted best first.
+    """
+    top = max((n.score or 0.0 for n in nodes), default=0.0)
+    if top <= 0:
+        return nodes
+    kept = [n for n in nodes if (n.score or 0.0) >= min_relative * top] if min_relative > 0 else nodes
+    if len(kept) < len(nodes):
+        logger.info(f"Score cutoff {min_relative} x top {top:.3f}: dropped {len(nodes) - len(kept)} of {len(nodes)} results")
+    for n in kept:
+        n.score = (n.score or 0.0) / top
+    return kept
+
+
+def _fuse(nodes: List[NodeWithScore], config: Any) -> List[NodeWithScore]:
+    """Summed per-text scores (``_dedup_and_sum_scores``), cut and rescaled (``_rescale_and_cut``)."""
+    return _rescale_and_cut(_dedup_and_sum_scores(nodes),
+                            float(getattr(config, "search_min_relative_score", 0.1) or 0.0))
+
+
 class _DeduplicatingRetriever(BaseRetriever):
-    """Thin wrapper that applies ``_dedup_and_sum_scores`` after retrieval.
+    """Thin wrapper that applies ``_fuse`` after retrieval.
 
     Used by ``get_query_engine`` so that the ``RetrieverQueryEngine`` LLM
-    synthesis step also benefits from properly fused scores.
+    synthesis step (AI query, AI chat) gets the same fused, cut scores as search.
     """
 
-    def __init__(self, inner: BaseRetriever) -> None:
+    def __init__(self, inner: BaseRetriever, config: Any = None) -> None:
         self._inner = inner
+        self._config = config
         super().__init__()
 
     def _retrieve(self, query_bundle: QueryBundle) -> List[NodeWithScore]:
-        return _dedup_and_sum_scores(self._inner.retrieve(query_bundle))
+        return _fuse(self._inner.retrieve(query_bundle), self._config)
 
     async def _aretrieve(self, query_bundle: QueryBundle) -> List[NodeWithScore]:
-        return _dedup_and_sum_scores(await self._inner.aretrieve(query_bundle))
+        return _fuse(await self._inner.aretrieve(query_bundle), self._config)
 
 
 _PREFIXES_TO_REMOVE = [
@@ -423,7 +449,7 @@ async def search(system, query: str, top_k: int = 10, scope_doc_ids=None) -> Lis
                 raw_results = await build_scoped_retriever(system, scope_doc_ids).aretrieve(query_bundle)
             else:
                 raw_results = await system.hybrid_retriever.aretrieve(query_bundle)
-            raw_results = _dedup_and_sum_scores(raw_results)
+            raw_results = _fuse(raw_results, system.config)
             break
         except Exception as e:
             error_msg = str(e)
@@ -834,10 +860,10 @@ def get_query_engine(system, scope_doc_ids=None, **kwargs):
         raise ValueError("System not initialized. Please ingest documents first.")
 
     try:
-        retriever = _DeduplicatingRetriever(system.hybrid_retriever)
+        retriever = _DeduplicatingRetriever(system.hybrid_retriever, system.config)
         if scope_doc_ids is not None:
             from scope_filter import build_scoped_retriever
-            retriever = _DeduplicatingRetriever(build_scoped_retriever(system, scope_doc_ids))
+            retriever = _DeduplicatingRetriever(build_scoped_retriever(system, scope_doc_ids), system.config)
         return RetrieverQueryEngine.from_args(
             retriever=retriever,
             llm=system.llm,

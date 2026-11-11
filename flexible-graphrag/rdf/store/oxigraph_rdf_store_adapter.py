@@ -1,6 +1,6 @@
 from typing import Optional, Dict, List, Any
 from rdflib import Graph
-from .rdf_store_adapter import RDFStoreAdapter
+from .rdf_store_adapter import RDFStoreAdapter, shared_delete_update
 import logging
 import requests as http_requests
 
@@ -147,15 +147,9 @@ class OxigraphAdapter(RDFStoreAdapter):
             return False
 
     def delete_doc(self, ref_doc_id: str, graph_uri: Optional[str] = None) -> None:
-        """Delete all triples for a specific document from Oxigraph via SPARQL UPDATE.
-
-        Three-pass delete:
-        1. Entity triples whose subject has onto:ref_doc_id.
-        2. RDF 1.2 blank-node reifier triples (Oxigraph stores {| |} as blank-node
-           reifiers: _:b rdf:reifies <<( s p o )>> ; prop val). Reachable as ordinary
-           blank-node subjects.
-        3. RDF 1.2 triple-pattern pass using <<( )>> syntax for any reifiers stored
-           as triple-terms rather than blank nodes (belt-and-suspenders).
+        """Take a document out of Oxigraph via SPARQL UPDATE, keeping what other documents share
+        (shared_delete_update). Oxigraph 0.5 (RDF 1.2) makes each {| |} block its own reifier:
+        ``_:r rdf:reifies <<( s p o )>> ; onto:ref_doc_id "d"``.
         Skips silently if the named graph does not exist yet.
         """
         if self._mode == "http" and graph_uri and not self._graph_exists(graph_uri):
@@ -164,24 +158,7 @@ class OxigraphAdapter(RDFStoreAdapter):
                 graph_uri, ref_doc_id,
             )
             return
-        onto_ns = "https://integratedsemantics.org/flexible-graphrag/ontology#"
-        graph_clause = f"GRAPH <{graph_uri}>" if graph_uri else "GRAPH ?g"
-        escaped = ref_doc_id.replace("\\", "\\\\").replace('"', '\\"')
-        update_query = f"""PREFIX onto: <{onto_ns}>
-PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
-
-DELETE {{ {graph_clause} {{ ?s ?p ?o }} }}
-WHERE  {{ {graph_clause} {{ ?s ?p ?o ; onto:ref_doc_id "{escaped}" }} }} ;
-
-DELETE {{ {graph_clause} {{ ?reifier ?rp ?ro }} }}
-WHERE  {{
-  {graph_clause} {{
-    ?reifier onto:ref_doc_id "{escaped}" .
-    ?reifier ?rp ?ro .
-    FILTER(isBlank(?reifier) || (isIRI(?reifier) && STRSTARTS(STR(?reifier), "urn:")))
-  }}
-}}
-"""
+        update_query = shared_delete_update(ref_doc_id, graph_uri, reifiers=True)
         try:
             resp = http_requests.post(
                 f"{self.url}/update",

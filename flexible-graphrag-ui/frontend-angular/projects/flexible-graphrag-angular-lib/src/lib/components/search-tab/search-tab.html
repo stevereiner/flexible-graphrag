@@ -27,7 +27,13 @@
 
         <!-- Search Results -->
         <div *ngIf="searchResults.length > 0" class="results-section">
-          <h3>Search Results ({{ searchResults.length }})</h3>
+          <div class="results-header">
+            <h3>Search Results ({{ searchResults.length }})</h3>
+            <button *ngIf="showGraph.observed && resultDocIds.length" mat-stroked-button class="fg-graph-button"
+                    (click)="showGraph.emit({ label: 'search &quot;' + lastSearchQuery + '&quot;', body: { doc_ids: resultDocIds } })">
+              View graph
+            </button>
+          </div>
           <mat-card *ngFor="let result of searchResults; let i = index" class="result-card">
             <mat-card-content>
               <div class="result-meta">
@@ -89,6 +95,10 @@
             <div *ngIf="qaSources.length" class="answer-sources">
               <app-source-docs [docs]="qaSources" label="Sources:"></app-source-docs>
             </div>
+            <button *ngIf="showGraph.observed && graphDocIds(qaSources).length" mat-stroked-button class="graph-button fg-graph-button"
+                    (click)="showGraph.emit({ label: 'sources of &quot;' + lastSearchQuery + '&quot;', body: { doc_ids: graphDocIds(qaSources) } })">
+              View graph of sources
+            </button>
           </mat-card-content>
         </mat-card>
       </div>

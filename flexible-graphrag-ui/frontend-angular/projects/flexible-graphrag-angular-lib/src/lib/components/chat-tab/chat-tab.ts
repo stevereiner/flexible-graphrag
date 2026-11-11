@@ -2,7 +2,8 @@ import { Component, ViewChild, ElementRef, AfterViewChecked, AfterViewInit, Chan
          Input, Output, EventEmitter, OnChanges, OnDestroy, OnInit, SimpleChanges } from '@angular/core';
 import { FlexibleGraphragConfigService } from '../../config.service';
 import { HttpClient } from '@angular/common/http';
-import { AskScope, SourceDocument } from '../../models/api.models';
+import { AskScope, GraphShowEvent, SourceDocument } from '../../models/api.models';
+import { graphDocIds } from '../search-tab/search-tab';
 import { ProcessingSessionService } from '../../services/processing-session.service';
 import { SourceAuthService } from '../../services/source-auth.service';
 
@@ -50,6 +51,14 @@ export class ChatTabComponent implements AfterViewChecked, AfterViewInit, OnChan
   @Input() scope: AskScope | null = null;
   /** The user cleared the scope (the bar's ✕): back to all content. */
   @Output() scopeChange = new EventEmitter<AskScope | null>();
+  /** "View graph of sources" on a reply (shown only when the host listens). */
+  @Output() showGraph = new EventEmitter<GraphShowEvent>();
+  readonly graphDocIds = graphDocIds;
+
+  showReplyGraph(i: number): void {
+    const question = i > 0 ? this.chatMessages[i - 1].content : 'reply';
+    this.showGraph.emit({ label: `sources of "${question}"`, body: { doc_ids: graphDocIds(this.chatMessages[i].sources) } });
+  }
 
   welcomeTitle = this.fgConfig.chatWelcomeTitle;
   welcomeLines = this.fgConfig.chatWelcomeLines;

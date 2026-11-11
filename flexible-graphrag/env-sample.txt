@@ -38,7 +38,6 @@ PG_GRAPH_DB=neo4j
 #PG_GRAPH_DB=nebula
 #PG_GRAPH_DB=neptune
 #PG_GRAPH_DB=neptune_analytics
-# LI only (LlamaIndex backend only):
 #PG_GRAPH_DB=spanner
 # LC only (LangChain backend only — auto-sets GRAPH_BACKEND=langchain):
 #PG_GRAPH_DB=arangodb
@@ -73,6 +72,18 @@ SEARCH_DB=elasticsearch
 #SEARCH_DB=opensearch
 #SEARCH_DB=bm25
 #SEARCH_DB=none
+
+# Elasticsearch / OpenSearch text analyzer, set when the search index is created:
+#   standard            (default) keeps every word, so "who works for acme" also matches chunks
+#                       that only share "who" and "for"
+#   english_stopwords   drops English stopwords and question words ("who", "how", "for", "is");
+#                       no stemming. Other languages: french_stopwords, german_stopwords,
+#                       spanish_stopwords, ... (that language's built-in stopword list)
+#   english, french, ...  the engine's language analyzer: stopwords plus stemming ("organized" ->
+#                       "organ", which then matches "organization")
+# Changing it needs the search index deleted and documents re-ingested.
+# Not applied with LangChain's OpenSearch search store.
+#SEARCH_ANALYZER=english_stopwords
 
 
 # ====================================================================
@@ -178,7 +189,7 @@ CHUNKER_BACKEND=llamaindex
 #COCOINDEX_SEPARATORS=["\\n{2,}", "[.!?…]\\s+", "[:;]\\s+"]
 
 # Property graph backend.
-# LC-only stores (arangodb, apache_age, cosmos_gremlin, spanner, hugegraph, tigergraph,
+# LC-only stores (arangodb, apache_age, cosmos_gremlin, hugegraph, tigergraph,
 # surrealdb) auto-select langchain — no need to set explicitly for those.
 GRAPH_BACKEND=llamaindex
 #GRAPH_BACKEND=langchain
@@ -234,6 +245,15 @@ KG_EXTRACTOR_BACKEND=llamaindex
 # 'langchain'            — LangChain EnsembleRetriever (RRF);
 RETRIEVAL_FUSION=llamaindex
 #RETRIEVAL_FUSION=langchain
+# Fused scores only rank results against each other (relative_score: each retriever's best is 1, its
+# worst 0, each weighted 1/N), so hybrid search, AI query and AI chat rescale them to make the top
+# result 1.0 and drop results below this fraction of it (weak vector matches). 0 keeps all. Default 0.1.
+#SEARCH_MIN_RELATIVE_SCORE=0.1
+# Before fusion, while scores are still the vector store's own similarities: drop documents whose
+# best chunk is below this fraction of the best hit (e.g. 0.21 vs 0.43 for "acme" with OpenAI
+# text-embedding-3-small). Per document, so a relevant document keeps all its chunks. Not applied to
+# OpenArch or OpenSearch hybrid mode (their scores are already fused). 0 keeps all. Default 0.6.
+#VECTOR_MIN_RELATIVE_SIMILARITY=0.6
 
 # CocoIndex pipeline backend
 # Routes ingest through CocoIndex for per-document LMDB memoization — unchanged
@@ -748,11 +768,11 @@ APACHE_AGE_GRAPH_DB_CONFIG={"host": "localhost", "port": 5434, "database": "flex
 COSMOS_GREMLIN_GRAPH_DB_CONFIG={"url": "ws://localhost:8182/gremlin", "username": "/", "password": ""}
 
 # Google Cloud Spanner Graph (active when PG_GRAPH_DB=spanner)
-# LI-only: uses llama-index-spanner (SpannerPropertyGraphStore). Cloud only — no emulator support
+# LlamaIndex (llama-index-spanner) or LangChain (langchain-google-spanner 0.10.0+). Cloud only — no emulator support
 # (the Spanner emulator supports SQL only, not Spanner Graph).
 # Install: uv pip install -e ".[spanner-extras]" && uv pip uninstall llama-index
 # (having both llama-index and llama-index-core causes version conflicts — uninstall the meta-package)
-# LC is not supported — langchain-google-spanner requires langchain-core<1.0 (incompatible).
+# Both backends use {graph_name}_NODE / _EDGE tables: give each its own graph_name in one database.
 #
 # use_flexible_schema (default true): creates {graph_name}_NODE + {graph_name}_EDGE Spanner
 #   tables with a JSON properties column — "schemaless" mode. DO NOT pre-create tables or run
@@ -1591,7 +1611,7 @@ ENABLE_LLAMA_INDEX_INSTRUMENTATION=true
 
 # When GRAPH_BACKEND=langchain, LangChain's add_graph_documents() handles ingestion
 # and a LangChain property graph QA chain handles retrieval.  For LangChain-only
-# stores (arangodb, apache_age, cosmos_gremlin, spanner, hugegraph, tigergraph,
+# stores (arangodb, apache_age, cosmos_gremlin, hugegraph, tigergraph,
 # surrealdb), GRAPH_BACKEND=langchain is selected automatically.
 #
 # Set PG_GRAPH_DB to the graph database you want to use; set GRAPH_BACKEND=langchain

@@ -23,6 +23,22 @@ from typing import List, Optional, Union
 logger = logging.getLogger(__name__)
 
 
+async def _open_config_manager(postgres_url: Optional[str]):
+    """An initialized ConfigManager, trying the connection a second time (a connection to the
+    registry can drop now and then, e.g. Windows -> a Docker port)."""
+    from incremental_updates.stores import new_config_manager
+    for attempt in (1, 2):
+        config_mgr = new_config_manager(postgres_url)
+        try:
+            await config_mgr.initialize()
+            return config_mgr
+        except Exception as e:
+            if attempt == 2:
+                raise
+            logger.warning(f"Registry connection failed ({e}), retrying once")
+            await asyncio.sleep(1)
+
+
 class PostIngestionStateManager:
     """Manages document_state creation after ingestion completes."""
     
@@ -139,7 +155,6 @@ class PostIngestionStateManager:
             Number of document_state records created
         """
         from incremental_updates.state_manager import DocumentState, StateManager
-        from incremental_updates.stores import new_config_manager
 
         # The run's graphs: prefer explicitly-passed ones so this can run BEFORE the
         # datasource_config row is registered (see main.py enable_sync ordering — state must exist
@@ -149,8 +164,7 @@ class PostIngestionStateManager:
         if graphs is None and skip_graph is not None:
             graphs = GraphFlags.of(bool(skip_graph))
         if graphs is None:
-            config_mgr = new_config_manager(self.postgres_url)
-            await config_mgr.initialize()
+            config_mgr = await _open_config_manager(self.postgres_url)
             datasource_config = await config_mgr.get_config(config_id)
             await config_mgr.close()
             graphs = datasource_config.graphs if datasource_config else GraphFlags.defaults()
@@ -214,8 +228,8 @@ class PostIngestionStateManager:
                 # (a sync turns its rows on itself when it is registered, main.py)
                 if doc_config_id not in ingest_only:
                     if config_mgr is None:
-                        config_mgr = new_config_manager(self.postgres_url)
-                        await config_mgr.initialize()
+                        # kept only once connected: a failed connection is tried again for the next file
+                        config_mgr = await _open_config_manager(self.postgres_url)
                     ingest_only[doc_config_id] = (await config_mgr.get_auto_sync(doc_config_id)) is False
                 
                 # Compute content hash based on data source

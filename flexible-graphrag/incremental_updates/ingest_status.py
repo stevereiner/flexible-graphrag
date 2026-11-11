@@ -97,6 +97,12 @@ class Datasource:
     enabled_graph: bool = True  # its sync builds the property graph (graph_flags.py)
     enabled_rdf: bool = True    # ... and the RDF graph
 
+    @property
+    def graphs(self):
+        """Its graphs as one GraphFlags, as DatasourceConfig.graphs (config_manager.py)."""
+        from graph_flags import GraphFlags
+        return GraphFlags.resolve(self.enabled_graph, self.enabled_rdf, self.skip_graph)
+
     @classmethod
     def from_config(cls, cfg: Any) -> "Datasource":
         cp: Dict[str, Any] = dict(getattr(cfg, "connection_params", None) or {})

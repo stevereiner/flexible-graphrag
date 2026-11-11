@@ -457,7 +457,8 @@ export function openSignIn(provider: AuthProvider | null = null, reason: SignInR
 
 // ---- axios: attach the identities, ask for a sign-in when the stores need one ---------------
 
-const ASK_ENDPOINTS = /\/api\/(search|query)$/;
+// search / Ask, and the Graph tab (same documents, same permission filter)
+const ASK_ENDPOINTS = /\/api\/(search|query|graph\/subgraph|graph\/neighbors)$/;
 
 function isAsk(config: InternalAxiosRequestConfig): boolean {
   return (config.method || 'get').toLowerCase() === 'post' && ASK_ENDPOINTS.test(config.url || '');

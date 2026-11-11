@@ -14,6 +14,31 @@ from adapters.graph.pg_store_adapter import PropertyGraphStoreAdapter, nodes_to_
 logger = logging.getLogger(__name__)
 
 
+def shared_delete_cypher(rid_prop: str = "ref_doc_id") -> List[str]:
+    """Cypher (``$rid`` parameter) deleting one document's LangChain graph data without taking
+    other documents' with it.
+
+    A source node (one per chunk) MENTIONS the entities extracted from it; an entity is shared
+    across documents but stamped with one document's id, so deleting every node stamped with
+    the id would detach-delete entities, and the relationships, other documents still use.
+    In order: this document's relationships no other document's source node supports (it
+    MENTIONS both ends), then hand its entities another document mentions over to that
+    document, then every node still stamped with the id (its source nodes, its own entities).
+    """
+    rid = f"coalesce(o.{rid_prop}, o.doc_id)"
+    # A source node may carry only doc_id (LangChain Neo4jGraph writes the chunk's metadata as is)
+    return [
+        f"MATCH (d)-[:MENTIONS]->(a)-[r]->(b)<-[:MENTIONS]-(d) WHERE coalesce(d.{rid_prop}, d.doc_id) = $rid "
+        "AND type(r) <> 'MENTIONS' "
+        f"OPTIONAL MATCH (o)-[:MENTIONS]->(a), (o)-[:MENTIONS]->(b) WHERE {rid} <> $rid "
+        "WITH r, count(o) AS n WHERE n = 0 DELETE r",
+        f"MATCH (o)-[:MENTIONS]->(e) WHERE e.{rid_prop} = $rid AND {rid} <> $rid "
+        f"WITH e, collect({rid})[0] AS heir SET e.{rid_prop} = heir, "
+        "e.doc_id = CASE WHEN e.doc_id IS NULL THEN NULL ELSE heir END",
+        f"MATCH (n) WHERE n.{rid_prop} = $rid OR (n.{rid_prop} IS NULL AND n.doc_id = $rid) DETACH DELETE n",
+    ]
+
+
 class LangChainPGAdapter(PropertyGraphStoreAdapter):
     """Wraps a LangChain graph object and ingests via ``add_graph_documents()``.
 
@@ -66,13 +91,11 @@ class LangChainPGAdapter(PropertyGraphStoreAdapter):
             except Exception as exc:
                 logger.warning(f"LangChain graph store_adapter delete failed for {ref_doc_id}: {exc}")
                 return
-        # Default: Cypher — works for Neo4j, FalkorDB, Memgraph, ArcadeDB, AGE, Nebula
+        # Default: Cypher — works for Neo4j, FalkorDB, ArcadeDB, Neptune
         try:
             if hasattr(self._lc_graph, "query"):
-                self._lc_graph.query(
-                    f"MATCH (n) WHERE n.{self._ref_doc_id_prop} = $rid DETACH DELETE n",
-                    params={"rid": ref_doc_id},
-                )
+                for cypher in shared_delete_cypher(self._ref_doc_id_prop):
+                    self._lc_graph.query(cypher, params={"rid": ref_doc_id})
                 logger.info(f"LangChain graph: deleted nodes for ref_doc_id={ref_doc_id}")
             else:
                 logger.warning(

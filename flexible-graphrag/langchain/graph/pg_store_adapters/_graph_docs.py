@@ -31,6 +31,8 @@ __all__ = [
     "cypher_ident",
     "bare_ident",
     "sanitize_graph_types",
+    "write_source_mentions",
+    "SOURCE_PROPS",
 ]
 
 
@@ -183,3 +185,51 @@ def _strip(properties: Optional[Dict[str, Any]], skip: FrozenSet[str]) -> None:
         return
     for key in [k for k in properties if k in skip]:
         del properties[key]
+
+
+# The chunk ("Document" source node) properties write_source_mentions sets
+SOURCE_PROPS = ("text", "ref_doc_id", "doc_id", "file_name", "file_path")
+
+
+def write_source_mentions(query, graph_documents: Iterable[Any], doc_label: str = "Document") -> int:
+    """Write each document's chunk node and its MENTIONS links to the chunk's entities, as
+    LangChain's Neo4jGraph does with ``include_source=True``, for adapters whose own write
+    leaves them out. The Graph tab, scoped search and the delete find a document's graph
+    through them: a relationship is a document's when one of its chunks MENTIONS both ends.
+
+    The chunk is keyed by ``metadata["id"]`` (ingest_lc_graph._stamp_source_ids makes it
+    per document), never by its text: one file from two sources has the same text. Only
+    scalar parameters (FalkorDB cannot take a map). ``query(cypher, params)`` runs one
+    statement; entities are matched by label and id, as the adapters write them.
+    """
+    from hashlib import md5
+    written = 0
+    for doc in graph_documents:
+        src = getattr(doc, "source", None)
+        if src is None:
+            continue
+        meta = getattr(src, "metadata", None) or {}
+        text = getattr(src, "page_content", "") or ""
+        rid = source_ref_doc_id(doc)
+        sid = str(meta.get("id") or md5(f"{rid}|{text}".encode("utf-8")).hexdigest())
+        params: Dict[str, Any] = {"id": sid}
+        sets = []
+        for k in SOURCE_PROPS:
+            v = text if k == "text" else (rid if k == "ref_doc_id" else meta.get(k))
+            if v not in (None, ""):
+                params[k] = str(v)
+                sets.append(f"d.{k} = ${k}")
+        query(f"MERGE (d:`{cypher_ident(doc_label, 'Document')}` {{id: $id}})"
+              + (" SET " + ", ".join(sets) if sets else ""), params)
+        seen = set()
+        ends = [e for r in getattr(doc, "relationships", None) or [] for e in (r.source, r.target)]
+        for node in list(getattr(doc, "nodes", None) or []) + [e for e in ends if e is not None]:
+            key = (node.type, str(node.id))
+            if key in seen:
+                continue
+            seen.add(key)
+            query(f"MATCH (d:`{cypher_ident(doc_label, 'Document')}` {{id: $id}}), "
+                  f"(n:`{cypher_ident(node.type, 'Entity')}` {{id: $nid}}) MERGE (d)-[:MENTIONS]->(n)",
+                  {"id": sid, "nid": str(node.id)})
+        written += 1
+    return written

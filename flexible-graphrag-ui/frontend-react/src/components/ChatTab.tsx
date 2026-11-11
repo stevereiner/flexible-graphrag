@@ -30,6 +30,8 @@ interface ChatTabProps {
   onChatMessagesChange: (messages: ChatMessage[]) => void;
   onChatInputChange: (input: string) => void;
   onIsQueryingChange: (isQuerying: boolean) => void;
+  /** Open the Graph tab on a reply's source documents. */
+  onShowGraph?: (label: string, body: { doc_ids: string[] }) => void;
 }
 
 export const ChatTab: React.FC<ChatTabProps> = ({ 
@@ -41,6 +43,7 @@ export const ChatTab: React.FC<ChatTabProps> = ({
   onChatMessagesChange,
   onChatInputChange,
   onIsQueryingChange,
+  onShowGraph,
 }) => {
   // Local state (only for UI-specific state that doesn't need persistence)  
   const chatContainerRef = useRef<HTMLDivElement>(null);
@@ -258,6 +261,14 @@ export const ChatTab: React.FC<ChatTabProps> = ({
                           <Typography variant="body2" component="div" sx={{ mb: 1, color: currentTheme.palette.text.secondary }}>
                             <SourceDocs docs={message.sources} label="Sources:" />
                           </Typography>
+                        )}
+                        {onShowGraph && message.sources?.some((d) => d.doc_id) && (
+                          <Button variant="outlined" size="small" sx={{ mb: 1 }}
+                                  onClick={() => onShowGraph(
+                                    `sources of "${index > 0 ? chatMessages[index - 1].content : 'reply'}"`,
+                                    { doc_ids: [...new Set((message.sources || []).map((d) => d.doc_id).filter(Boolean))] })}>
+                            View graph of sources
+                          </Button>
                         )}
                         
                         <Typography variant="caption" sx={{ display: 'block', mt: 1, color: currentTheme.palette.text.secondary, fontWeight: 500 }}>

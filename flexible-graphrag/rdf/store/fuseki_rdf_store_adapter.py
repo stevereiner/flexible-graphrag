@@ -1,7 +1,7 @@
 from typing import Optional, Dict, List, Any
 from rdflib import Graph, URIRef
 from rdflib.plugins.stores.sparqlstore import SPARQLUpdateStore
-from .rdf_store_adapter import RDFStoreAdapter
+from .rdf_store_adapter import RDFStoreAdapter, shared_delete_update
 import logging
 import requests
 from urllib.parse import quote
@@ -184,35 +184,12 @@ class FusekiAdapter(RDFStoreAdapter):
             raise
 
     def delete_doc(self, ref_doc_id: str, graph_uri: Optional[str] = None) -> None:
-        """Delete all triples for a specific document from Fuseki via SPARQL UPDATE.
-
-        Three-pass delete:
-        1. Entity triples whose subject has onto:ref_doc_id.
-        2. RDF 1.2 blank-node reifier triples (Fuseki/Jena stores {| |} as blank-node
-           reifiers: _:b rdf:reifies <<( s p o )>> ; prop val). These are reachable
-           as ordinary blank-node subjects in standard SPARQL.
-        3. RDF-star triple-pattern pass using Jena's << >> syntax for any reifiers
-           stored as triple IRIs rather than blank nodes (belt-and-suspenders).
+        """Take a document out of Fuseki via SPARQL UPDATE, keeping what other documents share
+        (shared_delete_update). Jena 5.1 keeps a relation's {| |} annotations, from every
+        document, on one quoted triple (``<< s p o >>``), as GraphDB does.
         """
         self._ensure_dataset_exists()
-        onto_ns = "https://integratedsemantics.org/flexible-graphrag/ontology#"
-        graph_clause = f"GRAPH <{graph_uri}>" if graph_uri else "GRAPH ?g"
-        escaped = ref_doc_id.replace("\\", "\\\\").replace('"', '\\"')
-        update_query = f"""PREFIX onto: <{onto_ns}>
-PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
-
-DELETE {{ {graph_clause} {{ ?s ?p ?o }} }}
-WHERE  {{ {graph_clause} {{ ?s ?p ?o ; onto:ref_doc_id "{escaped}" }} }} ;
-
-DELETE {{ {graph_clause} {{ ?reifier ?rp ?ro }} }}
-WHERE  {{
-  {graph_clause} {{
-    ?reifier onto:ref_doc_id "{escaped}" .
-    ?reifier ?rp ?ro .
-    FILTER(isBlank(?reifier) || (isIRI(?reifier) && STRSTARTS(STR(?reifier), "urn:")))
-  }}
-}}
-"""
+        update_query = shared_delete_update(ref_doc_id, graph_uri)
         update_endpoint = f"{self.base_url}/{self.dataset}/update"
         try:
             resp = requests.post(

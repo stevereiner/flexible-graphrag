@@ -173,26 +173,14 @@ class NeptuneRdfGraphAdapter(RdfGraphStoreAdapter):
         self._lc_graph = self._adapter.lc_graph
 
     def store(self, graph_or_turtle, graph_uri: Optional[str] = None) -> None:
-        # Delegate to store_rdf_annotations so Neptune gets provenance triples
-        # (onto:ref_doc_id) alongside the plain entity/relation triples.
-        # store_graph() strips annotation blocks and loses the ref_doc_id provenance
-        # needed for delete(); store_rdf_annotations() preserves them.
+        # store_rdf_annotations takes the converter's Turtle string; Neptune has no RDF-star, so
+        # relation {| |} annotations are dropped and only the entities' onto:ref_doc_id stamps
+        # (plain triples) remain for delete().
         self._adapter.store_rdf_annotations(graph_or_turtle, graph_uri=graph_uri)
 
     def delete(self, ref_doc_id: str, graph_uri: Optional[str] = None) -> None:
-        # Neptune SPARQL DELETE WHERE for this ref_doc_id
-        graph_clause = f"GRAPH <{graph_uri}>" if graph_uri else ""
-        onto_prefix = "https://integratedsemantics.org/flexible-graphrag/ontology#"
-        escaped = ref_doc_id.replace("\\", "\\\\").replace('"', '\\"')
-        sparql = (
-            f"PREFIX onto: <{onto_prefix}>\n"
-            f"DELETE WHERE {{ {graph_clause} {{ ?s onto:ref_doc_id \"{escaped}\" . ?s ?p ?o }} }}"
-        )
-        try:
-            self._adapter._sparql_update(sparql)
-            logger.debug("NeptuneRdfGraphAdapter: deleted triples for ref_doc_id=%s", ref_doc_id)
-        except Exception as exc:
-            logger.warning("NeptuneRdfGraphAdapter: delete failed for %s: %s", ref_doc_id, exc)
+        # keeps what other documents share (NeptuneRDFAdapter.delete_doc)
+        self._adapter.delete_doc(ref_doc_id, graph_uri=graph_uri)
 
     def get_lc_graph(self):
         return self._lc_graph

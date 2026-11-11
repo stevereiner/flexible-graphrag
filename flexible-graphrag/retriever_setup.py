@@ -9,7 +9,47 @@ LangChain PG) and their per-retriever synonym expansion wrappers.
 
 import logging
 
+from llama_index.core.retrievers import BaseRetriever
+
 logger = logging.getLogger(__name__)
+
+
+class VectorCutoffRetriever(BaseRetriever):
+    """A vector retriever's hits, minus documents whose best hit is far below its overall best.
+
+    Before fusion, while the scores are still the store's own similarities: fusion rescales each
+    retriever's list so its worst hit is 0, so a document that is only a weak vector match (no
+    keyword, graph or RDF hit) can still land mid-range among few results. Per document, so a
+    relevant document keeps all its chunks (VECTOR_MIN_RELATIVE_SIMILARITY).
+    """
+
+    def __init__(self, inner: BaseRetriever, min_relative: float) -> None:
+        self._inner = inner
+        self._min_relative = min_relative
+        super().__init__()
+
+    def _cut(self, nodes):
+        from scope_filter import node_doc_id
+        top = max((n.score or 0.0 for n in nodes), default=0.0)
+        if top <= 0:
+            return nodes
+        best: dict = {}
+        for n in nodes:
+            d = node_doc_id(n)
+            best[d] = max(best.get(d, 0.0), n.score or 0.0)
+        floor = self._min_relative * top
+        kept = [n for n in nodes if node_doc_id(n) is None or best[node_doc_id(n)] >= floor]
+        if len(kept) < len(nodes):
+            docs = sum(1 for d, s in best.items() if d is not None and s < floor)
+            logger.info(f"[vector cutoff] {self._min_relative} x top {top:.3f}: dropped "
+                        f"{len(nodes) - len(kept)} hit(s) from {docs} document(s)")
+        return kept
+
+    def _retrieve(self, query_bundle):
+        return self._cut(self._inner.retrieve(query_bundle))
+
+    async def _aretrieve(self, query_bundle):
+        return self._cut(await self._inner.aretrieve(query_bundle))
 
 
 def _patch_opensearch_hybrid_pipeline(vector_store, search_pipeline: str) -> bool:
@@ -103,9 +143,9 @@ def _try_build_lc_ensemble(retrievers) -> "tuple[object, bool]":
 def _rdf_doc_lookup(config):
     """(entity IRIs) -> doc ids: an RDF answer names the documents its SPARQL rows came from
     (their triples' onto:ref_doc_id), not every file this backend happens to have ingested."""
-    def lookup(iris):
+    def lookup(iris, labels=()):
         from scope_filter import rdf_doc_ids_for_iris
-        return rdf_doc_ids_for_iris(config, iris)
+        return rdf_doc_ids_for_iris(config, iris, labels=labels)
     return lookup
 
 
@@ -253,10 +293,10 @@ def create_rdf_graph_retriever(config, lc_graph_override=None, source_files=None
         return None
 
 
-def create_langchain_pg_retriever(config, source_files=None, lc_graph=None):
+def create_langchain_pg_retriever(config, source_files=None, lc_graph=None, force=False):
     """Delegate to langchain.graph.pg_retriever_factory."""
     from langchain.graph.pg_retriever_factory import build_langchain_pg_retriever
-    return build_langchain_pg_retriever(config, source_files=source_files, lc_graph=lc_graph)
+    return build_langchain_pg_retriever(config, source_files=source_files, lc_graph=lc_graph, force=force)
 
 
 def get_langchain_llm(config):
@@ -678,6 +718,12 @@ def setup_hybrid_retriever(system, scope_doc_ids=None):
     def _wrap(retriever, label, prescore_graph: bool = False):
         return wrap_with_logging(retriever, label, prescore_graph=prescore_graph)
 
+    _vec_cut = float(getattr(config, "vector_min_relative_similarity", 0.6) or 0.0)
+
+    def _cut(retriever):
+        """A vector retriever, dropping documents far from its best hit (VECTOR_MIN_RELATIVE_SIMILARITY)."""
+        return VectorCutoffRetriever(retriever, _vec_cut) if _vec_cut > 0 else retriever
+
     _syn = SynonymFusion.from_config(config, getattr(system, "llm", None))
 
     retrievers = []
@@ -688,7 +734,9 @@ def setup_hybrid_retriever(system, scope_doc_ids=None):
 
     if vector_retriever is not None:
         _vec_syn_tag = "langchain_vector" if _vec_is_lc else "llamaindex_vector"
-        retrievers.append(_wrap(_syn.wrap(vector_retriever, _vec_syn_tag), "vector"))
+        _vec = _syn.wrap(vector_retriever, _vec_syn_tag)
+        # OpenSearch hybrid mode (LI): already kNN + BM25 fused by its search pipeline, no raw similarity
+        retrievers.append(_wrap(_vec if (_os_hybrid and not _vec_is_lc) else _cut(_vec), "vector"))
         retriever_types.append("vector")
         retriever_frameworks.append("LC" if _vec_is_lc else "LI")
         logger.info("Added vector retriever to fusion")
@@ -846,8 +894,11 @@ def setup_hybrid_retriever(system, scope_doc_ids=None):
         if hasattr(system, "pg_adapter") and system.pg_adapter is not None:
             if hasattr(system.pg_adapter, "get_lc_graph"):
                 _existing_lc_graph = system.pg_adapter.get_lc_graph()
+        # A store without vector search has no other graph retriever: text-to-query is always
+        # on for it (USE_LC_TEXT_TO_GRAPH / USE_LANGCHAIN_PG need not be set)
         lc_pg_retriever = create_langchain_pg_retriever(
-            config, source_files=_source_files, lc_graph=_existing_lc_graph
+            config, source_files=_source_files, lc_graph=_existing_lc_graph,
+            force=not _store_has_vector,
         )
 
     if lc_pg_retriever is not None:
@@ -878,7 +929,7 @@ def setup_hybrid_retriever(system, scope_doc_ids=None):
                 config, embed_model=getattr(system, "embed_model", None)
             )
             if lc_vec_retriever is not None:
-                retrievers.append(_wrap(_syn.wrap(lc_vec_retriever, "langchain_pg_vector"), "langchain_pg_vector"))
+                retrievers.append(_wrap(_cut(_syn.wrap(lc_vec_retriever, "langchain_pg_vector")), "langchain_pg_vector"))
                 retriever_types.append("langchain_pg_vector")
                 retriever_frameworks.append("LC")
                 logger.info("Added LangChain PG vector retriever to fusion (auto-enabled for %s)", _db_type)

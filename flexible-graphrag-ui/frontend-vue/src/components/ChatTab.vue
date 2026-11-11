@@ -74,6 +74,11 @@
                 <div v-if="message.sources?.length" class="text-caption mb-2">
                   <SourceDocs :docs="message.sources" label="Sources:" />
                 </div>
+                <v-btn v-if="message.sources?.some((d: any) => d.doc_id)" variant="outlined" size="small" class="mb-2"
+                       @click="$emit('show-graph', `sources of &quot;${index > 0 ? chatMessages[index - 1].content : 'reply'}&quot;`,
+                                     { doc_ids: [...new Set(message.sources.map((d: any) => d.doc_id).filter(Boolean))] })">
+                  View graph of sources
+                </v-btn>
                 <div class="text-caption" style="color: #333333; font-weight: 500;">
                   {{ formatTime(message.timestamp) }}
                 </div>
@@ -175,6 +180,7 @@ interface ApiResponse {
 export default defineComponent({
   name: 'ChatTab',
   components: { SourceDocs, SourcePicker },
+  emits: ['show-graph'],
   setup() {
     // State
     const chatMessages = ref<ChatMessage[]>([]);

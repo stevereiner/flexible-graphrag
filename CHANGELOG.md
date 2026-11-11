@@ -2,6 +2,74 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2026-11-10] — v0.10.0: new Graph tab for showing graphs of ingested, search sources and KG Spaces doc/folder, added Google Spanner LangChain in addition to LlamaIndex
+
+### Added
+
+- **Graph tab** (React, Vue, Angular, `@flexible-graphrag/angular-ui`): the entities and
+  relationships extracted from documents, via **Show graph** on Processing tab jobs / rows, Hybrid
+  Search results, and AI query / chat sources. Colours per entity type, a relationship-type list,
+  optional chunks. Only documents the asker may read; property graph only (no RDF yet).
+- **`@flexible-graphrag/graph-view`** (npm): the shared Cytoscape.js graph view.
+- API: `GET /api/graph/capabilities`, `POST /api/graph/subgraph`, `POST /api/graph/neighbors`.
+- **KG Spaces** (separate repos): **View graph** for a document or folder, and a Graph tab.
+- **Spanner with LangChain** (`GRAPH_BACKEND=langchain`, was LlamaIndex only), via
+  `langchain-google-spanner` 0.10.0 in the `spanner-extras` extra: GQL Q&A, chunk nodes, Graph tab,
+  delete. Give each backend its own `graph_name` if both write to one database.
+
+### Changed
+
+- Version 0.10.0 for the backend, MCP server, Langflow components and flows, the React / Vue /
+  Angular apps, `@flexible-graphrag/angular-ui` and `@flexible-graphrag/graph-view`.
+- **Search scores rescaled, weak matches dropped:** hybrid search, AI query and AI chat drop
+  results below **`SEARCH_MIN_RELATIVE_SCORE`** × the top score (default `0.1`) and rescale the top
+  result to 1.0.
+- **Vector cutoff per document, before fusion:** drops documents whose best chunk is below
+  **`VECTOR_MIN_RELATIVE_SIMILARITY`** × the best hit (default `0.6`). Not for OpenArch or
+  OpenSearch hybrid mode.
+- **`SEARCH_ANALYZER`** for the Elasticsearch / OpenSearch index: `standard` (default),
+  `english_stopwords` (also drops question words like "who", no stemming), `<language>_stopwords`,
+  or a built-in analyzer such as `english`. Applies at index creation (delete the index and
+  re-ingest).
+
+### Fixed
+
+Property graph:
+
+- **Shared relationships:** a document's graph now includes relationships between entities its
+  chunks mention, even when stored under another document's id (was 6 vs 70 for two copies).
+- **Delete / re-sync keeps other documents' graph:** shared relationships and entities pass to a
+  document still mentioning them (LlamaIndex and LangChain stores; SurrealDB already did; Spanner
+  had no delete). LangChain NebulaGraph and Gremlin / Cosmos DB now keep a relationship copy per
+  document — re-ingest those graphs.
+- **TigerGraph keeps every relationship** (one edge per pair replaced earlier ones). New graphs get a
+  directed edge per relationship type and document; existing graphs log how to upgrade. Also reads
+  `TIGERGRAPH_GRAPH`.
+- **Later-ingested copies get their full graph** (LlamaIndex skipped chunk links to existing
+  entities). Re-ingest affected graphs.
+- **LangChain chunk nodes:** keyed per document (identical copies no longer merge; also ArangoDB,
+  HugeGraph, Apache AGE); delete now removes them; Memgraph, FalkorDB and ArcadeDB now write them
+  with `MENTIONS` links. Re-ingest affected graphs.
+- **Graph tab:** Spanner (LlamaIndex); entity types on LangChain TigerGraph and FalkorDB;
+  relationship names (not `Relation__`) on LangChain NebulaGraph.
+- **Graph results in search for LangChain stores without vector search** (text-to-query retriever
+  needed `USE_LANGCHAIN_PG` / `USE_LC_TEXT_TO_GRAPH`); TigerGraph chain `ainvoke` error.
+
+RDF:
+
+- **Delete keeps other documents' RDF:** entities and relation annotations carry every source
+  document; a delete removes only its stamp (GraphDB, Fuseki, Oxigraph; Neptune at entity level).
+  Neptune's doubled-backslash doc ids fixed. Re-ingest shared RDF (on Neptune, clear the store
+  first).
+- **Neptune RDF on T-class instances** (no statistics): schema read with SPARQL.
+- **RDF answers name their documents more often** (IRIs selected; exact-name lookup fallback).
+
+Other:
+
+- **Upload / filesystem rows can drop just Graph or RDF** (`/api/sync/remove` rejected them).
+- **Processing-tab row runs finish recording** (`'Datasource' object has no attribute 'graphs'`).
+- **Registry connection retried** so one dropped connection doesn't fail the rest of an ingest.
+
 ## [2026-11-04] — Ollama: context window fix, gpt-oss:20b default, four models retested
 
 ### Fixed

@@ -13,8 +13,10 @@ Covers Neptune Database (property graph) and Neptune Analytics (graph analytics 
 
 **Avoid Neptune Serverless** — it is billed even when idle (no auto-pause).
 
-Neptune Database **provisioned** clusters and Neptune Analytics graphs auto-pause after 7 days of
-inactivity and are not charged while stopped. Use provisioned clusters for development to avoid
+Neptune Database **provisioned** clusters (e.g. `db.t3.medium`) and Neptune Analytics graphs can be
+**stopped** when not in use; compute isn't charged while stopped (storage still is). They don't
+pause on their own: a stopped cluster or graph is **started again automatically after 7 days**, so
+stop it again (or delete it) if you're done. Use provisioned clusters for development to avoid
 unexpected costs.
 
 ---
@@ -81,9 +83,13 @@ Log messages:
 - `"Neptune Database: Workaround query found X node labels"` — fallback active (T-class or statistics off)
 - `"Neptune Database: Real Summary API returned X node labels"` — Summary API working (R/X-class)
 
-**Note:** This fallback applies to the **LlamaIndex backend only**. The LangChain backend
-(`GRAPH_BACKEND=langchain`) does not use the Summary API — it queries schema directly via
+**Note:** For the property graph this fallback is in the **LlamaIndex backend only**. The LangChain
+backend (`GRAPH_BACKEND=langchain`) does not use the Summary API — it queries schema directly via
 openCypher, so it works on all instance types without any fallback logic.
+
+Neptune RDF (`RDF_GRAPH_DB=neptune_rdf`) uses the RDF summary for its schema; without statistics it
+falls back to SPARQL (log: `Neptune RDF: statistics summary unavailable ... reading the schema with
+SPARQL instead`).
 
 ---
 
@@ -106,6 +112,10 @@ openCypher, so it works on all instance types without any fallback logic.
 
 Vector dimensions **cannot be changed after graph creation**. To switch embedding models,
 create a new graph with the correct dimension.
+
+OpenAI `text-embedding-3-*` models can return fewer dimensions: with
+`OPENAI_EMBEDDING_DIMENSION=1024` a 1024-dimension graph works with OpenAI too, and the same
+embeddings also fit OpenArch (search + vector store), which needs 1024.
 
 ### IAM Permissions
 

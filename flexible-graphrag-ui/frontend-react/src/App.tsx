@@ -18,8 +18,8 @@ import DarkModeIcon from '@mui/icons-material/DarkMode';
 import LightModeIcon from '@mui/icons-material/LightMode';
 import Alert from '@mui/material/Alert';
 
-import { SourcesTab, ProcessingTab, SearchTab, ChatTab } from './components';
-import { ChatMessage, SourceDocument } from './types/api';
+import { SourcesTab, ProcessingTab, SearchTab, ChatTab, GraphTab } from './components';
+import { ChatMessage, GraphRequest, SourceDocument } from './types/api';
 
 // Theme definitions
 const lightTheme = createTheme({
@@ -193,6 +193,14 @@ const App: React.FC = () => {
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [chatInput, setChatInput] = useState<string>('');
   const [isChatQuerying, setIsChatQuerying] = useState<boolean>(false);
+
+  // Graph tab: what to show; "View graph" on other tabs sets it and switches here
+  const [graphRequest, setGraphRequest] = useState<GraphRequest | null>(null);
+  const showGraph = (label: string, body: GraphRequest['body']) => {
+    setGraphRequest({ key: Date.now(), label, body });
+    setMainTab('graph');
+    setError('');
+  };
 
   // Clear messages when data source changes (CRITICAL - was missing!)
   useEffect(() => {
@@ -449,7 +457,7 @@ const App: React.FC = () => {
                 <Tab label="PROCESSING" value="processing" />
                 <Tab label="HYBRID SEARCH" value="search" />
                 <Tab label="AI CHAT" value="chat" />
-                {/* <Tab label="GRAPH" value="graph" /> */}
+                <Tab label="GRAPH" value="graph" />
               </Tabs>
             </Box>
             
@@ -569,6 +577,7 @@ const App: React.FC = () => {
                 successMessage={successMessage}
                 onSuccessMessage={setSuccessMessage}
                 onError={setError}
+                onShowGraph={showGraph}
               />
             </TabPanel>
             
@@ -591,6 +600,7 @@ const App: React.FC = () => {
                 onHasSearchedChange={setHasSearched}
                 onLastSearchQueryChange={setLastSearchQuery}
                 onIsQueryingChange={setIsQuerying}
+                onShowGraph={showGraph}
               />
             </TabPanel>
             
@@ -604,12 +614,19 @@ const App: React.FC = () => {
                 onChatMessagesChange={setChatMessages}
                 onChatInputChange={setChatInput}
                 onIsQueryingChange={setIsChatQuerying}
+                onShowGraph={showGraph}
               />
             </TabPanel>
             
-            {/* <TabPanel value="graph" sx={{ p: 0 }}>
-              {renderGraphTab()}
-            </TabPanel> */}
+            {/* Kept mounted (hidden when another tab is selected) so the graph keeps its layout */}
+            <Box sx={{ display: mainTab === 'graph' ? 'block' : 'none' }}>
+              <GraphTab
+                currentTheme={currentTheme}
+                isDarkMode={isDarkMode}
+                active={mainTab === 'graph'}
+                request={graphRequest}
+              />
+            </Box>
           </TabContext>
         </Paper>
         

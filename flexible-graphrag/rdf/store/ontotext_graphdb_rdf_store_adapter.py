@@ -3,9 +3,10 @@
 from typing import Optional, Dict, List, Any
 from rdflib import Graph, URIRef
 from rdflib.plugins.stores.sparqlstore import SPARQLUpdateStore
-from .rdf_store_adapter import RDFStoreAdapter
+from .rdf_store_adapter import RDFStoreAdapter, shared_delete_update
 import logging
 import requests
+
 
 class OntotextGraphDBAdapter(RDFStoreAdapter):
     """
@@ -188,35 +189,11 @@ class OntotextGraphDBAdapter(RDFStoreAdapter):
             raise
 
     def delete_doc(self, ref_doc_id: str, graph_uri: Optional[str] = None) -> None:
-        """Delete all triples for a specific document from GraphDB via SPARQL UPDATE.
-
-        Two-pass delete:
-        1. Delete entity/plain triples whose subject has onto:ref_doc_id (entity nodes).
-        2. Delete RDF-star reifier triples — GraphDB stores {| |} annotation reifiers
-           as <urn:rdf4j:triple:BASE64> IRIs.  These are queryable as ordinary IRI
-           subjects when filtered by STRSTARTS(..., "urn:rdf4j:triple:"), which is
-           reliable standard SPARQL without requiring RDF-star triple-pattern syntax
-           in the UPDATE clause (which GraphDB may not support in SPARQL UPDATE).
-        Both passes sent as a single SPARQL Update with a semicolon separator.
+        """Take a document out of GraphDB via SPARQL UPDATE, keeping what other documents share
+        (shared_delete_update). GraphDB keeps a relation's {| |} annotations, from every
+        document, on one quoted triple (``<< s p o >>``, stored as a ``urn:rdf4j:triple:`` IRI).
         """
-        onto_ns = "https://integratedsemantics.org/flexible-graphrag/ontology#"
-        graph_clause = f"GRAPH <{graph_uri}>" if graph_uri else "GRAPH ?g"
-        escaped = ref_doc_id.replace("\\", "\\\\").replace('"', '\\"')
-        update_query = f"""PREFIX onto: <{onto_ns}>
-PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
-
-DELETE {{ {graph_clause} {{ ?s ?p ?o }} }}
-WHERE  {{ {graph_clause} {{ ?s ?p ?o ; onto:ref_doc_id "{escaped}" }} }} ;
-
-DELETE {{ {graph_clause} {{ ?reifier ?rp ?ro }} }}
-WHERE  {{
-  {graph_clause} {{
-    ?reifier onto:ref_doc_id "{escaped}" .
-    ?reifier ?rp ?ro .
-    FILTER(isIRI(?reifier) && STRSTARTS(STR(?reifier), "urn:rdf4j:triple:"))
-  }}
-}}
-"""
+        update_query = shared_delete_update(ref_doc_id, graph_uri)
         sparql_update_endpoint = f"{self.base_url}/repositories/{self.repository}/statements"
         auth = (self.username, self.password) if self.username and self.password else None
         self.logger.debug("GraphDB delete_doc SPARQL:\n%s", update_query)

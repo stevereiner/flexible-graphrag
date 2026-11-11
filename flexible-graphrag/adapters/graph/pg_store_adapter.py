@@ -102,11 +102,9 @@ LC_ONLY_PG_STORES: frozenset = frozenset({
     "hugegraph", "tigergraph", "surrealdb",
 })
 
-# Stores that have no LangChain PropertyGraphStore — always use LlamaIndex adapter.
-# (langchain-google-spanner requires langchain-core<1.0; incompatible with langchain>=1.0)
-LI_ONLY_PG_STORES: frozenset = frozenset({
-    "spanner",
-})
+# Stores that have no LangChain PropertyGraphStore — always use LlamaIndex adapter. Empty since
+# langchain-google-spanner 0.10.0 (LangChain 1.x) brought Spanner to both backends.
+LI_ONLY_PG_STORES: frozenset = frozenset()
 
 # Stores with a built-in vector index — GraphEntityVectorRetriever is the preferred
 # graph retriever. TextToGraphQueryRetriever (text-to-query) is opt-in via USE_LC_TEXT_TO_GRAPH.

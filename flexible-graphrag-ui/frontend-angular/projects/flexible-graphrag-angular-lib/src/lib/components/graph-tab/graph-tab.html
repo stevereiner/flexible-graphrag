@@ -1,0 +1,119 @@
+<div class="graph-tab">
+  <!-- Toolbar -->
+  <div class="toolbar">
+    <div class="scope-label">
+      <ng-container *ngIf="body; else noGraph">Graph for: <strong>{{ title }}</strong></ng-container>
+      <ng-template #noGraph>No graph selected</ng-template>
+      <span *ngIf="data" class="muted">
+        · {{ counts.nodes }} nodes<ng-container *ngIf="counts.chunks"> ({{ counts.nodes - counts.chunks }} entities, {{ counts.chunks }} chunks)</ng-container>
+        · {{ counts.edges }} relationships · {{ data.store }} · {{ data.doc_count ?? 0 }} document(s)
+      </span>
+    </div>
+    <mat-form-field appearance="outline" subscriptSizing="dynamic" class="layout-field">
+      <mat-select [value]="layout" (selectionChange)="setLayout($event.value)">
+        <mat-option value="force">Force</mat-option>
+        <mat-option value="hierarchical">Hierarchical</mat-option>
+        <mat-option value="concentric">Concentric</mat-option>
+      </mat-select>
+    </mat-form-field>
+    <button mat-icon-button title="Zoom in" (click)="view?.zoomIn()"><mat-icon>zoom_in</mat-icon></button>
+    <button mat-icon-button title="Zoom out" (click)="view?.zoomOut()"><mat-icon>zoom_out</mat-icon></button>
+    <button mat-icon-button title="Fit to screen" (click)="view?.fit()"><mat-icon>fit_screen</mat-icon></button>
+    <button mat-icon-button title="Reload" [disabled]="!body || loading" (click)="load()"><mat-icon>refresh</mat-icon></button>
+    <button mat-icon-button title="Save as PNG" [disabled]="!counts.nodes" (click)="savePng()"><mat-icon>download</mat-icon></button>
+    <button mat-icon-button [title]="panelOpen ? 'Hide side panel' : 'Show side panel'"
+            [color]="panelOpen ? 'primary' : undefined" (click)="togglePanel()">
+      <mat-icon>view_sidebar</mat-icon>
+    </button>
+  </div>
+
+  <div *ngIf="data?.truncated" class="notice warning">
+    Showing the first part of a large graph. Double-click a node to expand its neighbours.
+  </div>
+  <div *ngIf="data?.unsigned?.length" class="notice info">
+    Documents from {{ data?.unsigned?.join(', ') }} are left out: sign in to include them.
+  </div>
+
+  <div class="graph-frame">
+    <!-- Canvas -->
+    <div class="graph-canvas">
+      <div #canvas class="canvas"></div>
+      <div *ngIf="loading || error || !body || empty" class="overlay">
+        <mat-spinner *ngIf="loading" diameter="40"></mat-spinner>
+        <div *ngIf="!loading" [class.error]="!!error" [class.muted]="!error">
+          {{ error || (!body
+            ? 'Use “View graph” on the Processing tab (after an ingest), on Hybrid Search results or on AI Chat replies.'
+            : (data?.message || 'No graph for these documents.')) }}
+        </div>
+      </div>
+    </div>
+
+    <!-- Side panel -->
+    <div *ngIf="panelOpen" class="graph-panel">
+      <!-- Details first: what was clicked stays in view without scrolling past the lists -->
+      <div class="section-title" (click)="open.details = !open.details">{{ open.details ? '▾' : '▸' }} Details</div>
+      <div *ngIf="open.details" class="section">
+        <div *ngIf="!selected" class="muted">Click a node or relationship. Double-click a node to expand its neighbours.</div>
+        <ng-container *ngIf="selected?.kind === 'node' && $any(selected).node.kind === 'chunk'">
+          <div><strong>Chunk</strong> of {{ docNames($any(selected).node.doc_ids) }}</div>
+          <pre class="chunk-text">{{ $any(selected).node.properties.text }}</pre>
+        </ng-container>
+        <ng-container *ngIf="selected?.kind === 'node' && $any(selected).node.kind !== 'chunk'">
+          <div><strong>{{ $any(selected).node.label }}</strong></div>
+          <div class="muted small">{{ $any(selected).node.type }}</div>
+          <table class="props"><tbody>
+            <tr *ngFor="let p of $any(selected).node.properties | keyvalue">
+              <td class="prop-name">{{ p.key }}</td><td>{{ show(p.value) }}</td>
+            </tr>
+          </tbody></table>
+        </ng-container>
+        <ng-container *ngIf="selected?.kind === 'edge'">
+          <div class="break">
+            {{ endName($any(selected).edge.source) }} <strong>-{{ $any(selected).edge.type }}→</strong> {{ $any(selected).edge.target }}
+          </div>
+          <table class="props"><tbody>
+            <tr *ngFor="let p of $any(selected).edge.properties | keyvalue">
+              <td class="prop-name">{{ p.key }}</td><td>{{ show(p.value) }}</td>
+            </tr>
+          </tbody></table>
+          <div *ngIf="$any(selected).edge.doc_ids?.length" class="from">From: {{ docNames($any(selected).edge.doc_ids) }}</div>
+        </ng-container>
+      </div>
+      <mat-divider></mat-divider>
+
+      <div class="section-title" (click)="open.nodes = !open.nodes">{{ open.nodes ? '▾' : '▸' }} Nodes ({{ counts.nodes }})</div>
+      <div *ngIf="open.nodes" class="section">
+        <div class="row">
+          <span class="grow">Entities ({{ counts.nodes - counts.chunks }})</span>
+          <button mat-button color="primary" class="small-button fg-graph-button" (click)="setAllTypes(true)">All</button>
+          <button mat-button color="primary" class="small-button fg-graph-button" (click)="setAllTypes(false)">None</button>
+        </div>
+        <div class="type-list">
+          <label *ngFor="let t of types" class="type-row">
+            <input type="checkbox" [checked]="t.visible" (change)="typeToggle(t.type, $any($event.target).checked)" />
+            <span class="swatch" [style.background]="t.color"></span>{{ t.type }} ({{ t.count }})
+          </label>
+        </div>
+        <label *ngIf="counts.chunks" class="type-row chunk-row">
+          <input type="checkbox" [checked]="chunksVisible" (change)="toggleChunks($any($event.target).checked)" />
+          <span class="swatch chunk"></span>Chunks ({{ counts.chunks }})
+        </label>
+      </div>
+      <mat-divider></mat-divider>
+
+      <div class="section-title" (click)="open.rels = !open.rels">{{ open.rels ? '▾' : '▸' }} Relationships ({{ counts.edges }})</div>
+      <div *ngIf="open.rels" class="section">
+        <div class="row end">
+          <button mat-button color="primary" class="small-button fg-graph-button" (click)="setAllRels(true)">All</button>
+          <button mat-button color="primary" class="small-button fg-graph-button" (click)="setAllRels(false)">None</button>
+        </div>
+        <div class="type-list">
+          <label *ngFor="let t of rels" class="type-row">
+            <input type="checkbox" [checked]="t.visible" (change)="relToggle(t.type, $any($event.target).checked)" />
+            {{ t.type }} ({{ t.count }})
+          </label>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>

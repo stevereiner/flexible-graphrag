@@ -19,6 +19,9 @@ class LlamaIndexPGAdapter(PropertyGraphStoreAdapter):
 
     def __init__(self, store):
         self._store = store
+        if store is not None:
+            from llamaindex.graph.relation_mentions import add_relation_mentions
+            add_relation_mentions(store)
 
     def add_nodes(self, nodes: List, triplets: Optional[List] = None) -> None:
         """LlamaIndex ingestion is handled by the pipeline — this is a no-op here."""

@@ -1,4 +1,5 @@
 import { Component, ViewEncapsulation } from '@angular/core';
+import { GraphShowEvent } from '@flexible-graphrag/angular-ui';
 
 @Component({
   selector: 'app-root',
@@ -29,6 +30,16 @@ export class AppComponent {
   
   // Dark / light: the library's app-title-bar and FlexibleGraphragThemeService (set up when the
   // title bar is), styled by its styles/fg-theme.scss
+
+  // Graph tab: what to show; "View graph" on other tabs sets it and switches there
+  graph: GraphShowEvent | null = null;
+  graphKey = 0;
+
+  onShowGraph(event: GraphShowEvent): void {
+    this.graph = event;
+    this.graphKey++;
+    this.selectedTabIndex = 4;
+  }
 
   onConfigureProcessing(): void {
     this.selectedTabIndex = 1; // Switch to Processing tab

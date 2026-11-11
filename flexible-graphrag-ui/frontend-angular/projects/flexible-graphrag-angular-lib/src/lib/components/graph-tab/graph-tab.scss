@@ -1,0 +1,183 @@
+.graph-tab {
+  padding: 8px;
+}
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+
+.scope-label {
+  flex: 1;
+  min-width: 200px;
+  font-size: 14px;
+}
+
+.layout-field {
+  width: 160px;
+  margin-right: 4px;
+}
+
+.muted {
+  opacity: 0.7;
+}
+
+.small {
+  font-size: 12px;
+}
+
+.notice {
+  padding: 6px 12px;
+  border-radius: 4px;
+  margin-bottom: 8px;
+  font-size: 14px;
+}
+
+.notice.warning {
+  background: rgba(255, 152, 0, 0.15);
+}
+
+.notice.info {
+  background: rgba(33, 150, 243, 0.15);
+}
+
+.graph-frame {
+  display: flex;
+  height: calc(100vh - 300px);
+  min-height: 480px;
+  border: 1px solid rgba(128, 128, 128, 0.35);
+  border-radius: 4px;
+}
+
+.graph-canvas {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+}
+
+.canvas {
+  position: absolute;
+  inset: 0;
+}
+
+.overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  padding: 32px;
+  text-align: center;
+}
+
+.overlay .error {
+  color: #d32f2f;
+}
+
+.graph-panel {
+  width: 300px;
+  flex-shrink: 0;
+  overflow: auto;
+  padding: 12px;
+  border-left: 1px solid rgba(128, 128, 128, 0.35);
+  font-size: 14px;
+}
+
+.section-title {
+  font-weight: 500;
+  cursor: pointer;
+  user-select: none;
+  margin: 8px 0 4px;
+}
+
+.section {
+  padding-left: 8px;
+  margin-bottom: 8px;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+}
+
+.row.end {
+  justify-content: flex-end;
+}
+
+.grow {
+  flex: 1;
+}
+
+.small-button {
+  min-width: 0;
+  padding: 0 6px;
+  height: 28px;
+  line-height: 28px;
+}
+
+.type-list {
+  max-height: 28vh;
+  overflow: auto;
+}
+
+.type-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.chunk-row {
+  margin-top: 4px;
+}
+
+.swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+
+.swatch.chunk {
+  background: #9aa1a9;
+  border-radius: 2px;
+}
+
+.props {
+  font-size: 12px;
+  border-collapse: collapse;
+  margin-top: 4px;
+  width: 100%;
+}
+
+.props td {
+  vertical-align: top;
+  word-break: break-word;
+}
+
+.prop-name {
+  opacity: 0.7;
+  padding-right: 8px;
+  white-space: nowrap;
+}
+
+.chunk-text {
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 12px;
+  margin-top: 4px;
+  font-family: inherit;
+}
+
+.break {
+  word-break: break-word;
+}
+
+.from {
+  margin-top: 4px;
+}

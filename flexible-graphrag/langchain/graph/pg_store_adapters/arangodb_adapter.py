@@ -97,6 +97,13 @@ class ArangoDBAdapter:
             kwargs.setdefault("graph_name", graph_name)
 
         normalize_graph_documents(graph_documents)
+        # The library keys a SOURCE (chunk) on Document.id, else on a hash of its text alone:
+        # two documents with the same text (one file from two sources) would share it. Use the
+        # per-document id ingest_lc_graph._stamp_source_ids puts in the metadata.
+        for doc in graph_documents:
+            src = getattr(doc, "source", None)
+            if src is not None and not getattr(src, "id", None) and (src.metadata or {}).get("id"):
+                src.id = str(src.metadata["id"])
 
         self.lc_graph.add_graph_documents(graph_documents, **kwargs)
 
@@ -151,6 +158,21 @@ class ArangoDBAdapter:
                 f"  FILTER s.ref_doc_id == @rid OR s.doc_id == @rid RETURN s._id) "
             )
             steps = [
+                # 0a) A LINKS_TO edge is keyed on "subject type object", so one two documents
+                #    both produce is stored once, with the source_id of the last one written.
+                #    One whose both ends another document's SOURCE also links to (HAS_SOURCE)
+                #    passes to that SOURCE instead of going.
+                (
+                    _sids
+                    + f"FOR e IN `{relationship_col}` "
+                    f"  FILTER CONCAT('{source_col}/', e.source_id) IN sids "
+                    f"  LET heir = FIRST(FOR h1 IN `{has_source_col}` "
+                    f"    FILTER h1._from == e._from AND h1._to NOT IN sids "
+                    f"    FOR h2 IN `{has_source_col}` FILTER h2._from == e._to AND h2._to == h1._to "
+                    f"    RETURN PARSE_IDENTIFIER(h1._to).key) "
+                    f"  FILTER heir != null "
+                    f"  UPDATE e WITH {{source_id: heir}} IN `{relationship_col}`"
+                ),
                 # 0) LINKS_TO edges extracted from this document: each carries the key of the
                 #    SOURCE it came from (source_id). Exact -- an entity's ref_doc_id is only
                 #    that of the last document that wrote it, so it cannot say whose edge is whose.
@@ -190,8 +212,21 @@ class ArangoDBAdapter:
                     f"  FILTER s.ref_doc_id == @rid OR s.doc_id == @rid "
                     f"  REMOVE s IN `{source_col}` OPTIONS {{ignoreErrors: true}}"
                 ),
-                # 4) ENTITY nodes stamped with this rid (the normalizer stamps
-                #    relationship endpoints too, so this is now complete).
+                # 4a) An entity is stamped with the document that wrote it last: one stamped
+                #    with this document that another document's SOURCE still links to (this
+                #    document's HAS_SOURCE edges are gone by now) passes to that document.
+                (
+                    f"FOR n IN `{entity_col}` "
+                    f"  FILTER n.ref_doc_id == @rid OR n.doc_id == @rid "
+                    f"  LET s = FIRST(FOR h IN `{has_source_col}` FILTER h._from == n._id "
+                    f"    RETURN DOCUMENT(h._to)) "
+                    f"  FILTER s != null "
+                    f"  LET heir = NOT_NULL(s.ref_doc_id, s.doc_id) "
+                    f"  FILTER heir != null "
+                    f"  UPDATE n WITH {{ref_doc_id: heir, doc_id: n.doc_id == null ? null : heir}} "
+                    f"  IN `{entity_col}` OPTIONS {{keepNull: false}}"
+                ),
+                # 4) ENTITY nodes still stamped with this rid: no other document uses them.
                 (
                     f"FOR n IN `{entity_col}` "
                     f"  FILTER n.ref_doc_id == @rid OR n.doc_id == @rid "

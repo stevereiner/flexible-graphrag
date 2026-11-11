@@ -13,6 +13,8 @@
 #   ./tests/integration/run_full_suite.sh flex --pipeline cocoindex  — same as coco-flex
 #   ./tests/integration/run_full_suite.sh langflow               — flex 1-9 with LangFlow UI
 #   ./tests/integration/run_full_suite.sh <step> --langflow true — add LangFlow to flex step(s)
+#   ./tests/integration/run_full_suite.sh flex --cloud spanner   — add cloud graph stores (off by
+#       default) to the PG graph steps (flex 2, 3, 7): spanner, neptune, neptune_analytics
 #
 # Windows: works under Git Bash or WSL if `uv` is on PATH. Not for cmd.exe.
 # =============================================================================
@@ -35,6 +37,7 @@ STEP="${1:-all}"
 STEP_LC="$(_lc "${STEP}")"
 LANGFLOW_FLAG=()
 PIPELINE_FLAG=()
+CLOUD_PG=""   # --cloud spanner[,neptune,...]: appended to the PG graph steps' --pg lists
 
 # Parse optional flags (any position after step)
 shift || true
@@ -43,6 +46,12 @@ while [[ $# -gt 0 ]]; do
     --langflow)
       if [[ "${2:-}" == "true" ]]; then
         LANGFLOW_FLAG=(--langflow true)
+        shift
+      fi
+      ;;
+    --cloud)
+      if [[ -n "${2:-}" ]]; then
+        CLOUD_PG=",${2}"
         shift
       fi
       ;;
@@ -86,7 +95,7 @@ case "${STEP_LC}" in
   *)
     echo
     echo "ERROR: Invalid step ${STEP}."
-    echo "Usage: run_full_suite.sh [1-12 | coco | flex | coco-flex | langflow | all] [--pipeline cocoindex] [--langflow true]"
+    echo "Usage: run_full_suite.sh [1-12 | coco | flex | coco-flex | langflow | all] [--pipeline cocoindex] [--langflow true] [--cloud spanner,...]"
     echo
     echo "Steps:"
     echo "  1  [coco 1] CocoIndex native data sources"
@@ -202,8 +211,8 @@ fi
 
 if [[ "${STEP_LC}" == "all" || "${STEP_LC}" == "flex" || "${STEP_LC}" == "5" ]]; then
   run_suite \
-    "[flex 2/9] Flexible LI PG graphs (neo4j,falkordb,memgraph,arcadedb,nebula,ladybug) + qdrant  [--clean] [chunker:llamaindex]${EXTRA_NOTE}" \
-    --pg neo4j,falkordb,memgraph,arcadedb,nebula,ladybug --vector qdrant \
+    "[flex 2/9] Flexible LI PG graphs (neo4j,falkordb,memgraph,arcadedb,nebula,ladybug${CLOUD_PG}) + qdrant  [--clean] [chunker:llamaindex]${EXTRA_NOTE}" \
+    --pg neo4j,falkordb,memgraph,arcadedb,nebula,ladybug${CLOUD_PG} --vector qdrant \
     --graph-backend llamaindex \
     --chunker llamaindex \
     --clean "${LANGFLOW_FLAG[@]}" "${PIPELINE_FLAG[@]}"
@@ -211,8 +220,8 @@ fi
 
 if [[ "${STEP_LC}" == "all" || "${STEP_LC}" == "flex" || "${STEP_LC}" == "6" ]]; then
   run_suite \
-    "[flex 3/9] Flexible LC PG graphs (neo4j,arangodb,apache_age,hugegraph,surrealdb,tigergraph,arcadedb,falkordb,memgraph,nebula,cosmos_gremlin) + qdrant  [--clean] [chunker:llamaindex]${EXTRA_NOTE}" \
-    --pg neo4j,arangodb,apache_age,hugegraph,surrealdb,tigergraph,arcadedb,falkordb,memgraph,nebula,cosmos_gremlin \
+    "[flex 3/9] Flexible LC PG graphs (neo4j,arangodb,apache_age,hugegraph,surrealdb,tigergraph,arcadedb,falkordb,memgraph,nebula,cosmos_gremlin${CLOUD_PG}) + qdrant  [--clean] [chunker:llamaindex]${EXTRA_NOTE}" \
+    --pg neo4j,arangodb,apache_age,hugegraph,surrealdb,tigergraph,arcadedb,falkordb,memgraph,nebula,cosmos_gremlin${CLOUD_PG} \
     --vector qdrant \
     --graph-backend langchain \
     --chunker llamaindex \
@@ -248,8 +257,8 @@ fi
 
 if [[ "${STEP_LC}" == "all" || "${STEP_LC}" == "flex" || "${STEP_LC}" == "10" ]]; then
   run_suite \
-    "[flex 7/9] Flexible LC PG graphs (neo4j,falkordb,memgraph,arcadedb,nebula,ladybug) + qdrant  [--clean] [graph-backend:langchain] [chunker:langchain]${EXTRA_NOTE}" \
-    --pg neo4j,falkordb,memgraph,arcadedb,nebula,ladybug --vector qdrant \
+    "[flex 7/9] Flexible LC PG graphs (neo4j,falkordb,memgraph,arcadedb,nebula,ladybug${CLOUD_PG}) + qdrant  [--clean] [graph-backend:langchain] [chunker:langchain]${EXTRA_NOTE}" \
+    --pg neo4j,falkordb,memgraph,arcadedb,nebula,ladybug${CLOUD_PG} --vector qdrant \
     --graph-backend langchain \
     --chunker langchain \
     --clean "${LANGFLOW_FLAG[@]}" "${PIPELINE_FLAG[@]}"

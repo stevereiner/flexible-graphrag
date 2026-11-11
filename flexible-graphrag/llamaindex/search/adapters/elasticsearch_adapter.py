@@ -30,8 +30,15 @@ class LlamaIndexElasticsearchSearchAdapter(LlamaIndexSearchAdapter):
             es_password=config.get("password"),
             retrieval_strategy=AsyncBM25Strategy(),
         )
+        from adapters.search.analysis import analysis_settings
+        analyzer = config.get("analyzer") or "standard"
+        analysis = analysis_settings(analyzer)
+        if analysis:
+            # the index's default analyzer, used for the text field when the index is created
+            # (ElasticsearchStore does not pass custom_index_settings through to its inner store)
+            store._store.custom_index_settings = analysis
         super().__init__(store)
-        logger.info("LlamaIndexElasticsearchSearchAdapter: url=%s index=%s", es_url, index_name)
+        logger.info("LlamaIndexElasticsearchSearchAdapter: url=%s index=%s analyzer=%s", es_url, index_name, analyzer)
 
 
 __all__ = ["LlamaIndexElasticsearchSearchAdapter"]

@@ -519,7 +519,11 @@ class ApacheAGEAdapter:
             # Source document node + MENTIONS edges (when include_source=True)
             if include_source and doc.source is not None:
                 src_meta = doc.source.metadata or {}
-                src_id = src_meta.get("source") or src_meta.get("doc_id") or "unknown"
+                # One node per chunk of its own document (ingest_lc_graph._stamp_source_ids
+                # makes the id): keyed on `source` (often the same for every file of a data
+                # source) documents shared one node, stamped with the last one written.
+                src_id = (src_meta.get("id") or src_meta.get("source") or src_meta.get("doc_id")
+                          or "unknown")
                 _rid = src_meta.get("ref_doc_id") or src_meta.get("doc_id") or ""
                 _run(
                     f"MERGE (s:Document {{source: {_esc_str(src_id)}}}) "
@@ -564,7 +568,24 @@ class ApacheAGEAdapter:
             f"MATCH (d:Document) "
             f"WHERE d.ref_doc_id = {_rid_json} OR d.doc_id = {_rid_json} "
         )
+        _other = f"coalesce(o.ref_doc_id, o.doc_id, '') <> {_rid_json}"
         cyphers = [
+            # 0a) This document's relationships no other document's Document node MENTIONS
+            #     both ends of (a relationship two documents produce is stored once).
+            (
+                f"MATCH (d:Document)-[:MENTIONS]->(a)-[r]->(b)<-[:MENTIONS]-(d) "
+                f"WHERE d.ref_doc_id = {_rid_json} OR d.doc_id = {_rid_json} "
+                f"OPTIONAL MATCH (o:Document)-[:MENTIONS]->(a), (o)-[:MENTIONS]->(b) WHERE {_other} "
+                f"WITH r, count(o) AS cnt WHERE cnt = 0 DELETE r"
+            ),
+            # 0b) Entities stamped with this document (the last one to write them) that
+            #     another document mentions pass to it, so step 3 leaves them.
+            (
+                f"MATCH (o:Document)-[:MENTIONS]->(e) "
+                f"WHERE (e.ref_doc_id = {_rid_json} OR e.doc_id = {_rid_json}) AND {_other} "
+                f"WITH e, collect(coalesce(o.ref_doc_id, o.doc_id)) AS heirs "
+                f"SET e.ref_doc_id = heirs[0], e.doc_id = heirs[0]"
+            ),
             # 1) Scoped orphan sweep — entities mentioned only by this document.
             (
                 f"MATCH (d:Document)-[:MENTIONS]->(e) "

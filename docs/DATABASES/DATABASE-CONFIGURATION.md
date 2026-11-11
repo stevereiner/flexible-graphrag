@@ -4,7 +4,7 @@ Flexible GraphRAG uses four database types for hybrid search. Each is selected b
 
 | Database Type | Purpose | Picker Var | Count |
 |---|---|---|---|
-| Property Graph | Knowledge graph (GraphRAG), Cypher / SPARQL / Gremlin / GSQL | `PG_GRAPH_DB` | 15 stores (8 LI+LC, 1 LI-only, 6 LC-only) |
+| Property Graph | Knowledge graph (GraphRAG), Cypher / SPARQL / Gremlin / GSQL | `PG_GRAPH_DB` | 15 stores (9 LI+LC, 6 LC-only) |
 | RDF Graph | Knowledge graph (GraphRAG), SPARQL, ontology reasoning | `RDF_GRAPH_DB` | 4 stores |
 | Vector | Semantic similarity | `VECTOR_DB` | 10 stores |
 | Search (full-text) | BM25, keyword | `SEARCH_DB` | 3 stores |
@@ -24,7 +24,7 @@ KG_EXTRACTOR_BACKEND=llamaindex # llamaindex | langchain
 RETRIEVAL_FUSION=llamaindex     # llamaindex | langchain
 ```
 
-LangChain-only property graph stores (ArangoDB, Apache AGE, HugeGraph, SurrealDB, TigerGraph, Cosmos Gremlin) **auto-select** `GRAPH_BACKEND=langchain`. Spanner uses LlamaIndex only (`llama-index-spanner`; LangChain's `langchain-google-spanner` is incompatible with `langchain-core>=1.0`).
+LangChain-only property graph stores (ArangoDB, Apache AGE, HugeGraph, SurrealDB, TigerGraph, Cosmos Gremlin) **auto-select** `GRAPH_BACKEND=langchain`. Spanner works with both (`llama-index-spanner`, `langchain-google-spanner` 0.10.0+).
 
 ## Per-Store Configuration
 
@@ -46,7 +46,7 @@ ELASTICSEARCH_SEARCH_DB_CONFIG={"hosts": ["http://localhost:9200"], "index_name"
 
 ## Detailed Configuration Pages
 
-- **[Property Graph Databases](../CONFIGURATION/CONFIG-PROPERTY-GRAPH.md)** — all 15 stores (8 both LI+LC, 1 LI-only, 6 LC-only), database and framework config, `skip_graph`
+- **[Property Graph Databases](../CONFIGURATION/CONFIG-PROPERTY-GRAPH.md)** — all 15 stores (9 both LI+LC, 6 LC-only), database and framework config, `skip_graph`
 - **[RDF Graph Databases](../CONFIGURATION/CONFIG-RDF-STORES.md)** — Fuseki, GraphDB, Oxigraph, Neptune RDF; database and framework config, `skip_graph`
 - **[Vector Databases](../CONFIGURATION/CONFIG-VECTOR-DATABASES.md)** — 10 stores, LI and LC backends, dimension compatibility
 - **[Search Databases](../CONFIGURATION/CONFIG-SEARCH-DATABASES.md)** — BM25, Elasticsearch, OpenSearch; LI and LC backends

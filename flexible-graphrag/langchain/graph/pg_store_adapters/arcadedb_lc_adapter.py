@@ -17,7 +17,8 @@ import logging
 from collections import defaultdict
 from typing import Any, Dict, Set
 
-from ._graph_docs import cypher_ident, normalize_graph_documents, sanitize_graph_types
+from ._graph_docs import (SOURCE_PROPS, cypher_ident, normalize_graph_documents, sanitize_graph_types,
+                          write_source_mentions)
 
 logger = logging.getLogger(__name__)
 
@@ -370,12 +371,12 @@ class ArcadeDBLangChainAdapter:
                 if rel.type and isinstance(rel.properties, dict):
                     eprops[rel.type].update(rel.properties.keys())
         if include_source:
-            edge_types.add("MENTIONED_IN")
+            edge_types.add("MENTIONS")
             # Document does NOT extend Entity, so it needs its own declarations —
             # inherited props are only declared on Entity itself (see
             # _ensure_entity_base_and_types), and subtypes must never redeclare
             # them or ArcadeDB raises SchemaException.
-            vprops["Document"].update(("content", "id", "ref_doc_id"))
+            vprops["Document"].update(("id",) + SOURCE_PROPS)
         self._ensure_edge_types(host, http_port, username, password, database, edge_types)
         self._ensure_type_properties_sql(
             host, http_port, username, password, database, vprops, eprops
@@ -396,9 +397,11 @@ class ArcadeDBLangChainAdapter:
                 _rid = str(n.properties.pop("ref_doc_id", "") or _doc_rid or "")
                 _stamps.append((n.type, str(n.id), _name, _rid))
 
-        self.lc_graph.add_graph_documents(
-            graph_documents, include_source=include_source, **kwargs
-        )
+        # The library keys its source node on the chunk's text (two copies of one file share
+        # it) and links entity -[:MENTIONED_IN]-> chunk with no document id on the chunk:
+        # write the chunks and their MENTIONS ourselves (write_source_mentions), after the
+        # stamps below, as every other Cypher store has them.
+        self.lc_graph.add_graph_documents(graph_documents, include_source=False, **kwargs)
 
         for _vtype, _vid, _name, _rid in _stamps:
             try:
@@ -418,6 +421,9 @@ class ArcadeDBLangChainAdapter:
                     "ArcadeDB: stamp name/ref_doc_id on %s/%s failed: %s",
                     _vtype, _vid, exc,
                 )
+
+        if include_source:
+            write_source_mentions(lambda q, p: self.lc_graph.query(q, p), graph_documents)
 
     @staticmethod
     def _ensure_entity_base_and_types(

@@ -225,6 +225,26 @@ uv run tests/integration/run_matrix.py --rdf all --search bm25 --scope
   `[scoped lc graph(...)]`, `[scoped rdf]`, `[scoped bm25]`, and `Scope: kept N of M` when the
   safety filter had to drop something).
 
+## Cloud graph stores (`--cloud`, off by default)
+
+Google Cloud Spanner Graph and AWS Neptune / Neptune Analytics / Neptune RDF need a cloud instance
+(and cost money), so `--pg all` / `--rdf all` and the full suite leave them out. `--cloud` adds the
+named ones; `--pg spanner` on its own also works. They use the store's config in `.env`
+(`SPANNER_GRAPH_DB_CONFIG`, `NEPTUNE_*`). The Spanner emulator is SQL only (no Spanner Graph), so
+Spanner needs a real instance.
+
+```bash
+# Spanner with both graph backends (LlamaIndex and LangChain share its tables; --clean empties them)
+uv run tests/integration/run_matrix.py --pg all --vector qdrant --graph-backend llamaindex --cloud spanner --clean
+uv run tests/integration/run_matrix.py --pg all --vector qdrant --graph-backend langchain --cloud spanner --clean
+
+# Full suite: adds the stores to the PG graph steps (flex 2, 3 and 7)
+./tests/integration/run_full_suite.sh flex --cloud spanner
+tests\integration\run_full_suite.bat flex --cloud spanner
+```
+
+`--cloud all` = spanner, neptune, neptune_analytics, neptune_rdf.
+
 ## OpenArch state store (`run_matrix.py --state-store openarch`)
 
 `--state-store openarch` runs every job of a matrix with the incremental registry and document
@@ -297,9 +317,6 @@ docker compose -p flexible-graphrag -f docker/includes/surrealdb.yaml up -d
 
 # Gremlin Server (TinkerPop — Cosmos Gremlin substitute)
 docker compose -p flexible-graphrag -f docker/includes/gremlin-server.yaml up -d
-
-# Spanner Emulator
-docker compose -p flexible-graphrag -f docker/includes/spanner-emulator.yaml up -d
 
 # Fuseki
 docker compose -p flexible-graphrag -f docker/includes/fuseki.yaml up -d

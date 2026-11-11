@@ -317,3 +317,15 @@ body.dark-theme {
     color: #ffffff !important;
   }
 }
+
+// The Graph tab's buttons ("View graph" on Processing / Search / AI Chat, All / None on the Graph
+// tab): Material's primary colour is unreadable on the dark background
+.dark-theme .fg-graph-button {
+  &.mat-mdc-button,
+  &.mat-mdc-outlined-button {
+    color: #ffffff !important;
+  }
+  &.mat-mdc-outlined-button {
+    border-color: rgba(255, 255, 255, 0.5) !important;
+  }
+}

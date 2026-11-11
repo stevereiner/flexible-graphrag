@@ -34,6 +34,37 @@ except ImportError:
 from rdf.store.rdf_store_adapter import RDFStoreAdapter
 
 
+if LANGCHAIN_AWS_AVAILABLE:
+    class _NeptuneRdfGraph(NeptuneRdfGraph):
+        """NeptuneRdfGraph that also works without Neptune statistics.
+
+        Its schema comes from the RDF statistics summary (GetRDFGraphSummary), which Neptune
+        refuses on T-class instances and when statistics are off ("Statistics are disabled,
+        thus summary is also disabled"), and NeptuneRdfGraph.__init__ fails. Then the same
+        class and predicate lists come from SPARQL instead.
+        """
+
+        _LIMIT = 1000
+
+        def get_summary(self) -> Dict[str, Any]:
+            try:
+                return super().get_summary()
+            except Exception as e:
+                if "statistics" not in str(e).lower():
+                    raise
+                logging.getLogger(__name__).info(
+                    "Neptune RDF: statistics summary unavailable (%s); reading the schema "
+                    "with SPARQL instead", e)
+            classes = self.query(f"SELECT DISTINCT ?c WHERE {{ ?s a ?c }} LIMIT {self._LIMIT}")
+            preds = self.query(f"SELECT DISTINCT ?p WHERE {{ ?s ?p ?o }} LIMIT {self._LIMIT}")
+            values = lambda res, var: [b[var]["value"] for b in res["results"]["bindings"]]  # noqa: E731
+            return {"payload": {"graphSummary": {
+                "classes": values(classes, "c"),
+                # the summary's shape: a list of {predicate IRI: count}
+                "predicates": [{p: 0} for p in values(preds, "p")],
+            }}}
+
+
 class NeptuneRDFAdapter(RDFStoreAdapter):
     """
     Amazon Neptune RDF adapter using LangChain's NeptuneRdfGraph.
@@ -128,7 +159,7 @@ class NeptuneRDFAdapter(RDFStoreAdapter):
                     _os.environ["AWS_DEFAULT_REGION"] = self.region
                     _injected.append("AWS_DEFAULT_REGION")
 
-            self.lc_graph = NeptuneRdfGraph(
+            self.lc_graph = _NeptuneRdfGraph(
                 host=self.host,
                 port=self.port,
                 use_iam_auth=self.use_iam_auth,
@@ -160,44 +191,15 @@ class NeptuneRDFAdapter(RDFStoreAdapter):
         We parse the plain triples from the Turtle string (rdflib drops annotation blocks
         that use unknown syntax) and write them via N-Triples SPARQL INSERT.
 
-        Additionally, we extract ``onto:ref_doc_id`` values from annotation blocks and
-        write them as plain triples on the subject entity.  Neptune strips annotations so
-        ``onto:ref_doc_id`` would otherwise never be written — the DELETE query in
-        ``delete_doc()`` matches on ``?s onto:ref_doc_id "..."`` and would always delete
-        0 triples without this extra step.
+        The relations' document stamps go with the annotations; delete_doc() finds a
+        document's triples by the ``onto:ref_doc_id`` stamps KGToRDFConverter writes on every
+        entity, one per document it came from.
         """
         if isinstance(graph_or_turtle, str):
             import re as _re
             turtle_str = graph_or_turtle
 
-            # ── Step 1: Extract (subject_uri, ref_doc_id) pairs from annotation blocks ──
-            # Turtle annotation syntax: <subj> <pred> <obj>\n    {| onto:ref_doc_id "value" ... |} .
-            # We capture every occurrence of onto:ref_doc_id inside {| ... |} together
-            # with the subject URI on the line immediately before the {| block.
-            ref_doc_triples: list[tuple[str, str]] = []
-            _ONTO_NS = "https://integratedsemantics.org/flexible-graphrag/ontology#"
-
-            # Match: <subject_uri> ... {| ... onto:ref_doc_id "value" ... |} .
-            # The subject URI is on the line before the annotation block.
-            annotation_pattern = _re.compile(
-                r'<([^>]+)>\s+<[^>]+>\s+<[^>]+>\s*\{[|](.*?)[|]\}',
-                _re.DOTALL,
-            )
-            ref_doc_pattern = _re.compile(r'onto:ref_doc_id\s+"([^"]+)"')
-            # Also handle full URI form: <onto_ns ref_doc_id>
-            ref_doc_uri_pattern = _re.compile(
-                r'<' + _re.escape(_ONTO_NS) + r'ref_doc_id>\s+"([^"]+)"'
-            )
-            for m in annotation_pattern.finditer(turtle_str):
-                subj_uri = m.group(1)
-                annotation_body = m.group(2)
-                for rdp in (ref_doc_pattern, ref_doc_uri_pattern):
-                    rdm = rdp.search(annotation_body)
-                    if rdm:
-                        ref_doc_triples.append((subj_uri, rdm.group(1)))
-                        break
-
-            # ── Step 2: Remove annotation blocks and store plain triples ──
+            # Remove annotation blocks and store plain triples
             # Remove inline annotation blocks {| ... |}  (may span multiple lines)
             cleaned = _re.sub(r'\{[|].*?[|]\}', '', turtle_str, flags=_re.DOTALL)
             # Also remove legacy << >> RDF-star lines
@@ -224,31 +226,6 @@ class NeptuneRDFAdapter(RDFStoreAdapter):
                     self._sparql_update(sparql)
                 else:
                     self.logger.error("Neptune RDF: no parseable triples found in Turtle string")
-
-            # ── Step 3: Write onto:ref_doc_id as plain provenance triples ──
-            # These allow delete_doc() to find and remove entities by document.
-            # IMPORTANT: escape backslashes in SPARQL string literals (Windows paths
-            # contain backslashes which must be written as \\ in SPARQL/N-Triples;
-            # otherwise \n, \t etc. are misinterpreted as escape sequences and the
-            # stored value won't match the delete query's escaped form).
-            if ref_doc_triples:
-                nt_provenance = "\n".join(
-                    f'<{subj}> <{_ONTO_NS}ref_doc_id> "{ref_id.replace(chr(92), chr(92)*2)}" .'
-                    for subj, ref_id in ref_doc_triples
-                )
-                try:
-                    if graph_uri:
-                        prov_sparql = f"INSERT DATA {{ GRAPH <{graph_uri}> {{ {nt_provenance} }} }}"
-                    else:
-                        prov_sparql = f"INSERT DATA {{ {nt_provenance} }}"
-                    self._sparql_update(prov_sparql)
-                    self.logger.info(
-                        "Neptune RDF: stored %d onto:ref_doc_id provenance triple(s)", len(ref_doc_triples)
-                    )
-                except Exception as prov_err:
-                    self.logger.warning(
-                        "Neptune RDF: could not store provenance triples: %s", prov_err
-                    )
         else:
             self.store_graph(graph_or_turtle, graph_uri=graph_uri)
 
@@ -441,25 +418,14 @@ class NeptuneRDFAdapter(RDFStoreAdapter):
         a SELECT-style read request.  Neptune requires SPARQL UPDATE to be sent as
         ``POST /sparql`` with ``update=<query>`` (form-encoded), NOT ``query=<query>``.
         _sparql_update() handles exactly that with proper SigV4 signing.
+
+        Keeps what other documents share (rdf_store_adapter.shared_delete_update): an entity
+        another document also stamped keeps its triples and loses only this document's stamp.
+        Neptune keeps no RDF-star annotations, so its relations carry no stamp of their own:
+        they go with their subject entity.
         """
-        onto_ns = "https://integratedsemantics.org/flexible-graphrag/ontology#"
-        graph_clause = f"GRAPH <{graph_uri}>" if graph_uri else "GRAPH ?g"
-        escaped = ref_doc_id.replace("\\", "\\\\").replace('"', '\\"')
-        delete_query = f"""PREFIX onto: <{onto_ns}>
-PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
-
-DELETE {{ {graph_clause} {{ ?s ?p ?o }} }}
-WHERE  {{ {graph_clause} {{ ?s ?p ?o ; onto:ref_doc_id "{escaped}" }} }} ;
-
-DELETE {{ {graph_clause} {{ ?reifier ?rp ?ro }} }}
-WHERE  {{
-  {graph_clause} {{
-    ?reifier onto:ref_doc_id "{escaped}" .
-    ?reifier ?rp ?ro .
-    FILTER(isBlank(?reifier) || (isIRI(?reifier) && STRSTARTS(STR(?reifier), "urn:")))
-  }}
-}}
-"""
+        from rdf.store.rdf_store_adapter import shared_delete_update
+        delete_query = shared_delete_update(ref_doc_id, graph_uri, annotations=False)
         try:
             self._sparql_update(delete_query)
             self.logger.info(

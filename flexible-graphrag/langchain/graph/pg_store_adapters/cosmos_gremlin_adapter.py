@@ -431,6 +431,20 @@ class CosmosDBGremlinAdapter:
                 source=gd.source,
             )
 
+        # GremlinGraph's edge query reuses ANY edge of the type between the two vertices, and
+        # its property steps then land on the target vertex (choose(...) returns it), so one
+        # relationship two documents produce kept only the first one's doc_id: removing that
+        # document took it from the other too. Reuse only this document's copy, and put the
+        # properties (all escaped by _safe_rel) on the edge it creates.
+        def _edge_query(rel: _R) -> str:
+            key = rel.properties.get("doc_id")
+            props = "".join(f".property('{k}', '{v}')" for k, v in rel.properties.items())
+            match = f"__.inE('{rel.type}').where(outV().as('a'))" + (f".has('doc_id', '{key}')" if key else "")
+            return (f"g.V().has('id','{rel.source.id}').as('a').V().has('id','{rel.target.id}').as('b')"
+                    f".choose({match}, __.identity(), __.addE('{rel.type}').from('a').to('b'){props})")
+
+        self.lc_graph.build_edge_query = _edge_query
+
         # Always skip the source chunk — the full page_content text embeds
         # metadata dicts and arbitrary text whose quotes break Groovy scripts.
         self.lc_graph.add_graph_documents(

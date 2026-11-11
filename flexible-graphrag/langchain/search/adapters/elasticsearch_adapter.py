@@ -42,12 +42,15 @@ class ElasticsearchSearchAdapter(LangChainSearchAdapter):
                 "langchain-elasticsearch required. Install: pip install langchain-elasticsearch"
             )
         self._index_name = config.get("index_name", "hybrid_search_fulltext")
+        from adapters.search.analysis import analysis_settings
         store = ElasticsearchStore(
             es_url=config.get("url", "http://localhost:9200"),
             index_name=self._index_name,
             es_user=config.get("username"),
             es_password=config.get("password"),
             strategy=BM25RetrievalStrategy(),
+            # the index's default analyzer, used for the text field when the index is created
+            custom_index_settings=analysis_settings(config.get("analyzer")),
         )
         super().__init__(store=store, delete_key=delete_key)
         logger.info(

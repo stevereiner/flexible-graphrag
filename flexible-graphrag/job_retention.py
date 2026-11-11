@@ -22,7 +22,7 @@ from typing import Any, Dict, Optional
 
 FINISHED = ("completed", "failed", "cancelled")
 # Entry fields only the backend uses: never sent to clients
-INTERNAL = ("documents",)
+INTERNAL = ("documents", "doc_ids")
 # A writer of document_state rows gives up after ten minutes (post_ingestion_state)
 STATE_WRITER_LIMIT = timedelta(minutes=10)
 # The sync detectors read a run's documents right after it finishes
@@ -90,6 +90,9 @@ def prune(status: Dict[str, Dict[str, Any]]) -> None:
         if done is None:
             continue
         if "documents" in st and not state_pending(st, now):
+            # the Graph tab's "View graph" still needs which documents the job ingested
+            from graph_view import job_doc_ids
+            st.setdefault("doc_ids", job_doc_ids(st["documents"]))
             st.pop("documents", None)
         if not st.get("pass_of"):
             finished.append((done, pid))

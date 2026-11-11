@@ -133,6 +133,14 @@ def _turtle_literal(value: Any, pred_key: str = None, xsd_type_map: dict = None)
     return f'"{_turtle_escape_string(str(value))}"^^<{XSD.string}>'
 
 
+def _add_doc(docs: Dict[str, List[str]], key: str, doc_id: Optional[str]) -> None:
+    """Record that ``key`` came from ``doc_id`` (in order, once each)."""
+    if doc_id:
+        seen = docs.setdefault(key, [])
+        if doc_id not in seen:
+            seen.append(doc_id)
+
+
 class KGToRDFConverter:
     """
     Convert extracted LlamaIndex EntityNode / Relation objects to:
@@ -240,6 +248,9 @@ class KGToRDFConverter:
         # Relations are paired with their source node's ref_doc_id so we can inject it
         # into every annotation block — this is the provenance anchor used by delete_doc().
         all_entities: Dict[str, Any] = {}
+        # Every document an entity came from: each gets its own onto:ref_doc_id stamp, so
+        # deleting one document leaves an entity the others still have (delete_doc())
+        entity_docs: Dict[str, List[str]] = {}
         # List of (relation, ref_doc_id) tuples — ref_doc_id may be None for non-incremental ingest
         all_relations: List[Tuple[Any, Optional[str]]] = []
 
@@ -254,6 +265,7 @@ class KGToRDFConverter:
             for entity in meta.get(KG_NODES_KEY, []):
                 if entity.id not in all_entities:
                     all_entities[entity.id] = entity
+                _add_doc(entity_docs, entity.id, ref_doc_id)
             for rel in meta.get(KG_RELATIONS_KEY, []):
                 all_relations.append((rel, ref_doc_id))
 
@@ -263,16 +275,19 @@ class KGToRDFConverter:
             uri = self._entity_uri(entity)
             entity_uris[eid] = uri
             self._add_entity_triples(g, entity, uri)
+            self._add_doc_stamps(g, uri, entity_docs.get(eid, ()))
 
         # Add relation triples and collect annotation lines.
-        # Dedup on (source, label, target) — keep the first ref_doc_id seen so the
-        # annotation block always carries a provenance anchor even after dedup.
+        # Dedup on (source, label, target, document): a relation two documents in this batch
+        # both produced is annotated once per document, so it stays while either has it.
         seen_relations: Dict[tuple, str] = {}  # rel_key -> ref_doc_id (first seen)
+        seen_docs: set = set()
         for relation, ref_doc_id in all_relations:
             rel_key = (relation.source_id, relation.label, relation.target_id)
-            if rel_key in seen_relations:
+            if (rel_key, ref_doc_id) in seen_docs:
                 continue
-            seen_relations[rel_key] = ref_doc_id or ""
+            seen_docs.add((rel_key, ref_doc_id))
+            seen_relations.setdefault(rel_key, ref_doc_id or "")
 
             subject_uri = entity_uris.get(relation.source_id)
             object_uri = entity_uris.get(relation.target_id)
@@ -370,6 +385,7 @@ class KGToRDFConverter:
 
         annotation_lines: List[str] = []
         all_entities: Dict[str, Any] = {}          # node.id -> LC Node
+        entity_docs: Dict[str, List[str]] = {}     # node.id -> every document it came from
         all_relations: List[Tuple[Any, Optional[str]]] = []  # (LC Relationship, ref_doc_id)
 
         for i, graph_doc in enumerate(graph_docs):
@@ -391,6 +407,7 @@ class KGToRDFConverter:
             for lc_node in getattr(graph_doc, "nodes", []):
                 if lc_node.id not in all_entities:
                     all_entities[lc_node.id] = lc_node
+                _add_doc(entity_docs, lc_node.id, ref_doc_id)
             for lc_rel in getattr(graph_doc, "relationships", []):
                 all_relations.append((lc_rel, ref_doc_id))
 
@@ -400,15 +417,19 @@ class KGToRDFConverter:
             uri = self.BASE[_slugify(lc_node.id)]
             entity_uris[eid] = uri
             self._add_lc_node_triples(g, lc_node, uri)
+            self._add_doc_stamps(g, uri, entity_docs.get(eid, ()))
 
         # Add relation triples using a lightweight field-name adapter so
         # _add_relation_triples can be reused without creating LI Relation objects.
+        # One annotation per document that produced the relation (see convert()).
         seen_relations: Dict[tuple, str] = {}
+        seen_docs: set = set()
         for lc_rel, ref_doc_id in all_relations:
             rel_key = (lc_rel.source.id, lc_rel.type, lc_rel.target.id)
-            if rel_key in seen_relations:
+            if (rel_key, ref_doc_id) in seen_docs:
                 continue
-            seen_relations[rel_key] = ref_doc_id or ""
+            seen_docs.add((rel_key, ref_doc_id))
+            seen_relations.setdefault(rel_key, ref_doc_id or "")
 
             subject_uri = entity_uris.get(lc_rel.source.id)
             object_uri = entity_uris.get(lc_rel.target.id)
@@ -460,6 +481,12 @@ class KGToRDFConverter:
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
+
+    def _add_doc_stamps(self, g: Graph, uri: URIRef, doc_ids) -> None:
+        """onto:ref_doc_id for each document an entity came from (delete_doc() removes one
+        document's stamp, and the entity once none is left)."""
+        for doc_id in doc_ids:
+            g.add((uri, self.ONTO["ref_doc_id"], Literal(doc_id, datatype=XSD.string)))
 
     def _entity_uri(self, entity) -> URIRef:
         return self.BASE[_slugify(entity.name)]

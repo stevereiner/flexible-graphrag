@@ -27,10 +27,13 @@ logger = logging.getLogger(__name__)
 # Public entry points
 # ---------------------------------------------------------------------------
 
-def build_langchain_pg_retriever(config: "AppSettings", source_files=None, lc_graph=None):
+def build_langchain_pg_retriever(config: "AppSettings", source_files=None, lc_graph=None,
+                                 force: bool = False):
     """Create a LangChain property-graph text-to-query retriever for fusion.
 
-    Activated when ``USE_LANGCHAIN_PG=true`` OR ``USE_LC_TEXT_TO_GRAPH=true``.
+    Activated when ``USE_LANGCHAIN_PG=true`` OR ``USE_LC_TEXT_TO_GRAPH=true``, or with
+    ``force`` (the hybrid retriever setup: a LangChain store without vector search has no
+    other graph retriever, so text-to-query is always on for it).
     The store type is resolved from ``LANGCHAIN_PG_STORE_TYPE`` or ``PG_GRAPH_DB``.
 
     Args:
@@ -47,7 +50,7 @@ def build_langchain_pg_retriever(config: "AppSettings", source_files=None, lc_gr
     use_langchain_pg = getattr(config, "use_langchain_pg", False)
     use_lc_text_to_graph = getattr(config, "use_lc_text_to_graph", False)
 
-    if not use_langchain_pg and not use_lc_text_to_graph:
+    if not force and not use_langchain_pg and not use_lc_text_to_graph:
         logger.debug(
             "build_langchain_pg_retriever: skip (use_langchain_pg=%s use_lc_text_to_graph=%s)",
             use_langchain_pg,
@@ -331,11 +334,8 @@ def build_pg_adapter_config(config: "AppSettings", store_type: str) -> dict:
             "collection": getattr(cfg, "cosmos_gremlin_collection", "graph"),
         }
     if store_type == "spanner":
-        return {
-            "project_id": getattr(cfg, "spanner_project_id", None),
-            "instance_id": getattr(cfg, "spanner_instance_id", None),
-            "database_id": getattr(cfg, "spanner_database_id", None),
-        }
+        # SPANNER_GRAPH_DB_CONFIG (project_id, instance_id, database_id, graph_name, credentials_file)
+        return dict(getattr(cfg, "graph_db_config", None) or {})
 
     if store_type == "surrealdb":
         # Prefer graph_db_config (populated from SURREALDB_GRAPH_DB_CONFIG JSON blob)

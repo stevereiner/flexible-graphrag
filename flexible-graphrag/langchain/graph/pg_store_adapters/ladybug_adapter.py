@@ -397,6 +397,24 @@ class LangChainLadybugAdapter:
             logger.debug("Ladybug: could not enumerate node tables: %s", exc)
             node_table_names = []
 
+        # Entities are shared and stamped with the document written last, a relationship is
+        # stored once: first this document's relationships no other document's chunk MENTIONS
+        # both ends of, then hand its stamped entities another document's chunk MENTIONS over
+        # to that document, so the per-table delete below leaves them
+        # (see langchain.graph.pg_store_adapter.shared_delete_cypher)
+        for cypher, what in (
+            ("MATCH (d:Chunk)-[:MENTIONS]->(a), (d)-[:MENTIONS]->(b), (a)-[r]->(b) "
+             "WHERE d.ref_doc_id = $rid AND label(r) <> 'MENTIONS' "
+             "OPTIONAL MATCH (o:Chunk)-[:MENTIONS]->(a), (o)-[:MENTIONS]->(b) WHERE o.ref_doc_id <> $rid "
+             "WITH r, count(o) AS n WHERE n = 0 DELETE r", "relationships"),
+            ("MATCH (o:Chunk)-[:MENTIONS]->(e) WHERE e.ref_doc_id = $rid AND o.ref_doc_id <> $rid "
+             "WITH e, min(o.ref_doc_id) AS heir SET e.ref_doc_id = heir", "shared entities"),
+        ):
+            try:
+                conn.execute(cypher, parameters={"rid": ref_doc_id})
+            except Exception as exc:
+                logger.warning("Ladybug: could not delete/hand over %s of %s: %s", what, ref_doc_id, exc)
+
         deleted = 0
         for table in node_table_names:
             try:

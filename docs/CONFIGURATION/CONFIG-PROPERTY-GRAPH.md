@@ -16,7 +16,7 @@ GRAPH_BACKEND=llamaindex       # llamaindex (default) | langchain
 KG_EXTRACTOR_BACKEND=llamaindex  # llamaindex | langchain
 ```
 
-LangChain-only stores (`arangodb`, `apache_age`, `hugegraph`, `surrealdb`, `tigergraph`, `cosmos_gremlin`) **automatically set** `GRAPH_BACKEND=langchain` — no explicit override needed. `spanner` uses LlamaIndex only (`llama-index-spanner`; `langchain-google-spanner` requires `langchain-core<1.0` and is incompatible).
+LangChain-only stores (`arangodb`, `apache_age`, `hugegraph`, `surrealdb`, `tigergraph`, `cosmos_gremlin`) **automatically set** `GRAPH_BACKEND=langchain` — no explicit override needed. `spanner` works with both (`llama-index-spanner`, `langchain-google-spanner` 0.10.0+).
 
 ---
 
@@ -227,7 +227,7 @@ Fully managed relational + graph database with openCypher and Graph Query Langua
 - **Cloud only** — requires a GCP project, Spanner instance, and database with Spanner Graph enabled
 - **No emulator support**: the Google Cloud Spanner emulator supports SQL only, not Spanner Graph — use a real GCP Spanner instance
 - Requires: `uv pip install -e ".[spanner-extras]" && uv pip uninstall llama-index` — `llama-index-spanner` pulls in the `llama-index` meta-package as a dependency; uninstall it immediately after to avoid version conflicts (the meta-package pins versions of `llama-index-*` component packages that can clash with the versions already required by this project)
-- LC is not supported: `langchain-google-spanner` requires `langchain-core<1.0` (incompatible with `langchain>=1.0`). When a compatible release of `langchain-google-spanner` is published, Spanner will be promoted to "both LI+LC".
+- `GRAPH_BACKEND=llamaindex` (`llama-index-spanner`) or `langchain` (`langchain-google-spanner` 0.10.0+, GQL questions through `SpannerGraphQAChain`). Both use `{graph_name}_NODE` / `{graph_name}_EDGE` tables: give each backend its own `graph_name` if both write to one database.
 
 Authentication: set `credentials_file` for a service-account JSON key file, or rely on Application Default Credentials (`GOOGLE_APPLICATION_CREDENTIALS` env var or `gcloud auth application-default login`).
 

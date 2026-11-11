@@ -49,6 +49,10 @@
                 <div *ngIf="message.sources?.length" class="message-sources">
                   <app-source-docs [docs]="message.sources" label="Sources:"></app-source-docs>
                 </div>
+                <button *ngIf="showGraph.observed && graphDocIds(message.sources).length" mat-stroked-button
+                        class="graph-button fg-graph-button" (click)="showReplyGraph(i)">
+                  View graph of sources
+                </button>
                 <div class="message-time">
                   {{ formatTime(message.timestamp) }}
                 </div>

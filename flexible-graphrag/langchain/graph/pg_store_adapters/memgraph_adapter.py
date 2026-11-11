@@ -4,7 +4,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict
 
-from ._graph_docs import cypher_ident
+from ._graph_docs import cypher_ident, write_source_mentions
 
 logger = logging.getLogger(__name__)
 
@@ -106,22 +106,21 @@ class MemgraphAdapter:
                     },
                 )
 
+        if include_source:  # chunk nodes + MENTIONS, which this write left out
+            write_source_mentions(lambda q, p: self.lc_graph.query(q, params=p), graph_documents)
+
         try:
             self.lc_graph.refresh_schema()
         except Exception as exc:
             logger.debug("Memgraph refresh_schema after add_graph_documents: %s", exc)
 
     def delete(self, ref_doc_id: str) -> None:
-        """Delete all nodes tagged with *ref_doc_id* from Memgraph using Cypher.
-
-        Memgraph supports parameterized Cypher queries.  We use DETACH DELETE
-        so that all incident edges are removed automatically.
-        """
+        """Delete one document's graph data from Memgraph (parameterized Cypher), leaving what
+        other documents still use: see ``shared_delete_cypher``."""
+        from langchain.graph.pg_store_adapter import shared_delete_cypher
         try:
-            self.lc_graph.query(
-                "MATCH (n) WHERE n.ref_doc_id = $rid DETACH DELETE n",
-                params={"rid": ref_doc_id},
-            )
+            for cypher in shared_delete_cypher("ref_doc_id"):
+                self.lc_graph.query(cypher, params={"rid": ref_doc_id})
             logger.info("Memgraph: deleted nodes for ref_doc_id=%s", ref_doc_id)
         except Exception as exc:
             logger.warning("Memgraph delete failed for ref_doc_id=%s: %s", ref_doc_id, exc)

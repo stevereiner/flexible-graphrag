@@ -1,0 +1,44 @@
+{
+  "name": "@flexible-graphrag/graph-view",
+  "version": "0.10.0",
+  "description": "Framework-free property-graph view (Cytoscape.js) for the Flexible GraphRAG Graph tab",
+  "license": "Apache-2.0",
+  "keywords": ["graph", "knowledge-graph", "cytoscape", "graphrag", "flexible-graphrag"],
+  "homepage": "https://stevereiner.github.io/flexible-graphrag/",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/stevereiner/flexible-graphrag.git",
+    "directory": "flexible-graphrag-ui/graph-view"
+  },
+  "bugs": {
+    "url": "https://github.com/stevereiner/flexible-graphrag/issues"
+  },
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": ["dist", "README.md", "LICENSE"],
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "demo": "vite --config demo/vite.config.ts",
+    "prepublishOnly": "npm run build"
+  },
+  "dependencies": {
+    "cytoscape": "^3.34.4",
+    "cytoscape-dagre": "^4.0.1",
+    "cytoscape-fcose": "^2.2.0"
+  },
+  "devDependencies": {
+    "@types/cytoscape-dagre": "^2.3.4",
+    "@types/cytoscape-fcose": "^2.2.5",
+    "typescript": "~5.9.0",
+    "vite": "^6.3.5"
+  }
+}

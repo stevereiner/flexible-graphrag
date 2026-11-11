@@ -153,22 +153,25 @@ BASE_ENV = REPO_ROOT / "flexible-graphrag" / ".env"
 ALL_PG: dict[str, list[str]] = {
     "llamaindex": [
         "neo4j", "arcadedb", "falkordb", "memgraph", "nebula", "ladybug",
-        # Cloud — uncomment when instances are available:
-        # "neptune",             # AWS Neptune Database
-        # "neptune_analytics",   # AWS Neptune Analytics
-        # "spanner",             # Google Cloud Spanner Graph — free trial expired
-                                   # (CreateSession 400). Emulator is SQL-only, not Graph.
+        # Cloud stores are off by default: --cloud adds them (see CLOUD_PG)
     ],
     "langchain": [
         "neo4j", "arcadedb", "falkordb", "memgraph", "nebula", "tigergraph",
         "arangodb", "apache_age", "hugegraph", "surrealdb",
         "cosmos_gremlin",      # testable with local gremlin server
         "ladybug",             # Embedded — LI adapter reused via LangChain backend
-        # Cloud — uncomment when instances / compatible packages are available:
-        # "spanner",           # langchain-google-spanner requires langchain-core<1.0
-        # "neptune",           # AWS Neptune PG (OpenCypher)
-        # "neptune_analytics", # AWS Neptune Analytics
+        # Cloud stores are off by default: --cloud adds them (see CLOUD_PG)
     ],
+}
+# Cloud stores, off by default (an instance costs money / needs credentials): --cloud adds the
+# named ones to "--pg all" / "--rdf all". An explicit --pg spanner works without it.
+#   spanner            Google Cloud Spanner Graph (SPANNER_GRAPH_DB_CONFIG); both backends.
+#                      The emulator is SQL only (no Spanner Graph): a real instance is needed.
+#   neptune            AWS Neptune Database (OpenCypher); both backends
+#   neptune_analytics  AWS Neptune Analytics; both backends
+CLOUD_PG: dict[str, list[str]] = {
+    "llamaindex": ["spanner", "neptune", "neptune_analytics"],
+    "langchain":  ["spanner", "neptune", "neptune_analytics"],
 }
 ALL_VECTOR: dict[str, list[str]] = {
     "llamaindex": ["qdrant", "elasticsearch", "opensearch", "postgres",
@@ -182,8 +185,8 @@ ALL_SEARCH: dict[str, list[str]] = {
 }
 ALL_RDF: list[str] = [
     "fuseki", "graphdb", "oxigraph",
-    # "neptune_rdf",   # AWS Neptune RDF/SPARQL (cloud) — uncomment when cluster is available
 ]
+CLOUD_RDF: list[str] = ["neptune_rdf"]  # AWS Neptune RDF/SPARQL: --cloud neptune_rdf
 
 # DBs that must use the langchain vector backend regardless of --backends
 _LANGCHAIN_ONLY_VECTOR = {"milvus", "weaviate", "lancedb", "pinecone"}
@@ -332,7 +335,8 @@ _PG_OVERRIDES: dict[str, dict] = {
     "nebula":         {"PG_GRAPH_DB": "nebula"},
     "tigergraph":     {"PG_GRAPH_DB": "tigergraph"},
     # Cloud Spanner Graph from .env (SPANNER_GRAPH_DB_CONFIG). Emulator is SQL-only
-    # (not Spanner Graph) — keep using cloud config when re-enabling in ALL_PG.
+    # (not Spanner Graph). Both backends use the same graph_name (LangChain works on the
+    # tables LlamaIndex made); cleanup.py empties them between runs.
     "spanner":        {"PG_GRAPH_DB": "spanner"},
     # cloud:
     "neptune":            {"PG_GRAPH_DB": "neptune"},
@@ -815,6 +819,9 @@ def parse_args() -> argparse.Namespace:
                    help="Comma-separated DB names to skip across all dimensions "
                         "(e.g. --exclude neptune_analytics,tigergraph). "
                         "Applied after --pg/--rdf/--vector/--search expansion.")
+    p.add_argument("--cloud", default="",
+                   help="Comma-separated cloud stores to add to '--pg all' / '--rdf all' "
+                        "(off by default): spanner, neptune, neptune_analytics, neptune_rdf, or all")
     p.add_argument("--list-dbs", action="store_true",
                    help="Print available DB names per dimension and exit")
     p.add_argument("--base-env", default=str(BASE_ENV),
@@ -911,8 +918,9 @@ def main() -> int:
         print("PG backends:")
         print(f"  llamaindex: {', '.join(ALL_PG['llamaindex'])}")
         print(f"  langchain:  {', '.join(ALL_PG['langchain'])}")
+        print(f"  cloud (--cloud, off by default): {', '.join(CLOUD_PG['llamaindex'])}")
         print("  cocoindex (native):  neo4j, falkordb, surrealdb")
-        print("RDF backends:", ", ".join(ALL_RDF))
+        print("RDF backends:", ", ".join(ALL_RDF), f"(cloud: {', '.join(CLOUD_RDF)})")
         print("Vector stores:")
         print(f"  llamaindex: {', '.join(ALL_VECTOR['llamaindex'])}")
         print(f"  langchain:  {', '.join(ALL_VECTOR['langchain'])}")
@@ -1066,8 +1074,16 @@ def main() -> int:
 
     # Expand per-dimension lists (backend-dependent for pg/vector/search)
     # We resolve "all" lazily per backend so milvus/weaviate appear only in langchain
+    # --cloud: cloud stores added to the "all" lists (off by default)
+    cloud: set[str] = {x.strip() for x in args.cloud.split(",") if x.strip()}
+    if "all" in cloud:
+        cloud = set(CLOUD_PG["llamaindex"]) | set(CLOUD_PG["langchain"]) | set(CLOUD_RDF)
+    if cloud:
+        print(f"[matrix] --cloud: {', '.join(sorted(cloud))}")
+
     def pg_list(be):
-        return [x for x in _resolve(args.pg, ALL_PG.get(be, [])) if x not in excluded]
+        everything = ALL_PG.get(be, []) + [x for x in CLOUD_PG.get(be, []) if x in cloud]
+        return [x for x in _resolve(args.pg, everything) if x not in excluded]
 
     def vector_list(be):
         return [x for x in _resolve(args.vector, ALL_VECTOR.get(be, [])) if x not in excluded]
@@ -1075,7 +1091,8 @@ def main() -> int:
     def search_list(be):
         return [x for x in _resolve(args.search, ALL_SEARCH.get(be, [])) if x not in excluded]
 
-    rdf_list = [x for x in _resolve(args.rdf, ALL_RDF) if x not in excluded]
+    rdf_list = [x for x in _resolve(args.rdf, ALL_RDF + [x for x in CLOUD_RDF if x in cloud])
+                if x not in excluded]
 
     # LLM / embedding dimensions — None means "don't override, use .env as-is"
     llm_list = _resolve(args.llm, list(_LLM_OVERRIDES)) if args.llm else [None]

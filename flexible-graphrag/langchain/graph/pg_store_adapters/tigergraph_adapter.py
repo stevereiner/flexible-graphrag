@@ -22,6 +22,26 @@ def _safe_id(raw: str) -> str:
     return _UNSAFE_ID_RE.sub("_", raw.replace(" ", "_")).strip("_") or "unknown"
 
 
+_REVERSE_EDGE = "reverse___Relationship__"
+_GRAPH_TYPES = f"__Entity__, __Relationship__, {_REVERSE_EDGE}"
+_warned_graphs: set = set()
+
+
+def _warn_old_edge_type(graphname: str) -> None:
+    """The graph was made before __Relationship__ had a discriminator: it keeps one edge per
+    pair of entities. Never changed here (it drops the graph's relationships): say how."""
+    if graphname in _warned_graphs:
+        return
+    _warned_graphs.add(graphname)
+    logger.warning(
+        "TigerGraph: graph %s uses the old __Relationship__ edge type, which keeps only ONE "
+        "relationship between two entities (the last written, of any type or document). To "
+        "upgrade, in GSQL (this removes the graph's data; re-ingest its documents after): "
+        "USE GRAPH %s / DROP QUERY * / DROP GRAPH %s / DROP EDGE __Relationship__ / "
+        "then restart the backend (it creates the new edge type and the graph).",
+        graphname, graphname, graphname)
+
+
 class TigerGraphAdapter:
     """
     TigerGraph distributed graph analytics database adapter.
@@ -75,7 +95,9 @@ class TigerGraphAdapter:
             ) from exc
 
         host        = config.get("host", "http://localhost")
-        graphname   = config.get("database", "MyGraph")
+        # JSON config (TIGERGRAPH_GRAPH_DB_CONFIG) says "database"; the individual
+        # TIGERGRAPH_* variables give "graph_name"
+        graphname   = config.get("database") or config.get("graph_name") or "MyGraph"
         username    = config.get("username", "tigergraph")
         password    = config.get("password", "tigergraph")
         gs_port     = int(config.get("port", 14240))        # GraphStudio / GSQL server
@@ -140,9 +162,14 @@ class TigerGraphAdapter:
             'WITH primary_id_as_attribute="true"',
             "CREATE VERTEX __Entity__",
         )
+        # Directed (subject -> object) with a reverse edge for walking it backwards, and a
+        # discriminator: without one TigerGraph keeps a single edge per pair of vertices, so
+        # every relationship between two entities (any type, either direction, any document)
+        # overwrote the one before.
         _gsql(
-            "CREATE UNDIRECTED EDGE __Relationship__ "
-            "(FROM __Entity__, TO __Entity__, rel_type STRING, source STRING)",
+            "CREATE DIRECTED EDGE __Relationship__ "
+            "(FROM __Entity__, TO __Entity__, DISCRIMINATOR(rel_type STRING, source STRING)) "
+            f'WITH REVERSE_EDGE="{_REVERSE_EDGE}"',
             "CREATE EDGE __Relationship__",
         )
 
@@ -154,18 +181,25 @@ class TigerGraphAdapter:
             etypes = {et.get("Name", "") for et in schema.get("EdgeTypes", [])}
             if "__Entity__" in vtypes and "__Relationship__" in etypes:
                 logger.debug("TigerGraph: %s already has __Entity__ + __Relationship__", graphname)
+                rel = next((et for et in schema.get("EdgeTypes", []) if et.get("Name") == "__Relationship__"), {})
+                if not rel.get("DiscriminatorCount"):
+                    _warn_old_edge_type(graphname)
                 return
         except Exception:
             vtypes, etypes = set(), set()
 
-        # Try creating the graph with the types (works on first run)
-        r = _gsql(
-            f"CREATE GRAPH {graphname}(__Entity__, __Relationship__)",
-            f"CREATE GRAPH {graphname}",
-        )
+        import re as _re
 
-        # If the graph already existed (and is empty), drop + recreate
-        if "already exists" in r.lower() or "exist" in r.lower() or "could not be created" in r.lower():
+        def _graphs() -> dict:
+            """{graph name: listing} of every graph ("- Graph MyGraph(__Entity__:v, ...)")."""
+            try:
+                text = str(conn.gsql("SHOW GRAPH *"))
+            except Exception:
+                return {}
+            return {m.group(1): m.group(2) for m in _re.finditer(r"Graph\s+(\w+)\(([^)]*)\)", text)}
+
+        # A graph without the types (cleanup.py leaves an empty one): drop it to recreate it
+        if graphname in _graphs():
             logger.info(
                 "TigerGraph: %s exists without __Entity__ — dropping queries then graph", graphname
             )
@@ -177,10 +211,33 @@ class TigerGraphAdapter:
             except Exception as exc:
                 logger.debug("TigerGraph DROP QUERY * (OK if none): %s", exc)
             _gsql(f"DROP GRAPH {graphname}", f"DROP GRAPH {graphname}")
-            _gsql(
-                f"CREATE GRAPH {graphname}(__Entity__, __Relationship__)",
-                f"CREATE GRAPH {graphname} (retry)",
-            )
+
+        # The global __Relationship__ type may be the old one (made before the discriminator):
+        # the graph is about to be created empty, so if no other graph uses it, replace it
+        try:
+            current = str(conn.gsql("USE GLOBAL\nSHOW EDGE __Relationship__"))
+        except Exception as exc:
+            current = str(exc)
+        new_edge = "DISCRIMINATOR" in current
+        if not new_edge and "__Relationship__" in current:
+            users = [g for g, types in _graphs().items() if "__Relationship__" in types]
+            if users:
+                logger.warning("TigerGraph: the old __Relationship__ edge type is used by graph(s) %s, "
+                               "so %s gets it too (one relationship per pair of entities)",
+                               ", ".join(users), graphname)
+            else:
+                _gsql("USE GLOBAL\nDROP EDGE __Relationship__", "DROP old EDGE __Relationship__")
+                _gsql(
+                    "USE GLOBAL\nCREATE DIRECTED EDGE __Relationship__ "
+                    "(FROM __Entity__, TO __Entity__, DISCRIMINATOR(rel_type STRING, source STRING)) "
+                    f'WITH REVERSE_EDGE="{_REVERSE_EDGE}"',
+                    "CREATE EDGE __Relationship__ (replacing the old one)",
+                )
+                new_edge = "DISCRIMINATOR" in str(conn.gsql("USE GLOBAL\nSHOW EDGE __Relationship__"))
+        types = _GRAPH_TYPES if new_edge else "__Entity__, __Relationship__"
+        _gsql(f"CREATE GRAPH {graphname}({types})", f"CREATE GRAPH {graphname}")
+        if not new_edge:
+            _warn_old_edge_type(graphname)
 
         # Final verification
         try:
@@ -211,7 +268,7 @@ class TigerGraphAdapter:
         Ensures ``__Entity__`` and ``__Relationship__`` schema types exist before
         upserting.  Uses batch operations for efficiency.
         """
-        graphname = self.config.get("database", "MyGraph")
+        graphname = self.config.get("database") or self.config.get("graph_name") or "MyGraph"
         conn = self.lc_graph.conn
 
         # Ensure vertex / edge types are in the schema (fast-path if already there)
@@ -279,9 +336,19 @@ class TigerGraphAdapter:
             gone = 0
             for v in conn.getVertices("__Entity__", where=f"source={quoted}") or []:
                 vid = v.get("v_id")
-                if vid and not conn.getEdges("__Entity__", vid):
+                if not vid:
+                    continue
+                left = conn.getEdges("__Entity__", vid) or []
+                if not left:
                     conn.delVerticesById("__Entity__", vid)
                     gone += 1
+                    continue
+                # Stamped with this document (the last to write it) but other documents'
+                # edges still use it: pass it to one of them, or their delete would leave it
+                heir = next((e.get("attributes", {}).get("source") for e in left
+                             if e.get("attributes", {}).get("source") not in (None, "", ref_doc_id)), None)
+                if heir:
+                    conn.upsertVertex("__Entity__", vid, {"source": heir})
             logger.info("TigerGraph: deleted %d edge(s) and %d unused vertices for ref_doc_id=%s",
                         len(edges), gone, ref_doc_id)
         except Exception as exc:
@@ -296,7 +363,7 @@ class TigerGraphAdapter:
 
         Uses ``runInterpretedQuery`` so no prior query installation is needed.
         """
-        graphname = self.config.get("database", "MyGraph")
+        graphname = self.config.get("database") or self.config.get("graph_name") or "MyGraph"
         # POST-ACCUM is required for vertex attribute updates in GSQL;
         # ACCUM is for edge-set operations and cannot update vertex attributes.
         gsql = (

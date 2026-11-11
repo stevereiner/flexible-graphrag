@@ -33,7 +33,16 @@
               "src/styles.scss",
               "projects/flexible-graphrag-angular-lib/styles/fg-theme.scss"
             ],
-            "scripts": []
+            "scripts": [],
+            "allowedCommonJsDependencies": [
+              "cytoscape",
+              "cytoscape-fcose",
+              "cytoscape-dagre",
+              "cose-base",
+              "layout-base",
+              "@dagrejs/dagre",
+              "@dagrejs/graphlib"
+            ]
           },
           "configurations": {
             "production": {

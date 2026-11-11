@@ -392,6 +392,12 @@
       @click:close="successMessage = ''"
     >
       {{ successMessage }}
+      <template v-if="lastStatusData?.status === 'completed' && lastStatusData?.processing_id" #append>
+        <v-btn variant="text" size="small"
+               @click="$emit('show-graph', jobGraphLabel(lastStatusData), { processing_id: lastStatusData.processing_id })">
+          View graph
+        </v-btn>
+      </template>
     </v-alert>
 
     <!-- Error Message -->
@@ -449,6 +455,11 @@
               <td>
                 <v-btn v-if="jobRunning(job) && job.kind === 'ingest'" size="small" color="error"
                        variant="outlined" @click="cancelJob(job)">Cancel</v-btn>
+                <v-btn v-if="job.kind === 'ingest' && job.status === 'completed'" size="small" variant="outlined"
+                       style="white-space: nowrap"
+                       @click="$emit('show-graph', String(job.label || '').split(/[/\\]/).pop() || ('job ' + job.processing_id), { processing_id: job.processing_id })">
+                  View graph
+                </v-btn>
               </td>
             </tr>
           </tbody>
@@ -572,7 +583,7 @@ export default defineComponent({
       default: 0,
     },
   },
-  emits: ['go-to-sources', 'files-removed'],
+  emits: ['go-to-sources', 'files-removed', 'show-graph'],
   setup(props, { emit }) {
     // State
     const selectedItems = ref<number[]>([]);
@@ -1565,6 +1576,12 @@ export default defineComponent({
     const jobs = ref<any[]>([]);
     const watchedJobs = ref<string[]>([]);  // background jobs started here, until they finish
     const jobRunning = (job: any): boolean => !TERMINAL_JOB.includes(job.status);
+    /** "a.txt, b.pdf (+3 more)" for a finished ingest's status, else its job id (Graph tab label). */
+    const jobGraphLabel = (status: any): string => {
+      const names: string[] = (status?.individual_files || []).map((f: any) => f.filename).filter(Boolean);
+      if (!names.length) return 'job ' + status?.processing_id;
+      return names.slice(0, 3).join(', ') + (names.length > 3 ? ` (+${names.length - 3} more)` : '');
+    };
     const runningJobCount = computed(() => jobs.value.filter(jobRunning).length);
 
     const showFinishedJob = async (job: any) => {
@@ -1794,6 +1811,7 @@ export default defineComponent({
       subTab,
       jobs,
       jobRunning,
+      jobGraphLabel,
       runningJobCount,
       loadJobs,
       clearJobs,

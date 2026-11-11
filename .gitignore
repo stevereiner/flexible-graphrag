@@ -251,6 +251,10 @@ gcs.json
 flexible-graphrag/gen-lang-client.json
 gen-lang-client.json
 
+# Google Spanner service account credentials (machine-specific, never commit)
+flexible-graphrag/spanner-sa.json
+spanner-sa.json
+
 # pyright
 pyrightconfig.json
 

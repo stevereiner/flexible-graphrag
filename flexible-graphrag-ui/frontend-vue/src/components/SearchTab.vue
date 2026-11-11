@@ -39,7 +39,13 @@
       <!-- Search Results Tab -->
       <v-window-item value="search">
         <div v-if="searchResults.length > 0" class="mt-4">
-          <h3 class="mb-4">Search Results ({{ searchResults.length }})</h3>
+          <div class="d-flex align-center justify-space-between mb-4">
+            <h3>Search Results ({{ searchResults.length }})</h3>
+            <v-btn v-if="resultDocIds.length" variant="outlined" size="small"
+                   @click="$emit('show-graph', `search &quot;${lastSearchQuery}&quot;`, { doc_ids: resultDocIds })">
+              View graph
+            </v-btn>
+          </div>
           <v-card
             v-for="(result, index) in searchResults"
             :key="index"
@@ -83,6 +89,10 @@
           <div v-if="qaSources.length" class="text-body-2 text-medium-emphasis mt-3">
             <SourceDocs :docs="qaSources" label="Sources:" />
           </div>
+          <v-btn v-if="docIdsOf(qaSources).length" variant="outlined" size="small" class="mt-3"
+                 @click="$emit('show-graph', `sources of &quot;${lastSearchQuery}&quot;`, { doc_ids: docIdsOf(qaSources) })">
+            View graph of sources
+          </v-btn>
         </v-card>
       </v-window-item>
     </v-window>
@@ -101,7 +111,7 @@
 </template>
 
 <script lang="ts">
-import { defineComponent, ref, watch } from 'vue';
+import { computed, defineComponent, ref, watch } from 'vue';
 import axios from 'axios';
 import SourceDocs, { SourceDocument, sourceTypeLabel, storeLabel } from './SourceDocs.vue';
 import SourcePicker from '../auth/SourcePicker.vue';
@@ -122,9 +132,14 @@ interface ApiResponse {
   results?: any[];
 }
 
+/** The distinct doc ids behind search results / an answer's sources (Graph tab). */
+const docIdsOf = (docs: Array<{ doc_id?: string }>): string[] =>
+  [...new Set(docs.map((d) => d.doc_id).filter((d): d is string => !!d))];
+
 export default defineComponent({
   name: 'SearchTab',
   components: { SourceDocs, SourcePicker },
+  emits: ['show-graph'],
   setup() {
     // State
     const activeTab = ref('search');
@@ -197,9 +212,13 @@ export default defineComponent({
       lastSearchQuery.value = '';
     });
 
+    const resultDocIds = computed(() => docIdsOf(searchResults.value.flatMap((r: any) => r.documents || [])));
+
     return {
       activeTab,
       emptyMessage,
+      docIdsOf,
+      resultDocIds,
       question,
       searchResults,
       qaAnswer,

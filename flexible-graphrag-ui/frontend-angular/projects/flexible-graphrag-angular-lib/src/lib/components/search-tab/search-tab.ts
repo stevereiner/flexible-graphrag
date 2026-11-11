@@ -1,7 +1,7 @@
-import { Component, OnDestroy, OnInit, inject } from '@angular/core';
+import { Component, EventEmitter, OnDestroy, OnInit, Output, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { FlexibleGraphragConfigService } from '../../config.service';
-import { SourceDocument } from '../../models/api.models';
+import { GraphShowEvent, SourceDocument } from '../../models/api.models';
 import { ProcessingSessionService } from '../../services/processing-session.service';
 import { SourceAuthService } from '../../services/source-auth.service';
 
@@ -19,6 +19,11 @@ interface ApiResponse {
   answer?: string;
   sources?: SourceDocument[];
   results?: any[];
+}
+
+/** The distinct doc ids behind search results / an answer's sources (Graph tab). */
+export function graphDocIds(docs: Array<{ doc_id?: string }> | null | undefined): string[] {
+  return Array.from(new Set((docs || []).map((d) => d.doc_id).filter((d): d is string => !!d)));
 }
 
 @Component({
@@ -41,6 +46,13 @@ export class SearchTabComponent implements OnInit, OnDestroy {
   // user continued without signing in)
   emptyMessage = '';
   private readonly sourceAuth = inject(SourceAuthService);
+  /** "View graph" (shown only when the host listens): these documents on the Graph tab. */
+  @Output() showGraph = new EventEmitter<GraphShowEvent>();
+  readonly graphDocIds = graphDocIds;
+
+  get resultDocIds(): string[] {
+    return graphDocIds(this.searchResults.flatMap((r) => r.documents || []));
+  }
 
   /** The data source part of a result's source line ("SharePoint"), '' when unknown. */
   sourceTypeLabel(result: any): string {

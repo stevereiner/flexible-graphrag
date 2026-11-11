@@ -26,6 +26,7 @@ import { SourcesTabComponent } from './components/sources-tab/sources-tab';
 import { ProcessingTabComponent } from './components/processing-tab/processing-tab';
 import { SearchTabComponent } from './components/search-tab/search-tab';
 import { ChatTabComponent } from './components/chat-tab/chat-tab';
+import { GraphTabComponent } from './components/graph-tab/graph-tab';
 import { SourceDocsComponent } from './components/source-docs/source-docs';
 import { HostIdentityComponent } from './components/host-identity/host-identity';
 import { TitleBarComponent } from './components/title-bar/title-bar';
@@ -54,6 +55,7 @@ const COMPONENTS = [
   ProcessingTabComponent,
   SearchTabComponent,
   ChatTabComponent,
+  GraphTabComponent,
   SourceDocsComponent,
   SourceSignInComponent,
   SourceSignInDialogComponent,
@@ -79,8 +81,8 @@ const COMPONENTS = [
 ];
 
 /**
- * The four Flexible GraphRAG tabs and their source forms, shared by the standalone Angular
- * app and by host applications such as an Alfresco Content App extension.
+ * The five Flexible GraphRAG tabs (sources, processing, hybrid search, AI chat, graph) and their
+ * source forms, shared by the standalone Angular app and by host applications such as an Alfresco Content App extension.
  *
  * HttpClient is deliberately NOT provided here: the host owns it, so an ACA extension keeps
  * ADF's interceptors (which attach the Alfresco ticket) on every request this library makes.

@@ -925,7 +925,7 @@ def build_cypher_age(graph: Any, llm: Any, include_intermediate: bool, common: d
 
 
 def build_cypher_generic(graph: Any, llm: Any, include_intermediate: bool, common: dict) -> Any:
-    """Generic Cypher chain — Spanner and other openCypher stores."""
+    """Generic Cypher chain — openCypher stores without a chain of their own."""
     from langchain_community.chains.graph_qa.cypher import GraphCypherQAChain
     return GraphCypherQAChain.from_llm(**common)
 

@@ -7,7 +7,7 @@ import { ProcessingSessionService } from '../../services/processing-session.serv
 import { UiDefaultsService } from '../../services/ui-defaults.service';
 import { SourceAuthService } from '../../services/source-auth.service';
 import {
-  AsyncProcessingResponse, ConfiguredStores, ProcessingStatusResponse,
+  AsyncProcessingResponse, ConfiguredStores, GraphShowEvent, ProcessingStatusResponse,
   IngestStatusItem, IngestStatusRequest, ItemAction, ItemActionKind, ProcessingJob, RemoveTarget,
 } from '../../models/api.models';
 
@@ -67,6 +67,8 @@ export class ProcessingTabComponent implements OnInit, OnChanges, OnDestroy {
   @Output() goToSources = new EventEmitter<void>();
   @Output() removeRepositoryFile = new EventEmitter<number>();
   @Output() removeUploadFile = new EventEmitter<number>();
+  /** "View graph" for a finished ingest (shown only when the host listens). */
+  @Output() showGraph = new EventEmitter<GraphShowEvent>();
 
   // Table configuration
   /** nodeDetails from whichever repository source is configured, or [] if none carries any. */
@@ -872,6 +874,23 @@ export class ProcessingTabComponent implements OnInit, OnChanges, OnDestroy {
 
   jobRunning(job: ProcessingJob): boolean {
     return !TERMINAL_JOB.includes(job.status);
+  }
+
+  /** "a.txt, b.pdf (+3 more)" for a finished ingest's status, else its job id (Graph tab label). */
+  jobGraphLabel(status: any): string {
+    const names: string[] = (status?.individual_files || []).map((f: any) => f.filename).filter(Boolean);
+    if (!names.length) return 'job ' + status?.processing_id;
+    return names.slice(0, 3).join(', ') + (names.length > 3 ? ` (+${names.length - 3} more)` : '');
+  }
+
+  showJobGraph(job: ProcessingJob): void {
+    const label = String(job.label || '').split(/[/\\]/).pop() || 'job ' + job.processing_id;
+    this.showGraph.emit({ label, body: { processing_id: job.processing_id } });
+  }
+
+  showLastRunGraph(): void {
+    const s = this.lastStatusData;
+    if (s?.processing_id) this.showGraph.emit({ label: this.jobGraphLabel(s), body: { processing_id: s.processing_id } });
   }
 
   get runningJobCount(): number {

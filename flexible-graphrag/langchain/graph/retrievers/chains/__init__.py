@@ -30,6 +30,7 @@ from ._nebula import build_cypher_nebula
 from ._gremlin import build_gremlin_generic
 from ._aql import build_aql_arangodb
 from ._surql import build_surql_surrealdb
+from ._gql_spanner import build_gql_spanner
 
 # Dispatch table: chain_key -> builder function
 CHAIN_BUILDERS: dict = {
@@ -50,6 +51,7 @@ CHAIN_BUILDERS: dict = {
     "aql_arangodb":       build_aql_arangodb,
     "surql_surrealdb":    build_surql_surrealdb,
     "cypher_ladybug":     build_cypher_ladybug,
+    "gql_spanner":        build_gql_spanner,
 }
 
 __all__ = ["CHAIN_BUILDERS"]

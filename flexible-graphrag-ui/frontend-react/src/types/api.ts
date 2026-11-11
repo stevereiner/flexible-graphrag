@@ -141,3 +141,11 @@ export interface FileDisplayInfo {
   size: number;
   type: 'file' | 'path' | 'repository' | 'repository-file' | 'web-source' | 'wikipedia-source' | 'youtube-source' | 'cloud-source';
 }
+
+/** What the Graph tab shows: one ingest job's documents, or a list of doc ids (search results,
+ *  an answer's sources). `key` changes on every request, so the same scope can be shown again. */
+export interface GraphRequest {
+  key: number;
+  label: string;
+  body: { processing_id?: string; doc_ids?: string[] };
+}

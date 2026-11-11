@@ -1,6 +1,6 @@
 [project]
 name = "flexible-graphrag"
-version = "0.9.1"
+version = "0.10.0"
 description = "Open source AI context platform: document processing, knowledge graph auto-building, ontologies, GraphRAG/RAG, hybrid search (vector, property graph, RDF/SPARQL, fulltext), 13 LLM providers, 15 property graph DBs, 4 RDF triple stores, 10 vector DBs, LlamaIndex + LangChain, FastAPI, MCP server"
 readme = "README.md"
 requires-python = ">=3.12,<3.15"
@@ -332,10 +332,7 @@ langchain = [
 #   uv pip install --override extras-overrides.txt -e ".[langchain,langchain-extras]"
 # This also restores pgvector to its current release after langchain-postgres pins it back.
 #
-# langchain-google-spanner: requires langchain-core<1.0 — incompatible with langchain>=1.0.
-#   Latest release is 0.9.0; no version supports langchain-core>=1.0 yet.
-#   When a compatible version is released: add to langchain-extras and update
-#   DATABASE-CONFIGURATION.md / CONFIG-PROPERTY-GRAPH.md counts (LI-only -> both LI+LC).
+# langchain-google-spanner >= 0.10.0 supports LangChain 1.x: it is in spanner-extras below.
 # langchain-surrealdb>=0.2.0: ships SurrealDBGraph + SurrealDBGraphQAChain.
 #   Pins surrealdb==1.0.8, langchain-core==1.1.3, and several llama-index/fsspec
 #   packages at older versions; use extras-overrides.txt to suppress (see surrealdb-extras group).
@@ -394,8 +391,7 @@ age-extras = [
     "langchain-age==0.1.2",
 ]
 
-# Google Cloud Spanner LlamaIndex integration.
-# Does NOT downgrade core packages (unlike langchain-google-spanner which requires langchain-core<1.0).
+# Google Cloud Spanner: LlamaIndex and LangChain (0.10.0+: LangChain 1.x) integrations.
 # llama-index-spanner declares llama-index (meta-package) as a dependency; that meta-package
 # pins llama-index-* component packages at older versions.  Use extras-overrides.txt to
 # suppress the downgrades, then remove the meta-package afterwards:
@@ -404,6 +400,7 @@ age-extras = [
 spanner-extras = [
     "llama-index-spanner>=0.1.5",  # LlamaIndex SpannerPropertyGraphStore
     "google-cloud-spanner",        # GCP Spanner client (required by llama-index-spanner)
+    "langchain-google-spanner>=0.10.0",  # LangChain SpannerGraphStore + SpannerGraphQAChain
 ]
 
 # LangFlow integration (optional - for using components in LangFlow)
@@ -463,6 +460,7 @@ only-include = [
     "factories.py",
     "flow_service.py",   # Langflow flow-mode REST client (backend imports it when ENABLE_LANGFLOW_FLOWS)
     "graph_flags.py",         # per-graph flags: property graph and RDF graph each on / off
+    "graph_view.py",          # Graph tab: a set of documents' property-graph subgraph
     "hybrid_system.py",
     "incremental_system.py",
     "job_retention.py",       # Jobs list retention (PROCESSING_STATUS pruning)

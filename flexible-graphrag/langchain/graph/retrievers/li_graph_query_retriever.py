@@ -119,13 +119,15 @@ class GraphQueryRetriever(LCBackedLIRetriever):
         return nodes[: self._lc_retriever._top_k]
 
     def _attach_doc_ids(self, nodes: List[NodeWithScore]) -> None:
-        """Tag each answer node with the documents its SPARQL result rows came from."""
+        """Tag each answer node with the documents its SPARQL result rows came from: the entities
+        the rows name by IRI, else (rows of names only) by their exact label."""
         if self._doc_lookup is None:
             return
         for nws in nodes:
             iris = nws.node.metadata.pop("result_iris", None)
-            if iris:
-                doc_ids = self._doc_lookup(iris)
+            labels = nws.node.metadata.pop("result_labels", None)
+            if iris or labels:
+                doc_ids = self._doc_lookup(iris or [], labels=labels or [])
                 if doc_ids:
                     nws.node.metadata["doc_ids"] = doc_ids
 

@@ -13,6 +13,7 @@ export * from './lib/components/sources-tab/sources-tab';
 export * from './lib/components/processing-tab/processing-tab';
 export * from './lib/components/search-tab/search-tab';
 export * from './lib/components/chat-tab/chat-tab';
+export * from './lib/components/graph-tab/graph-tab';
 export * from './lib/components/source-docs/source-docs';
 export * from './lib/components/source-sign-in/source-sign-in';
 export * from './lib/components/host-identity/host-identity';

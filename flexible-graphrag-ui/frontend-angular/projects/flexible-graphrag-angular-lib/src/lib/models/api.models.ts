@@ -255,3 +255,17 @@ export interface QueryResponse extends ApiResponse {}
 export interface SearchResponse extends ApiResponse {
   results: SearchResult[];
 }
+
+/** What the Graph tab shows: a KG Spaces document / folder (scope), one ingest job's documents
+ *  (processing_id) or a list of doc ids (search results, an answer's sources). */
+export interface GraphScope {
+  scope?: AskScope;
+  processing_id?: string;
+  doc_ids?: string[];
+}
+
+/** "View graph" from another tab: shown on the Graph tab under `label`. */
+export interface GraphShowEvent {
+  label: string;
+  body: GraphScope;
+}

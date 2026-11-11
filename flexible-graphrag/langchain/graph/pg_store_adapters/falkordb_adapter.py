@@ -4,7 +4,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict
 
-from ._graph_docs import cypher_ident
+from ._graph_docs import cypher_ident, write_source_mentions
 
 logger = logging.getLogger(__name__)
 
@@ -140,6 +140,9 @@ class FalkorDBAdapter:
                     f"RETURN distinct 'done' AS result",
                     params=params,
                 )
+
+        if include_source:  # chunk nodes + MENTIONS, which this write left out
+            write_source_mentions(lambda q, p: self.lc_graph.query(q, params=p), graph_documents)
 
     def normalize_entity_names(self) -> None:
         """SET name = id on entity nodes (FalkorDB Cypher)."""

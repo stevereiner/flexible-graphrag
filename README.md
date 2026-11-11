@@ -33,6 +33,8 @@
 
 **Flexible GraphRAG** is an open source AI context platform supporting a document processing pipeline (Docling, LlamaParse, or LiteParse), knowledge graph auto-building, ontologies, schemas, many LLM providers, GraphRAG and RAG, hybrid semantic search (fulltext, vector, property graph, RDF/SPARQL), AI query, and AI chat. The backend is **Python** with **LlamaIndex** and **LangChain** as peer frameworks. **LlamaIndex** is the default for each pipeline stage; **LangChain** can be selected per stage in environment configuration. The API is a REST **FastAPI** service. **Angular**, **React**, and **Vue** TypeScript frontends and an **MCP** server are included. The stack supports 14 data sources (10 with incremental auto-sync), 15 property graph databases, 4 RDF triple stores (Apache Jena Fuseki, Ontotext GraphDB, Oxigraph, Amazon Neptune RDF), 10 vector databases, OpenSearch / Elasticsearch / BM25 search, Alfresco, and Nuxeo. Databases and dashboards can be enabled with the provided Docker Compose layout. Optionally, the ingest pipeline, hybrid search, and AI query can run through customizable **Langflow** visual flows (12 custom Langflow components). As a further option, ingest can run on a **CocoIndex** (Rust engine) pipeline that reuses the same sources, targets, parsers and KG extractors, adding step-level memoization and automatic delete reconciliation. And optionally, **[Hyland OpenArch](https://github.com/Hyland/OpenArch)**, an AI-ready content repository for documents with their extracted text and vector embeddings, can be the search + vector store and the store for data sources and document state.  
 
+**New 11/10/26 — v0.10.0 release:** a **Graph tab** in the React, Vue and Angular UIs showing the entities and relationships extracted from an ingest, search results, or AI answer sources, and from a document or folder in KG Spaces. Also an Ollama fix that keeps models on the GPU (new `OLLAMA_CONTEXT_WINDOW`, default 8192) (see [Ollama configuration](docs/LLM/OLLAMA-CONFIGURATION.md)).
+
 **New 11/3/26 — v0.9.1 release:** **OpenArch in the Flexible GraphRAG Docker Compose stack** (`docker/includes/openarch.yaml`, not just in KG Spaces Deployment); **faster KG extraction** by raising `KG_EXTRACTION_WORKERS` (default 4; 8-16 with cloud LLMs); **security fixes** (see [SECURITY.md](SECURITY.md) for reporting and the deployment model): REST / MCP filesystem ingest only reads paths under `uploads/`, `SOURCE_PATHS` or the new `INGEST_ALLOWED_PATHS`; query injection fixed in the Memgraph, Apache AGE, ArcadeDB, Ladybug, Gremlin / Cosmos DB and NebulaGraph adapters and the RDF converter; and graph Q&A now runs only read queries, so a question can't get the LLM to change or delete graph data. Also preparatory work for **Python 3.15** and free-threaded 3.15t (see [Python 3.15](docs/ADVANCED/PYTHON-3.15.md)).
 
 **New 10/23/26 — v0.9.0 release:** Optional **[Hyland OpenArch](https://github.com/Hyland/OpenArch)** as the search + vector store (`ENABLE_OPENARCH`) and as the store for data sources and document state, with no PostgreSQL (`INCREMENTAL_STATE_STORE=openarch`) (see [usage](docs/DATABASES/OPENARCH/OPENARCH.md)); separate **Graph** and **RDF** choices per row and ingest; a per-user Jobs list; a title bar with Dark / Light theme in the Angular UI library; and **[KG Spaces for Nuxeo](https://github.com/stevereiner/kg-spaces-nuxeo)** (Add to KG Spaces and Ask from Nuxeo Web UI).
@@ -72,7 +74,7 @@
 - **Hybrid Search**: Configurable hybrid search combining vector search, full-text search, property-graph GraphRAG, and SPARQL against RDF stores.
 - **Knowledge Graph GraphRAG**: Extracts entities and relationships from documents to build graphs in property graph databases and RDF stores. Optional schemas and ontologies guide extraction or act as a starting point for the LLM to extend.
 - **RDF/Ontology Support**: Load OWL/RDFS ontologies to guide KG extraction into any property graph or RDF store; SPARQL 1.1 queries; RDF 1.2 triple annotations; full UI pipeline (ingest, hybrid search, AI query/chat, incremental auto-sync). See [Ontology and RDF Support](#ontology-and-rdf-support) below.
-- **15 Property Graph Databases**: 8 on both LI+LC (Neo4j, ArcadeDB, FalkorDB, Ladybug, Memgraph, NebulaGraph, Amazon Neptune, Neptune Analytics), 1 LI-only (Google Cloud Spanner), 6 LC-only (ArangoDB, Apache AGE, Cosmos Gremlin, HugeGraph, SurrealDB, TigerGraph) — with KG extraction, hybrid search, and AI query/chat
+- **15 Property Graph Databases**: 9 on both LI+LC (Neo4j, ArcadeDB, FalkorDB, Ladybug, Memgraph, NebulaGraph, Amazon Neptune, Neptune Analytics, Google Cloud Spanner), 6 LC-only (ArangoDB, Apache AGE, Cosmos Gremlin, HugeGraph, SurrealDB, TigerGraph) — with KG extraction, hybrid search, and AI query/chat
 - **4 RDF Triple Stores**: Apache Jena Fuseki, Ontotext GraphDB, Oxigraph, Amazon Neptune RDF.
 - **10 Vector Databases**: Qdrant, Elasticsearch, OpenSearch, Neo4j, Chroma, Milvus, Weaviate, Pinecone, PostgreSQL pgvector, LanceDB — for semantic similarity search
 - **3 Search Databases**: Elasticsearch, OpenSearch, BM25 (built-in) — for full-text search and hybrid ranking
@@ -469,7 +471,7 @@ PG_GRAPH_DB=none
 
 ### Property Graph Databases (Knowledge Graph / GraphRAG)
 
-Set `PG_GRAPH_DB` to select the store and `GRAPH_BACKEND=llamaindex` or `langchain` for the framework where both are supported. **LangChain-only** stores (ArangoDB, Apache AGE, HugeGraph, SurrealDB, TigerGraph, Cosmos Gremlin) route property-graph ingestion and retrieval through LangChain adapters regardless of other env defaults. **LlamaIndex-only** stores (Spanner): when `PG_GRAPH_DB=spanner`, startup forces `GRAPH_BACKEND=llamaindex` and ignores `GRAPH_BACKEND=langchain`.
+Set `PG_GRAPH_DB` to select the store and `GRAPH_BACKEND=llamaindex` or `langchain` for the framework where both are supported. **LangChain-only** stores (ArangoDB, Apache AGE, HugeGraph, SurrealDB, TigerGraph, Cosmos Gremlin) route property-graph ingestion and retrieval through LangChain adapters regardless of other env defaults.
 
 - **Neo4j Property Graph**: Primary knowledge graph storage with Cypher querying
   - Dashboard: Neo4j Browser (http://localhost:7474)
@@ -534,12 +536,12 @@ Set `PG_GRAPH_DB` to select the store and `GRAPH_BACKEND=llamaindex` or `langcha
     NEPTUNE_ANALYTICS_GRAPH_DB_CONFIG={"graph_identifier": "g-xxxxx", "region": "us-east-1"}
     ```
 
-- **Google Cloud Spanner Graph** *(LlamaIndex only)*: Managed relational + property graph (GQL). Uses `llama-index-spanner` — install with `uv pip install -e ".[spanner-extras]"` then `uv pip uninstall llama-index` (see [Optional](#optional) under Prerequisites). LangChain is not supported for this store (`langchain-google-spanner` pins incompatible `langchain-core`).
+- **Google Cloud Spanner Graph**: Managed relational + property graph (GQL). Uses `llama-index-spanner` (LlamaIndex) or `langchain-google-spanner` 0.10.0+ (LangChain) — install with `uv pip install -e ".[spanner-extras]"` then `uv pip uninstall llama-index` (see [Optional](#optional) under Prerequisites).
   - Setup: [docs/DATABASES/GRAPH-DATABASES/SPANNER-SETUP.md](docs/DATABASES/GRAPH-DATABASES/SPANNER-SETUP.md)
   - Configuration:
     ```bash
     PG_GRAPH_DB=spanner
-    # GRAPH_BACKEND=llamaindex is forced for Spanner (LlamaIndex-only); langchain is ignored
+    # GRAPH_BACKEND=llamaindex or langchain (give each its own graph_name in one database)
     SPANNER_GRAPH_DB_CONFIG={"project_id": "my-gcp-project", "instance_id": "my-spanner-instance", "database_id": "my-database", "graph_name": "knowledge_graph", "credentials_file": "./gcs.json"}
     ```
 
@@ -672,7 +674,7 @@ Every pipeline stage can independently run on LlamaIndex or LangChain via env va
 
 **KG extraction speed:** `KG_EXTRACTION_WORKERS` (default `4`) sets how many LLM calls the LlamaIndex KG extractors make at once. Extraction is most of an ingest's time and is mostly waiting on the LLM, so with a cloud LLM (OpenAI, Gemini, Anthropic, etc.) raising it to 8-16 makes KG extraction much faster, up to the provider's rate limits. With a local LLM (Ollama etc.) keep it at `4`. See [Knowledge Graph Extractors - Extraction Concurrency](docs/DATABASES/GRAPH-DATABASES/KNOWLEDGE-GRAPH-EXTRACTORS.md#extraction-concurrency-kg_extraction_workers).
 
-LangChain-only graph stores (ArangoDB, Apache AGE, HugeGraph, SurrealDB, TigerGraph, Cosmos Gremlin) auto-select `GRAPH_BACKEND=langchain`. LlamaIndex-only Spanner (`PG_GRAPH_DB=spanner`) forces `GRAPH_BACKEND=llamaindex` at startup and ignores `GRAPH_BACKEND=langchain` (no LangChain adapter).
+LangChain-only graph stores (ArangoDB, Apache AGE, HugeGraph, SurrealDB, TigerGraph, Cosmos Gremlin) auto-select `GRAPH_BACKEND=langchain`.
 
 **Complete Documentation:** [docs/ADVANCED/LANGCHAIN/LANGCHAIN-GRAPH-INTEGRATION.md](docs/ADVANCED/LANGCHAIN/LANGCHAIN-GRAPH-INTEGRATION.md)
 
@@ -804,7 +806,7 @@ uv pip install -e .
     python scripts/patch_langchain_age.py
     ```
     Run `patch_langchain_age.py` on **Python 3.14+** (required); on 3.12/3.13 it is harmless.
-  - `uv pip install -e ".[spanner-extras]"` — adds LI-only Spanner support via `llama-index-spanner`. **Note:** `llama-index-spanner` declares `llama-index` (the meta-package) as a dependency, which `uv` will install. Uninstall it immediately after: `uv pip uninstall llama-index` — having both `llama-index` and `llama-index-core` installed simultaneously can cause version conflicts, as the meta-package pins versions of `llama-index-*` component packages that can clash with the versions already required by this project
+  - `uv pip install -e ".[spanner-extras]"` — adds Spanner support via `llama-index-spanner` and `langchain-google-spanner`. **Note:** `llama-index-spanner` declares `llama-index` (the meta-package) as a dependency, which `uv` will install. Uninstall it immediately after: `uv pip uninstall llama-index` — having both `llama-index` and `llama-index-core` installed simultaneously can cause version conflicts, as the meta-package pins versions of `llama-index-*` component packages that can clash with the versions already required by this project
   - SurrealDB — two-step install required (resolver conflict):
     ```bash
     uv pip install -e ".[surrealdb-extras]"

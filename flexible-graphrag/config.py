@@ -46,11 +46,11 @@ class PropertyGraphType(str, Enum):
     NEBULA = "nebula"
     NEPTUNE = "neptune"
     NEPTUNE_ANALYTICS = "neptune_analytics"
+    SPANNER = "spanner"
     # LangChain-only property graph backends (no LlamaIndex store equivalent)
     ARANGODB = "arangodb"
     APACHE_AGE = "apache_age"
     COSMOS_GREMLIN = "cosmos_gremlin"
-    SPANNER = "spanner"
     HUGEGRAPH = "hugegraph"
     TIGERGRAPH = "tigergraph"
     SURREALDB = "surrealdb"
@@ -468,6 +468,30 @@ an aristocratic family that rules the planet Caladan, the rainy planet, since 10
             "'llamaindex' (default) — LlamaIndex QueryFusionRetriever (relative_score mode, works with any mix of LI/LC retrievers). "
             "'langchain'           — LangChain EnsembleRetriever (RRF, only when ALL active retrievers are LC-native). "
             "Falls back to 'llamaindex' automatically when LI-native retrievers are present."
+        ),
+    )
+    search_min_relative_score: float = Field(
+        0.1,
+        description=(
+            "Hybrid search, AI query and AI chat drop fused results scoring below this fraction of the top "
+            "result's score (0 keeps all). Scores are then rescaled so the top result is 1.0."
+        ),
+    )
+    search_analyzer: str = Field(
+        "standard",
+        description=(
+            "Elasticsearch / OpenSearch full-text analyzer, set when the search index is created: 'standard' "
+            "(default, keeps every word), '<language>_stopwords' such as 'english_stopwords' (drops that "
+            "language's stopwords, and for English question words too; no stemming), or a built-in "
+            "language analyzer such as 'english' (also stems words). Changing it needs the search index "
+            "deleted and re-ingested. See adapters/search/analysis.py."
+        ),
+    )
+    vector_min_relative_similarity: float = Field(
+        0.6,
+        description=(
+            "Before fusion, vector search drops documents whose best chunk's similarity is below this "
+            "fraction of the best hit's (0 keeps all). Per document: a relevant document keeps all its chunks."
         ),
     )
 
@@ -994,6 +1018,9 @@ an aristocratic family that rules the planet Caladan, the rainy planet, since 10
                     "username": os.getenv("ELASTICSEARCH_USERNAME"),
                     "password": os.getenv("ELASTICSEARCH_PASSWORD")
                 }
+        if self.search_db in (SearchDBType.ELASTICSEARCH, SearchDBType.OPENSEARCH) and self.search_db_config:
+            # the index's text analyzer (SEARCH_ANALYZER); a *_SEARCH_DB_CONFIG "analyzer" wins
+            self.search_db_config.setdefault("analyzer", self.search_analyzer)
 
         if self.enable_openarch:
             if not self.openarch_config:
@@ -1019,7 +1046,7 @@ an aristocratic family that rules the planet Caladan, the rainy planet, since 10
         ).lower()
 
         # LI-only stores: force llamaindex regardless of GRAPH_BACKEND setting.
-        # (e.g. spanner — langchain-google-spanner requires langchain-core<1.0)
+        # (none at present; spanner was one until langchain-google-spanner 0.10.0)
         from adapters.graph.pg_store_adapter import LI_ONLY_PG_STORES
         if _db_type_str in LI_ONLY_PG_STORES:
             if (self.graph_backend or "llamaindex").strip().lower() == "langchain":

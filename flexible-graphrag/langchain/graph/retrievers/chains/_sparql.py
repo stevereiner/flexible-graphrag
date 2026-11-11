@@ -44,6 +44,26 @@ def _result_iris(raw_results: Any, limit: int = 100) -> list:
     return list(dict.fromkeys(found))[:limit]
 
 
+def _result_labels(raw_results: Any, limit: int = 50) -> list:
+    """The plain values in a SPARQL result's rows (entity names, when the query returned names and
+    not IRIs), for finding those entities by label when ``_result_iris`` finds none."""
+    values = []
+    for row in raw_results or []:
+        if hasattr(row, "_fields"):
+            cells = [getattr(row, f) for f in row._fields]
+        elif isinstance(row, dict):
+            cells = [v.get("value") if isinstance(v, dict) else v for v in row.values()]
+        elif isinstance(row, (list, tuple)):
+            cells = list(row)
+        else:
+            continue
+        for v in cells:
+            v = str(v).strip() if v is not None else ""
+            if v and len(v) <= 200 and "://" not in v:
+                values.append(v)
+    return list(dict.fromkeys(values))[:limit]
+
+
 _SPARQL_STOPWORDS = frozenset({
     # question words
     "who", "what", "where", "when", "how", "why", "which",
@@ -99,7 +119,7 @@ def _build_broad_fallback_sparql(keyword: str, graph_uri: str = _KG_URI,
     """
     return f"""\
 PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
-SELECT DISTINCT ?entityLabel ?predName ?relatedLabel ?direction WHERE {{
+SELECT DISTINCT ?entityLabel ?predName ?relatedLabel ?direction ?entity ?related WHERE {{
   GRAPH <{graph_uri}> {{
     {{
       # Entity is SUBJECT — outbound relationships (HAS_LOCATION, HAS_SKILL, …)
@@ -271,7 +291,7 @@ PREFIX kg:      <{_base_ns}>
 PREFIX onto:    <{_onto_ns}>
 PREFIX company: <http://example.org/company/>
 PREFIX rdfs:    <http://www.w3.org/2000/01/rdf-schema#>
-SELECT DISTINCT ?name WHERE {{{{
+SELECT DISTINCT ?person ?name WHERE {{{{
   GRAPH <{_kg_uri}> {{{{
     {{{{ ?person onto:works_for ?org }}}} UNION {{{{ ?person company:works_for ?org }}}}
     ?org rdfs:label ?orgLabel . FILTER(LCASE(?orgLabel) = "acme corporation")
@@ -284,7 +304,7 @@ EXAMPLE 2 — how is Acme organized:
 PREFIX kg:      <{_base_ns}>
 PREFIX onto:    <{_onto_ns}>
 PREFIX rdfs:    <http://www.w3.org/2000/01/rdf-schema#>
-SELECT DISTINCT ?deptName WHERE {{{{
+SELECT DISTINCT ?dept ?deptName WHERE {{{{
   GRAPH <{_kg_uri}> {{{{
     ?org rdfs:label ?orgLabel . FILTER(LCASE(?orgLabel) = "acme corporation")
     {{{{ ?dept onto:part_of ?org }}}} UNION {{{{ ?org onto:has_department ?dept }}}}
@@ -292,6 +312,8 @@ SELECT DISTINCT ?deptName WHERE {{{{
     BIND(COALESCE(?deptName, STRAFTER(STR(?dept), "{_base_ns}")) AS ?deptName)
   }}}}
 }}}}
+
+Always SELECT each entity's variable (its IRI) next to its name, as the examples do.
 
 Output only the raw SPARQL query — no explanation, no markdown fences.
 
@@ -451,6 +473,7 @@ SPARQL query:"""
                 self.output_key: qa_result[self.qa_chain.output_key],
                 "generated_sparql": generated_sparql,
                 "result_iris": _result_iris(raw_results),
+                "result_labels": _result_labels(raw_results),
             }
 
     return _NeptuneSparqlQAChain.from_llm(
@@ -566,7 +589,10 @@ def build_sparql_graphdb(graph: Any, llm: Any, include_intermediate: bool, commo
                             vals.append(local)
                         else:
                             vals.append(v)
-                    lines.append(", ".join(v for v in vals if v))
+                    # an entity's IRI next to its label reads as the same name twice
+                    seen = set()
+                    vals = [v for v in vals if v and not (v.lower() in seen or seen.add(v.lower()))]
+                    lines.append(", ".join(vals))
                 else:
                     lines.append(str(row))
             names = "\n".join(lines)
@@ -631,9 +657,19 @@ def build_sparql_graphdb(graph: Any, llm: Any, include_intermediate: bool, commo
                 self.output_key: qa_result[self.qa_chain.output_key],
                 "generated_sparql": generated_sparql,
                 "result_iris": _result_iris(raw_results),
+                "result_labels": _result_labels(raw_results),
             }
 
-    return _GraphDBQAChain.from_llm(**common)
+    # LangChain's GraphDB prompt, asking for entity IRIs too (they name the documents the answer
+    # came from: scope_filter.rdf_doc_ids_for_iris)
+    from langchain_community.chains.graph_qa.prompts import GRAPHDB_SPARQL_GENERATION_TEMPLATE
+    from langchain_core.prompts import PromptTemplate as _PromptTemplate
+    _gen_template = GRAPHDB_SPARQL_GENERATION_TEMPLATE.replace(
+        "Include all necessary prefixes.",
+        "Include all necessary prefixes.\nAlways SELECT each entity's variable (its IRI) next to its name or label.")
+    return _GraphDBQAChain.from_llm(
+        sparql_generation_prompt=_PromptTemplate(input_variables=["schema", "prompt"], template=_gen_template),
+        **common)
 
 
 def build_sparql_generic(graph: Any, llm: Any, include_intermediate: bool, common: dict) -> Any:
@@ -665,6 +701,7 @@ Rules:
 - Always wrap triple patterns in GRAPH <{_KG_URI}> {{{{ ... }}}}
 - Use FILTER(CONTAINS(LCASE(?label), "keyword")) for case-insensitive partial matching.
 - Use rdfs:label to look up entity names.
+- Always SELECT each entity's variable (its IRI) next to its name.
 - FORBIDDEN: Do NOT use any predicate not visible in the schema above.
   The schema may list predicates from an OWL ontology file; only use those
   that actually appear as triples in the store. If unsure, use the broad fallback.
@@ -771,6 +808,7 @@ SPARQL query:"""
             _logger.debug("Generated SPARQL:\n%s", generated_sparql)
 
             result_iris: list = []
+            result_labels: list = []
             if intent == "SELECT":
                 try:
                     raw_results = self.graph.query(generated_sparql)
@@ -826,6 +864,7 @@ SPARQL query:"""
                 )
                 res = result[self.qa_chain.output_key]
                 result_iris = _result_iris(raw_results)
+                result_labels = _result_labels(raw_results)
             elif intent == "UPDATE":
                 # Should never reach here — intent is always forced to SELECT above.
                 # Kept as a safety net: try SELECT, ignore any error.
@@ -843,7 +882,7 @@ SPARQL query:"""
                 raise ValueError("Unsupported SPARQL query type.")
 
             chain_result = {self.output_key: res, "generated_sparql": generated_sparql,
-                            "result_iris": result_iris}
+                            "result_iris": result_iris, "result_labels": result_labels}
             if self.return_sparql_query:
                 chain_result[self.sparql_query_key] = generated_sparql
             return chain_result

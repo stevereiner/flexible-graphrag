@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>graph-view demo</title>
+  <style>
+    body { margin: 0; font: 13px system-ui, sans-serif; display: grid; grid-template-rows: auto 1fr; height: 100vh; }
+    body.dark { background: #121212; color: #e6edf3; }
+    header { display: flex; gap: 8px; align-items: center; padding: 8px; border-bottom: 1px solid #8884; flex-wrap: wrap; }
+    main { display: grid; grid-template-columns: 1fr 300px; min-height: 0; }
+    #graph { min-height: 0; }
+    aside { border-left: 1px solid #8884; padding: 8px; overflow: auto; display: flex; flex-direction: column; gap: 6px; }
+    aside summary { font-weight: 600; cursor: pointer; }
+    aside .list { max-height: 30vh; overflow: auto; margin: 4px 0 0 4px; }
+    .allnone button { font-size: 11px; padding: 0 6px; margin-right: 4px; }
+    .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; }
+    label.type { display: block; cursor: pointer; }
+    pre { white-space: pre-wrap; word-break: break-word; font-size: 12px; }
+    #status { opacity: .75; }
+  </style>
+</head>
+<body>
+  <header>
+    <select id="by">
+      <option value="processing_id">processing_id</option>
+      <option value="doc_ids">doc_ids (comma separated)</option>
+    </select>
+    <input id="value" size="50" placeholder="e.g. 524d6f13" />
+    limit <input id="limit" type="number" value="500" style="width:70px" />
+    <button id="load">Load</button>
+    <select id="layout">
+      <option value="force">force</option>
+      <option value="hierarchical">hierarchical</option>
+      <option value="concentric">concentric</option>
+    </select>
+    <button id="fit">Fit</button>
+    <button id="theme">Dark</button>
+    <button id="png">PNG</button>
+    <span id="status"></span>
+  </header>
+  <main>
+    <div style="position:relative; min-height:0">
+      <div id="graph" style="position:absolute; inset:0"></div>
+      <div id="notice" style="display:none; position:absolute; top:40%; left:0; right:0; text-align:center; font-size:15px; color:#c62828; pointer-events:none"></div>
+    </div>
+    <aside>
+      <details open><summary>Details</summary>
+        <div id="details">Click a node or edge. Double-click a node to expand its neighbours.</div>
+      </details>
+      <details open><summary>Nodes (<span id="node-count">0</span>)</summary>
+        <div style="margin:4px 0 2px 0">Entities (<span id="entity-count">0</span>)
+          <span class="allnone"><button id="types-all">All</button><button id="types-none">None</button></span></div>
+        <div id="legend" class="list"></div>
+        <label class="type" id="chunks-row"><input id="chunks-visible" type="checkbox" checked>
+          <span class="swatch" style="background:#9aa1a9; border-radius:2px"></span>Chunks (<span id="chunk-count">0</span>)</label>
+      </details>
+      <details open><summary>Relationships (<span id="edge-count">0</span>)</summary>
+        <div class="allnone"><button id="rels-all">All</button><button id="rels-none">None</button></div>
+        <div id="rels" class="list"></div>
+      </details>
+    </aside>
+  </main>
+  <script type="module" src="./main.ts"></script>
+</body>
+</html>

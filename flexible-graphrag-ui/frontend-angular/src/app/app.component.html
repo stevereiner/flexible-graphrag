@@ -4,7 +4,8 @@
   <main class="main-content">
     <div class="container">
       <mat-card class="main-card">
-        <mat-tab-group [(selectedIndex)]="selectedTabIndex" class="full-width-tabs">
+        <!-- preserveContent: the Graph tab keeps its layout when another tab is selected -->
+        <mat-tab-group [(selectedIndex)]="selectedTabIndex" [preserveContent]="true" class="full-width-tabs">
           <mat-tab label="SOURCES">
             <app-sources-tab 
               (configureProcessing)="onConfigureProcessing()"
@@ -30,21 +31,22 @@
               [configurationTimestamp]="configurationTimestamp"
               (goToSources)="selectedTabIndex = 0"
               (removeRepositoryFile)="removeRepositoryFile($event)"
-              (removeUploadFile)="removeUploadFile($event)">
+              (removeUploadFile)="removeUploadFile($event)"
+              (showGraph)="onShowGraph($event)">
             </app-processing-tab>
           </mat-tab>
           
           <mat-tab label="HYBRID SEARCH">
-            <app-search-tab></app-search-tab>
+            <app-search-tab (showGraph)="onShowGraph($event)"></app-search-tab>
           </mat-tab>
           
           <mat-tab label="AI CHAT">
-            <app-chat-tab></app-chat-tab>
+            <app-chat-tab (showGraph)="onShowGraph($event)"></app-chat-tab>
           </mat-tab>
           
-          <!-- <mat-tab label="Graph">
-            <app-graph-tab></app-graph-tab>
-          </mat-tab> -->
+          <mat-tab label="GRAPH">
+            <app-graph-tab [graph]="graph?.body ?? null" [label]="graph?.label ?? ''" [requestKey]="graphKey"></app-graph-tab>
+          </mat-tab>
         </mat-tab-group>
       </mat-card>
     </div>

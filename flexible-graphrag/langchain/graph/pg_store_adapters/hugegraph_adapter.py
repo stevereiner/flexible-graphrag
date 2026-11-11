@@ -674,7 +674,11 @@ Cypher query:"""
                     continue
                 src_meta = gd.source.metadata or {}
                 src_path = src_meta.get("file_path") or src_meta.get("source", "")
-                chunk_vid = "chunk__" + _safe_id(src_path or gd.source.page_content[:64])
+                # One vertex per chunk of its own document (ingest_lc_graph._stamp_source_ids
+                # makes the id): keyed on the path or text alone, two copies of one file (or
+                # every chunk of one file) shared a vertex, stamped with the last one written.
+                chunk_vid = "chunk__" + _safe_id(
+                    src_meta.get("id") or src_path or gd.source.page_content[:64])
                 chunk_vertex_ids[id(gd)] = chunk_vid
                 _rid = src_meta.get("ref_doc_id") or src_meta.get("doc_id") or ""
                 chunk_props = {
@@ -746,9 +750,34 @@ Cypher query:"""
         self._ensure_ref_doc_id_indexes()
 
         _rid_lit = _json.dumps(ref_doc_id)  # "..." with \\ escaped
+        # Entities are shared and stamped with the document written last, relationships are
+        # stored once per (type, ends): keep what another document's chunk still MENTIONS
+        # (see langchain.graph.pg_store_adapter.shared_delete_cypher). HugeGraph takes no
+        # not-equal condition on an indexed property, so "another document" is worked out here.
+        try:
+            others: Dict[str, Set[str]] = {}  # entity -> other documents whose chunk MENTIONS it
+            for row in self._cypher_request(
+                    f"MATCH (d:__Chunk__)-[:MENTIONS]->(e)<-[:MENTIONS]-(o:__Chunk__) "
+                    f"WHERE d.ref_doc_id = {_rid_lit} RETURN id(e) AS e, o.ref_doc_id AS r"):
+                if isinstance(row, dict) and row.get("r") not in (None, "", ref_doc_id):
+                    others.setdefault(str(row["e"]), set()).add(str(row["r"]))
+            graph_api = self._get_pyhugeclient().graph()
+            for row in self._cypher_request(
+                    f"MATCH (d:__Chunk__)-[:MENTIONS]->(a)-[r]->(b)<-[:MENTIONS]-(d) "
+                    f"WHERE d.ref_doc_id = {_rid_lit} RETURN DISTINCT id(a) AS a, id(r) AS r, id(b) AS b"):
+                if isinstance(row, dict) and not (others.get(str(row["a"]), set()) & others.get(str(row["b"]), set())):
+                    graph_api.removeEdgeById(row["r"])
+            for row in self._cypher_request(
+                    f"MATCH (n:__Entity__) WHERE n.ref_doc_id = {_rid_lit} RETURN id(n) AS e"):
+                heirs = sorted(others.get(str(row.get("e")), set())) if isinstance(row, dict) else []
+                if heirs:
+                    graph_api.appendVertex(row["e"], {"ref_doc_id": heirs[0]})
+        except Exception as exc:
+            logger.warning("HugeGraph: could not keep the graph other documents share with %s: %s",
+                           ref_doc_id, exc)
         cyphers = [
-            f"MATCH (n:__Entity__) WHERE n.ref_doc_id = {_rid_lit} DETACH DELETE n",
             f"MATCH (c:__Chunk__) WHERE c.ref_doc_id = {_rid_lit} DETACH DELETE c",
+            f"MATCH (n:__Entity__) WHERE n.ref_doc_id = {_rid_lit} DETACH DELETE n",
         ]
         try:
             for cypher in cyphers:

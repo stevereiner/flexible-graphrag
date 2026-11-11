@@ -113,12 +113,14 @@ SPANNER_GRAPH_DB_CONFIG={"project_id": "my-gcp-project", "instance_id": "my-inst
 
 ## Framework Support
 
-Spanner is **LI only** — uses `llama-index-spanner` (`SpannerPropertyGraphStore`).
-`GRAPH_BACKEND=llamaindex` is the only supported backend.
+Spanner works with both backends:
 
-The `langchain-google-spanner` package requires `langchain-core<1.0` which is incompatible
-with `langchain>=1.0` used by this project. LC support will be added if a compatible version
-is released.
+- `GRAPH_BACKEND=llamaindex` — `llama-index-spanner` (`SpannerPropertyGraphStore`)
+- `GRAPH_BACKEND=langchain` — `langchain-google-spanner` 0.10.0+ (`SpannerGraphStore`; GQL
+  questions through `SpannerGraphQAChain`)
+
+Both use the flexible schema and the same table names (`{graph_name}_NODE`,
+`{graph_name}_EDGE`): give each backend its own `graph_name` if both write to one database.
 
 ## Cleanup
 

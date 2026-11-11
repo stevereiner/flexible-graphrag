@@ -47,7 +47,7 @@ _GRAPH_CHAIN_MAP = [
     ("FalkorDB",         "cypher_falkordb"),
     ("AGE",              "cypher_age"),
     ("Tiger",            "gsql_tigergraph"),
-    ("Spanner",          "cypher_generic"),
+    ("Spanner",          "gql_spanner"),
     ("HugeGraph",        "cypher_hugegraph"),
     # ---- Generic Gremlin ----------------------------------------------------
     ("Gremlin",          "gremlin_generic"),
@@ -410,6 +410,7 @@ try:
                             "original_query": query,
                             "source_files": self._source_files,
                             "result_iris": result.get("result_iris") or [],
+                            "result_labels": result.get("result_labels") or [],
                         },
                     ))
 

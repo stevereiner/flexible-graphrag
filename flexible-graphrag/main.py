@@ -4914,6 +4914,136 @@ async def graph_query(request: GraphQueryRequest):
         return {"error": str(e)}
 
 
+# ---- Graph tab (graph_view.py, planning/Graph Tab/GRAPH-TAB-PLAN.md) ----
+
+GRAPH_MAX_DOCS = 2000  # doc ids one graph request may name
+
+
+class GraphViewRequest(BaseModel):
+    """Which documents' graph: exactly one of scope (KG Spaces document / folder), processing_id
+    (a finished ingest job) or doc_ids (e.g. a search's result documents)."""
+    scope: Optional[AskScope] = None
+    processing_id: Optional[str] = None
+    doc_ids: Optional[List[str]] = None
+    node_id: Optional[str] = None  # /api/graph/neighbors: the entity to expand
+    limit: int = 500               # edges
+    include_chunks: bool = False   # also the chunks and their MENTIONS edges to entities
+    source_auth: Optional[SourceAuth] = None  # who is asking (as /api/search)
+
+
+def _job_doc_ids(processing_id: str) -> List[str]:
+    """The doc ids a processing job (and its passes) ingested; kept after its documents are
+    dropped (job_retention.prune)."""
+    from backend import PROCESSING_STATUS
+    from graph_view import job_doc_ids
+    out: List[str] = []
+    for pid, st in list(PROCESSING_STATUS.items()):
+        if pid != processing_id and st.get("pass_of") != processing_id:
+            continue
+        ids = st.get("doc_ids") or job_doc_ids(st.get("documents") or [])
+        out.extend(d for d in ids if d not in out)
+    if not out and processing_id not in PROCESSING_STATUS:
+        raise HTTPException(404, f"Processing job {processing_id} not found (finished jobs are kept "
+                                 f"for JOB_RETENTION_MINUTES)")
+    return out
+
+
+async def _graph_doc_ids(request: GraphViewRequest, ticket: Optional[str], ticket_url: Optional[str],
+                         trusted: bool):
+    """The doc ids a graph request may show, after the permission filter -> (doc_ids, message
+    when nothing is left, sources left out for want of a sign-in)."""
+    given = [x for x in (request.scope, request.processing_id, request.doc_ids) if x]
+    if len(given) != 1:
+        raise HTTPException(400, "give exactly one of scope, processing_id or doc_ids")
+    if request.scope:
+        ids = await _scope_doc_ids(request.scope)
+        if not ids:
+            return [], _nothing_in_scope(request.scope), []
+    elif request.processing_id:
+        ids = _job_doc_ids(request.processing_id)
+        if not ids:
+            return [], "That processing job ingested no documents.", []
+    else:
+        ids = sorted({str(d) for d in request.doc_ids if d})
+    if len(ids) > GRAPH_MAX_DOCS:
+        raise HTTPException(400, f"at most {GRAPH_MAX_DOCS} documents per graph ({len(ids)} given)")
+    identities = await _identities(request, ticket, ticket_url)
+    if identities or (not trusted and any(p["required"] for p in await _auth_providers())):
+        readable = await _readable(ids, identities, trusted)
+        ids = readable.doc_ids
+        if not ids:
+            if readable.unsigned:
+                names = _join_labels(readable.unsigned)
+                return [], f"These documents are in {names}. Sign in to {names} to see their graph.", \
+                    sorted(readable.unsigned)
+            return [], "You don't have access to any of these documents.", []
+        return ids, None, sorted(readable.unsigned)
+    return ids, None, []
+
+
+def _graph_system():
+    system = getattr(backend_instance, "system", None)
+    if system is None:
+        raise HTTPException(503, "System not initialized")
+    return system
+
+
+async def _graph_view(request: GraphViewRequest, ticket, ticket_url, trusted_key, node_id=None):
+    import graph_view
+    system = _graph_system()
+    caps = graph_view.capabilities(system)
+    if not caps["subgraph"]:
+        raise HTTPException(400, f"No graph to show: the property graph store ({caps['store']}) "
+                                 f"is off or not supported by the Graph tab yet")
+    ids, message, unsigned = await _graph_doc_ids(request, ticket, ticket_url, _trusted_client(trusted_key))
+    if message:
+        return {"nodes": [], "edges": [], "documents": {}, "truncated": False, "store": caps["store"],
+                "doc_count": 0, "unsigned": unsigned, "message": message}
+    try:
+        if node_id is None:
+            data = await asyncio.to_thread(graph_view.subgraph, system, ids, request.limit,
+                                           request.include_chunks)
+        else:
+            data = await asyncio.to_thread(graph_view.neighbors, system, node_id, ids, request.limit,
+                                           request.include_chunks)
+    except NotImplementedError as e:
+        raise HTTPException(400, str(e))
+    except Exception as e:
+        logger.exception("graph view error")
+        raise HTTPException(502, f"The graph store could not answer: {type(e).__name__}: {e}")
+    data.update(doc_count=len(ids), unsigned=unsigned)
+    return data
+
+
+@app.get("/api/graph/capabilities")
+async def graph_capabilities():
+    """What the Graph tab can show with this deployment's property graph store."""
+    import graph_view
+    system = getattr(backend_instance, "system", None)
+    return graph_view.capabilities(system) if system is not None else {
+        "store": "none", "backend": "", "subgraph": False, "neighbors": False, "types": False, "rdf": False}
+
+
+@app.post("/api/graph/subgraph")
+async def graph_subgraph(request: GraphViewRequest, x_alfresco_ticket: Optional[str] = Header(default=None),
+                         x_alfresco_url: Optional[str] = Header(default=None),
+                         x_trusted_client_key: Optional[str] = Header(default=None)):
+    """The property graph extracted from a set of documents: {nodes, edges, truncated, store,
+    doc_count, unsigned[, message]} (graph_view.py)."""
+    return await _graph_view(request, x_alfresco_ticket, x_alfresco_url, x_trusted_client_key)
+
+
+@app.post("/api/graph/neighbors")
+async def graph_neighbors(request: GraphViewRequest, x_alfresco_ticket: Optional[str] = Header(default=None),
+                          x_alfresco_url: Optional[str] = Header(default=None),
+                          x_trusted_client_key: Optional[str] = Header(default=None)):
+    """The relationships touching request.node_id, from the same documents a subgraph covers."""
+    if not request.node_id:
+        raise HTTPException(400, "node_id is required")
+    return await _graph_view(request, x_alfresco_ticket, x_alfresco_url, x_trusted_client_key,
+                             node_id=request.node_id)
+
+
 def _infer_language(db_type: str) -> str:
     """Map DB type to its native query language name."""
     _MAP = {
@@ -5240,13 +5370,13 @@ async def sync_remove(request: RemoveRequest):
     store, stays out of that sync until it is ingested again; see
     incremental_updates/removal.py.
     """
-    from incremental_updates.ingest_status import PATH_SOURCES, Item
+    from incremental_updates.ingest_status import FS_SOURCES, ROW_SOURCES, Item, fs_item
     from incremental_updates.engine import DELETE_TARGETS
 
-    if request.data_source not in PATH_SOURCES:
+    if request.data_source not in ROW_SOURCES:
         raise HTTPException(
             status_code=400,
-            detail=f"remove is available for {', '.join(PATH_SOURCES)}, not {request.data_source}",
+            detail=f"remove is available for {', '.join(ROW_SOURCES)}, not {request.data_source}",
         )
     targets = list(dict.fromkeys(request.targets))
     unknown = set(targets) - set(DELETE_TARGETS)
@@ -5265,6 +5395,11 @@ async def sync_remove(request: RemoveRequest):
 
     try:
         await ensure_config_manager_ready()
+        if request.data_source in FS_SOURCES:
+            # upload / filesystem rows, as ingest status reads them: an upload by its file name
+            # (saved under ./uploads), keyed like document_state; uploads are filesystem ingests
+            items = [fs_item(_fs_row_path(i.path), i.is_folder) for i in request.items]
+            return await _remove_items("filesystem", None, request.recursive, items, targets)
         items = [Item(i.path, i.is_folder, i.id) for i in request.items]
         return await _remove_items(request.data_source, request.url, request.recursive, items, targets)
     except HTTPException:

@@ -450,7 +450,7 @@ _COCO_NATIVE_VECTOR_DBS = frozenset({"qdrant", "postgres", "lancedb"})
 _COCO_NATIVE_PG_DBS = frozenset({"neo4j", "falkordb", "surrealdb"})
 
 # PG DBs with a LlamaIndex property-graph adapter (all LI-capable stores).
-# spanner uses LlamaIndex SpannerPropertyGraphStore — LI only (no LC adapter).
+# spanner: LlamaIndex SpannerPropertyGraphStore (LangChain SpannerGraphStore too since 0.10.0).
 _LI_PG_DBS = frozenset({
     "neo4j", "falkordb", "memgraph", "arcadedb", "nebula",
     "ladybug", "neptune", "neptune_analytics", "spanner",

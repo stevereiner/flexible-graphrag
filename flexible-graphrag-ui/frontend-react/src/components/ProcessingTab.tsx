@@ -115,6 +115,8 @@ interface ProcessingTabProps {
   successMessage: string;
   onSuccessMessage: (message: string) => void;
   onError: (message: string) => void;
+  /** Open the Graph tab on a finished ingest job's documents. */
+  onShowGraph?: (label: string, body: { processing_id: string }) => void;
 }
 
 export const ProcessingTab: React.FC<ProcessingTabProps> = ({
@@ -155,6 +157,7 @@ export const ProcessingTab: React.FC<ProcessingTabProps> = ({
   successMessage,
   onSuccessMessage,
   onError,
+  onShowGraph,
 }) => {
   // Local UI state (only for state that doesn't need persistence)
   // Processing state now comes from props for persistence
@@ -763,6 +766,12 @@ export const ProcessingTab: React.FC<ProcessingTabProps> = ({
   };
 
   const jobRunning = (job: any): boolean => !TERMINAL_JOB.includes(job.status);
+  /** "a.txt, b.pdf (+3 more)" for a finished ingest's status, else its job id. */
+  const jobGraphLabel = (status: any): string => {
+    const names: string[] = (status?.individual_files || []).map((f: any) => f.filename).filter(Boolean);
+    if (!names.length) return 'job ' + status?.processing_id;
+    return names.slice(0, 3).join(', ') + (names.length > 3 ? ` (+${names.length - 3} more)` : '');
+  };
   const runningJobCount = jobs.filter(jobRunning).length;
 
   // A new selection opens on the Processing sub-tab
@@ -1547,7 +1556,16 @@ export const ProcessingTab: React.FC<ProcessingTabProps> = ({
       
       {/* Success Message */}
       {successMessage && (
-        <Alert severity="success" sx={{ mt: 2 }}>
+        <Alert
+          severity="success"
+          sx={{ mt: 2 }}
+          action={onShowGraph && lastStatusData?.status === 'completed' && lastStatusData?.processing_id ? (
+            <Button color="inherit" size="small"
+                    onClick={() => onShowGraph(jobGraphLabel(lastStatusData), { processing_id: lastStatusData.processing_id })}>
+              View graph
+            </Button>
+          ) : undefined}
+        >
           {successMessage}
         </Alert>
       )}
@@ -1673,6 +1691,12 @@ export const ProcessingTab: React.FC<ProcessingTabProps> = ({
                         {jobRunning(job) && job.kind === 'ingest' && (
                           <Button variant="outlined" color="error" size="small" onClick={() => cancelJob(job)}>
                             Cancel
+                          </Button>
+                        )}
+                        {onShowGraph && job.kind === 'ingest' && job.status === 'completed' && (
+                          <Button variant="outlined" size="small" sx={{ whiteSpace: 'nowrap' }}
+                                  onClick={() => onShowGraph(String(job.label || '').split(/[/\\]/).pop() || ('job ' + job.processing_id), { processing_id: job.processing_id })}>
+                            View graph
                           </Button>
                         )}
                       </TableCell>

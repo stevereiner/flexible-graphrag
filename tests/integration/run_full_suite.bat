@@ -72,6 +72,7 @@ if "%STEP%"=="" set STEP=all
 
 :: Parse optional flags (any position after the step)
 set LANGFLOW_FLAG=
+set CLOUD_PG=
 set PIPELINE_FLAG=
 :parse_args
 shift
@@ -79,6 +80,12 @@ if "%~1"=="" goto args_done
 if /I "%~1"=="--langflow" (
     if /I "%~2"=="true" (
         set LANGFLOW_FLAG=--langflow true
+        shift
+    )
+)
+if /I "%~1"=="--cloud" (
+    if not "%~2"=="" (
+        set CLOUD_PG=,%~2
         shift
     )
 )
@@ -129,7 +136,7 @@ if not "%STEP%"=="11" ^
 if not "%STEP%"=="12" (
     echo.
     echo ERROR: Invalid step %STEP%.
-    echo Usage: run_full_suite.bat [1-12 ^| coco ^| flex ^| coco-flex ^| langflow ^| all] [--pipeline cocoindex] [--langflow true]
+    echo Usage: run_full_suite.bat [1-12 ^| coco ^| flex ^| coco-flex ^| langflow ^| all] [--pipeline cocoindex] [--langflow true] [--cloud spanner,...]
     echo.
     echo Steps:
     echo   1  [coco 1] CocoIndex native data sources
@@ -261,14 +268,14 @@ if defined DO_S4 (
 
 :: ── [flex 2/9] Flexible LI PG graphs  (LlamaIndex backend — local stores)
 ::   ladybug is embedded (no Docker container needed).
-::   spanner (cloud) TEMP omitted — free trial expired; restore ",spanner" when available.
+::   cloud stores (spanner, neptune, neptune_analytics) only with --cloud (off by default).
 if "%STEP%"=="all" set DO_S5=1
 if "%STEP%"=="flex" set DO_S5=1
 if "%STEP%"=="5"   set DO_S5=1
 if defined DO_S5 (
     echo.
-    echo [flex 2/9] Flexible LI PG graphs ^(neo4j,falkordb,memgraph,arcadedb,nebula,ladybug^) + qdrant  [--clean] [chunker:llamaindex] %LANGFLOW_FLAG% %PIPELINE_FLAG%
-    %MATRIX% --pg neo4j,falkordb,memgraph,arcadedb,nebula,ladybug --vector qdrant ^
+    echo [flex 2/9] Flexible LI PG graphs ^(neo4j,falkordb,memgraph,arcadedb,nebula,ladybug%CLOUD_PG%^) + qdrant  [--clean] [chunker:llamaindex] %LANGFLOW_FLAG% %PIPELINE_FLAG%
+    %MATRIX% --pg neo4j,falkordb,memgraph,arcadedb,nebula,ladybug%CLOUD_PG% --vector qdrant ^
              --graph-backend llamaindex ^
              --chunker llamaindex ^
              --clean %LANGFLOW_FLAG% %PIPELINE_FLAG%
@@ -283,8 +290,8 @@ if "%STEP%"=="flex" set DO_S6=1
 if "%STEP%"=="6"   set DO_S6=1
 if defined DO_S6 (
     echo.
-    echo [flex 3/9] Flexible LC PG graphs ^(neo4j,arangodb,apache_age,hugegraph,surrealdb,tigergraph,arcadedb,falkordb,memgraph,nebula,cosmos_gremlin^) + qdrant  [--clean] [chunker:llamaindex] %LANGFLOW_FLAG% %PIPELINE_FLAG%
-    %MATRIX% --pg neo4j,arangodb,apache_age,hugegraph,surrealdb,tigergraph,arcadedb,falkordb,memgraph,nebula,cosmos_gremlin ^
+    echo [flex 3/9] Flexible LC PG graphs ^(neo4j,arangodb,apache_age,hugegraph,surrealdb,tigergraph,arcadedb,falkordb,memgraph,nebula,cosmos_gremlin%CLOUD_PG%^) + qdrant  [--clean] [chunker:llamaindex] %LANGFLOW_FLAG% %PIPELINE_FLAG%
+    %MATRIX% --pg neo4j,arangodb,apache_age,hugegraph,surrealdb,tigergraph,arcadedb,falkordb,memgraph,nebula,cosmos_gremlin%CLOUD_PG% ^
              --vector qdrant ^
              --graph-backend langchain ^
              --chunker llamaindex ^
@@ -348,8 +355,8 @@ if "%STEP%"=="flex" set DO_S10=1
 if "%STEP%"=="10"  set DO_S10=1
 if defined DO_S10 (
     echo.
-    echo [flex 7/9] Flexible LC PG graphs ^(neo4j,falkordb,memgraph,arcadedb,nebula,ladybug^) + qdrant  [--clean] [graph-backend:langchain] [chunker:langchain] %LANGFLOW_FLAG% %PIPELINE_FLAG%
-    %MATRIX% --pg neo4j,falkordb,memgraph,arcadedb,nebula,ladybug --vector qdrant ^
+    echo [flex 7/9] Flexible LC PG graphs ^(neo4j,falkordb,memgraph,arcadedb,nebula,ladybug%CLOUD_PG%^) + qdrant  [--clean] [graph-backend:langchain] [chunker:langchain] %LANGFLOW_FLAG% %PIPELINE_FLAG%
+    %MATRIX% --pg neo4j,falkordb,memgraph,arcadedb,nebula,ladybug%CLOUD_PG% --vector qdrant ^
              --graph-backend langchain ^
              --chunker langchain ^
              --clean %LANGFLOW_FLAG% %PIPELINE_FLAG%

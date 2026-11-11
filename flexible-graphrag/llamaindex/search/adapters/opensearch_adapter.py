@@ -25,7 +25,13 @@ class LlamaIndexOpenSearchSearchAdapter(LlamaIndexSearchAdapter):
 
         index_name = config.get("index_name", "hybrid_search_fulltext")
         url = config.get("url", "http://localhost:9201")
+        analyzer = config.get("analyzer") or "standard"
+        # OpensearchVectorClient's default settings, plus the index's default analyzer (used for the
+        # text field when the index is created)
+        from adapters.search.analysis import analysis_settings
+        settings = {"index": {"knn": True, "knn.algo_param.ef_search": 100}, **(analysis_settings(analyzer) or {})}
         client = OpensearchVectorClient(
+            settings=settings,
             endpoint=url,
             index=index_name,
             dim=embed_dim,
@@ -35,7 +41,8 @@ class LlamaIndexOpenSearchSearchAdapter(LlamaIndexSearchAdapter):
         )
         store = OpensearchVectorStore(client)
         super().__init__(store)
-        logger.info("LlamaIndexOpenSearchSearchAdapter: url=%s index=%s (TEXT_SEARCH mode)", url, index_name)
+        logger.info("LlamaIndexOpenSearchSearchAdapter: url=%s index=%s analyzer=%s (TEXT_SEARCH mode)",
+                    url, index_name, analyzer)
 
 
 __all__ = ["LlamaIndexOpenSearchSearchAdapter"]

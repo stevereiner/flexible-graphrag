@@ -26,6 +26,26 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def _stamp_source_ids(graph_docs) -> None:
+    """Give each chunk ("Document" source node) an id of its own document: without one, the
+    stores key the node on a hash of the chunk's text alone (LangChain Neo4jGraph:
+    md5(page_content)), so two documents with the same text (one file from two sources) share
+    chunk nodes, each stamped with whichever document wrote last. Same document and text, same
+    id, so a re-sync replaces its chunks. Also its ref_doc_id, which the delete matches."""
+    from hashlib import md5
+    for gd in graph_docs:
+        src = getattr(gd, "source", None)
+        if src is None:
+            continue
+        if src.metadata is None:
+            src.metadata = {}
+        rid = src.metadata.get("ref_doc_id") or src.metadata.get("doc_id") or ""
+        if rid:  # the delete finds a document's chunks by it
+            src.metadata.setdefault("ref_doc_id", rid)
+        if not src.metadata.get("id"):
+            src.metadata["id"] = md5(f"{rid}|{src.page_content}".encode("utf-8")).hexdigest()
+
+
 async def aingest_lc_graph(
     system: "HybridSearchSystem",
     nodes: List,
@@ -200,6 +220,7 @@ async def aingest_lc_graph(
                     _injected += 1
     if _injected:
         logger.debug("LC graph ingestion: injected ref_doc_id onto %d entity nodes", _injected)
+    _stamp_source_ids(graph_docs)
 
     # Sanitise LLM-produced ids / labels / types for the target store BEFORE
     # writing.  LLMGraphTransformer output goes straight into the store queries,
@@ -492,6 +513,7 @@ async def aingest_li_to_lc_graph(
                     _injected += 1
     if _injected:
         logger.debug("LC graph (LI->LC): injected ref_doc_id onto %d entity nodes", _injected)
+    _stamp_source_ids(graph_docs)
 
     # Use the store adapter's add_graph_documents when available — this handles
     # stores that don't implement add_graph_documents on the raw graph object

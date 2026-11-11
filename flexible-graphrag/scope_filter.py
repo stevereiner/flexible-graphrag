@@ -430,9 +430,10 @@ class ScopedLCGraphRetriever(BaseRetriever):
                 q = ("MATCH (c:Chunk)-[:MENTIONS]->(a) WHERE c.ref_doc_id IN %s "
                      "MATCH (c)-[:MENTIONS]->(b) MATCH (a)-[r]->(b) "
                      "RETURN a.id AS subj, label(r) AS rel, b.id AS obj, c.ref_doc_id AS doc_id LIMIT 1000" % ids)
-            else:  # NebulaGraph (LangChain store): every edge carries doc_id; vids are names
+            else:  # NebulaGraph (LangChain store): every edge carries doc_id; vids are names;
+                # a type with no edge type of its own is a Relation__ edge with a label
                 q = ("MATCH (a:`Props__`)-[r]->(b) WHERE r.doc_id IN %s OR r.ref_doc_id IN %s "
-                     "RETURN id(a) AS subj, type(r) AS rel, id(b) AS obj, "
+                     "RETURN id(a) AS subj, coalesce(properties(r).label, type(r)) AS rel, id(b) AS obj, "
                      "CASE WHEN r.doc_id IN %s THEN r.doc_id ELSE r.ref_doc_id END AS doc_id LIMIT 1000"
                      % (ids, ids, ids))
             rows = graph.query(q) or []
@@ -455,12 +456,17 @@ class ScopedLCGraphRetriever(BaseRetriever):
             name = ((getattr(getattr(adapter, "_store_adapter", None), "config", None) or {})
                     .get("graph_name", "knowledge_graph"))
             db = getattr(graph, "_ArangoGraph__db", None)
+            # A relationship two documents produce is stored once, with one SOURCE's key
+            # (source_id): also those whose both ends one of the scope's SOURCEs links to
             cursor = db.aql.execute(
                 "FOR s IN @@src FILTER s.ref_doc_id IN @ids OR s.doc_id IN @ids "
-                "FOR e IN @@links FILTER e.source_id == s._key LIMIT 1000 "
-                "RETURN {subj: DOCUMENT(e._from).text, rel: e.type, obj: DOCUMENT(e._to).text, "
+                "LET ents = (FOR h IN @@has FILTER h._to == s._id RETURN h._from) "
+                "FOR e IN @@links FILTER e.source_id == s._key OR (e._from IN ents AND e._to IN ents) "
+                "LIMIT 1000 "
+                "RETURN DISTINCT {subj: DOCUMENT(e._from).text, rel: e.type, obj: DOCUMENT(e._to).text, "
                 "doc_id: NOT_NULL(s.ref_doc_id, s.doc_id)}",
-                bind_vars={"@src": f"{name}_SOURCE", "@links": f"{name}_LINKS_TO", "ids": self._doc_ids})
+                bind_vars={"@src": f"{name}_SOURCE", "@links": f"{name}_LINKS_TO",
+                           "@has": f"{name}_HAS_SOURCE", "ids": self._doc_ids})
             return [(r["subj"], r["rel"], r["obj"], r["doc_id"]) for r in cursor]
         return []
 
@@ -511,18 +517,40 @@ SELECT ?d (COUNT(*) AS ?n) WHERE {
   { GRAPH ?g { << ?x ?p ?o >> onto:ref_doc_id ?d } } UNION { GRAPH ?g { << ?s ?p ?x >> onto:ref_doc_id ?d } }
 } GROUP BY ?d ORDER BY DESC(?n) LIMIT %d"""
 
+# The same, for entities named by their exact rdfs:label (a SPARQL result that returned only names)
+_DOCS_FOR_LABELS = """PREFIX onto: <https://integratedsemantics.org/flexible-graphrag/ontology#>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+SELECT ?d (COUNT(*) AS ?n) WHERE {
+  VALUES ?l { %s }
+  GRAPH ?g0 { ?x rdfs:label ?l }
+  { GRAPH ?g { << ?x ?p ?o >> onto:ref_doc_id ?d } } UNION { GRAPH ?g { << ?s ?p ?x >> onto:ref_doc_id ?d } }
+} GROUP BY ?d ORDER BY DESC(?n) LIMIT %d"""
 
-def rdf_doc_ids_for_iris(config, iris: Iterable[str], limit: int = 10) -> List[str]:
+
+def _sparql_string(value: str) -> str:
+    return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
+def rdf_doc_ids_for_iris(config, iris: Iterable[str], limit: int = 10, labels: Iterable[str] = ()) -> List[str]:
     """The documents RDF entities came from, most facts first: the onto:ref_doc_id annotation on
-    the triples they take part in. Names the sources of an unscoped text-to-SPARQL answer."""
+    the triples they take part in. Names the sources of an unscoped text-to-SPARQL answer. Without
+    entity IRIs (the generated SPARQL returned only names), the entities whose rdfs:label is one of
+    ``labels``."""
     from rdf.store.rdf_store_factory import RDFStoreFactory
     iris = [i for i in dict.fromkeys(iris) if i and ">" not in i and " " not in i]
-    cfg = config.get_rdf_store_config() if iris else None
+    labels = [l for l in dict.fromkeys(labels) if l and "\n" not in l and "\r" not in l]
+    if iris:
+        query = _DOCS_FOR_IRIS % (" ".join(f"<{i}>" for i in iris), limit)
+    elif labels:
+        query = _DOCS_FOR_LABELS % (" ".join(_sparql_string(l) for l in labels), limit)
+    else:
+        return []
+    cfg = config.get_rdf_store_config()
     if not cfg:
         return []
     try:
         adapter = RDFStoreFactory.create(cfg.get("type", cfg.get("name")), cfg.get("config", {}))
-        rows = adapter.query_sparql(_DOCS_FOR_IRIS % (" ".join(f"<{i}>" for i in iris), limit)) or []
+        rows = adapter.query_sparql(query) or []
     except Exception as e:
         logger.warning(f"[rdf sources] lookup failed, the answer is shown without its documents: {e}")
         return []
