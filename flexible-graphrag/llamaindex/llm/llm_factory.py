@@ -435,6 +435,7 @@ def create_llm(provider: LLMProvider, config: Dict[str, Any]):
         model = config.get("model", "openai/gpt-4o-mini")
         api_base = config.get("api_base", "https://router.requesty.ai/v1")
         logger.info(f"Configuring Requesty LLM - Model: {model}, API Base: {api_base}")
+        from llama_index.llms.openai_like import OpenAILike  # noqa: PLC0415
         return OpenAILike(
             model=model,
             api_base=api_base,
