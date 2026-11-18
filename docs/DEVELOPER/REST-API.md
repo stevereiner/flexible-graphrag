@@ -26,6 +26,10 @@ Both UIs are served by the running backend and let you try every endpoint direct
 | `/api/info` | GET | System information and package versions |
 | `/api/python-info` | GET | Python environment diagnostics |
 | `/api/ui-defaults` | GET | Where the UIs' Deep, Graph and RDF checkboxes start, and which graph columns to show (v0.9.0+) |
+| `/api/backend-files` | GET | This backend's `.env` and log file paths; only answered to a caller on the same machine (used by the desktop app's tray menu) (v0.11.0+) |
+
+With `API_TOKEN` set on the backend, every `/api` request except `/api/health` and the browser sign-in
+pages must send it as `X-API-Token` (or `Authorization: Bearer`); see [API Token and CORS](../CONFIGURATION/API-TOKEN-CORS.md).
 
 ### Ingestion
 
@@ -36,6 +40,11 @@ Both UIs are served by the running backend and let you try every endpoint direct
 | `/api/ingest-text` | POST | Ingest raw text content |
 | `/api/test-sample` | POST | Test the system with built-in sample content |
 | `/api/cleanup-uploads` | POST | Remove temporarily uploaded files |
+| `/api/browse` | GET | The data sources the source browser can list (v0.11.0+) |
+| `/api/browse` | POST | One folder level of a data source, paged: `{data_source, config, parent?, page_token?, page_size?}`; `config` is the source's ingest config, `parent` an `{id, path}` from an earlier browse (none = the root). Returns `items` (`id`, `name`, `path`, `kind`: `folder` / `file`, `size`, `modified`, ...) and `next_page_token` (v0.11.0+) |
+| `/api/ingest-allowed-paths` | GET | The folders filesystem ingests may read: `configured`, `runtime`, `resolved` (absolute), and `settable` (v0.11.0+) |
+| `/api/ingest-allowed-paths` | PUT | `{paths}`: replace the folders added at runtime (absolute, existing; kept in memory). Only with `API_TOKEN` set (v0.11.0+) |
+| `/api/ingest-allowed-paths/check` | POST | `{paths}`: which a filesystem ingest would refuse (`outside`), and the `INGEST_ALLOWED_PATHS` list that would allow them (v0.11.0+) |
 
 All three text ingestion endpoints (`/api/ingest`, `/api/ingest-text`, `/api/test-sample`) accept `enabled_graph` and `enabled_rdf` booleans: which graphs to build, the property graph (`PG_GRAPH_DB`) and the RDF graph (`RDF_GRAPH_DB`), each on its own. One not given follows the server's `DEFAULT_ENABLED_GRAPH` / `DEFAULT_ENABLED_RDF` (both true unless set). The older `skip_graph` boolean still works: it skips KG extraction and all graph writes — vector and full-text stores are still updated. `GET /api/ui-defaults` returns those defaults, plus `recursive` (`DEFAULT_RECURSIVE`, where the UIs' Deep checkbox starts) and `show_graph` / `show_rdf` (whether a graph store is configured with `ENABLE_KNOWLEDGE_GRAPH` on). See [the auto-sync API reference](../DATA-SOURCES/INCREMENTAL-UPDATE-AUTO-SYNC/API-REFERENCE.md) for ingest status, removal and per-row runs.
 
@@ -57,6 +66,10 @@ All three text ingestion endpoints (`/api/ingest`, `/api/ingest-text`, `/api/tes
 Both take optional `source_auth` (the asker's sign-ins, per source: `alfresco`, `nuxeo`, `cmis`,
 `microsoft`, `box`, `google`, `azure`, `s3`) to return only documents that user may read, and
 `sources` (a list of `{source, url?}`) to limit the question to chosen sources.
+
+With [federated backends](../CONFIGURATION/FEDERATED-BACKENDS.md) configured, results and answer sources
+from another backend carry `"backend": "<name>"`, a pick in `sources` can name a `backend`, and a response
+may have `notices` (a remote that was skipped).
 
 ### Sign-In
 

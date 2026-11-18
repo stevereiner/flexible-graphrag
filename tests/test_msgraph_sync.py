@@ -69,6 +69,41 @@ def test_the_refresh_compares_paths_and_re_ingests_with_the_detector_arguments()
     assert not source_moved(MicrosoftGraphDetector(), meta, SimpleNamespace(source_path="/test/Sub/a.txt"))
 
 
+def test_selected_files_scope_the_sync():
+    d = _detector(file_ids=["id-a.txt"], folder_path="ignored")
+    mine = d._parse_drive_item(_item("a.txt", "/anywhere"))
+    other = d._parse_drive_item(_item("b.txt", "/ignored"))
+    assert d._follows(mine) and not d._follows(other)          # by id, wherever the file is
+    assert _detector(folder_path="test")._follows(_detector()._parse_drive_item(_item("c.txt", "/test")))
+
+
+def test_selected_files_listing_leaves_out_missing_ones():
+    def sdk_item(name):
+        raw = _item(name, "/Docs")
+        return SimpleNamespace(
+            id=raw["id"], name=name, size=3, web_url=None, e_tag="e", deleted=None, folder=None,
+            created_date_time=None, last_modified_date_time=None, additional_data={},
+            file=SimpleNamespace(mime_type="text/plain"),
+            parent_reference=SimpleNamespace(path="/drives/d1/root:/Docs", id="p", drive_id="d1"))
+
+    class Item:
+        def __init__(self, file_id):
+            self.file_id = file_id
+
+        async def get(self):
+            if self.file_id == "id-gone.txt":
+                raise RuntimeError("itemNotFound")
+            return sdk_item(self.file_id[3:])
+
+    drive = SimpleNamespace(items=SimpleNamespace(by_drive_item_id=Item))
+    d = MicrosoftGraphDetector({"client_id": "c", "client_secret": "s", "tenant_id": "t",
+                                "user_principal_name": "u@x", "drive_id": "d1",
+                                "file_ids": ["id-a.txt", "id-gone.txt"]})
+    d.graph_client = SimpleNamespace(drives=SimpleNamespace(by_drive_id=lambda _id: drive))
+    files = asyncio.run(d.list_all_files())
+    assert [(f.path, f.extra["file_path"]) for f in files] == [("onedrive://id-a.txt", "/Docs/a.txt")]
+
+
 def test_without_change_polling_every_change_is_the_refreshs():
     d = _detector(folder_path="test", enable_change_polling=False)
     d._running, d.graph_client = True, object()  # started

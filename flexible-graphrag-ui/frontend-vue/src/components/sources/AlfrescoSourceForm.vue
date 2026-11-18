@@ -119,18 +119,45 @@
       </v-row>
     </template>
 
-    <div class="d-flex align-start">
+    <div class="d-flex align-start ga-2">
       <v-text-field
         :model-value="path"
-        @update:model-value="(v: string) => path = v"
+        @update:model-value="(v: string) => { path = v; nodes = []; }"
         label="Path *"
         variant="outlined"
         class="mb-4"
         placeholder="e.g., /Shared/GraphRAG"
+        :hint="nodes.length ? 'The folder holding the picked items' : 'A folder, or one document'"
+        persistent-hint
         required
+        :disabled="nodes.length > 0"
       />
+      <v-btn
+        variant="outlined"
+        prepend-icon="mdi-folder-open"
+        height="56"
+        :disabled="!canBrowse"
+        :title="canBrowse ? 'Pick folders and documents in the repository' : 'Fill in the URL and sign in (or credentials) first'"
+        @click="browseOpen = true"
+      >
+        Browse…
+      </v-btn>
       <DeepCheckbox :checked="recursive" @change="(v: boolean) => ownDeep = v" />
     </div>
+    <PickedChips
+      :items="nodes"
+      noun="item"
+      note="the ingest reads these instead of the path"
+      @remove="removeNode"
+      @clear="nodes = []"
+    />
+    <SourceBrowser
+      :open="browseOpen"
+      :provider="provider"
+      title="Pick folders and documents: Alfresco"
+      @close="browseOpen = false"
+      @select="handleBrowsed"
+    />
   </BaseSourceForm>
 </template>
 
@@ -141,13 +168,20 @@ import SourceSignInSection from '../../auth/SourceSignInSection.vue';
 import { useSourceSession } from '../../auth/useSourceSession';
 import DeepCheckbox from './DeepCheckbox.vue';
 import { loadUiDefaults } from '../../uiDefaults';
+import SourceBrowser from '../../browser/SourceBrowser.vue';
+import PickedChips from '../../browser/PickedChips.vue';
+import { remoteProvider } from '../../browser/remoteProvider';
+import { commonParent, toNodeDetail, type BrowseItem, type NodeDetail } from '../../browser/types';
+import { ingestStarted } from '../../ingestSignal';
 
 export default defineComponent({
   name: 'AlfrescoSourceForm',
   components: {
     BaseSourceForm,
     SourceSignInSection,
-    DeepCheckbox
+    DeepCheckbox,
+    SourceBrowser,
+    PickedChips
   },
   props: {
     // Single-object persistence (see NuxeoSourceForm): seeds on mount, emits update:value on edit.
@@ -165,6 +199,8 @@ export default defineComponent({
     const url = ref(v.url ?? defaultUrl);
     const authMethod = ref(v.auth_method ?? 'basic');
     const path = ref(v.path ?? defaultPath);
+    // files / several items picked in the browser (nodeDetails: the ingest then reads these, by id)
+    const nodes = ref<NodeDetail[]>(v.nodeDetails ?? []);
     // Deep: include subfolders (recursive). Unset: the backend's DEFAULT_RECURSIVE, else off
     const ownDeep = ref<boolean | undefined>(v.recursive);
     const uiDefaults = loadUiDefaults();
@@ -203,10 +239,11 @@ export default defineComponent({
     });
 
     const config = computed(() => {
+      const nodeDetails = nodes.value.length ? nodes.value : undefined;
       if (usingSignIn.value && session.value) {
-        return { url: url.value, path: path.value, recursive: recursive.value, auth_method: 'ticket', ticket: session.value.ticket! };
+        return { url: url.value, path: path.value, nodeDetails, recursive: recursive.value, auth_method: 'ticket', ticket: session.value.ticket! };
       }
-      const base: any = { url: url.value, auth_method: authMethod.value, path: path.value, recursive: recursive.value };
+      const base: any = { url: url.value, auth_method: authMethod.value, path: path.value, nodeDetails, recursive: recursive.value };
       if (authMethod.value === 'oauth2') {
         base.oauth2 = {
           client_id: clientId.value,
@@ -229,7 +266,40 @@ export default defineComponent({
       emit('update:value', newConfig);  // persist live config to App
     }, { immediate: true, deep: true });
 
+    // Browse the repository as the ingest signs in (POST /api/browse): needs the URL and a sign-in
+    const canBrowse = computed(() => url.value.trim() !== '' && (usingSignIn.value
+      || (authMethod.value === 'oauth2'
+        ? clientId.value.trim() !== '' && (accessToken.value.trim() !== '' || clientSecret.value.trim() !== '')
+        : username.value.trim() !== '' && password.value.trim() !== '')));
+    const browseOpen = ref(false);
+    const provider = remoteProvider('alfresco', 'Alfresco repository', () => config.value);
+
+    // One folder: the path. Files, or several items: nodeDetails by id, with the path their
+    // common parent folder (as ACA's multi-select sends it).
+    const handleBrowsed = (items: BrowseItem[]) => {
+      if (!items.length) return;
+      if (items.length === 1 && items[0].isDirectory) {
+        path.value = items[0].path || `/${items[0].name}`;
+        nodes.value = [];
+        return;
+      }
+      nodes.value = items.map(toNodeDetail);
+      path.value = commonParent(nodes.value.map((n) => n.path));
+    };
+    // an ingest started: the picks empty (the run's rows stay in Processing)
+    watch(ingestStarted, () => { nodes.value = []; });
+    const removeNode = (id: string) => {
+      nodes.value = nodes.value.filter((n) => n.id !== id);
+      if (nodes.value.length) path.value = commonParent(nodes.value.map((n) => n.path));
+    };
+
     return {
+      canBrowse,
+      browseOpen,
+      provider,
+      handleBrowsed,
+      removeNode,
+      nodes,
       defaultUrl,
       session,
       useOther,

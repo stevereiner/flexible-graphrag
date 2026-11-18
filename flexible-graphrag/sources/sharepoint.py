@@ -12,6 +12,65 @@ from .passthrough_extractor import PassthroughExtractor
 
 logger = logging.getLogger(__name__)
 
+_tolerant_reader_cls = None
+
+
+def _tolerant_sharepoint_reader(**kwargs):
+    """A SharePointReader that skips a file it cannot download, naming it and the HTTP status,
+    instead of failing the whole ingest. The stock reader parses a failed download's body as
+    JSON, so an empty or HTML error body (a 403/404, throttling) came out only as "Expecting
+    value: line 1 column 1 (char 0)" with no file named. The skipped files are in
+    ``reader.skipped`` (one "name: reason" string each)."""
+    global _tolerant_reader_cls
+    if _tolerant_reader_cls is None:
+        import requests
+        from llama_index.core.bridge.pydantic import PrivateAttr
+        from llama_index.readers.microsoft_sharepoint import SharePointReader
+
+        class TolerantSharePointReader(SharePointReader):
+            _skipped: list = PrivateAttr(default_factory=list)
+
+            @property
+            def skipped(self) -> list:
+                return self._skipped
+
+            def _get_file_content_by_url(self, item):
+                name = item.get("name") or item.get("id") or "?"
+                url = item.get("@microsoft.graph.downloadUrl")
+                if not url:
+                    err = item.get("error")
+                    reason = (err.get("message") if isinstance(err, dict) else err) or "no download URL"
+                    raise ValueError(reason)
+                # the URL is pre-authenticated (a token in its query): never logged
+                response = requests.get(url, timeout=300)
+                if response.status_code != 200:
+                    raise ValueError(f"download failed: HTTP {response.status_code} {response.reason or ''}".strip())
+                return response.content
+
+            def _download_file(self, item, download_dir):
+                try:
+                    return super()._download_file(item, download_dir)
+                except Exception as e:
+                    name = item.get("name") or item.get("id") or "?"
+                    logger.warning(f"SharePoint: skipped '{name}': {e}")
+                    self._skipped.append(f"{name}: {e}")
+                    return {}
+
+        _tolerant_reader_cls = TolerantSharePointReader
+    return _tolerant_reader_cls(**kwargs)
+
+
+def _check_skipped(reader, documents, site_name) -> None:
+    """Report the files the reader skipped; fail only when nothing at all could be read."""
+    skipped = getattr(reader, "skipped", None) or []
+    if not skipped:
+        return
+    logger.warning(f"SharePoint site '{site_name}': {len(skipped)} file(s) skipped: " + "; ".join(skipped[:10])
+                   + (" ..." if len(skipped) > 10 else ""))
+    if not documents:
+        raise ValueError(f"No SharePoint file could be read from site '{site_name}' "
+                         f"({len(skipped)} skipped; first: {skipped[0]})")
+
 
 class SharePointSource(BaseDataSource):
     """Data source for Microsoft SharePoint using LlamaIndex SharePointReader with PassthroughExtractor"""
@@ -244,7 +303,7 @@ class SharePointSource(BaseDataSource):
             
             # Initialize SharePointReader with PassthroughExtractor
             # Pass all available SharePoint parameters to constructor
-            reader = SharePointReader(
+            reader = _tolerant_sharepoint_reader(
                 client_id=self.client_id,
                 client_secret=self.client_secret,
                 tenant_id=self.tenant_id,
@@ -256,16 +315,17 @@ class SharePointSource(BaseDataSource):
                                ".xlsx": extractor, ".txt": extractor, ".md": extractor,
                                ".html": extractor, ".csv": extractor}
             )
-            
+
             # Use SharePointReader to load placeholder documents
             # All parameters already set in constructor, just call load_data()
             documents = reader.load_data()
-            
+
             # Check if documents is None (SharePointReader may return None on error)
             if documents is None:
                 logger.error("SharePointReader.load_data() returned None - authentication or loading failed")
                 raise ValueError("SharePointReader.load_data() returned None - authentication or loading failed")
-            
+            _check_skipped(reader, documents, self.site_name)
+
             logger.info(f"Loaded {len(documents)} SharePoint files from site: {self.site_name}")
             
             # Add source metadata and use stable file_id as path
@@ -474,7 +534,7 @@ class SharePointSource(BaseDataSource):
             
             # Initialize SharePointReader with PassthroughExtractor
             # Pass all available SharePoint parameters to constructor
-            reader = SharePointReader(
+            reader = _tolerant_sharepoint_reader(
                 client_id=self.client_id,
                 client_secret=self.client_secret,
                 tenant_id=self.tenant_id,
@@ -486,16 +546,17 @@ class SharePointSource(BaseDataSource):
                                ".xlsx": extractor, ".txt": extractor, ".md": extractor,
                                ".html": extractor, ".csv": extractor}
             )
-            
+
             # Use SharePointReader to load documents with actual content (processed immediately by PassthroughExtractor)
             # All parameters already set in constructor, just call load_data()
             documents = reader.load_data()
-            
+
             # Check if documents is None (SharePointReader may return None on error)
             if documents is None:
                 logger.error("SharePointReader.load_data() returned None - authentication or loading failed")
                 raise ValueError("SharePointReader.load_data() returned None - authentication or loading failed")
-            
+            _check_skipped(reader, documents, self.site_name)
+
             logger.info(f"Loaded {len(documents)} SharePoint files from site: {self.site_name}")
             
             # Initialize Graph API client if needed to fetch file metadata (timestamps)

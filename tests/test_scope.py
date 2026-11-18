@@ -191,7 +191,7 @@ def _settings():
 @pytest.fixture
 def openarch():
     pytest.importorskip("python_openarch_api")
-    from test_state_store import _openarch_clean
+    from tests.test_state_store import _openarch_clean
     from openarch.registry import OpenArchConfigManager, OpenArchStateManager
     settings = _settings()
     try:

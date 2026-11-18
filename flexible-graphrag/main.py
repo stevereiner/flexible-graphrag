@@ -48,7 +48,8 @@ from dotenv import find_dotenv, load_dotenv
 # load_dotenv() (which searches from the caller's folder) finds nothing -- every os.getenv()
 # setting (e.g. the *_DB_CONFIG JSON) then silently fell back to its default. Next to this file
 # second (a source checkout run from elsewhere).
-load_dotenv(find_dotenv(usecwd=True) or find_dotenv())
+_DOTENV_FILE = find_dotenv(usecwd=True) or find_dotenv()
+load_dotenv(_DOTENV_FILE)
 
 # NLTK_DATA, when .env does not set it: a plain copy of LlamaIndex's NLTK data (nltk 3.10.4+ refuses
 # the hardlinked files of a uv install)
@@ -59,7 +60,7 @@ from fastapi import FastAPI, HTTPException, Depends, status, UploadFile, File, H
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, Field, model_validator
 from typing import Any, Dict, List, Optional, Union
 import asyncio
 import uvicorn
@@ -523,6 +524,7 @@ _log_level = getattr(logging, _log_level_name, logging.INFO)
 # warning was landing that way).  Matches setup_cli_logging() in
 # cocoindex_integration/_compat.py, which already opens its log file as UTF-8.
 file_handler = logging.FileHandler(log_filename, encoding="utf-8")
+_LOG_FILE = os.path.abspath(log_filename)
 file_handler.setLevel(_log_level)
 console_handler = logging.StreamHandler(sys.stdout)
 console_handler.setLevel(_log_level)
@@ -569,6 +571,25 @@ logging.getLogger("aiohttp.client").setLevel(logging.WARNING)
 logging.getLogger("httpcore").setLevel(logging.WARNING)
 logging.getLogger("httpcore.connection").setLevel(logging.WARNING)
 logging.getLogger("httpcore.http11").setLevel(logging.WARNING)
+
+
+class _QuietOpenArchRequests(logging.Filter):
+    """Drops httpx's INFO line for each successful OpenArch call. With OpenArch as the state store,
+    the sync-config monitor queries it every 30 s (config_manager.py), one line each time. Failed
+    calls (4xx/5xx) and every other host's request lines still show."""
+
+    def __init__(self):
+        super().__init__()
+        self.prefix = os.getenv("OPENARCH_URL", "http://localhost:8088").rstrip("/")
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        args = record.args if isinstance(record.args, tuple) else ()
+        if len(args) == 5 and str(args[1]).startswith(self.prefix):
+            return not (isinstance(args[3], int) and args[3] < 400)
+        return True
+
+
+logging.getLogger("httpx").addFilter(_QuietOpenArchRequests())
 
 # Suppress "Encountered Exception" + RuntimeError('Event loop is closed') traceback that
 # openai._base_client logs at DEBUG when the first cold connection hits a stale TLS socket.
@@ -788,7 +809,7 @@ async def _startup_incremental_manager(backend) -> None:
     if store == "postgres" and not postgres_url:
         logger.warning("WARNING: ENABLE_INCREMENTAL_UPDATES=true but POSTGRES_INCREMENTAL_URL not set")
         logger.warning("   Incremental updates disabled - set POSTGRES_INCREMENTAL_URL in .env "
-                       "(or INCREMENTAL_STATE_STORE=openarch)")
+                       "(or INCREMENTAL_STATE_STORE=sqlite or openarch)")
         return
 
     def _is_connection_error(msg: str) -> bool:
@@ -834,6 +855,10 @@ async def _startup_incremental_manager(backend) -> None:
                         "(OPENARCH_URL): start it, then restart the backend")
         else:
             logger.error("Incremental updates initialization error", exc_info=last_error)
+    elif store == "sqlite":
+        from incremental_updates.sqlite_store import sqlite_path
+        logger.info(f"  SQLite registry file: {os.path.abspath(sqlite_path())} (SQLITE_INCREMENTAL_PATH)")
+        logger.error("Incremental updates initialization error", exc_info=last_error)
     elif _db_missing:
         logger.info("  The incremental updates database does not exist yet.")
         logger.info("  Recreate the PostgreSQL container and volume so the init scripts run fresh:")
@@ -925,10 +950,27 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# CORS middleware
+@app.middleware("http")
+async def _require_api_token(request: Request, call_next):
+    """API_TOKEN set: /api requests must carry it (api_security.py). Added before the CORS
+    middleware, so CORS stays the outer layer: preflights pass and a 401 keeps its CORS headers."""
+    from api_security import supplied_token, token_matches, token_required
+    token = settings.api_token
+    if token_required(request.url.path, request.method, token) and not token_matches(
+            supplied_token(request.headers), token):
+        return JSONResponse(status_code=401, content={"detail": (
+            "API token required (X-API-Token header): this backend has API_TOKEN set. Give the UI "
+            "the same value (VITE_API_TOKEN) or start the backend without API_TOKEN.")})
+    return await call_next(request)
+
+
+# CORS middleware. CORS_ORIGINS (comma-separated or JSON list) limits the origins; unset = any.
+# Read from the environment here: `settings` is created further down (load_dotenv already ran).
+from api_security import parse_list as _parse_list  # noqa: E402
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_parse_list(os.getenv("CORS_ORIGINS")) or ["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -1252,6 +1294,8 @@ class SourceSelector(BaseModel):
     optionally one server of it."""
     source: str            # alfresco | nuxeo | cmis | filesystem | s3 | sharepoint | ...
     url: Optional[str] = None  # one server of that type; omitted = all of them
+    # a remote backend's source (its name, as GET /api/sources/available tags it); omitted = this one's
+    backend: Optional[str] = None
 
 
 class QueryRequest(BaseModel):
@@ -1289,6 +1333,13 @@ class Document(BaseModel):
 
 # Initialize system
 settings = Settings()
+if settings.api_token:
+    # say where it came from: one left in a shell (e.g. from desktop-app testing) is easy to miss
+    from dotenv import dotenv_values as _dotenv_values
+    _in_file = (_dotenv_values(".env").get("API_TOKEN") or "").strip()
+    logger.warning("API_TOKEN is set (from %s): /api requests need the X-API-Token header; the UIs "
+                   "need VITE_API_TOKEN, the MCP server FLEXIBLE_GRAPHRAG_API_TOKEN (api_security.py)",
+                   ".env" if _in_file == settings.api_token else "the environment, not .env")
 backend_instance = get_backend()
 
 # Initialize RDF/Ontology system if enabled
@@ -1308,6 +1359,20 @@ except Exception as e:
 @app.get("/api/health")
 async def health_check():
     return {"status": "ok"}
+
+
+@app.get("/api/backend-files")
+async def backend_files(request: Request):
+    """The .env and log file this backend uses: for the desktop app's tray (Show backend log,
+    Show backend settings) when it uses a backend it didn't start. Paths on this machine, so only
+    answered to a caller on this machine."""
+    host = request.client.host if request.client else ""
+    if host not in ("127.0.0.1", "::1"):
+        raise HTTPException(status_code=403, detail="Only answered to a caller on this machine")
+    return {
+        "env_file": os.path.abspath(_DOTENV_FILE) if _DOTENV_FILE else None,
+        "log_file": _LOG_FILE,
+    }
 async def _create_document_states_after_ingestion(processing_id: str, config_id: str, paths: List[str], data_source: str = "filesystem", skip_graph: bool = None, graphs=None):
     """
     Background task to create document_state records after ingestion completes.
@@ -1710,6 +1775,8 @@ def _record_ingest_only(data_source: str, request, paths: Optional[List[str]],
 
     async def _run() -> None:
         try:
+            cm = incremental_manager.config_manager
+            existed = await cm.get_config(config_id) is not None
             await incremental_manager.register_ingest_only(
                 source_type=data_source,
                 source_name=f"{data_source}_ingest",
@@ -1724,6 +1791,15 @@ def _record_ingest_only(data_source: str, request, paths: Optional[List[str]],
                 data_source=data_source,
                 graphs=_request_graphs(request),
             )
+            from backend import PROCESSING_STATUS
+            if (PROCESSING_STATUS.get(processing_id) or {}).get("status") in ("failed", "cancelled"):
+                # A run that failed leaves no empty datasource behind (Jobs / ingest status would
+                # list it with 0 documents): only one this run created and that holds nothing
+                if not existed and not await incremental_manager.state_manager.fetch_rows([config_id]):
+                    await cm.delete_config(config_id)
+                    logger.info(f"Ingest {processing_id} failed: removed its empty datasource "
+                                f"{data_source}_ingest ({config_id})")
+                return
             await _take_over_other_ingest_copies(config_id)
         except Exception as e:
             logger.warning(f"Could not record ingest {processing_id} ({data_source}, {config_id}): {e}")
@@ -2506,6 +2582,23 @@ def _label_job(result: dict, data_source: str, request, paths) -> None:
                   "owner": getattr(request, "owner", None)})
 
 
+def _picks_of_rows(details, node_ids, rows):
+    """The nodeDetails / nodeIds of a multi-select that ``rows`` (per-row actions) stand for:
+    by node id, or by path for a row sent without one -- else every pick was dropped and the
+    ingest fell back to the selection's common parent folder (reading files never picked)."""
+    from incremental_updates.ingest_status import normalize_repo_path
+    ids = {r.id for r in rows if r.id}
+    paths = {normalize_repo_path(r.path) for r in rows if not r.id and r.path}
+
+    def field(nd, key):
+        return nd.get(key) if isinstance(nd, dict) else getattr(nd, key, None)
+
+    keep = [nd for nd in details or []
+            if field(nd, "id") in ids or normalize_repo_path(field(nd, "path")) in paths]
+    kept_ids = ids | {field(nd, "id") for nd in keep}
+    return keep or None, [n for n in node_ids or [] if n in kept_ids] or None
+
+
 def _prepare_item_actions(data_source: str, request) -> dict:
     """Validate per-row actions and narrow the request's selection to the rows being ingested,
     so its config_id -- the datasource -- is that of those rows alone (a row being removed in
@@ -2538,11 +2631,8 @@ def _prepare_item_actions(data_source: str, request) -> dict:
     cfg_attr = f"{data_source}_config"
     cfg = getattr(request, cfg_attr, None)
     if cfg is not None and (cfg.nodeDetails or cfg.nodeIds):
-        keep = {i.id for i in ingest_rows if i.id}
-        setattr(request, cfg_attr, cfg.copy(update={
-            "nodeDetails": [nd for nd in (cfg.nodeDetails or []) if nd.id in keep] or None,
-            "nodeIds": [n for n in (cfg.nodeIds or []) if n in keep] or None,
-        }))
+        details, node_ids = _picks_of_rows(cfg.nodeDetails, cfg.nodeIds, ingest_rows)
+        setattr(request, cfg_attr, cfg.copy(update={"nodeDetails": details, "nodeIds": node_ids}))
     # The datasource's own graphs: those any of this run's rows build (none: skip_graph)
     from graph_flags import NONE
     built = NONE
@@ -2911,12 +3001,8 @@ async def _start_item_actions(data_source: str, request, paths, kwargs: dict, ac
         for (pass_cfg, graphs), rows in groups.items():
             sub = {}
             if base_cfg.get("nodeDetails") or base_cfg.get("nodeIds"):
-                ids = {r.id for r in rows if r.id}
-                sub[cfg_key] = {
-                    **base_cfg,
-                    "nodeDetails": [nd for nd in (base_cfg.get("nodeDetails") or []) if nd.get("id") in ids] or None,
-                    "nodeIds": [n for n in (base_cfg.get("nodeIds") or []) if n in ids] or None,
-                }
+                details, node_ids = _picks_of_rows(base_cfg.get("nodeDetails"), base_cfg.get("nodeIds"), rows)
+                sub[cfg_key] = {**base_cfg, "nodeDetails": details, "nodeIds": node_ids}
             entry = {"graphs": graphs, "kwargs": sub, "config_id": pass_cfg}
             if data_source == "filesystem":
                 from incremental_updates.ingest_status import fs_key
@@ -3078,11 +3164,7 @@ async def ingest(request: IngestRequest):
         if data_source == "filesystem" and paths:
             bad = disallowed_ingest_paths(paths, ingest_allowed_roots())
             if bad:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Path(s) outside the allowed ingest folders: {bad}. Allowed: uploads/, "
-                           "SOURCE_PATHS, and INGEST_ALLOWED_PATHS in the backend .env",
-                )
+                raise HTTPException(status_code=400, detail=outside_allowed_message(bad))
 
         if data_source == "alfresco" and not request.alfresco_config:
             # Never fall back to the backend's own ALFRESCO_* settings for someone else's ingest:
@@ -3121,11 +3203,9 @@ async def ingest(request: IngestRequest):
                 cfg = getattr(request, cfg_attr, None)
                 if cfg is not None and (cfg.nodeDetails or cfg.nodeIds) and placement["new"]:
                     # this run's own datasource is that of its new rows only
-                    new_ids = {r.id for r in placement["new"] if r.id}
+                    details, node_ids = _picks_of_rows(cfg.nodeDetails, cfg.nodeIds, placement["new"])
                     id_request = request.copy(update={cfg_attr: cfg.copy(update={
-                        "nodeDetails": [nd for nd in (cfg.nodeDetails or []) if nd.id in new_ids] or None,
-                        "nodeIds": [n for n in (cfg.nodeIds or []) if n in new_ids] or None,
-                    })})
+                        "nodeDetails": details, "nodeIds": node_ids})})
             if placement and not placement["target"]:
                 # A row held by an ingest-only datasource that asks for Auto Sync: that datasource
                 # becomes the sync (same id), its rows in this run are recorded in it as before
@@ -3356,9 +3436,118 @@ def disallowed_ingest_paths(paths: List[str], allowed_roots: List[str]) -> List[
     return bad
 
 
+def suggested_allowed_paths(outside: List[str]) -> List[str]:
+    """The INGEST_ALLOWED_PATHS that would take ``outside``: the current list plus their folders
+    (a file's folder, not the file), with forward slashes, for the .env line we suggest."""
+    suggested: List[str] = [str(p) for p in (settings.ingest_allowed_paths or [])]
+    for p in outside:
+        path = Path(str(p).strip().strip('"').strip("'"))
+        folder = str(path.parent if path.is_file() else path).replace("\\", "/")
+        if folder not in suggested:
+            suggested.append(folder)
+    return suggested
+
+
+def outside_allowed_message(outside: List[str]) -> str:
+    """Why a filesystem ingest was refused, and the .env line that would allow it."""
+    import json
+    line = json.dumps(suggested_allowed_paths(outside)).replace('","', '", "')
+    return (f"Not in this backend's INGEST_ALLOWED_PATHS: {', '.join(map(str, outside))}. To ingest "
+            f"{'these' if len(outside) > 1 else 'it'}, set this in the backend's .env and restart the "
+            f"backend: INGEST_ALLOWED_PATHS={line}")
+
+
 def ingest_allowed_roots() -> List[str]:
-    """uploads/ (where /api/upload writes), SOURCE_PATHS and INGEST_ALLOWED_PATHS."""
-    return ["./uploads", *(settings.source_paths or []), *(settings.ingest_allowed_paths or [])]
+    """uploads/ (where /api/upload writes), SOURCE_PATHS, INGEST_ALLOWED_PATHS, and the folders
+    set at runtime by the API token holder (PUT /api/ingest-allowed-paths)."""
+    from api_security import runtime_ingest_paths
+    return ["./uploads", *(settings.source_paths or []), *(settings.ingest_allowed_paths or []),
+            *runtime_ingest_paths.get()]
+
+
+class IngestAllowedPathsRequest(BaseModel):
+    paths: List[str]
+
+
+@app.get("/api/ingest-allowed-paths")
+async def get_ingest_allowed_paths():
+    """The folders filesystem ingests may read: ``configured`` (uploads/, SOURCE_PATHS,
+    INGEST_ALLOWED_PATHS, as given: may be relative to this backend's folder), ``runtime`` (set
+    with PUT, needs API_TOKEN), and ``resolved``: all of them as absolute existing paths (the
+    desktop app opens result documents from these, e.g. a file uploaded here)."""
+    from api_security import runtime_ingest_paths
+    runtime = runtime_ingest_paths.get()
+    configured = [p for p in ingest_allowed_roots() if p not in runtime]
+    resolved: List[str] = []
+    for p in ingest_allowed_roots():
+        try:
+            path = Path(str(p).strip().strip('"').strip("'")).resolve()
+        except (OSError, ValueError):
+            continue
+        if path.exists() and str(path) not in resolved:
+            resolved.append(str(path))
+    return {"configured": configured, "runtime": runtime, "resolved": resolved,
+            "settable": bool(settings.api_token)}
+
+
+@app.post("/api/ingest-allowed-paths/check")
+async def check_ingest_allowed_paths(request: IngestAllowedPathsRequest):
+    """Which of ``paths`` a filesystem ingest here would refuse (``outside``): for the desktop app
+    with a backend it can't add folders to, so it warns only about picks outside the backend's
+    own allowed folders. Resolved here, since those folders can be relative to the backend's.
+    ``ingest_allowed_paths``: the whole INGEST_ALLOWED_PATHS that would take them (the current list
+    plus their folders: a file's folder, not the file), for the .env line the app suggests."""
+    outside = disallowed_ingest_paths(request.paths, ingest_allowed_roots())
+    return {"outside": outside, "ingest_allowed_paths": suggested_allowed_paths(outside)}
+
+
+@app.put("/api/ingest-allowed-paths")
+async def set_ingest_allowed_paths(request: IngestAllowedPathsRequest):
+    """Replace the runtime folders filesystem ingests may read (the desktop app, when the user
+    adds or removes a folder). Absolute existing paths only; kept in memory, so the caller sends
+    them again after a restart. Only with API_TOKEN set (checked by the middleware): without it
+    any caller could allow "/" and read every file the backend can (GHSA-2558-gvg9-whcx)."""
+    from api_security import runtime_ingest_paths
+    if not settings.api_token:
+        raise HTTPException(status_code=403, detail="Setting ingest folders at runtime needs API_TOKEN "
+                                                    "on the backend; use INGEST_ALLOWED_PATHS in .env")
+    kept, rejected = runtime_ingest_paths.set(request.paths)
+    if rejected:
+        logger.warning("Runtime ingest folders: ignored %d not absolute or not existing: %s", len(rejected), rejected)
+    logger.info("Runtime ingest folders set: %s", kept)
+    return {"runtime": kept, "rejected": rejected}
+
+
+class BrowseRequest(BaseModel):
+    data_source: str
+    # the source's ingest config (credentials + fixed root), as the form would send to /api/ingest
+    config: Dict[str, Any] = {}
+    # the folder to list ({"id", "path"} from an earlier browse); None = the source's root
+    parent: Optional[Dict[str, Any]] = None
+    page_token: Optional[str] = None
+    page_size: int = Field(200, ge=1, le=1000)
+
+
+@app.get("/api/browse")
+async def browse_sources():
+    """The data sources the source browser can list (the UIs show a Browse button for these)."""
+    from browse import supported_sources
+    return {"sources": supported_sources()}
+
+
+@app.post("/api/browse")
+async def browse_source(request: BrowseRequest):
+    """One folder level of a data source, a page at a time (browse/). POST: the config carries
+    credentials, which stay out of URLs and access logs."""
+    from browse import BrowseError, browse
+    try:
+        return await browse(request.data_source, request.config, request.parent,
+                            request.page_token, request.page_size)
+    except BrowseError as e:
+        raise HTTPException(status_code=e.status_code, detail=str(e))
+    except Exception as e:
+        logger.exception("Browse %s failed", request.data_source)
+        raise HTTPException(status_code=502, detail=f"Browse failed: {type(e).__name__}: {e}")
 
 
 @app.post("/api/upload")
@@ -3477,7 +3666,7 @@ async def _scope_doc_ids(scope: "AskScope") -> List[str]:
                 f"Check {state_store_label()} is up, then restart the backend"))
         raise HTTPException(status_code=400,
                             detail="asking about one document or folder needs ENABLE_INCREMENTAL_UPDATES=true "
-                                   "and POSTGRES_INCREMENTAL_URL (or INCREMENTAL_STATE_STORE=openarch)")
+                                   "and POSTGRES_INCREMENTAL_URL (or INCREMENTAL_STATE_STORE=sqlite or openarch)")
     if not (scope.node_id or scope.path):
         raise HTTPException(status_code=400, detail="scope needs a node_id or a path")
     await ensure_config_manager_ready()
@@ -3828,7 +4017,8 @@ async def _selected_doc_ids(selectors: List["SourceSelector"]) -> List[str]:
     if groups is None:
         raise HTTPException(status_code=400, detail=(
             "picking sources needs the incremental registry (ENABLE_INCREMENTAL_UPDATES=true and "
-            "POSTGRES_INCREMENTAL_URL): nothing else records which source a document came from"))
+            "POSTGRES_INCREMENTAL_URL, or INCREMENTAL_STATE_STORE=sqlite or openarch): nothing else "
+            "records which source a document came from"))
     config_ids = [cid for g in groups for sel in selectors
                   if g["source"] == sel.source
                   and (not sel.url or server_key(g["source"], g["url"]) == server_key(sel.source, sel.url))
@@ -3840,18 +4030,23 @@ async def _selected_doc_ids(selectors: List["SourceSelector"]) -> List[str]:
 
 
 @app.get("/api/sources/available")
-async def sources_available():
+async def sources_available(request: Request):
     """The sources a question can be limited to (the UIs' source picker): one entry per data source
     type and server with documents in the stores -- ``{source, label, url, documents, login_gated,
     auth_source, auth_url}``. ``login_gated`` sources (Alfresco, Nuxeo, CMIS; SharePoint and
     OneDrive with Microsoft sign-in configured) only answer for a user signed in to
     ``auth_source`` at ``auth_url`` unless its query auth is optional. ``available: false``
-    without the incremental registry."""
+    without the incremental registry. With remote backends (REMOTE_FG_URL), their sources follow,
+    each with ``backend`` (the remote's name: send it back in the pick), unless another backend
+    asks."""
+    import remote_backends
     groups = await _source_groups()
-    if groups is None:
+    own = [{k: v for k, v in g.items() if k != "config_ids"} for g in groups or []]
+    theirs = [] if request.headers.get(remote_backends.FEDERATED_HEADER) else \
+        await remote_backends.remote_sources_available()
+    if groups is None and not theirs:
         return {"available": False, "sources": []}
-    return {"available": True,
-            "sources": [{k: v for k, v in g.items() if k != "config_ids"} for g in groups]}
+    return {"available": True, "sources": own + theirs}
 
 
 def _join_labels(sources) -> str:
@@ -3956,13 +4151,26 @@ def _alfresco_url(url: Optional[str]) -> str:
 
 
 @app.get("/api/auth/requirements")
-async def auth_requirements():
+async def auth_requirements(request: Request):
     """Which sign-ins the stored content needs before search / AI chat (planning/SOURCE-AUTH-LOGIN.md).
     An empty ``providers`` list means no sign-in is needed. Each provider's ``required`` is its
     source's query auth (``<SOURCE>_QUERY_AUTH`` / ``SOURCE_QUERY_AUTH``): when false, a question
     without that sign-in still sees its documents. The top-level ``required`` is true when any
-    provider's is (Alfresco's setting when there are none)."""
+    provider's is (Alfresco's setting when there are none). With remote backends (REMOTE_FG_URL),
+    their sign-ins are listed too (``backend``: the remote's name), unless another backend asks."""
+    import remote_backends
+    from permission_filter import server_key
     providers = await _auth_providers(max_age=0)
+    if not request.headers.get(remote_backends.FEDERATED_HEADER):
+        providers = [dict(p) for p in providers]
+        mine = {(p["source"], server_key(p["source"], p.get("url") or "")): p for p in providers}
+        for p in await remote_backends.remote_auth_providers():
+            same = mine.get((p.get("source"), server_key(p.get("source") or "", p.get("url") or "")))
+            if same is None:
+                providers.append(p)
+                mine[(p.get("source"), server_key(p.get("source") or "", p.get("url") or ""))] = p
+            else:  # the same server here and there: one sign-in covers both
+                same["required"] = bool(same.get("required") or p.get("required"))
     return {"required": any(p["required"] for p in providers) if providers else _query_auth_required("alfresco"),
             "providers": providers}
 
@@ -4317,37 +4525,85 @@ async def popup_me_endpoint(provider: str, x_auth_token: Optional[str] = Header(
         return _not_valid(str(e))
 
 
+def _begin_remote_request(request: "QueryRequest", federated: Optional[str], ticket: Optional[str],
+                          ticket_url: Optional[str]) -> tuple:
+    """Set up this question for the remote backends (remote_backends.py, REMOTE_FG_URL): a question
+    from another backend (X-FG-Federated) or limited to a scope here goes to none. Picked sources
+    are split: this backend's stay in ``request.sources``; a remote's go to that remote as its own
+    picks, and a remote with none picked isn't asked. The asker's own identities go along, for the
+    remote's permission checks. Returns (whether the question goes to a remote, whether sources
+    were picked but none of this backend's: then none of its own documents answer)."""
+    import remote_backends
+    picks = request.sources or []
+    local = [s for s in picks if not s.backend]
+    remote_picks: Optional[Dict[str, List[Dict[str, Any]]]] = None
+    if picks:
+        remote_picks = {}
+        for s in picks:
+            if s.backend:
+                remote_picks.setdefault(s.backend, []).append(s.model_dump(exclude_none=True, exclude={"backend"}))
+    request.sources = local or None
+    remote_backends.begin_request(
+        federated=bool(federated), local_selection=bool(request.scope), remote_sources=remote_picks,
+        source_auth=request.source_auth.model_dump(exclude_none=True) if request.source_auth else None,
+        alfresco_ticket=ticket, alfresco_url=ticket_url)
+    return bool(remote_backends.active()), bool(picks) and not local
+
+
+def _remote_notices() -> dict:
+    import remote_backends
+    notes = remote_backends.notes()
+    return {"notices": notes} if notes else {}
+
+
+def _empty_answer(answer: str) -> bool:
+    return answer.strip() in ("", "Empty Response")
+
+
 @app.post("/api/search")
 async def search(request: QueryRequest, x_alfresco_ticket: Optional[str] = Header(default=None),
                  x_alfresco_url: Optional[str] = Header(default=None),
-                 x_trusted_client_key: Optional[str] = Header(default=None)):
+                 x_trusted_client_key: Optional[str] = Header(default=None),
+                 x_fg_federated: Optional[str] = Header(default=None)):
     try:
         logger.info(f"Processing {request.query_type} query: {request.query}"
-                    + (f" (scope: {request.scope.path or request.scope.node_id})" if request.scope else ""))
+                    + (f" (scope: {request.scope.path or request.scope.node_id})" if request.scope else "")
+                    + (" (from another backend)" if x_fg_federated else ""))
+        remote, remote_picks_only = _begin_remote_request(request, x_fg_federated, x_alfresco_ticket,
+                                                          x_alfresco_url)
         # A scope, and/or the asking user's Alfresco permissions (X-Alfresco-Ticket [+ X-Alfresco-Url])
-        scope_ids, nothing = await _question_scope(request, x_alfresco_ticket, x_alfresco_url,
-                                                  _trusted_client(x_trusted_client_key))
-        if nothing:
+        scope_ids, nothing = (([], "Nothing from the selected source(s) answers this.") if remote_picks_only
+                              else await _question_scope(request, x_alfresco_ticket, x_alfresco_url,
+                                                         _trusted_client(x_trusted_client_key)))
+        if nothing and not remote:
             if request.query_type == "qa":
                 return {"success": True, "answer": nothing}
             return {"success": True, "results": [], "message": nothing}
-        
+        # nothing here but a remote backend may still answer: none of this backend's own (scope [])
+        local_scope = [] if nothing else scope_ids
+
         if request.query_type == "qa":
             # Q&A query - return answer
-            result = await backend_instance.qa_query(request.query, scope_doc_ids=scope_ids)
+            result = await backend_instance.qa_query(request.query, scope_doc_ids=local_scope)
             if result["success"]:
                 logger.info("Q&A query completed successfully")
+                if nothing and _empty_answer(result["answer"]):
+                    return {"success": True, "answer": nothing, **_remote_notices()}
                 await _sign_links(request, result.get("sources"))
-                return {"success": True, "answer": result["answer"], "sources": result.get("sources", [])}
+                return {"success": True, "answer": result["answer"], "sources": result.get("sources", []),
+                        **_remote_notices()}
             else:
                 raise HTTPException(500, result["error"])
         else:
             # Hybrid search - return results
-            result = await backend_instance.search_documents(request.query, request.top_k, scope_doc_ids=scope_ids)
+            result = await backend_instance.search_documents(request.query, request.top_k,
+                                                             scope_doc_ids=local_scope)
             if result["success"]:
                 logger.info("Hybrid search completed successfully")
+                if nothing and not result["results"]:
+                    return {"success": True, "results": [], "message": nothing, **_remote_notices()}
                 await _sign_links(request, _result_documents(result["results"]))
-                return {"success": True, "results": result["results"]}
+                return {"success": True, "results": result["results"], **_remote_notices()}
             else:
                 raise HTTPException(500, result["error"])
     except HTTPException:
@@ -4359,19 +4615,27 @@ async def search(request: QueryRequest, x_alfresco_ticket: Optional[str] = Heade
 @app.post("/api/query")
 async def query_graph(request: QueryRequest, x_alfresco_ticket: Optional[str] = Header(default=None),
                       x_alfresco_url: Optional[str] = Header(default=None),
-                      x_trusted_client_key: Optional[str] = Header(default=None)):
+                      x_trusted_client_key: Optional[str] = Header(default=None),
+                      x_fg_federated: Optional[str] = Header(default=None)):
     try:
         logger.info(f"Processing query: {request.query}")
-        scope_ids, nothing = await _question_scope(request, x_alfresco_ticket, x_alfresco_url,
-                                                  _trusted_client(x_trusted_client_key))
-        if nothing:
+        remote, remote_picks_only = _begin_remote_request(request, x_fg_federated, x_alfresco_ticket,
+                                                          x_alfresco_url)
+        scope_ids, nothing = (([], "Nothing from the selected source(s) answers this.") if remote_picks_only
+                              else await _question_scope(request, x_alfresco_ticket, x_alfresco_url,
+                                                         _trusted_client(x_trusted_client_key)))
+        if nothing and not remote:
             return {"status": "success", "answer": nothing}
-        result = await backend_instance.query_documents(request.query, request.top_k, scope_doc_ids=scope_ids)
-        
+        result = await backend_instance.query_documents(request.query, request.top_k,
+                                                        scope_doc_ids=[] if nothing else scope_ids)
+
         if result["success"]:
             logger.info("Query processing completed successfully")
+            if nothing and _empty_answer(result["answer"]):
+                return {"status": "success", "answer": nothing, **_remote_notices()}
             await _sign_links(request, result.get("sources"))
-            return {"status": "success", "answer": result["answer"], "sources": result.get("sources", [])}
+            return {"status": "success", "answer": result["answer"], "sources": result.get("sources", []),
+                    **_remote_notices()}
         else:
             raise HTTPException(500, result["error"])
     except HTTPException:

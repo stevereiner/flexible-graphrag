@@ -4,6 +4,7 @@
 // backend's sign-in endpoint; nobody types a ticket. Kept in sessionStorage, like ACA keeps its
 // own, so they are gone when the tab closes.
 import axios, { AxiosError, InternalAxiosRequestConfig } from 'axios';
+import { apiBase } from '../apiConnection';
 
 export type SourceKind = 'alfresco' | 'nuxeo' | 'cmis' | 'microsoft' | 'box' | 'google' | 'azure' | 's3';
 
@@ -215,6 +216,7 @@ export interface AvailableSource {
   login_gated: boolean;
   auth_source?: string | null;  // the sign-in that unlocks it (SharePoint / OneDrive: 'microsoft')
   auth_url?: string | null;     // that sign-in's server (Microsoft: the tenant)
+  backend?: string | null;      // a remote backend's source (REMOTE_FG_*): its name
 }
 
 /** The sign-in provider a source needs: {source, url} of its auth_source (else itself). */
@@ -245,9 +247,13 @@ export function storesChanged(): void {
 
 export const sourceKey = (s: { source: string; url?: string | null }) => `${s.source}|${serverKey(s.source, s.url)}`;
 
+/** A source picker entry's key: sourceKey plus the remote backend it is on (the same Alfresco can
+ *  be in this backend's stores and a remote's: two chips, one sign-in). */
+export const pickKey = (s: AvailableSource) => `${sourceKey(s)}${s.backend ? `|@${s.backend}` : ''}`;
+
 const PICK_KEY = 'fg.sourcePicker';
 
-/** The sources picked for questions (keys from sourceKey); empty = all sources. */
+/** The sources picked for questions (keys from pickKey); empty = all sources. */
 export function getPickedSources(): string[] {
   return read<string[]>(PICK_KEY) || [];
 }
@@ -272,14 +278,15 @@ export function sourceNeedsSignIn(src: AvailableSource, req: Requirements): bool
 function isPickedOrAll(p: AuthProvider): boolean {
   const picked = new Set(getPickedSources());
   if (!picked.size) return true;
-  return (availableCache?.value || []).some((s) => picked.has(sourceKey(s)) && sourceKey(signInFor(s)) === sourceKey(p));
+  return (availableCache?.value || []).some((s) => picked.has(pickKey(s)) && sourceKey(signInFor(s)) === sourceKey(p));
 }
 
-function pickedSelectors(): { source: string; url?: string }[] {
+/** The request's `sources`: a remote backend's carry its name, so this backend passes them on. */
+function pickedSelectors(): { source: string; url?: string; backend?: string }[] {
   const picked = new Set(getPickedSources());
   if (!picked.size || !availableCache) return [];
-  return availableCache.value.filter((s) => picked.has(sourceKey(s)))
-    .map((s) => (s.url ? { source: s.source, url: s.url } : { source: s.source }));
+  return availableCache.value.filter((s) => picked.has(pickKey(s)))
+    .map((s) => ({ source: s.source, ...(s.url ? { url: s.url } : {}), ...(s.backend ? { backend: s.backend } : {}) }));
 }
 
 // ---- sign in / out ------------------------------------------------------------------------
@@ -299,7 +306,8 @@ export async function signInPopup(source: SourceKind): Promise<SourceSession> {
   // itself, with no account picker when the browser holds several (only a hint -- no token kept)
   let hint = '';
   try { hint = localStorage.getItem(hintKey(source)) || ''; } catch { /* ignore */ }
-  const popup = window.open(`/api/auth/${source}/popup?state=${state}${hint ? `&login_hint=${encodeURIComponent(hint)}` : ''}`,
+  // apiBase(): '' behind a proxy (browser, desktop dev server); the backend URL in a built desktop app
+  const popup = window.open(`${apiBase()}/api/auth/${source}/popup?state=${state}${hint ? `&login_hint=${encodeURIComponent(hint)}` : ''}`,
     `fg-${source}-signin`, 'width=520,height=680');
   if (!popup) {
     throw new Error(`The browser blocked the ${label} sign-in window. Allow pop-ups for this site and try again.`);

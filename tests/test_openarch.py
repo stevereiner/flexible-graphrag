@@ -3,8 +3,6 @@ import io
 import json
 import re
 
-import httpx
-
 import pytest
 from llama_index.core.schema import NodeRelationship, RelatedNodeInfo, TextNode
 from llama_index.core.vector_stores.types import (
@@ -357,28 +355,35 @@ def test_empty_scope_returns_nothing_without_a_query():
 
 
 def test_a_moved_or_renamed_source_object_moves_its_document():
-    from openarch.client import OpenArchError
     from openarch.writer import place_source_document
 
     class Client:
         """OpenArch's behaviour: a move keeps the name, a copy (with its children) takes one, a
-        name taken in the folder is a 409."""
+        name taken in the folder (by another document, or by the document itself on a move to its
+        own parent) is not a 409 but a generated name, ``<name>.<n>``."""
 
         def __init__(self):
             self.n = 0
+            self.folders = set()
             self.docs = {"d1": {"sys_id": "d1", "sys_path": "/root/alfresco/r/Shared/M/a.txt", "cin_id": "alfresco://n1"},
                          "e1": {"sys_id": "e1", "sys_path": "/root/alfresco/r/Shared/M/a.txt/_e_x", "parent": "d1"}}
 
         def ensure_folders(self, path):
-            pass
+            self.folders.add(path)
 
         def get_by_path(self, path):
-            return {"sys_id": "F:" + path, "sys_path": path}
+            doc = next((d for d in self.docs.values() if d["sys_path"] == path), None)
+            if doc:
+                return dict(doc)
+            if path in self.folders or any(d["sys_path"].startswith(path + "/") for d in self.docs.values()):
+                return {"sys_id": "F:" + path, "sys_path": path}
+            return None
 
         def _place(self, doc_id, folder, name):
             path = folder + "/" + name
             if any(d["sys_path"] == path for d in self.docs.values()):
-                raise OpenArchError(httpx.Response(409, request=httpx.Request("POST", "http://fake/move")))
+                self.n += 1
+                return f"{path}.{1000 + self.n}"
             return path
 
         takes_name = False  # a stock OpenArch's move ignores a name

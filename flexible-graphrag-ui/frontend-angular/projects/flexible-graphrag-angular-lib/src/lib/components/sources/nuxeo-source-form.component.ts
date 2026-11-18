@@ -1,8 +1,12 @@
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { IngestSignalService } from '../../services/ingest-signal.service';
 import { Component, Input, Output, EventEmitter, OnDestroy, OnInit, inject } from '@angular/core';
 import { FlexibleGraphragConfigService } from '../../config.service';
 import { SourceAuthService } from '../../services/source-auth.service';
 import { UiDefaultsService } from '../../services/ui-defaults.service';
 import { FormSignIn } from '../source-sign-in/source-sign-in';
+import { SourceBrowserService } from '../../browser/remote-browse.provider';
+import { BrowsedNodeDetail, commonParentPath, toNodeDetails } from '../../browser/browse.models';
 
 export interface NuxeoOAuth2Config {
   client_id?: string;
@@ -20,6 +24,9 @@ export interface NuxeoSourceConfig {
   token?: string;
   oauth2?: NuxeoOAuth2Config;
   path?: string;
+  /** Documents / folders picked in the browser: the ingest reads these instead of the path,
+   *  which is then their common parent folder. */
+  nodeDetails?: BrowsedNodeDetail[];
   recursive?: boolean;  // Deep: include subfolders, in the ingest and its auto sync
 }
 
@@ -99,12 +106,31 @@ export interface NuxeoSourceConfig {
       <div class="path-row">
         <mat-form-field appearance="outline" class="full-width">
           <mat-label>Path</mat-label>
-          <input matInput [(ngModel)]="path" (ngModelChange)="update()"
+          <input matInput [(ngModel)]="path" (ngModelChange)="onPathTyped()"
+                 [disabled]="nodes.length > 0"
                  placeholder="e.g., /default-domain/workspaces/GraphRAG" required />
-          <mat-hint>Path to the folder or document to process</mat-hint>
+          <mat-hint>{{ nodes.length ? 'The folder holding the picked items' : 'Path to the folder or document to process' }}</mat-hint>
         </mat-form-field>
+        <button mat-stroked-button type="button" class="browse-button" [disabled]="!isValid()"
+                [title]="isValid() ? 'Pick folders and documents in the repository' : 'Fill in the URL and sign in (or credentials) first'"
+                (click)="browse()">
+          <mat-icon>folder_open</mat-icon> Browse…
+        </button>
         <mat-checkbox class="deep" [checked]="recursive" (change)="ownDeep = $event.checked; update()"
                     title="Include subfolders, at every depth, in the ingest and its auto sync">Deep</mat-checkbox>
+      </div>
+      <div class="picked" *ngIf="nodes.length">
+        <div class="picked-caption">
+          {{ nodes.length === 1 ? '1 item picked' : nodes.length + ' items picked' }}: the ingest reads these instead of the path
+        </div>
+        <mat-chip-set>
+          <mat-chip *ngFor="let n of nodes" (removed)="removeNode(n)" [title]="n.path">
+            <mat-icon matChipAvatar>{{ n.isFolder ? 'folder' : 'description' }}</mat-icon>
+            {{ n.path }}
+            <button matChipRemove type="button" [attr.aria-label]="'Remove ' + n.name"><mat-icon>cancel</mat-icon></button>
+          </mat-chip>
+        </mat-chip-set>
+        <button mat-button type="button" (click)="clearNodes()">Clear</button>
       </div>
     </app-base-source-form>
   `,
@@ -115,10 +141,16 @@ export interface NuxeoSourceConfig {
     .path-row { display: flex; align-items: flex-start; gap: 8px; }
     .path-row .full-width { flex: 1; }
     .path-row .deep { margin-top: 12px; white-space: nowrap; }
+    .browse-button { height: 56px; white-space: nowrap; flex: none; }
+    .picked { margin-bottom: 16px; }
+    .picked-caption { font-size: 12px; opacity: 0.8; margin-bottom: 4px; }
   `],
   standalone: false
 })
 export class NuxeoSourceFormComponent implements OnInit, OnDestroy {
+  // an ingest started: the picks empty (the run's rows stay in Processing)
+  private readonly ingestStarted = inject(IngestSignalService).started
+    .pipe(takeUntilDestroyed()).subscribe(() => this.clearNodes());
   private readonly fgConfig = inject(FlexibleGraphragConfigService);
   private readonly auth = inject(SourceAuthService);
   readonly signin = new FormSignIn(this.auth, this.fgConfig, 'nuxeo');
@@ -156,6 +188,7 @@ export class NuxeoSourceFormComponent implements OnInit, OnDestroy {
     if (v.url !== undefined) this.url = v.url;
     if (v.auth_method) this.authMethod = v.auth_method;
     if (v.path !== undefined) this.path = v.path;
+    if (Array.isArray(v.nodeDetails)) this.nodes = v.nodeDetails;
     if (typeof v.recursive === 'boolean') this.ownDeep = v.recursive;
     if (v.username !== undefined) this.username = v.username;
     if (v.password !== undefined) this.password = v.password;
@@ -175,7 +208,44 @@ export class NuxeoSourceFormComponent implements OnInit, OnDestroy {
     this.signin.stop();
   }
 
-  private isValid(): boolean {
+  // Documents / folders picked in the browser (nodeDetails)
+  nodes: BrowsedNodeDetail[] = [];
+  private readonly browser = inject(SourceBrowserService);
+  private readonly provider = this.browser.provider('nuxeo', 'Nuxeo repository', () => this.buildConfig());
+
+  /** One folder: the path. Documents, or several items: nodeDetails by id, with the path their
+   *  common parent folder. OAuth2 browses only with an access token (the backend says so). */
+  async browse(): Promise<void> {
+    const items = await this.browser.pick({ provider: this.provider, title: 'Pick folders and documents: Nuxeo' });
+    if (!items.length) return;
+    if (items.length === 1 && items[0].isDirectory) {
+      this.path = items[0].path || `/${items[0].name}`;
+      this.nodes = [];
+    } else {
+      this.nodes = toNodeDetails(items);
+      this.path = commonParentPath(this.nodes.map((n) => n.path));
+    }
+    this.update();
+  }
+
+  removeNode(node: BrowsedNodeDetail): void {
+    this.nodes = this.nodes.filter((n) => n !== node);
+    if (this.nodes.length) this.path = commonParentPath(this.nodes.map((n) => n.path));
+    this.update();
+  }
+
+  clearNodes(): void {
+    this.nodes = [];
+    this.update();
+  }
+
+  /** A typed path replaces picked items. */
+  onPathTyped(): void {
+    this.nodes = [];
+    this.update();
+  }
+
+  isValid(): boolean {
     if (this.url.trim() === '') return false;
     if (this.usingSignIn) return true;
     // basic and token both use username/password (token mode fetches the auth token
@@ -187,10 +257,13 @@ export class NuxeoSourceFormComponent implements OnInit, OnDestroy {
   }
 
   private buildConfig(): NuxeoSourceConfig {
+    const nodeDetails = this.nodes.length ? { nodeDetails: this.nodes } : {};
     const signedIn = this.signin.credential(this.url);
-    if (signedIn) return { url: this.url, path: this.path, recursive: this.recursive, ...signedIn } as NuxeoSourceConfig;
+    if (signedIn) {
+      return { url: this.url, path: this.path, ...nodeDetails, recursive: this.recursive, ...signedIn } as NuxeoSourceConfig;
+    }
     const config: NuxeoSourceConfig = { url: this.url, auth_method: this.authMethod, path: this.path,
-                                        recursive: this.recursive };
+                                        ...nodeDetails, recursive: this.recursive };
     // token mode sends username/password; the backend fetches the auth token from them.
     if (this.authMethod === 'basic' || this.authMethod === 'token') {
       config.username = this.username;

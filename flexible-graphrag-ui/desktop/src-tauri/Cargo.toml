@@ -1,0 +1,27 @@
+[package]
+name = "flexible-graphrag-desktop"
+version = "0.11.0"
+description = "Flexible GraphRAG desktop app"
+license = "Apache-2.0"
+edition = "2021"
+
+[lib]
+# The _lib suffix keeps the lib's name apart from the binary's (a Cargo issue on Windows)
+name = "flexible_graphrag_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon"] }
+# open_path / reveal_item_in_dir, called from our own command (open_file.rs); not exposed to the page
+tauri-plugin-opener = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# the per-install backend API token (backend.rs)
+getrandom = "0.3"
+
+# a job object that ends the backend with the app, however the app ends (backend.rs)
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_System_JobObjects", "Win32_System_Threading"] }

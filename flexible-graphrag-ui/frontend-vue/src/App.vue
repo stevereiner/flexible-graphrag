@@ -40,6 +40,7 @@
                 <sources-tab
                   v-model:nuxeo-form-value="nuxeoFormValue"
                   v-model:alfresco-form-value="alfrescoFormValue"
+                  v-model:local-items="localItems"
                   @configure-processing="onConfigureProcessing"
                   @sources-configured="onSourcesConfigured"
                 />
@@ -60,10 +61,13 @@
                   :configured-youtube-config="configuredYoutubeConfig"
                   :configured-cloud-config="configuredCloudConfig"
                   :configured-enterprise-config="configuredEnterpriseConfig"
+                  :configured-filesystem-config="configuredFilesystemConfig"
                   :configuration-timestamp="configurationTimestamp"
                   @go-to-sources="mainTab = 'sources'"
                   @files-removed="configuredFiles = $event"
                   @show-graph="showGraph"
+                  @repo-picks-changed="onRepoPicksChanged"
+                  @local-items-changed="onLocalItemsChanged"
                 />
               </v-window-item>
 
@@ -97,6 +101,8 @@ import SearchTab from './components/SearchTab.vue';
 import ChatTab from './components/ChatTab.vue';
 import GraphTab, { GraphRequest } from './components/GraphTab.vue';
 import SourceSignIn from './auth/SourceSignIn.vue';
+import type { LocalItem } from './components/sources/LocalFolderForm.vue';
+import { ingestStarted } from './ingestSignal';
 
 export default defineComponent({
   name: 'App',
@@ -159,7 +165,18 @@ export default defineComponent({
     const configuredYoutubeConfig = ref<any>(null);
     const configuredCloudConfig = ref<any>(null);
     const configuredEnterpriseConfig = ref<any>(null);
+    // Local files and folders (desktop app): the form's picks, and the configured { paths, items }
+    const localItems = ref<LocalItem[]>([]);
+    const configuredFilesystemConfig = ref<any>(null);
     const configurationTimestamp = ref(0);
+
+    // An ingest started: the Sources tab's lists held here empty (the forms clear their own too).
+    // The configured sources above stay: they are the Processing tab's rows.
+    watch(ingestStarted, () => {
+      localItems.value = [];
+      if (alfrescoFormValue.value?.nodeDetails) alfrescoFormValue.value = { ...alfrescoFormValue.value, nodeDetails: undefined };
+      if (nuxeoFormValue.value?.nodeDetails) nuxeoFormValue.value = { ...nuxeoFormValue.value, nodeDetails: undefined };
+    });
 
     const onSourcesConfigured = (data: { 
       dataSource: string; 
@@ -173,6 +190,7 @@ export default defineComponent({
       youtubeConfig?: any;
       cloudConfig?: any;
       enterpriseConfig?: any;
+      filesystemConfig?: any;
     }) => {
       // Clear previous configuration to prevent filename conflicts
       hasConfiguredSources.value = false;
@@ -186,7 +204,8 @@ export default defineComponent({
       configuredYoutubeConfig.value = null;
       configuredCloudConfig.value = null;
       configuredEnterpriseConfig.value = null;
-      
+      configuredFilesystemConfig.value = null;
+
       // Set new configuration
       hasConfiguredSources.value = true;
       configuredDataSource.value = data.dataSource;
@@ -200,6 +219,7 @@ export default defineComponent({
       configuredYoutubeConfig.value = data.youtubeConfig || null;
       configuredCloudConfig.value = data.cloudConfig || null;
       configuredEnterpriseConfig.value = data.enterpriseConfig || null;
+      configuredFilesystemConfig.value = data.filesystemConfig || null;
       configurationTimestamp.value = Date.now(); // Update timestamp every time sources are configured
       
       console.log('📁 Vue onSourcesConfigured (cleared previous state):', {
@@ -214,7 +234,34 @@ export default defineComponent({
       });
     };
 
+    // A picked Alfresco / Nuxeo row removed in Processing: out of the configured nodeDetails, and
+    // out of the form's kept value too (its chips), so the form shows the same picks next time
+    const onRepoPicksChanged = (e: { source: string; nodeDetails: any[] }) => {
+      const nodeDetails = e.nodeDetails.length ? e.nodeDetails : undefined;
+      if (e.source === 'alfresco') {
+        if (configuredAlfrescoConfig.value) configuredAlfrescoConfig.value = { ...configuredAlfrescoConfig.value, nodeDetails };
+        alfrescoFormValue.value = { ...(alfrescoFormValue.value || {}), nodeDetails };
+      } else if (e.source === 'nuxeo') {
+        if (configuredNuxeoConfig.value) configuredNuxeoConfig.value = { ...configuredNuxeoConfig.value, nodeDetails };
+        nuxeoFormValue.value = { ...(nuxeoFormValue.value || {}), nodeDetails };
+      }
+    };
+
+    // A local file / folder row removed in Processing: out of the configured paths and the form's list
+    const onLocalItemsChanged = (items: LocalItem[]) => {
+      const kept = new Set(items.map((i) => i.path));
+      const removed = (configuredFilesystemConfig.value?.items || []).filter((i: LocalItem) => !kept.has(i.path));
+      configuredFilesystemConfig.value = { items, paths: items.map((i) => i.path) };
+      // the form's own list (empty after an ingest started, or new picks): only the removed paths leave it
+      const gone = new Set(removed.map((i: LocalItem) => i.path));
+      localItems.value = localItems.value.filter((i) => !gone.has(i.path));
+    };
+
     return {
+      onRepoPicksChanged,
+      onLocalItemsChanged,
+      localItems,
+      configuredFilesystemConfig,
       mainTab,
       hasConfiguredSources,
       configuredDataSource,

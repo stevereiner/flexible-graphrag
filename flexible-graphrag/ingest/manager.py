@@ -149,10 +149,11 @@ class IngestionManager:
             nonlocal file_progress, initialized
             
             if status_callback:
-                # Initialize individual_files array on first call with total > 0
-                if not initialized and total > 0:
-                    initialized = True
-                    file_progress = [
+                # Initialize individual_files array on first call with total > 0. Sources report a
+                # "connecting" step as 1 of 1 before they know how many files there are, so the
+                # list grows when a later call brings the real total (else only file 1 is tracked)
+                if total > len(file_progress):
+                    file_progress = file_progress + [
                         {
                             "filename": f"File {i+1}",  # Placeholder, will be updated with actual filename
                             "status": "pending",
@@ -160,9 +161,11 @@ class IngestionManager:
                             "phase": "pending",
                             "message": ""
                         }
-                        for i in range(total)
+                        for i in range(len(file_progress), total)
                     ]
-                    logger.info(f"Initialized progress tracking for {total} files from {source_type}")
+                    if not initialized:
+                        logger.info(f"Initialized progress tracking for {total} files from {source_type}")
+                    initialized = True
                 
                 # Calculate progress: 10% (connection) + 30% (loading) = 40% max before pipeline
                 base_progress = 10

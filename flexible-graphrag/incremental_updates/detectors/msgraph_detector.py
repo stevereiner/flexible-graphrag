@@ -91,6 +91,9 @@ class MicrosoftGraphDetector(ChangeDetector):
         
         # Optional config
         self.folder_path = config.get('folder_path')
+        # Selected files (OneDrive file_ids): the sync follows exactly these, not a folder / the drive
+        # (the source reads file_ids over folder_path; the Box / Drive detectors scope the same way)
+        self.file_ids = {str(i) for i in (config.get('file_ids') or [])}
         self.polling_interval = config.get('polling_interval', 60)
         
         # Enable/disable change polling (delta query simulation)
@@ -390,6 +393,9 @@ class MicrosoftGraphDetector(ChangeDetector):
         if not self.graph_client:
             raise RuntimeError("Microsoft Graph detector not started")
         
+        if self.file_ids:
+            return await self._list_selected_files()
+
         files = []
         try:
             # Build endpoint based on configuration
@@ -558,6 +564,31 @@ class MicrosoftGraphDetector(ChangeDetector):
             else:
                 logger.warning(f"Item {item_name} is neither file nor folder - skipping")
     
+    async def _list_selected_files(self) -> List[FileMetadata]:
+        """The selected files (file_ids) that still exist; a deleted one is left out, so the
+        periodic refresh removes it."""
+        drive_id = await self._resolve_drive_id()
+        if not drive_id:
+            raise RuntimeError("Could not resolve drive_id for the selected files")
+        files = []
+        for file_id in sorted(self.file_ids):
+            try:
+                item = await self.graph_client.drives.by_drive_id(drive_id).items.by_drive_item_id(file_id).get()
+            except Exception as e:
+                logger.info(f"Microsoft Graph: selected file {file_id} not readable ({e}) -- left out")
+                continue
+            event = self._parse_drive_item(self._drive_item_to_dict(item)) if item else None
+            if event is not None and event.change_type != ChangeType.DELETE:
+                files.append(event.metadata)
+        logger.info(f"Listed {len(files)} of {len(self.file_ids)} selected files from Microsoft Graph")
+        return files
+
+    def _follows(self, event: ChangeEvent) -> bool:
+        """Whether a change is this sync's: one of its selected files, else under its folder."""
+        if self.file_ids:
+            return str(event.metadata.extra.get('file_id')) in self.file_ids
+        return self._in_folder(event.metadata.extra.get('file_path'))
+
     def _base_path(self) -> str:
         """The sync's folder as a drive path ("/test"), or "" for the whole drive."""
         return "/" + self.folder_path.strip("/") if self.folder_path and self.folder_path.strip("/") else ""
@@ -660,9 +691,12 @@ class MicrosoftGraphDetector(ChangeDetector):
                 if event is None:
                     continue  # folder or unparseable
 
-                # The delta covers the whole drive: only what is under the sync's folder is its
-                # own; a document it follows that moved out of it is no longer its to keep
-                if event.change_type != ChangeType.DELETE and not self._in_folder(event.metadata.extra.get('file_path')):
+                # The delta covers the whole drive: only the selected files, or what is under the
+                # sync's folder, are its own; a document it follows that moved out of its folder
+                # is no longer its to keep
+                if self.file_ids and str(event.metadata.extra.get('file_id')) not in self.file_ids:
+                    continue
+                if event.change_type != ChangeType.DELETE and not self._follows(event):
                     gone = await self._moved_out_event(event)
                     if gone is not None:
                         yield gone

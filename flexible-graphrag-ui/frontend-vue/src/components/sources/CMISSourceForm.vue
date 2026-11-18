@@ -42,31 +42,54 @@
       </v-col>
     </v-row>
     
-    <v-text-field
-      :model-value="folderPath"
-      @update:model-value="handleFolderPathChange"
-      label="Folder Path *"
-      variant="outlined"
-      class="mb-4"
-      placeholder="e.g., /Sites/example/documentLibrary"
-      hint="Path to the folder containing documents to process"
-      persistent-hint
-      required
+    <div class="d-flex ga-2 mb-4 align-start">
+      <v-text-field
+        :model-value="folderPath"
+        @update:model-value="handleFolderPathChange"
+        label="Folder Path *"
+        variant="outlined"
+        placeholder="e.g., /Sites/example/documentLibrary"
+        hint="A folder (all its subfolders are read), or one document's path"
+        persistent-hint
+        required
+      />
+      <v-btn
+        variant="outlined"
+        prepend-icon="mdi-folder-open"
+        height="56"
+        :disabled="!canBrowse"
+        :title="canBrowse ? 'Pick a folder or a document in the repository' : 'Fill in the URL and sign in (or a username and password) first'"
+        @click="browseOpen = true"
+      >
+        Browse…
+      </v-btn>
+    </div>
+    <SourceBrowser
+      :open="browseOpen"
+      :provider="provider"
+      title="Pick a folder or a document: CMIS"
+      :multiple="false"
+      @close="browseOpen = false"
+      @select="handleBrowsed"
     />
   </BaseSourceForm>
 </template>
 
 <script lang="ts">
-import { defineComponent, computed, watch, toRef } from 'vue';
+import { defineComponent, computed, watch, toRef, ref } from 'vue';
 import BaseSourceForm from './BaseSourceForm.vue';
 import SourceSignInSection from '../../auth/SourceSignInSection.vue';
 import { useSourceSession } from '../../auth/useSourceSession';
+import SourceBrowser from '../../browser/SourceBrowser.vue';
+import { remoteProvider } from '../../browser/remoteProvider';
+import type { BrowseItem } from '../../browser/types';
 
 export default defineComponent({
   name: 'CMISSourceForm',
   components: {
     BaseSourceForm,
-    SourceSignInSection
+    SourceSignInSection,
+    SourceBrowser
   },
   props: {
     url: {
@@ -131,7 +154,23 @@ export default defineComponent({
       emit('update:folderPath', value);
     };
 
+    // Browse the repository as the ingest signs in (POST /api/browse): needs the URL and a
+    // sign-in, not yet a folder path
+    const canBrowse = computed(() => props.url.trim() !== ''
+      && (usingSignIn.value || (props.username.trim() !== '' && props.password.trim() !== '')));
+    const browseOpen = ref(false);
+    const provider = remoteProvider('cmis', 'CMIS repository', () => config.value);
+
+    // one folder, or one document: folder_path takes either
+    const handleBrowsed = (items: BrowseItem[]) => {
+      if (items.length) emit('update:folderPath', items[0].path || `/${items[0].name}`);
+    };
+
     return {
+      canBrowse,
+      browseOpen,
+      provider,
+      handleBrowsed,
       session,
       useOther,
       usingSignIn,

@@ -6,6 +6,7 @@ import { FlexibleGraphragConfigService } from '../../config.service';
 import { ProcessingSessionService } from '../../services/processing-session.service';
 import { UiDefaultsService } from '../../services/ui-defaults.service';
 import { SourceAuthService } from '../../services/source-auth.service';
+import { IngestSignalService } from '../../services/ingest-signal.service';
 import {
   AsyncProcessingResponse, ConfiguredStores, GraphShowEvent, ProcessingStatusResponse,
   IngestStatusItem, IngestStatusRequest, ItemAction, ItemActionKind, ProcessingJob, RemoveTarget,
@@ -64,11 +65,20 @@ export class ProcessingTabComponent implements OnInit, OnChanges, OnDestroy {
   @Input() configuredCloudConfig: any = null;
   @Input() configuredEnterpriseConfig: any = null;
   @Input() configurationTimestamp = 0;
+  /** Local files and folders (desktop app): { paths, items }, when configuredDataSource is 'filesystem'. */
+  @Input() configuredFilesystemConfig: { paths: string[]; items: { path: string; isDirectory: boolean }[] } | null = null;
   @Output() goToSources = new EventEmitter<void>();
   @Output() removeRepositoryFile = new EventEmitter<number>();
   @Output() removeUploadFile = new EventEmitter<number>();
   /** "View graph" for a finished ingest (shown only when the host listens). */
   @Output() showGraph = new EventEmitter<GraphShowEvent>();
+  /** A local row removed (desktop app): its index in configuredFilesystemConfig.items. */
+  @Output() removeLocalItem = new EventEmitter<number>();
+
+  /** The local rows' items (desktop app), [] for any other source. */
+  private localItems(): { path: string; isDirectory: boolean }[] {
+    return this.configuredDataSource === 'filesystem' ? this.configuredFilesystemConfig?.items || [] : [];
+  }
 
   // Table configuration
   /** nodeDetails from whichever repository source is configured, or [] if none carries any. */
@@ -150,6 +160,7 @@ export class ProcessingTabComponent implements OnInit, OnChanges, OnDestroy {
   Math = Math;
 
   private readonly sourceAuth = inject(SourceAuthService);
+  private readonly ingestSignal = inject(IngestSignalService);
 
   constructor(private apiService: ApiService, public config: FlexibleGraphragConfigService,
               private session: ProcessingSessionService) {
@@ -171,7 +182,7 @@ export class ProcessingTabComponent implements OnInit, OnChanges, OnDestroy {
   /** Names the selection, so saved state is only given back to the same one. */
   private selectionKey(): string {
     return JSON.stringify([this.configuredDataSource, this.configuredFolderPath,
-      this.repositoryNodeDetails().map((n: any) => n.id || n.path)]);
+      this.repositoryNodeDetails().map((n: any) => n.id || n.path), this.localItems().map((i) => i.path)]);
   }
 
   private saveSession(): void {
@@ -223,7 +234,8 @@ export class ProcessingTabComponent implements OnInit, OnChanges, OnDestroy {
                                  changes['configuredWikipediaConfig'] ||
                                  changes['configuredYoutubeConfig'] ||
                                  changes['configuredCloudConfig'] ||
-                                 changes['configuredEnterpriseConfig'];
+                                 changes['configuredEnterpriseConfig'] ||
+                                 changes['configuredFilesystemConfig'];
     
     const rowRemoved = this.removingRow;
     this.removingRow = false;
@@ -264,6 +276,14 @@ export class ProcessingTabComponent implements OnInit, OnChanges, OnDestroy {
         name: file.name,
         size: file.size,
         type: 'file',
+      }));
+    } else if (this.configuredDataSource === 'filesystem') {
+      // Local files and folders (desktop app): one row each, by native path
+      this.displayFiles = this.localItems().map((item, index) => ({
+        index,
+        name: item.path,
+        size: 0,
+        type: item.isDirectory ? 'local-folder' : 'local-file',
       }));
     } else if (this.configuredDataSource === 'cmis' || this.configuredDataSource === 'alfresco' || this.configuredDataSource === 'nuxeo') {
       // If repository items are explicitly hidden, show nothing
@@ -316,17 +336,38 @@ export class ProcessingTabComponent implements OnInit, OnChanges, OnDestroy {
             return prefix ? `s3://${bucket}/${prefix}` : `s3://${bucket}`;
           }
           case 'gcs':
-            return `GCS: ${this.configuredCloudConfig?.bucket_name || 'Bucket'}`;
-          case 'azure_blob':
-            return `Azure: ${this.configuredCloudConfig?.account_name || 'Storage'}`;
-          case 'onedrive':
-            return `OneDrive: ${this.configuredCloudConfig?.user_principal_name || 'Drive'}`;
-          case 'sharepoint':
-            return `SharePoint: ${this.configuredEnterpriseConfig?.site_name || 'Site'}`;
-          case 'box':
-            return `Box: ${this.configuredEnterpriseConfig?.folder_id || 'Folder'}`;
-          case 'google_drive':
-            return `Google Drive: ${this.configuredCloudConfig?.folder_name || 'Drive'}`;
+            return `GCS: ${this.configuredCloudConfig?.bucket_name || 'Bucket'}/${this.configuredCloudConfig?.prefix || ''}`;
+          case 'azure_blob': {
+            // one blob (its full name) wins over the folder prefix in the ingest
+            const cfg = this.configuredCloudConfig;
+            return `Azure: ${cfg?.container_name || 'Container'}/${cfg?.blob || cfg?.prefix || ''}`;
+          }
+          case 'onedrive': {
+            // picked files (file_ids) are read instead of a folder
+            const cfg = this.configuredEnterpriseConfig;
+            const picked = cfg?.file_ids?.length || 0;
+            return picked ? `OneDrive: ${picked} file${picked === 1 ? '' : 's'}`
+              : `OneDrive: ${cfg?.folder_path || '(whole drive)'}`;
+          }
+          case 'sharepoint': {
+            const cfg = this.configuredEnterpriseConfig;
+            const site = cfg?.site_name || 'Site';
+            return cfg?.folder_path ? `SharePoint: ${site}/${cfg.folder_path}` : `SharePoint: ${site}`;
+          }
+          case 'box': {
+            // picked files (box_file_ids) are read instead of a folder
+            const cfg = this.configuredEnterpriseConfig;
+            const picked = cfg?.box_file_ids?.length || 0;
+            return picked ? `Box: ${picked} file${picked === 1 ? '' : 's'}`
+              : `Box: ${cfg?.folder_id || 'All Files'}`;
+          }
+          case 'google_drive': {
+            // a folder id wins over picked files (file_ids) in the ingest
+            const cfg = this.configuredEnterpriseConfig;
+            const picked = cfg?.file_ids?.length || 0;
+            return cfg?.folder_id ? `Google Drive: ${cfg.folder_id}`
+              : picked ? `Google Drive: ${picked} file${picked === 1 ? '' : 's'}` : 'Google Drive';
+          }
           default:
             return 'Source';
         }
@@ -420,6 +461,19 @@ export class ProcessingTabComponent implements OnInit, OnChanges, OnDestroy {
         data_source: 'upload',
         recursive: false,
         items: this.displayFiles.map((f: any) => ({ path: f.name, is_folder: false })),
+      });
+      return;
+    }
+    if (this.configuredDataSource === 'filesystem') {
+      // Local files and folders: a status per row, by path (a folder always includes its
+      // subfolders: ingest, watch and rescan recurse)
+      if (this.isProcessing) return;
+      const items = this.localItems();
+      if (!items.length) { this.ingestStatus = []; this.ingestStatusKey = ''; return; }
+      this.requestIngestStatus({
+        data_source: 'filesystem',
+        recursive: true,
+        items: items.map((i) => ({ path: i.path, is_folder: i.isDirectory })),
       });
       return;
     }
@@ -901,11 +955,17 @@ export class ProcessingTabComponent implements OnInit, OnChanges, OnDestroy {
     return this.displayFiles.filter((_, i) => this.ingestStatusFor(i)?.status === 'synced').length;
   }
 
+  /** Repository sources and local files (desktop app): rows per picked item, with overall
+   *  progress until the backend reports a file. */
+  private get isRowPerItemSource(): boolean {
+    return ['cmis', 'alfresco', 'nuxeo', 'filesystem'].includes(this.configuredDataSource);
+  }
+
   private autoSelectFiles(): void {
     if (this.configuredDataSource === 'upload') {
       this.selectedItems = new Set(this.configuredFiles.map((_, index) => index));
-    } else if (this.configuredDataSource === 'cmis' || this.configuredDataSource === 'alfresco' || this.configuredDataSource === 'nuxeo') {
-      // Auto-select all repository rows except those auto-sync already covers. Mid-run the
+    } else if (this.isRowPerItemSource) {
+      // Auto-select all repository (and local) rows except those auto-sync already covers. Mid-run the
       // selection is left alone: this also runs on every status poll.
       if (this.isProcessing || this.awaitingStatus) return;
       this.selectedItems = new Set(
@@ -978,7 +1038,7 @@ export class ProcessingTabComponent implements OnInit, OnChanges, OnDestroy {
     }
     
     // Fallback to overall progress for repository files when no individual data
-    if (this.configuredDataSource === 'cmis' || this.configuredDataSource === 'alfresco' || this.configuredDataSource === 'nuxeo') {
+    if (this.isRowPerItemSource) {
       return this.processingProgress; // Always show progress, even when completed
     }
     
@@ -1030,7 +1090,7 @@ export class ProcessingTabComponent implements OnInit, OnChanges, OnDestroy {
     }
     
     // Fallback for repository files
-    if (this.configuredDataSource === 'cmis' || this.configuredDataSource === 'alfresco' || this.configuredDataSource === 'nuxeo') {
+    if (this.isRowPerItemSource) {
       if (this.isProcessing) return 'Processing';
       if (this.processingProgress === 100) return 'Completed';
       return 'Ready';
@@ -1057,7 +1117,7 @@ export class ProcessingTabComponent implements OnInit, OnChanges, OnDestroy {
     }
     
     // Fallback for repository files
-    if (this.configuredDataSource === 'cmis' || this.configuredDataSource === 'alfresco' || this.configuredDataSource === 'nuxeo') {
+    if (this.isRowPerItemSource) {
       if (this.isProcessing) return 'processing';
       if (this.processingProgress === 100) return 'completed';
       return 'ready';
@@ -1117,6 +1177,9 @@ export class ProcessingTabComponent implements OnInit, OnChanges, OnDestroy {
     if (this.configuredDataSource === 'upload') {
       console.log('🗑️ Upload file removal requested for index:', index);
       this.removeUploadFile.emit(index);
+    } else if (this.configuredDataSource === 'filesystem') {
+      // A local row: out of this run's list (and the form's picks); the host updates the config
+      this.removeLocalItem.emit(index);
     } else if (this.configuredDataSource === 'cmis' || this.configuredDataSource === 'alfresco' || this.configuredDataSource === 'nuxeo') {
       console.log('🗑️ Repository file removal requested for index:', index);
       this.removeRepositoryFile.emit(index);
@@ -1214,8 +1277,10 @@ export class ProcessingTabComponent implements OnInit, OnChanges, OnDestroy {
       
       // Add configuration for other data sources
       if (this.configuredDataSource === 'filesystem') {
-        // For direct filesystem access (not upload)
-        processingData.paths = this.configuredFiles.map(f => f.name);
+        // Local files and folders (desktop app): the checked rows; with columns every path, which
+        // the backend narrows to item_actions' rows
+        const paths = this.localItems().map((i) => i.path);
+        processingData.paths = planned ? paths : paths.filter((_, i) => this.selectedItems.has(i));
       } else if (this.singleRowSource) {
         // its config (CMIS also its path): the same fields its ingest status sent
         Object.assign(processingData, this.sourceFields());
@@ -1276,7 +1341,9 @@ export class ProcessingTabComponent implements OnInit, OnChanges, OnDestroy {
       this.apiService.ingestDocuments(processingData).subscribe({
         next: (response: AsyncProcessingResponse) => {
           console.log('Processing started:', response);
-          
+          // an ingest started: the Sources tab's lists empty (its rows stay here)
+          if (response.processing_id) this.ingestSignal.markStarted();
+
           if (response.processing_id && this.runInBackground) {
             // The job carries on in the backend; this tab is free to start another one
             this.isProcessing = false;

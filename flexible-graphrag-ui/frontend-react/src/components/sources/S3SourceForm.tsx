@@ -1,6 +1,10 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { TextField, Box } from '@mui/material';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { TextField, Box, Button } from '@mui/material';
+import { FolderOpen as FolderOpenIcon } from '@mui/icons-material';
 import { BaseSourceForm, BaseSourceFormProps } from './BaseSourceForm';
+import { SourceBrowser } from '../../browser/SourceBrowser';
+import { remoteProvider } from '../../browser/RemoteProvider';
+import { BrowseItem } from '../../browser/types';
 
 interface S3SourceFormProps extends BaseSourceFormProps {
   accessKey: string;
@@ -41,6 +45,17 @@ export const S3SourceForm: React.FC<S3SourceFormProps> = ({
     onConfigurationChange(config);
   }, [isValid, config, onValidationChange, onConfigurationChange]);
 
+  // Browse the bucket with the keys above (POST /api/browse)
+  const [browseOpen, setBrowseOpen] = useState(false);
+  const configRef = useRef(config);
+  configRef.current = config;
+  const provider = useMemo(() => remoteProvider('s3', 'S3 bucket', () => configRef.current), []);
+
+  // one folder ("docs/reports/") or one object's key: the prefix takes either
+  const handleBrowsed = (items: BrowseItem[]) => {
+    if (items.length) setPrefix(items[0].path || items[0].id);
+  };
+
   return (
     <BaseSourceForm
       title="Amazon S3"
@@ -59,22 +74,41 @@ export const S3SourceForm: React.FC<S3SourceFormProps> = ({
         required
         autoComplete="off"
       />
-      <TextField
-        fullWidth
-        label="Prefix/Path (Optional)"
-        variant="outlined"
-        value={prefix}
-        onChange={(e) => setPrefix(e.target.value)}
-        size="small"
-        sx={{ mb: 2 }}
-        placeholder="documents/reports/"
-        helperText="Optional: folder path prefix within bucket"
-        autoComplete="off"
-        inputProps={{
-          autoComplete: 'off',
-          'data-lpignore': 'true', // LastPass ignore
-          'data-form-type': 'other' // Prevent autofill
-        }}
+      <Box sx={{ display: 'flex', gap: 1, alignItems: 'flex-start', mb: 2 }}>
+        <TextField
+          fullWidth
+          label="Prefix/Path (Optional)"
+          variant="outlined"
+          value={prefix}
+          onChange={(e) => setPrefix(e.target.value)}
+          size="small"
+          placeholder="documents/reports/"
+          helperText="Optional: a folder prefix within the bucket (ending in /), or one object's key"
+          autoComplete="off"
+          inputProps={{
+            autoComplete: 'off',
+            'data-lpignore': 'true', // LastPass ignore
+            'data-form-type': 'other' // Prevent autofill
+          }}
+        />
+        <Button
+          variant="outlined"
+          startIcon={<FolderOpenIcon />}
+          disabled={!isValid}
+          title={isValid ? 'Pick a folder or a file in the bucket' : 'Fill in the bucket, region and keys first'}
+          onClick={() => setBrowseOpen(true)}
+          sx={{ whiteSpace: 'nowrap', minWidth: 'auto', height: 40 }}
+        >
+          Browse…
+        </Button>
+      </Box>
+      <SourceBrowser
+        open={browseOpen}
+        provider={provider}
+        title={`Pick a folder or a file: s3://${bucketName}`}
+        multiple={false}
+        onClose={() => setBrowseOpen(false)}
+        onSelect={handleBrowsed}
       />
       <TextField
         fullWidth

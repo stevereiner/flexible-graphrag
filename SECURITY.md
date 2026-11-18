@@ -31,7 +31,9 @@ Knowing these points helps you judge whether something is a vulnerability:
 - **The backend REST API (port 8000) has no authentication of its own.** Don't expose it to end
   users: bind it to localhost or a private network so that only your application reaches it. A
   reverse proxy in front of it only helps if the proxy requires login, and lets only admin logins
-  reach the admin endpoints below. A report that only says "the API has no auth" is not a vulnerability. A report
+  reach the admin endpoints below. Binding to localhost doesn't keep out the web pages open in a
+  browser on the same machine: set `API_TOKEN` (a shared secret every `/api` request must send as
+  `X-API-Token`) and `CORS_ORIGINS` when that matters, as the desktop app does. A report that only says "the API has no auth" is not a vulnerability. A report
   showing that an API caller can go beyond what the API is meant to do is: reading arbitrary
   files, writing outside `uploads/`, reaching other hosts, or getting stored credentials back.
 - **Admin endpoints.** The UIs only call search, query, ingest, upload, processing status,

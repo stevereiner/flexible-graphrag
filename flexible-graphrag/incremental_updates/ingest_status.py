@@ -132,8 +132,11 @@ class Datasource:
             source_type=cfg.source_type,
             source_name=getattr(cfg, "source_name", "") or "",
             url=normalize_url(cp.get("url")),
-            # the cloud sources follow subfolders (or every key under a prefix)
-            recursive=bool(cp.get("recursive", cfg.source_type in _CLOUD_SOURCES)),
+            # the cloud sources follow subfolders (or every key under a prefix); a filesystem
+            # folder is always ingested, watched and rescanned with its subfolders (rglob), so a
+            # stored "recursive": false there doesn't describe what it covers
+            recursive=(cfg.source_type in FS_SOURCES
+                       or bool(cp.get("recursive", cfg.source_type in _CLOUD_SOURCES))),
             skip_graph=bool(getattr(cfg, "skip_graph", False)),
             roots=roots,
             auto_sync=bool(getattr(cfg, "auto_sync", True)),

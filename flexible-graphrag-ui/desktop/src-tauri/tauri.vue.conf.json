@@ -1,0 +1,22 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "build": {
+    "devUrl": "http://localhost:3000",
+    "beforeDevCommand": "npm --prefix ../frontend-vue run dev",
+    "beforeBuildCommand": "npm --prefix ../frontend-vue run build:desktop",
+    "frontendDist": "../../frontend-vue/dist-desktop"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "create": false,
+        "title": "Flexible GraphRAG (Vue)",
+        "width": 1400,
+        "height": 900,
+        "minWidth": 900,
+        "minHeight": 600
+      }
+    ]
+  }
+}

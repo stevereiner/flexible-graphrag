@@ -1,21 +1,25 @@
 {
   "name": "flexible-graphrag-react",
   "private": true,
-  "version": "0.10.0",
+  "version": "0.11.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
+    "build:desktop": "vite build --mode desktop",
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "postinstall": "patch-package"
   },
   "dependencies": {
+    "@cubone/react-file-manager": "1.37.0",
     "@emotion/react": "^11.11.3",
     "@emotion/styled": "^11.11.0",
-    "@flexible-graphrag/graph-view": "^0.10.0",
+    "@flexible-graphrag/graph-view": "^0.11.0",
     "@mui/icons-material": "^5.15.10",
     "@mui/lab": "^5.0.0-alpha.162",
     "@mui/material": "^5.15.10",
+    "@tauri-apps/api": "^2.12.4",
     "axios": "^1.6.7",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
@@ -30,6 +34,7 @@
     "eslint": "^8.55.0",
     "eslint-plugin-react-hooks": "^4.6.0",
     "eslint-plugin-react-refresh": "^0.4.5",
+    "patch-package": "^8.0.1",
     "typescript": "^5.2.2",
     "vite": "^6.3.5"
   }

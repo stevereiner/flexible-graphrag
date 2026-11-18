@@ -1,17 +1,19 @@
 {
   "name": "flexible-graphrag-vue",
   "private": true,
-  "version": "0.10.0",
+  "version": "0.11.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "vue-tsc --noEmit && vite build",
+    "build:desktop": "vite build --mode desktop",
     "preview": "vite preview"
   },
   "dependencies": {
-    "@flexible-graphrag/graph-view": "^0.10.0",
+    "@flexible-graphrag/graph-view": "^0.11.0",
     "@mdi/font": "7.4.47",
     "@mdi/js": "7.4.47",
+    "@tauri-apps/api": "^2.12.4",
     "axios": "1.6.7",
     "vue": "3.4.19",
     "vuetify": "3.5.13"

@@ -4,7 +4,7 @@ import { Subscription } from 'rxjs';
 import { FlexibleGraphragConfigService } from '../../config.service';
 import {
   AuthProvider, AuthRequirements, AvailableSource, SOURCE_COLORS, SignInReason, SourceAuthService, SourceKind, SourceSession,
-  credentialLabels, ingestCredential, isKeySource, isPopupSource, labelOf, providerCaption, providerTitle, providerTooltip, sameServer, serverKey, signInFor, sourceKey,
+  credentialLabels, ingestCredential, isKeySource, isPopupSource, labelOf, pickKey, providerCaption, providerTitle, providerTooltip, sameServer, serverKey, signInFor,
 } from '../../services/source-auth.service';
 
 const providerKey = (p: AuthProvider) => `${p.source}|${serverKey(p.source, p.url)}`;
@@ -379,14 +379,14 @@ export class SourcePickerComponent implements OnInit, OnDestroy {
   readonly auth = inject(SourceAuthService);
   readonly fgConfig = inject(FlexibleGraphragConfigService);
   readonly colors = SOURCE_COLORS;
-  readonly key = sourceKey;
+  readonly key = pickKey;
   sources: AvailableSource[] = [];
   picked = new Set<string>();
   private req: AuthRequirements = { required: false, providers: [] };
   private subs: Subscription[] = [];
 
   ngOnInit(): void {
-    this.subs.push(this.auth.picked$.subscribe((list) => { this.picked = new Set(list.map(sourceKey)); }));
+    this.subs.push(this.auth.picked$.subscribe((list) => { this.picked = new Set(list.map(pickKey)); }));
     this.subs.push(this.auth.sessions$.subscribe(() => this.refresh()));
     // a run added or removed documents: a new source's pill shows without leaving the page
     this.subs.push(this.auth.storesChanged$.subscribe(() => this.refresh(true)));
@@ -402,9 +402,9 @@ export class SourcePickerComponent implements OnInit, OnDestroy {
     this.sources = list;
     this.req = req;
     // drop picks that are gone from the stores or now need a sign-in (e.g. after signing out)
-    const usable = new Set(list.filter((s) => !this.locked(s)).map(sourceKey));
+    const usable = new Set(list.filter((s) => !this.locked(s)).map(pickKey));
     const current = this.auth.picked$.value;
-    const kept = current.filter((p) => usable.has(sourceKey(p)));
+    const kept = current.filter((p) => usable.has(pickKey(p)));
     if (kept.length !== current.length) this.auth.setPicked(kept);
   }
 
@@ -417,12 +417,15 @@ export class SourcePickerComponent implements OnInit, OnDestroy {
         ? `Sign in to ${label} first`
         : `Needs a ${label} sign-in, not available here yet`;
     }
-    return `${s.label} only (${s.documents} document${s.documents === 1 ? '' : 's'})${s.url ? ' — ' + s.url : ''}`;
+    return `${s.label} only (${s.documents} document${s.documents === 1 ? '' : 's'})${s.url ? ' — ' + s.url : ''}`
+      + (s.backend ? ` — on the ${s.backend} backend` : '');
   }
 
   chipLabel(s: AvailableSource): string {
-    const several = this.sources.filter((x) => x.source === s.source).length > 1;
-    return several && s.url ? `${s.label} (${s.url.replace(/^https?:\/\//, '')})` : s.label;
+    // several servers of one type on the same backend: tell them apart by server
+    const several = this.sources.filter((x) => x.source === s.source && x.backend === s.backend).length > 1;
+    const base = several && s.url ? `${s.label} (${s.url.replace(/^https?:\/\//, '')})` : s.label;
+    return s.backend ? `${base} · ${s.backend}` : base;
   }
 
   pickAll(): void { this.auth.setPicked([]); }
@@ -433,10 +436,10 @@ export class SourcePickerComponent implements OnInit, OnDestroy {
       this.auth.promptSignIn({ ...signInFor(s), methods: ['basic'], documents: s.documents });
       return;
     }
-    const k = sourceKey(s);
+    const k = pickKey(s);
     const current = this.auth.picked$.value;
-    this.auth.setPicked(current.some((p) => sourceKey(p) === k)
-      ? current.filter((p) => sourceKey(p) !== k)
-      : [...current, s.url ? { source: s.source, url: s.url } : { source: s.source }]);
+    this.auth.setPicked(current.some((p) => pickKey(p) === k)
+      ? current.filter((p) => pickKey(p) !== k)
+      : [...current, { source: s.source, ...(s.url ? { url: s.url } : {}), ...(s.backend ? { backend: s.backend } : {}) }]);
   }
 }

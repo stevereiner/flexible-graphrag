@@ -58,7 +58,7 @@ Add to `claude_desktop_config.json`:
           "command": "uvx",
           "args": ["flexible-graphrag-mcp"],
           "env": {
-            "FLEXIBLE_GRAPHRAG_API_BASE": "http://localhost:8000"
+            "FLEXIBLE_GRAPHRAG_URL": "http://localhost:8000"
           }
         }
       }
@@ -73,7 +73,7 @@ Add to `claude_desktop_config.json`:
         "flexible-graphrag": {
           "command": "flexible-graphrag-mcp",
           "env": {
-            "FLEXIBLE_GRAPHRAG_API_BASE": "http://localhost:8000"
+            "FLEXIBLE_GRAPHRAG_URL": "http://localhost:8000"
           }
         }
       }
@@ -95,6 +95,10 @@ Restart Claude Desktop after saving the config.
     and `FLEXIBLE_GRAPHRAG_TRUSTED_KEY` in the `env` block above. To filter per user, pass
     `source_auth` (from `sign_in`), or set `MCP_BROWSER_SIGN_IN=true` for browser sign-in tools. See
     [Permission Filtering — Three Levels](MCP-TOOLS.md#permission-filtering-three-levels).
+
+!!! note "Backend with an API token"
+    If the backend has an `API_TOKEN` (off by default), add `FLEXIBLE_GRAPHRAG_API_TOKEN` with the
+    same value to the `env` block above. See [API Token and CORS](../CONFIGURATION/API-TOKEN-CORS.md).
 
 ---
 

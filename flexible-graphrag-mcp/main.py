@@ -75,6 +75,8 @@ def _fmt_error(e: Exception) -> str:
 #   3. MCP_BROWSER_SIGN_IN=true: also the start_sign_in / finish_sign_in tools, for Microsoft 365,
 #      Box, Google and Azure Storage sign-in in the user's browser (off by default).
 TRUSTED_KEY = (os.getenv("FLEXIBLE_GRAPHRAG_TRUSTED_KEY") or "").strip()
+# The backend's API_TOKEN, when it requires one (e.g. the desktop app's backend): sent on every call.
+API_TOKEN = (os.getenv("FLEXIBLE_GRAPHRAG_API_TOKEN") or "").strip()
 BROWSER_SIGN_IN = os.getenv("MCP_BROWSER_SIGN_IN", "false").strip().lower() in ("1", "true", "yes", "on")
 
 
@@ -105,6 +107,8 @@ def _parse_obj(value: Optional[Union[str, dict]], name: str) -> Optional[dict]:
 async def make_api_call(method: str, endpoint: str, data: Optional[Dict] = None,
                         headers: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
     """Make HTTP API call to the flexible-graphrag backend"""
+    if API_TOKEN:
+        headers = {**(headers or {}), "X-API-Token": API_TOKEN}
     async with httpx.AsyncClient(timeout=httpx.Timeout(_API_TIMEOUT)) as client:
         url = f"{BACKEND_URL}{endpoint}"
 

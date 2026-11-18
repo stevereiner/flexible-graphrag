@@ -31,20 +31,39 @@
       variant="outlined"
       class="mb-2"
       placeholder="specific-file.pdf"
-      hint="Optional: specific blob/file name"
+      hint="Optional: one blob's full name (e.g. docs/a.pdf); used instead of the prefix"
       persistent-hint
     />
-    
-    <v-text-field
-      v-model="prefix"
-      label="Prefix (Optional)"
-      variant="outlined"
-      class="mb-2"
-      placeholder="documents/reports/"
-      hint="Optional: folder path prefix within container"
-      persistent-hint
+
+    <div class="d-flex ga-2 mb-2 align-start">
+      <v-text-field
+        v-model="prefix"
+        label="Prefix (Optional)"
+        variant="outlined"
+        placeholder="documents/reports/"
+        hint="Optional: folder path prefix within container"
+        persistent-hint
+      />
+      <v-btn
+        variant="outlined"
+        prepend-icon="mdi-folder-open"
+        height="56"
+        :disabled="!isValid"
+        :title="isValid ? 'Pick a folder or a blob in the container' : 'Fill in the account URL, container, account name and key first'"
+        @click="browseOpen = true"
+      >
+        Browse…
+      </v-btn>
+    </div>
+    <SourceBrowser
+      :open="browseOpen"
+      :provider="provider"
+      :title="`Pick a folder or a file: ${containerName || 'Azure Blob'}`"
+      :multiple="false"
+      @close="browseOpen = false"
+      @select="handleBrowsed"
     />
-    
+
     <v-text-field
       :model-value="accountName"
       @update:model-value="handleAccountNameChange"
@@ -76,11 +95,15 @@
 <script lang="ts">
 import { defineComponent, ref, computed, watch } from 'vue';
 import BaseSourceForm from './BaseSourceForm.vue';
+import SourceBrowser from '../../browser/SourceBrowser.vue';
+import { remoteProvider } from '../../browser/remoteProvider';
+import type { BrowseItem } from '../../browser/types';
 
 export default defineComponent({
   name: 'AzureBlobSourceForm',
   components: {
-    BaseSourceForm
+    BaseSourceForm,
+    SourceBrowser
   },
   props: {
     connectionString: {
@@ -152,7 +175,28 @@ export default defineComponent({
       emit('update:accountKey', value);
     };
 
+    // Browse the container with the account key above (POST /api/browse)
+    const browseOpen = ref(false);
+    const provider = remoteProvider('azure_blob', 'Azure Blob container', () => config.value);
+
+    // one folder (prefix "docs/reports/") or one blob (its full name): the ingest takes blob over prefix
+    const handleBrowsed = (items: BrowseItem[]) => {
+      if (!items.length) return;
+      const picked = items[0].path || items[0].id;
+      if (items[0].isDirectory) {
+        prefix.value = picked;
+        emit('update:blobName', '');
+      } else {
+        emit('update:blobName', picked);
+        prefix.value = '';
+      }
+    };
+
     return {
+      isValid,
+      browseOpen,
+      provider,
+      handleBrowsed,
       prefix,
       accountUrl,
       handleContainerNameChange,

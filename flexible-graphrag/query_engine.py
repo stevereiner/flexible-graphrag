@@ -68,11 +68,17 @@ def _rescale_and_cut(nodes: List[NodeWithScore], min_relative: float) -> List[No
     N retrievers finds tops out at 1/N, and each retriever's weakest hit is 0 however close it
     was. Weak vector matches from unrelated documents land far below the top
     (SEARCH_MIN_RELATIVE_SCORE). ``nodes`` is sorted best first.
+
+    A remote backend's results (remote_backends.py) are not cut here: the remote already cut its
+    own, and fusing it in scales its weakest kept result to 0 however good it was.
     """
+    from remote_backends import REMOTE_KEY
     top = max((n.score or 0.0 for n in nodes), default=0.0)
     if top <= 0:
         return nodes
-    kept = [n for n in nodes if (n.score or 0.0) >= min_relative * top] if min_relative > 0 else nodes
+    kept = [n for n in nodes
+            if (n.score or 0.0) >= min_relative * top or (n.node.metadata or {}).get(REMOTE_KEY)] \
+        if min_relative > 0 else nodes
     if len(kept) < len(nodes):
         logger.info(f"Score cutoff {min_relative} x top {top:.3f}: dropped {len(nodes) - len(kept)} of {len(nodes)} results")
     for n in kept:
@@ -379,33 +385,10 @@ def _is_entity_name_stub(txt: str) -> bool:
     return True
 
 
-# ---------------------------------------------------------------------------
-# Search entry point
-# ---------------------------------------------------------------------------
-
-async def search(system, query: str, top_k: int = 10, scope_doc_ids=None) -> List[Dict[str, Any]]:
-    """Execute hybrid search across all configured modalities.
-
-    Args:
-        system: HybridSearchSystem instance
-        query: Natural-language query string
-        top_k: Maximum number of results to return
-        scope_doc_ids: when set, only results from these documents (scope_filter.py)
-
-    Returns:
-        List of result dicts with keys: rank, content, score, source,
-        file_type, file_name
-    """
+def _ensure_hybrid_retriever(system) -> None:
+    """Build this backend's own hybrid retriever if it isn't yet; ValueError when it can't."""
     from retriever_setup import setup_hybrid_retriever
 
-    # Ensure Weaviate async client is connected before search
-    if system.vector_store and type(system.vector_store).__name__ == "WeaviateVectorStore":
-        if hasattr(system.vector_store, '_aclient') and system.vector_store._aclient is not None:
-            if not system.vector_store._aclient.is_connected():
-                await system.vector_store._aclient.connect()
-                logger.info("Connected Weaviate async client for search operation")
-
-    # Lazy retriever initialisation
     logger.debug(f"[SEARCH/QA INIT] System type: {type(system).__name__}, system id: {id(system)}")
     logger.debug(f"[SEARCH/QA INIT] system.hybrid_retriever before check: {system.hybrid_retriever is not None}, type: {type(system.hybrid_retriever).__name__ if system.hybrid_retriever else 'None'}")
 
@@ -427,117 +410,9 @@ async def search(system, query: str, top_k: int = 10, scope_doc_ids=None) -> Lis
             logger.error(f"[SEARCH/QA INIT] System state - vector_index: {system.vector_index is not None}, graph_index: {system.graph_index is not None}, search_index: {getattr(system, 'search_index', None) is not None}")
             raise ValueError("No search indexes available. The databases may be empty or disconnected.")
 
-    logger.info(f"Searching for query: '{query}' with top_k={top_k}")
-    logger.info(f"Available documents: {len(system._last_ingested_documents) if hasattr(system, '_last_ingested_documents') else 0}")
 
-    retrieval_start = datetime.now()
-    logger.info(f"Starting hybrid retrieval at {retrieval_start.strftime('%H:%M:%S.%f')[:-3]}")
-
-    query_bundle = QueryBundle(query_str=query)
-
-    # LanceDB MVCC: reopen table at latest version before querying
-    _lance_refresh = getattr(system.vector_store, "_refresh_table", None)
-    if callable(_lance_refresh):
-        _lance_refresh()
-
-    _retrieve_attempts = 0
-    while True:
-        try:
-            _retrieve_attempts += 1
-            if scope_doc_ids is not None:
-                from scope_filter import build_scoped_retriever
-                raw_results = await build_scoped_retriever(system, scope_doc_ids).aretrieve(query_bundle)
-            else:
-                raw_results = await system.hybrid_retriever.aretrieve(query_bundle)
-            raw_results = _fuse(raw_results, system.config)
-            break
-        except Exception as e:
-            error_msg = str(e)
-            if (
-                'index_not_found_exception' in error_msg or
-                'no such index' in error_msg or
-                "doesn't exist" in error_msg or
-                'Not found' in error_msg or
-                'could not find class' in error_msg or
-                'NotFoundError' in str(type(e))
-            ):
-                logger.warning(f"Collection/Index not found: {error_msg}")
-                logger.info("Databases may be empty or collection/index not created yet. Please ingest documents first.")
-                return []
-            _is_transient = any(p in error_msg for p in (
-                "Error code: 400", "Error code: 429", "Error code: 500", "Error code: 503",
-                "Connection", "timeout", "invalid_request_error",
-            ))
-            if _is_transient and _retrieve_attempts < 3:
-                import asyncio as _asyncio
-                _wait = 5 * _retrieve_attempts
-                logger.warning(
-                    f"Search retrieval attempt {_retrieve_attempts} failed "
-                    f"(transient): {error_msg[:120]} — retrying in {_wait}s"
-                )
-                await _asyncio.sleep(_wait)
-            else:
-                raise
-
-    retrieval_end = datetime.now()
-    retrieval_duration = (retrieval_end - retrieval_start).total_seconds()
-    logger.info(f"Hybrid retrieval completed in {retrieval_duration:.3f}s")
-
-    # Filter out zero-relevance results; skip filtering in graph-only mode
-    no_vector = str(system.config.vector_db) == "none"
-    no_search = str(system.config.search_db) == "none"
-    graph_only = (
-        no_vector and no_search and
-        str(system.config.pg_graph_db) != "none" and
-        system.config.enable_knowledge_graph
-    )
-
-    if graph_only:
-        #filtered_results = [r for r in raw_results if not _is_relation_link((r.text or '').strip())]
-        filtered = [r for r in raw_results if not _is_relation_link((r.text or '').strip())]
-        filtered = [r for r in filtered if not _is_graph_intermediate_step((r.text or '').strip())]
-        filtered = [r for r in filtered if not _is_entity_name_stub((r.text or '').strip())]
-        # Drop zero-score results that are noise (raw dicts, unparsed context) unless
-        # they are the only results available.
-        non_zero = [r for r in filtered if (r.score or 0.0) > 0.0]
-        filtered = non_zero if non_zero else filtered
-        if not filtered and raw_results:
-            filtered = [r for r in raw_results if (r.text or '').strip()]
-        filtered_results = filtered
-        logger.info(f"Raw results: {len(raw_results)}, Filtered (graph-only): {len(filtered_results)}")
-    else:
-        show_intermediate = getattr(system.config, "langchain_pg_intermediate_steps", False)
-        # Keep results with non-None score and valid text content.
-        # Do NOT drop score==0.0 results when they have content — QueryFusionRetriever's
-        # relative_score mode always normalises the lowest-scored doc to 0.0, which is valid
-        # content, not noise. Only drop None-score or score<0 (error/placeholder) entries.
-        filtered_results = [
-            r for r in raw_results
-            if r.score is not None and r.score >= 0.0 and (r.text or "").strip()
-        ]
-        pre_rel = len(filtered_results)
-        filtered_results = [r for r in filtered_results if not _is_relation_link((r.text or '').strip())]
-        # When intermediate steps are enabled, preserve langchain_graph_intermediate nodes;
-        # otherwise filter them along with entity name stubs.
-        def _keep_intermediate(r) -> bool:
-            if show_intermediate and r.metadata.get("source") == "langchain_graph_intermediate":
-                return True
-            return not _is_graph_intermediate_step((r.text or '').strip())
-        filtered_results = [r for r in filtered_results if _keep_intermediate(r)]
-        def _keep_stub(r) -> bool:
-            if show_intermediate and r.metadata.get("source") == "langchain_graph_intermediate":
-                return True
-            return not _is_entity_name_stub((r.text or '').strip())
-        filtered_results = [r for r in filtered_results if _keep_stub(r)]
-        logger.info(f"Raw: {len(raw_results)}, after score filter: {pre_rel}, after relation link filter: {len(filtered_results)}, show_intermediate={show_intermediate}")
-
-    for i, result in enumerate(raw_results):
-        clean_preview = result.text[:50].encode('ascii', 'ignore').decode('ascii')
-        logger.debug(f"Result {i}: score={result.score:.3f}, text_preview={clean_preview}...")
-
-    results = filtered_results[:top_k]
-
-    # Check for partial initialisation
+def _local_state_missing(system) -> bool:
+    """True when a configured store's index is missing (a partial state: needs re-ingestion)."""
     missing_required = False
     _vector_is_lc   = hasattr(system.vector_store, "is_langchain") and system.vector_store.is_langchain()
     _vector_is_coco = getattr(system.config, "vector_backend", "llamaindex").lower() == "cocoindex"
@@ -579,13 +454,187 @@ async def search(system, query: str, top_k: int = 10, scope_doc_ids=None) -> Lis
         elif not system.graph_index:
             missing_required = True
             logger.warning(f"Graph DB {system.config.pg_graph_db} enabled but graph_index is missing")
+    return missing_required
 
-    if missing_required:
+
+def _clear_partial_state(system) -> None:
+    system.vector_index = None
+    system.graph_index = None
+    system.hybrid_retriever = None
+
+
+_NOT_FOUND_MARKS = ('index_not_found_exception', 'no such index', "doesn't exist", 'Not found',
+                    'could not find class')
+
+
+# ---------------------------------------------------------------------------
+# Search entry point
+# ---------------------------------------------------------------------------
+
+async def search(system, query: str, top_k: int = 10, scope_doc_ids=None) -> List[Dict[str, Any]]:
+    """Execute hybrid search across all configured modalities.
+
+    Args:
+        system: HybridSearchSystem instance
+        query: Natural-language query string
+        top_k: Maximum number of results to return
+        scope_doc_ids: when set, only results from these documents (scope_filter.py)
+
+    Returns:
+        List of result dicts with keys: rank, content, score, source,
+        file_type, file_name (a remote backend's results also carry ``backend``)
+
+    With REMOTE_FG_URL set (remote_backends.py) the remote's results are fused in; this backend
+    having nothing (not indexed yet, or ``scope_doc_ids == []``: nothing here the asker may read)
+    then still gives the remote's.
+    """
+    import remote_backends
+
+    remotes = remote_backends.active()
+    # this backend's own indexes take part, unless the question has nothing here to look at
+    local_ok = not (scope_doc_ids is not None and not scope_doc_ids)
+
+    # Ensure Weaviate async client is connected before search
+    if local_ok and system.vector_store and type(system.vector_store).__name__ == "WeaviateVectorStore":
+        if hasattr(system.vector_store, '_aclient') and system.vector_store._aclient is not None:
+            if not system.vector_store._aclient.is_connected():
+                await system.vector_store._aclient.connect()
+                logger.info("Connected Weaviate async client for search operation")
+
+    # Lazy retriever initialisation
+    if local_ok:
+        try:
+            _ensure_hybrid_retriever(system)
+        except Exception as e:
+            if not remotes:
+                raise
+            logger.warning(f"This backend can't search its own indexes ({e}): remote results only")
+            local_ok = False
+
+    logger.info(f"Searching for query: '{query}' with top_k={top_k}")
+    logger.info(f"Available documents: {len(system._last_ingested_documents) if hasattr(system, '_last_ingested_documents') else 0}")
+
+    retrieval_start = datetime.now()
+    logger.info(f"Starting hybrid retrieval at {retrieval_start.strftime('%H:%M:%S.%f')[:-3]}")
+
+    query_bundle = QueryBundle(query_str=query)
+
+    # LanceDB MVCC: reopen table at latest version before querying
+    _lance_refresh = getattr(system.vector_store, "_refresh_table", None)
+    if callable(_lance_refresh):
+        _lance_refresh()
+
+    _retrieve_attempts = 0
+    while True:
+        try:
+            _retrieve_attempts += 1
+            local = None
+            if local_ok and scope_doc_ids is not None:
+                from scope_filter import build_scoped_retriever
+                local = build_scoped_retriever(system, scope_doc_ids)
+            elif local_ok:
+                local = system.hybrid_retriever
+            retriever = remote_backends.with_remotes(local, top_k=top_k)
+            if retriever is None:
+                return []
+            raw_results = await retriever.aretrieve(query_bundle)
+            raw_results = _fuse(raw_results, system.config)
+            break
+        except Exception as e:
+            error_msg = str(e)
+            if any(m in error_msg for m in _NOT_FOUND_MARKS) or 'NotFoundError' in str(type(e)):
+                if remotes and local_ok:
+                    # this backend's index isn't there yet: the remotes still answer
+                    logger.warning(f"Collection/Index not found here ({error_msg}): remote results only")
+                    local_ok = False
+                    continue
+                logger.warning(f"Collection/Index not found: {error_msg}")
+                logger.info("Databases may be empty or collection/index not created yet. Please ingest documents first.")
+                return []
+            _is_transient = any(p in error_msg for p in (
+                "Error code: 400", "Error code: 429", "Error code: 500", "Error code: 503",
+                "Connection", "timeout", "invalid_request_error",
+            ))
+            if _is_transient and _retrieve_attempts < 3:
+                import asyncio as _asyncio
+                _wait = 5 * _retrieve_attempts
+                logger.warning(
+                    f"Search retrieval attempt {_retrieve_attempts} failed "
+                    f"(transient): {error_msg[:120]} — retrying in {_wait}s"
+                )
+                await _asyncio.sleep(_wait)
+            else:
+                raise
+
+    retrieval_end = datetime.now()
+    retrieval_duration = (retrieval_end - retrieval_start).total_seconds()
+    logger.info(f"Hybrid retrieval completed in {retrieval_duration:.3f}s")
+
+    # Filter out zero-relevance results; skip filtering in graph-only mode
+    no_vector = str(system.config.vector_db) == "none"
+    no_search = str(system.config.search_db) == "none"
+    graph_only = (
+        no_vector and no_search and
+        str(system.config.pg_graph_db) != "none" and
+        system.config.enable_knowledge_graph
+    )
+
+    if graph_only:
+        # A remote backend's results are its own filtered, ranked documents: not this graph's
+        # noise. Fusion rescales each side to 0..1, so a remote's lowest result scores 0.0 here
+        # and the zero-score rule below would drop it.
+        remote_results = [r for r in raw_results if (r.node.metadata or {}).get(remote_backends.REMOTE_KEY)]
+        own_results = [r for r in raw_results if not (r.node.metadata or {}).get(remote_backends.REMOTE_KEY)]
+        filtered = [r for r in own_results if not _is_relation_link((r.text or '').strip())]
+        filtered = [r for r in filtered if not _is_graph_intermediate_step((r.text or '').strip())]
+        filtered = [r for r in filtered if not _is_entity_name_stub((r.text or '').strip())]
+        # Drop zero-score results that are noise (raw dicts, unparsed context) unless
+        # they are the only results available.
+        non_zero = [r for r in filtered if (r.score or 0.0) > 0.0]
+        filtered = non_zero if non_zero else filtered
+        if not filtered and own_results and not remote_results:
+            filtered = [r for r in own_results if (r.text or '').strip()]
+        filtered_results = filtered + remote_results
+        logger.info(f"Raw results: {len(raw_results)}, Filtered (graph-only): {len(filtered_results)}")
+    else:
+        show_intermediate = getattr(system.config, "langchain_pg_intermediate_steps", False)
+        # Keep results with non-None score and valid text content.
+        # Do NOT drop score==0.0 results when they have content — QueryFusionRetriever's
+        # relative_score mode always normalises the lowest-scored doc to 0.0, which is valid
+        # content, not noise. Only drop None-score or score<0 (error/placeholder) entries.
+        filtered_results = [
+            r for r in raw_results
+            if r.score is not None and r.score >= 0.0 and (r.text or "").strip()
+        ]
+        pre_rel = len(filtered_results)
+        filtered_results = [r for r in filtered_results if not _is_relation_link((r.text or '').strip())]
+        # When intermediate steps are enabled, preserve langchain_graph_intermediate nodes;
+        # otherwise filter them along with entity name stubs.
+        def _keep_intermediate(r) -> bool:
+            if show_intermediate and r.metadata.get("source") == "langchain_graph_intermediate":
+                return True
+            return not _is_graph_intermediate_step((r.text or '').strip())
+        filtered_results = [r for r in filtered_results if _keep_intermediate(r)]
+        def _keep_stub(r) -> bool:
+            if show_intermediate and r.metadata.get("source") == "langchain_graph_intermediate":
+                return True
+            return not _is_entity_name_stub((r.text or '').strip())
+        filtered_results = [r for r in filtered_results if _keep_stub(r)]
+        logger.info(f"Raw: {len(raw_results)}, after score filter: {pre_rel}, after relation link filter: {len(filtered_results)}, show_intermediate={show_intermediate}")
+
+    for i, result in enumerate(raw_results):
+        clean_preview = result.text[:50].encode('ascii', 'ignore').decode('ascii')
+        logger.debug(f"Result {i}: score={result.score:.3f}, text_preview={clean_preview}...")
+
+    results = filtered_results[:top_k]
+
+    # Check for partial initialisation (of this backend's own indexes)
+    if local_ok and _local_state_missing(system):
         logger.warning("System in partial state - missing required indexes, clearing and requiring re-ingestion")
-        system.vector_index = None
-        system.graph_index = None
-        system.hybrid_retriever = None
-        raise ValueError("System not initialized. Please ingest documents first.")
+        _clear_partial_state(system)
+        if not remotes:
+            raise ValueError("System not initialized. Please ingest documents first.")
+        # the remotes' results still stand; this backend's own come back after re-ingestion
 
     logger.info(f"Retrieved {len(results)} results from hybrid search")
 
@@ -672,6 +721,20 @@ async def search(system, query: str, top_k: int = 10, scope_doc_ids=None) -> Lis
             i, (result.text or "")[:120], display_text[:120],
         )
         _meta = result.metadata or {}
+        _remote = remote_backends.remote_result(_meta)
+        if _remote:
+            # a remote backend's result, as that backend labelled it, under its name
+            formatted_results.append({
+                "rank": i + 1,
+                "content": display_text,
+                "score": getattr(result, 'score', 0.0),
+                "source": f"{_remote['backend']}: {_remote['source']}" if _remote["source"] else _remote["backend"],
+                "file_type": "",
+                "file_name": "",
+                "documents": _remote["documents"],
+                "backend": _remote["backend"],
+            })
+            continue
         _file_name = _meta.get("file_name", "")
         _src_tag         = _meta.get("source", "")
         _graph_type      = _meta.get("graph_type", "")   # e.g. "OntotextGraphDBGraph"
@@ -781,91 +844,43 @@ def get_query_engine(system, scope_doc_ids=None, **kwargs):
         scope_doc_ids: when set, answer only from these documents (scope_filter.py)
         **kwargs: Passed through to RetrieverQueryEngine.from_args
     """
-    from retriever_setup import setup_hybrid_retriever
+    import remote_backends
     from llama_index.core.query_engine import RetrieverQueryEngine
 
+    remotes = remote_backends.active()
+    # this backend's own indexes take part, unless the question has nothing here to look at
+    local_ok = not (scope_doc_ids is not None and not scope_doc_ids)
+
     # Weaviate connectivity note (async connect happens on first query)
-    if system.vector_store and type(system.vector_store).__name__ == "WeaviateVectorStore":
+    if local_ok and system.vector_store and type(system.vector_store).__name__ == "WeaviateVectorStore":
         logger.info("Weaviate async client will be connected on first query")
 
-    # Lazy retriever initialisation
-    logger.debug(f"[SEARCH/QA INIT] System type: {type(system).__name__}, system id: {id(system)}")
-    logger.debug(f"[SEARCH/QA INIT] system.hybrid_retriever before check: {system.hybrid_retriever is not None}, type: {type(system.hybrid_retriever).__name__ if system.hybrid_retriever else 'None'}")
-
-    if not system.hybrid_retriever:
-        logger.info("Hybrid retriever not initialized - setting up now...")
-        logger.info(f"[SEARCH/QA INIT] About to call setup_hybrid_retriever on system {id(system)} ({type(system).__name__})")
-        setup_hybrid_retriever(system)
-        logger.debug(f"[SEARCH/QA INIT] After setup_hybrid_retriever: system.hybrid_retriever={system.hybrid_retriever is not None}, type: {type(system.hybrid_retriever).__name__ if system.hybrid_retriever else 'None'}")
-
-        if not system.hybrid_retriever:
-            has_rdf = str(getattr(system.config, "rdf_graph_db", "none")) != "none"
-            if has_rdf and str(system.config.vector_db) == "none" and str(system.config.search_db) == "none":
-                raise ValueError(
-                    "RDF graph retriever could not be initialised. "
-                    "Check that the RDF store is running and RDF_GRAPH_DB is set correctly. "
-                    "See server logs for details."
-                )
-            logger.error(f"[SEARCH/QA INIT] CRITICAL: After setup_hybrid_retriever, system.hybrid_retriever is still None!")
-            logger.error(f"[SEARCH/QA INIT] System state - vector_index: {system.vector_index is not None}, graph_index: {system.graph_index is not None}, search_index: {getattr(system, 'search_index', None) is not None}")
-            raise ValueError("No search indexes available. The databases may be empty or disconnected.")
-
-    # Partial state check
-    missing_required = False
-    _vector_is_lc   = hasattr(system.vector_store, "is_langchain") and system.vector_store.is_langchain()
-    _vector_is_coco = getattr(system.config, "vector_backend", "llamaindex").lower() == "cocoindex"
-    if str(system.config.vector_db) != "none" and not system.vector_index and not _vector_is_lc and not _vector_is_coco:
-        missing_required = True
-        logger.warning(f"Vector DB {system.config.vector_db} enabled but vector_index is missing")
-    # Include the ACTUAL adapter state, not just the config flag: for the
-    # LangChain-only stores (arangodb, apache_age, hugegraph, tigergraph,
-    # surrealdb, cosmos_gremlin) the effective backend is downgraded to langchain
-    # at pipeline-resolution time, but system.config.graph_backend still reads
-    # "llamaindex" from .env.  Without this the check below treated a legitimately
-    # absent graph_index as corruption and cleared a WORKING vector index --
-    # search returned results, then wiped itself and failed forever after.
-    # Mirrors retriever_setup.py's _pg_adapter_is_lc.
-    _pg_adapter = getattr(system, "pg_adapter", None)
-    _pg_adapter_is_lc = (
-        _pg_adapter is not None
-        and hasattr(_pg_adapter, "is_langchain")
-        and _pg_adapter.is_langchain()
-    )
-    _is_lc_pg = (
-        getattr(system.config, "graph_backend", "llamaindex").lower() == "langchain"
-        or getattr(system.config, "use_langchain_pg", False)
-        or _pg_adapter_is_lc
-    )
-    _is_coco_pg = getattr(system.config, "graph_backend", "llamaindex").lower() == "cocoindex"
-    if (
-        str(system.config.pg_graph_db) != "none" and
-        system.config.enable_knowledge_graph and
-        not system.graph_intentionally_skipped
-    ):
-        if _is_lc_pg:
-            if getattr(system, "pg_adapter", None) is None:
-                missing_required = True
-                logger.warning(f"Graph DB {system.config.pg_graph_db} (langchain) enabled but pg_adapter is missing")
-        elif _is_coco_pg:
-            pass  # CocoIndex manages Neo4j natively; graph_index is intentionally absent
-        elif not system.graph_index:
-            missing_required = True
-            logger.warning(f"Graph DB {system.config.pg_graph_db} enabled but graph_index is missing")
-
-    if missing_required:
-        logger.warning("System in partial state - clearing and requiring re-ingestion")
-        system.vector_index = None
-        system.graph_index = None
-        system.hybrid_retriever = None
-        raise ValueError("System not initialized. Please ingest documents first.")
+    # Lazy retriever initialisation + partial state check (this backend's own indexes)
+    if local_ok:
+        try:
+            _ensure_hybrid_retriever(system)
+            if _local_state_missing(system):
+                logger.warning("System in partial state - clearing and requiring re-ingestion")
+                _clear_partial_state(system)
+                raise ValueError("System not initialized. Please ingest documents first.")
+        except Exception as e:
+            if not remotes:
+                raise
+            logger.warning(f"This backend can't answer from its own indexes ({e}): remote results only")
+            local_ok = False
 
     try:
-        retriever = _DeduplicatingRetriever(system.hybrid_retriever, system.config)
-        if scope_doc_ids is not None:
+        local = None
+        if local_ok and scope_doc_ids is not None:
             from scope_filter import build_scoped_retriever
-            retriever = _DeduplicatingRetriever(build_scoped_retriever(system, scope_doc_ids), system.config)
+            local = build_scoped_retriever(system, scope_doc_ids)
+        elif local_ok:
+            local = system.hybrid_retriever
+        retriever = remote_backends.with_remotes(local)
+        if retriever is None:
+            raise ValueError("No search indexes available. The databases may be empty or disconnected.")
         return RetrieverQueryEngine.from_args(
-            retriever=retriever,
+            retriever=_DeduplicatingRetriever(retriever, system.config),
             llm=system.llm,
             **kwargs,
         )

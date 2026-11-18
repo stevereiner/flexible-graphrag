@@ -57,9 +57,13 @@ class TestBM25Factory:
     """Test BM25 factory methods"""
     
     def test_create_search_store_bm25(self):
-        """Test that BM25 search store creation returns None (handled by retriever)"""
+        """BM25 search store creation returns the in-memory LlamaIndex BM25 adapter (empty until ingest)"""
+        from llamaindex.search.adapters.bm25_adapter import LlamaIndexBM25SearchAdapter
+
         result = DatabaseFactory.create_search_store(SearchDBType.BM25, {})
-        assert result is None
+        assert isinstance(result, LlamaIndexBM25SearchAdapter)
+        assert not result._docstore.docs
+        assert result.get_retriever() is None
     
     def test_create_bm25_retriever(self):
         """Test BM25 retriever creation"""
@@ -99,22 +103,48 @@ class TestBM25HybridSystem:
             yield config
     
     def test_hybrid_system_bm25_setup(self, temp_config):
-        """BM25 uses no external search store — setup_databases skips create_search_store."""
+        """BM25 needs no external search store: setup_databases skips create_search_store and
+        makes the in-memory BM25 adapter itself, with the BM25 settings."""
+        from llamaindex.search.adapters.bm25_adapter import LlamaIndexBM25SearchAdapter
+
         with patch("factories.DatabaseFactory.create_vector_store") as mock_vector:
             with patch("factories.DatabaseFactory.create_graph_store") as mock_graph:
                 with patch("factories.DatabaseFactory.create_search_store") as mock_search:
                     system = HybridSearchSystem(temp_config)
 
                     mock_search.assert_not_called()
-                    assert system.search_store is None
-    
+                    assert isinstance(system.search_store, LlamaIndexBM25SearchAdapter)
+                    assert system.search_store._config["similarity_top_k"] == 15
+                    assert system.search_store._config["persist_dir"] == temp_config.bm25_persist_dir
+
     def test_hybrid_retriever_bm25_integration(self, temp_config):
-        """BM25 retriever receives docstore + bm25_config from setup_hybrid_retriever."""
+        """setup_hybrid_retriever back-fills the empty BM25 adapter from the vector index's
+        docstore and uses the adapter itself as the BM25 retriever."""
         with patch("factories.DatabaseFactory.create_vector_store"):
             with patch("factories.DatabaseFactory.create_graph_store"):
                 with patch("factories.DatabaseFactory.create_search_store"):
                     system = HybridSearchSystem(temp_config)
 
+                    system.vector_index = Mock()
+                    system.graph_index = Mock()
+                    system.vector_index.docstore = _docstore_with_one_node()
+
+                    with patch("factories.DatabaseFactory.create_bm25_retriever") as mock_bm25:
+                        system._setup_hybrid_retriever()
+
+                        mock_bm25.assert_not_called()
+                        assert "bm25-test-node-1" in system.search_store._docstore.docs
+                        assert system.search_store.get_retriever() is not None
+
+    def test_hybrid_retriever_bm25_without_adapter(self, temp_config):
+        """With no BM25 adapter on the system, setup_hybrid_retriever builds a BM25 retriever
+        from the vector index's docstore with the BM25 settings."""
+        with patch("factories.DatabaseFactory.create_vector_store"):
+            with patch("factories.DatabaseFactory.create_graph_store"):
+                with patch("factories.DatabaseFactory.create_search_store"):
+                    system = HybridSearchSystem(temp_config)
+
+                    system.search_store = None
                     system.vector_index = Mock()
                     system.graph_index = Mock()
                     system.vector_index.docstore = _docstore_with_one_node()

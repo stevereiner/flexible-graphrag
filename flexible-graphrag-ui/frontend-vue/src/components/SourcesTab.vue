@@ -58,7 +58,11 @@ import {
   SharePointSourceForm,
   BoxSourceForm,
   GoogleDriveSourceForm,
+  LocalFolderForm,
 } from './sources';
+import { isTauri } from '../desktop/tauri';
+import { isRemoteBackend } from '../apiConnection';
+import { ingestStarted } from '../ingestSignal';
 
 export default defineComponent({
   name: 'SourcesTab',
@@ -66,12 +70,21 @@ export default defineComponent({
     // Single-object form state held in App (persists across tab switches).
     nuxeoFormValue: { type: Object, default: () => ({}) },
     alfrescoFormValue: { type: Object, default: () => ({}) },
+    // Local files and folders picked in the desktop app (held in App, like the forms above)
+    localItems: { type: Array, default: () => [] },
   },
-  emits: ['configure-processing', 'sources-configured', 'update:nuxeoFormValue', 'update:alfrescoFormValue'],
+  emits: ['configure-processing', 'sources-configured', 'update:nuxeoFormValue', 'update:alfrescoFormValue',
+          'update:localItems'],
   setup(props, { emit }) {
-    // Data source options - matching React order exactly
+    // Data source options - matching React order exactly. Local files and folders only in the
+    // desktop app (a browser page can't read the disk), and its default source there.
+    // Not with a backend on another machine: it can't read this computer's files (File Upload then).
+    const desktop = isTauri();
+    const localFiles = desktop && !isRemoteBackend();
     const dataSourceOptions = [
-      { title: 'File Upload', value: 'upload' },
+      ...(localFiles ? [{ title: 'Local Files and Folders', value: 'filesystem' }] : []),
+      // the desktop app reads local files itself; File Upload only with a remote backend
+      ...(!desktop || isRemoteBackend() ? [{ title: 'File Upload', value: 'upload' }] : []),
       { title: 'Alfresco Repository', value: 'alfresco' },
       { title: 'Nuxeo Repository', value: 'nuxeo' },
       { title: 'CMIS Repository', value: 'cmis' },
@@ -91,7 +104,7 @@ export default defineComponent({
     ];
 
     // State
-    const dataSource = ref('upload');
+    const dataSource = ref(localFiles ? 'filesystem' : 'upload');
     const folderPath = ref('/Shared/GraphRAG');
     const selectedFiles = ref<File[]>([]);
     const isFormValid = ref(false);
@@ -138,6 +151,7 @@ export default defineComponent({
     // Computed
     const currentSourceComponent = computed(() => {
       const componentMap: Record<string, any> = {
+        filesystem: LocalFolderForm,
         upload: FileUploadForm,
         cmis: CMISSourceForm,
         alfresco: AlfrescoSourceForm,
@@ -160,6 +174,12 @@ export default defineComponent({
       const baseProps = {};
       
       switch (dataSource.value) {
+        case 'filesystem':
+          return {
+            ...baseProps,
+            items: props.localItems,
+            'onUpdate:items': (items: any[]) => { emit('update:localItems', items); },
+          };
         case 'upload':
           return {
             ...baseProps,
@@ -310,6 +330,9 @@ export default defineComponent({
 
       // Add source-specific configurations
       switch (dataSource.value) {
+        case 'filesystem':
+          sourceConfig.filesystemConfig = currentConfig.value;
+          break;
         case 'cmis':
           sourceConfig.cmisConfig = currentConfig.value;
           break;
@@ -346,6 +369,11 @@ export default defineComponent({
       emit('sources-configured', sourceConfig);
       emit('configure-processing');
     };
+
+    // An ingest started: the uploaded files list empties (its rows stay in Processing)
+    watch(ingestStarted, () => {
+      selectedFiles.value = [];
+    });
 
     // Clear state when data source changes
     watch(dataSource, () => {

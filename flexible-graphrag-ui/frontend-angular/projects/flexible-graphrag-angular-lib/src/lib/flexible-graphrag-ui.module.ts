@@ -46,7 +46,8 @@ import {
   OneDriveSourceFormComponent,
   SharePointSourceFormComponent,
   BoxSourceFormComponent,
-  GoogleDriveSourceFormComponent
+  GoogleDriveSourceFormComponent,
+  LocalFolderFormComponent
 } from './components/sources';
 import { FLEXIBLE_GRAPHRAG_CONFIG, FlexibleGraphragConfig } from './flexible-graphrag.config';
 
@@ -77,7 +78,8 @@ const COMPONENTS = [
   OneDriveSourceFormComponent,
   SharePointSourceFormComponent,
   BoxSourceFormComponent,
-  GoogleDriveSourceFormComponent
+  GoogleDriveSourceFormComponent,
+  LocalFolderFormComponent
 ];
 
 /**

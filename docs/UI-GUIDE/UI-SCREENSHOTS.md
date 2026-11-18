@@ -1,6 +1,6 @@
 # UI Screenshots
 
-The Flexible GraphRAG UI is available as React, Angular, and Vue frontends — all with the same 4-tab capabilities.
+The Flexible GraphRAG UI is available as React, Angular, and Vue frontends — all with the same 5-tab capabilities.
 
 ### React Frontend
 

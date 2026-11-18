@@ -92,7 +92,8 @@
         <td mat-cell *matCellDef="let file">
           <span class="file-size">
             {{ file.size > 0 ? formatFileSize(file.size) :
-               file.type === 'repository' ? 'Repository' : '-' }}
+               file.type === 'repository' ? 'Repository' :
+               file.type === 'local-folder' ? 'Folder' : '-' }}
           </span>
         </td>
       </ng-container>

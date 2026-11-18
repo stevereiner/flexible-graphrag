@@ -37,6 +37,8 @@ nav = [
     {"Python Backend"            = "GETTING-STARTED/PYTHON-BACKEND.md"},
     {"Frontend Setup"            = "GETTING-STARTED/FRONTEND-SETUP.md"},
     {"Docker Deployment"         = "GETTING-STARTED/DOCKER-DEPLOYMENT.md"},
+    {"Docker-Free Setup"         = "GETTING-STARTED/DOCKER-FREE-SETUP.md"},
+    {"Desktop App"               = "GETTING-STARTED/DESKTOP-APP.md"},
     {"Langflow Integration"      = "GETTING-STARTED/LANGFLOW-INTEGRATION.md"},
     {"CocoIndex Integration"     = "GETTING-STARTED/COCOINDEX-INTEGRATION.md"}
   ]},
@@ -50,7 +52,9 @@ nav = [
     {"Schema Examples (non RDF)"    = "CONFIGURATION/SCHEMA-EXAMPLES.md"},
     {"RDF Ontology Examples"        = "DATABASES/RDF/ontology_examples_and_config.md"},
     {"Framework Configuration"       = "CONFIGURATION/LANGCHAIN-CONFIGURATION.md"},
-    {"Incremental Auto-Sync Setup"  = "DATA-SOURCES/INCREMENTAL-UPDATE-AUTO-SYNC/QUICKSTART.md"}
+    {"Incremental Auto-Sync Setup"  = "DATA-SOURCES/INCREMENTAL-UPDATE-AUTO-SYNC/QUICKSTART.md"},
+    {"Federated Backends"           = "CONFIGURATION/FEDERATED-BACKENDS.md"},
+    {"API Token and CORS"           = "CONFIGURATION/API-TOKEN-CORS.md"}
   ]},
   {"UI Guide" = [
     {"Screenshots"           = "UI-GUIDE/UI-SCREENSHOTS.md"},
@@ -58,7 +62,8 @@ nav = [
     {"Tab 1 — Sources"       = "UI-GUIDE/UI-TAB-SOURCES.md"},
     {"Tab 2 — Processing"    = "UI-GUIDE/UI-TAB-PROCESSING.md"},
     {"Tab 3 — Hybrid Search" = "UI-GUIDE/UI-TAB-SEARCH.md"},
-    {"Tab 4 — AI Chat"       = "UI-GUIDE/UI-TAB-CHAT.md"}
+    {"Tab 4 — AI Chat"       = "UI-GUIDE/UI-TAB-CHAT.md"},
+    {"Tab 5 — Graph"         = "UI-GUIDE/UI-TAB-GRAPH.md"}
   ]},
   {"Data Sources" = [
     {"Overview"             = "DATA-SOURCES/OVERVIEW.md"},

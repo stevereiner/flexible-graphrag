@@ -1,6 +1,6 @@
 [project]
 name = "flexible-graphrag"
-version = "0.10.0"
+version = "0.11.0"
 description = "Open source AI context platform: document processing, knowledge graph auto-building, ontologies, GraphRAG/RAG, hybrid search (vector, property graph, RDF/SPARQL, fulltext), 13 LLM providers, 15 property graph DBs, 4 RDF triple stores, 10 vector DBs, LlamaIndex + LangChain, FastAPI, MCP server"
 readme = "README.md"
 requires-python = ">=3.12,<3.15"
@@ -454,6 +454,7 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 only-include = [
     # loose top-level modules
+    "api_security.py",        # API_TOKEN check, runtime ingest folders (desktop app)
     "backend.py",
     "config.py",
     "doc_refs.py",            # result / answer source documents (name, node id, open link)
@@ -469,6 +470,7 @@ only-include = [
     "permission_filter.py",   # query-time permission filter (per-source sign-ins)
     "post_ingestion_state.py",
     "query_engine.py",
+    "remote_backends.py",     # federation: a remote fg backend's results fused into search / Q&A
     "retriever_setup.py",
     "schema_manager.py",
     "scope_filter.py",        # scoped Ask: in-store doc-id filters
@@ -476,6 +478,7 @@ only-include = [
     "start.py",
     # subpackages
     "adapters",
+    "browse",                 # source browser: one folder level of a data source (POST /api/browse)
     "ingest",
     "process",
     "sources",
@@ -500,7 +503,7 @@ only-include = [
 [tool.hatch.build.targets.sdist]
 include = [
     "*.py",
-    "adapters/", "ingest/", "process/", "sources/", "observability/",
+    "adapters/", "browse/", "ingest/", "process/", "sources/", "observability/",
     "incremental_updates/", "rdf/", "langchain/", "stores/", "llamaindex/",
     "langflow_components/", "cocoindex_integration/", "openarch/",
     "Dockerfile", "env-sample.txt", "uv.toml", "extras-overrides.txt",

@@ -1,0 +1,42 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Flexible GraphRAG",
+  "version": "0.11.0",
+  "identifier": "com.integratedsemantics.flexiblegraphrag",
+  "build": {
+    "devUrl": "http://localhost:5174",
+    "beforeDevCommand": "npm --prefix ../frontend-react run dev",
+    "beforeBuildCommand": "npm --prefix ../frontend-react run build:desktop",
+    "frontendDist": "../../frontend-react/dist-desktop"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "create": false,
+        "title": "Flexible GraphRAG",
+        "width": 1400,
+        "height": 900,
+        "minWidth": 900,
+        "minHeight": 600
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "resources": {
+      "../../../sample-docs/": "sample-docs/"
+    },
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ]
+  }
+}

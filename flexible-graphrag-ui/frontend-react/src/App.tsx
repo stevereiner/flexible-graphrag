@@ -19,6 +19,10 @@ import LightModeIcon from '@mui/icons-material/LightMode';
 import Alert from '@mui/material/Alert';
 
 import { SourcesTab, ProcessingTab, SearchTab, ChatTab, GraphTab } from './components';
+import type { LocalItem } from './components/sources';
+import { isTauri } from './desktop/tauri';
+import { isRemoteBackend } from './apiConnection';
+import { useOnIngestStarted } from './ingestSignal';
 import { ChatMessage, GraphRequest, SourceDocument } from './types/api';
 
 // Theme definitions
@@ -101,7 +105,9 @@ const App: React.FC = () => {
   const [error, setError] = useState<string>('');
 
   // Sources configuration state
-  const [dataSource, setDataSource] = useState<string>('upload');
+  // The desktop app starts on local files and folders
+  // desktop app: Local Files and Folders, unless the backend is on another machine (File Upload then)
+  const [dataSource, setDataSource] = useState<string>(isTauri() && !isRemoteBackend() ? 'filesystem' : 'upload');
   const [hasConfiguredSources, setHasConfiguredSources] = useState<boolean>(false);
   const [configuredDataSource, setConfiguredDataSource] = useState<string>('');
   const [configuredFiles, setConfiguredFiles] = useState<File[]>([]);
@@ -170,6 +176,18 @@ const App: React.FC = () => {
   const [youtubeConfig, setYoutubeConfig] = useState<any>(null);
   const [cloudConfig, setCloudConfig] = useState<any>(null);
   const [enterpriseConfig, setEnterpriseConfig] = useState<any>(null);
+  // Local files and folders (desktop app): the form's picks, and the applied config ({paths, items})
+  const [localItems, setLocalItems] = useState<LocalItem[]>([]);
+  const [filesystemConfig, setFilesystemConfig] = useState<any>(null);
+
+  // An ingest started: the Sources tab's lists held here empty (the forms clear their own too).
+  // The configured sources stay: they are the Processing tab's rows.
+  useOnIngestStarted(() => {
+    setSelectedFiles([]);
+    setLocalItems([]);
+    setAlfrescoFormValue((v: any) => (v?.nodeDetails ? { ...v, nodeDetails: undefined } : v));
+    setNuxeoFormValue((v: any) => (v?.nodeDetails ? { ...v, nodeDetails: undefined } : v));
+  });
 
   // PERSISTENT STATE - Processing Tab (prevents loss of processing info)
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
@@ -241,6 +259,7 @@ const App: React.FC = () => {
     youtubeConfig?: any;
     cloudConfig?: any;
     enterpriseConfig?: any;
+    filesystemConfig?: any;
   }) => {
     setDataSource(data.dataSource); // Update the data source
     setHasConfiguredSources(true);
@@ -256,6 +275,7 @@ const App: React.FC = () => {
     setYoutubeConfig(data.youtubeConfig);
     setCloudConfig(data.cloudConfig);
     setEnterpriseConfig(data.enterpriseConfig);
+    setFilesystemConfig(data.filesystemConfig);
     setRepositoryItemsHidden(false); // Reset hidden flag when sources are reconfigured
     setError(''); // Clear any previous errors
     // A fresh configuration starts from a clean table: the previous run's progress/status
@@ -275,6 +295,9 @@ const App: React.FC = () => {
     if (data.dataSource === 'upload') {
       // For upload files, auto-select all configured files
       setSelectedFileIndices(new Set(data.files.map((_, index) => index)));
+    } else if (data.dataSource === 'filesystem') {
+      // One row per picked local file / folder
+      setSelectedFileIndices(new Set((data.filesystemConfig?.paths || []).map((_: string, index: number) => index)));
     } else {
       // For filesystem/CMIS/Alfresco, auto-select the single entry
       setSelectedFileIndices(new Set([0]));
@@ -314,6 +337,17 @@ const App: React.FC = () => {
         // Skip i === index (the removed file)
       });
       setSelectedFileIndices(newSelected);
+    } else if (configuredDataSource === 'filesystem') {
+      // A local row: out of this run's list (and the form's picks)
+      const all: LocalItem[] = filesystemConfig?.items || [];
+      const removed = all[index];
+      const items = all.filter((_: any, i: number) => i !== index);
+      setFilesystemConfig({ items, paths: items.map((i: LocalItem) => i.path) });
+      // the form's own list (empty after an ingest started, or new picks): only that path leaves it
+      if (removed) setLocalItems((cur) => cur.filter((i) => i.path !== removed.path));
+      const newSelected = new Set<number>();
+      selectedFileIndices.forEach((i) => { if (i < index) newSelected.add(i); else if (i > index) newSelected.add(i - 1); });
+      setSelectedFileIndices(newSelected);
     } else if (configuredDataSource === 'cmis' || configuredDataSource === 'alfresco' || configuredDataSource === 'nuxeo') {
       console.log('🗂️ Repository file removal:', {
         hasIndividualFiles: statusData?.individual_files?.length > 0,
@@ -321,8 +355,16 @@ const App: React.FC = () => {
         index 
       });
       
-      // For repository items, remove from display by manipulating statusData
-      if (statusData?.individual_files && statusData.individual_files.length > 0) {
+      const repo = configuredDataSource === 'alfresco' ? alfrescoConfig : configuredDataSource === 'nuxeo' ? nuxeoConfig : null;
+      if (repo?.nodeDetails?.length) {
+        // A picked Alfresco / Nuxeo row (nodeDetails, a row each): out of the config, so the ingest
+        // and its status leave it out too. The last one gone: no rows left.
+        const nodeDetails = repo.nodeDetails.filter((_: any, i: number) => i !== index);
+        const next = { ...repo, nodeDetails: nodeDetails.length ? nodeDetails : undefined };
+        (configuredDataSource === 'alfresco' ? setAlfrescoConfig : setNuxeoConfig)(next);
+        if (!nodeDetails.length) setRepositoryItemsHidden(true);
+      } else if (statusData?.individual_files && statusData.individual_files.length > 0) {
+        // For repository items, remove from display by manipulating statusData
         console.log('📁 Removing from individual_files array');
         // If we have individual files, remove from that array
         const updatedFiles = [...statusData.individual_files];
@@ -500,6 +542,8 @@ const App: React.FC = () => {
                 boxUserId={boxUserId}
                 boxEnterpriseId={boxEnterpriseId}
                 googleDriveCredentials={googleDriveCredentials}
+                localItems={localItems}
+                onLocalItemsChange={setLocalItems}
                 onDataSourceChange={handleDataSourceChange}
                 onSelectedFilesChange={setSelectedFiles}
                 onFolderPathChange={setSourcesFolderPath}
@@ -553,6 +597,7 @@ const App: React.FC = () => {
                 youtubeConfig={youtubeConfig}
                 cloudConfig={cloudConfig}
                 enterpriseConfig={enterpriseConfig}
+                filesystemConfig={filesystemConfig}
                 selectedFileIndices={selectedFileIndices}
                 repositoryItemsHidden={repositoryItemsHidden}
                 configurationVersion={configurationVersion}

@@ -144,7 +144,7 @@
 </template>
 
 <script lang="ts">
-import { defineComponent, ref, nextTick, watch } from 'vue';
+import { defineComponent, ref, nextTick, watch, type ComponentPublicInstance } from 'vue';
 import axios from 'axios';
 import agentIcon from '../assets/agent.png';
 import SourceDocs, { SourceDocument } from './SourceDocs.vue';
@@ -187,7 +187,8 @@ export default defineComponent({
     const chatInput = ref('');
     const isQuerying = ref(false);
     const error = ref('');
-    const chatContainer = ref<HTMLElement>();
+    // The v-card component (its DOM element is $el)
+    const chatContainer = ref<ComponentPublicInstance | null>(null);
 
     // Methods
     const formatTime = (timestamp: Date): string => {
@@ -196,12 +197,9 @@ export default defineComponent({
 
     const scrollToBottom = async () => {
       await nextTick();
-      if (chatContainer.value) {
-        // Get the actual DOM element from the v-card component
-        const domElement = chatContainer.value.$el || chatContainer.value;
-        if (domElement) {
-          domElement.scrollTop = domElement.scrollHeight;
-        }
+      const domElement = chatContainer.value?.$el as HTMLElement | undefined;
+      if (domElement) {
+        domElement.scrollTop = domElement.scrollHeight;
       }
     };
 
@@ -303,12 +301,9 @@ export default defineComponent({
     // Auto-scroll when messages change (like React's useEffect)
     watch(chatMessages, () => {
       nextTick(() => {
-        if (chatContainer.value) {
-          // Get the actual DOM element from the v-card component
-          const domElement = chatContainer.value.$el || chatContainer.value;
-          if (domElement) {
-            domElement.scrollTop = domElement.scrollHeight;
-          }
+        const domElement = chatContainer.value?.$el as HTMLElement | undefined;
+        if (domElement) {
+          domElement.scrollTop = domElement.scrollHeight;
         }
       });
     }, { deep: true });

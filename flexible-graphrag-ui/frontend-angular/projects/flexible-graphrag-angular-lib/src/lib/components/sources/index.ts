@@ -7,6 +7,7 @@ export { CMISSourceFormComponent, type CMISSourceConfig } from './cmis-source-fo
 export { FileUploadFormComponent, type FileUploadConfig } from './file-upload-form.component';
 export { GCSSourceFormComponent, type GCSSourceConfig } from './gcs-source-form.component';
 export { GoogleDriveSourceFormComponent, type GoogleDriveSourceConfig } from './google-drive-source-form.component';
+export { LocalFolderFormComponent } from './local-folder-form.component';
 export { NuxeoSourceFormComponent, type NuxeoSourceConfig } from './nuxeo-source-form.component';
 export { OneDriveSourceFormComponent, type OneDriveSourceConfig } from './onedrive-source-form.component';
 export { S3SourceFormComponent, type S3SourceConfig } from './s3-source-form.component';

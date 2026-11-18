@@ -147,6 +147,25 @@ class Settings(BaseSettings):
     # Anything else is refused: the API is unauthenticated (GHSA-2558-gvg9-whcx).
     ingest_allowed_paths: Optional[List[str]] = Field(None, description="Extra folders filesystem ingest paths may be under")
 
+    # Optional API token (api_security.py): when set, every /api request must send it as
+    # X-API-Token (or Authorization: Bearer). The desktop app sets a per-launch one.
+    api_token: Optional[str] = Field(None, description="Shared secret every /api request must carry (X-API-Token)")
+    # Origins allowed by CORS (comma-separated or a JSON list). Unset = any origin (as before).
+    cors_origins: Optional[List[str]] = Field(None, description="CORS allowed origins; unset = any")
+
+    @field_validator('api_token', mode='before')
+    @classmethod
+    def blank_api_token(cls, v):
+        if isinstance(v, str):
+            return v.strip() or None
+        return v
+
+    @field_validator('cors_origins', mode='before')
+    @classmethod
+    def parse_cors_origins(cls, v):
+        from api_security import parse_list
+        return parse_list(v)
+
     # Document parser configuration
     document_parser: DocumentParser = DocumentParser.DOCLING
     llamaparse_api_key: Optional[str] = Field(None, description="LlamaParse API key (from env LLAMAPARSE_API_KEY if not set)")

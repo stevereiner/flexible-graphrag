@@ -9,7 +9,8 @@ import { ProcessFolderRequest, QueryRequest, ApiResponse, IngestRequest, AsyncPr
 })
 export class ApiService {
   private readonly fgConfig = inject(FlexibleGraphragConfigService);
-  private apiUrl = this.fgConfig.apiUrl;
+  // read per request: the desktop app may set the API URL at startup (setApiUrl)
+  private get apiUrl(): string { return this.fgConfig.apiUrl; }
 
   constructor(private http: HttpClient) {}
 

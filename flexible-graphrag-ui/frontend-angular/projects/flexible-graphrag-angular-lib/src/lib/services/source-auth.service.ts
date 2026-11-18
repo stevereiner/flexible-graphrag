@@ -6,11 +6,11 @@ import { map } from 'rxjs/operators';
 import { FlexibleGraphragConfigService } from '../config.service';
 import {
   SourceKind, SourceSelector, SourceSession, continuedWithout, credentialOf, findSession, isKeySource, isPopupSource, labelOf, readPickedSources,
-  readSessions, sameServer, serverKey, setContinuedWithout, sourceKey, writePickedSources, writeSessions,
+  pickKey, readSessions, sameServer, serverKey, setContinuedWithout, sourceKey, writePickedSources, writeSessions,
 } from './source-auth.storage';
 
 export type { AlfrescoSession, SourceKind, SourceSelector, SourceSession } from './source-auth.storage';
-export { SOURCE_LABELS, POPUP_SOURCES, KEY_SOURCES, credentialLabels, isKeySource, isPopupSource, labelOf, ingestCredential, sameServer, serverKey, sourceKey } from './source-auth.storage';
+export { SOURCE_LABELS, POPUP_SOURCES, KEY_SOURCES, credentialLabels, isKeySource, isPopupSource, labelOf, ingestCredential, pickKey, sameServer, serverKey, sourceKey } from './source-auth.storage';
 
 /** Each repository's colour on the sign-in pill (connected) and the source picker; grey when offline. */
 export const SOURCE_COLORS: Record<string, string> = {
@@ -27,6 +27,7 @@ export interface AvailableSource {
   login_gated: boolean;
   auth_source?: string | null;  // the sign-in that unlocks it (SharePoint / OneDrive: 'microsoft')
   auth_url?: string | null;     // that sign-in's server (Microsoft: the tenant)
+  backend?: string | null;      // a remote backend's source (REMOTE_FG_*): its name
 }
 
 /** The sign-in provider a source needs: {source, url} of its auth_source (else itself). */
@@ -370,10 +371,10 @@ export class SourceAuthService {
     this.syncFromStorage();
     // (in a host that supplies its own Alfresco ticket -- KG Spaces -- questions carry only that)
     // (only among the picked sources when the source picker names some)
-    const picked = new Set(readPickedSources().map(sourceKey));
+    const picked = new Set(readPickedSources().map(pickKey));
     const available = picked.size ? await this.availableSources() : [];
     // the sign-ins the picked sources need (SharePoint / OneDrive -> Microsoft 365)
-    const needed = new Set(available.filter((s) => picked.has(sourceKey(s))).map((s) => sourceKey(signInFor(s))));
+    const needed = new Set(available.filter((s) => picked.has(pickKey(s))).map((s) => sourceKey(signInFor(s))));
     for (let shown = 0; this.fgConfig.searchSignIn && !continuedWithout() && shown < 5; shown++) {
       const missing = (await this.missingProviders()).filter((p) => !picked.size || needed.has(sourceKey(p)));
       if (!missing.length || !(await this.promptSignIn(missing[0]))) break;

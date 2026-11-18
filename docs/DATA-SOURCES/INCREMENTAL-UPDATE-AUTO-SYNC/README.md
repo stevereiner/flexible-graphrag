@@ -139,6 +139,8 @@ The **Incremental Update Engine**:
 
 Or, with `INCREMENTAL_STATE_STORE=openarch`, Hyland OpenArch keeps the same state, plus per-folder and per-document scope rules, and no PostgreSQL is needed: see [OpenArch as the Auto-Sync State Store](../../DATABASES/OPENARCH/OPENARCH-STATE-STORE.md).
 
+Or, with `INCREMENTAL_STATE_STORE=sqlite`, the same tables are kept in a SQLite file (`SQLITE_INCREMENTAL_PATH`, default `./flexible_graphrag_incremental.db`, relative to the folder the backend runs in): no database server, nothing to install. It suits a laptop or the desktop app. The CocoIndex pipeline (`PIPELINE_BACKEND=cocoindex`) still uses PostgreSQL.
+
 ## Ingests Without Auto Sync Are Recorded Too
 
 Since v0.8.2, an ingest made **without** "Enable auto change sync" is also recorded in PostgreSQL: a `datasource_config` row marked `auto_sync = false` (and `is_active = false`, so it is never monitored), plus one `document_state` row per document it stored.

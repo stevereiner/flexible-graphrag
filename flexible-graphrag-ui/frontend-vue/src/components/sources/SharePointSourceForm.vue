@@ -73,14 +73,36 @@
       persistent-hint
     />
     
-    <v-text-field
-      v-model="folderPath"
-      label="Folder Path (Optional)"
-      variant="outlined"
-      class="mb-2"
-      placeholder="/Shared Documents/Reports"
-      hint="Optional: specific folder path within site"
-      persistent-hint
+    <div class="d-flex ga-2 mb-2 align-start">
+      <v-text-field
+        :model-value="folderPath"
+        @update:model-value="handleFolderPathChange"
+        label="Folder Path (Optional)"
+        variant="outlined"
+        placeholder="Reports/2024"
+        hint="Optional: a folder in the site's document library (empty: the whole library)"
+        persistent-hint
+        autocomplete="off"
+      />
+      <v-btn
+        variant="outlined"
+        prepend-icon="mdi-folder-open"
+        height="56"
+        :disabled="!isValid"
+        :title="isValid ? 'Pick a folder in the site\'s document library' : 'Fill in the site and the app credentials first'"
+        @click="browseOpen = true"
+      >
+        Browse…
+      </v-btn>
+    </div>
+    <SourceBrowser
+      :open="browseOpen"
+      :provider="provider"
+      :title="`Pick a folder: ${siteName || 'SharePoint'}`"
+      :files="false"
+      :multiple="false"
+      @close="browseOpen = false"
+      @select="handleBrowsed"
     />
   </BaseSourceForm>
 </template>
@@ -88,11 +110,15 @@
 <script lang="ts">
 import { defineComponent, ref, computed, watch } from 'vue';
 import BaseSourceForm from './BaseSourceForm.vue';
+import SourceBrowser from '../../browser/SourceBrowser.vue';
+import { remoteProvider } from '../../browser/remoteProvider';
+import type { BrowseItem } from '../../browser/types';
 
 export default defineComponent({
   name: 'SharePointSourceForm',
   components: {
-    BaseSourceForm
+    BaseSourceForm,
+    SourceBrowser
   },
   props: {
     siteName: {
@@ -164,10 +190,37 @@ export default defineComponent({
       emit('update:tenantId', value);
     };
 
+    // Browse the site's document library with the credentials above (POST /api/browse)
+    const browseOpen = ref(false);
+    let browsedId = '';
+    const provider = remoteProvider('sharepoint', 'SharePoint document library', () => config.value);
+
+    const handleBrowsed = (items: BrowseItem[]) => {
+      const folder = items[0];
+      if (!folder) return;
+      folderPath.value = folder.path || '';
+      folderId.value = folder.id;
+      browsedId = folder.id;
+    };
+
+    const handleFolderPathChange = (value: string) => {
+      folderPath.value = value;
+      // a typed path replaces a browsed folder: its id would win over the path (SharePointReader)
+      if (browsedId && folderId.value === browsedId) {
+        folderId.value = '';
+        browsedId = '';
+      }
+    };
+
     return {
       folderId,
       folderPath,
       siteId,
+      isValid,
+      browseOpen,
+      provider,
+      handleBrowsed,
+      handleFolderPathChange,
       handleSiteNameChange,
       handleClientIdChange,
       handleClientSecretChange,

@@ -27,6 +27,11 @@ and sends you looking for a network or API-key problem instead.
 :func:`patch_ssl_context` clears the strict flag and additionally loads the OS
 certificate store, so certifi's roots are supplemented rather than replaced.
 
+requests / urllib3 (the Box SDK, Google clients ...) don't use
+``ssl.create_default_context``: they build their own context with
+``urllib3.util.ssl_.create_urllib3_context``, then load certifi. That one is
+patched the same way.
+
 Who calls this
 --------------
 Anything that makes outbound HTTPS calls and is NOT started through the backend:
@@ -82,6 +87,7 @@ def patch_ssl_context() -> bool:
             return ctx
 
         _ssl.create_default_context = _create_default_context  # type: ignore[assignment]
+        _patch_urllib3(_ssl)
         _PATCHED = True
         logger.debug(
             "SSL patch applied: cleared VERIFY_X509_STRICT, added OS cert store"
@@ -90,6 +96,31 @@ def patch_ssl_context() -> bool:
     except Exception as exc:  # noqa: BLE001 - never block startup over this
         logger.debug("SSL patch not applied (%s) — continuing unpatched", exc)
         return False
+
+
+def _patch_urllib3(_ssl) -> None:
+    """The same fix for urllib3's own contexts (requests then adds certifi on top)."""
+    try:
+        import urllib3.connection as _connection
+        import urllib3.util.ssl_ as _ssl_util
+    except ImportError:
+        return
+    _original = _ssl_util.create_urllib3_context
+
+    def _create_urllib3_context(*args: Any, **kwargs: Any):
+        ctx = _original(*args, **kwargs)
+        if hasattr(_ssl, "VERIFY_X509_STRICT"):
+            ctx.verify_flags &= ~_ssl.VERIFY_X509_STRICT
+        try:
+            ctx.load_default_certs(_ssl.Purpose.SERVER_AUTH)
+        except Exception:  # noqa: BLE001 - keep the usable context
+            pass
+        return ctx
+
+    # connection.py imported the function by name: patch both
+    _ssl_util.create_urllib3_context = _create_urllib3_context
+    if getattr(_connection, "create_urllib3_context", None) is _original:
+        _connection.create_urllib3_context = _create_urllib3_context
 
 
 __all__ = ["patch_ssl_context"]

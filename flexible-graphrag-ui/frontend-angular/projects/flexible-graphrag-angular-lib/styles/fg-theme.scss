@@ -134,6 +134,71 @@
   }
 }
 
+// The Deep checkbox beside the path (Alfresco / Nuxeo / Box forms) in dark mode: Material's
+// light-theme label and box border were dark on the dark background
+.dark-theme .mat-mdc-checkbox.deep {
+  label { color: #ffffff !important; }
+  .mdc-checkbox__native-control:not(:checked):not(:indeterminate) ~ .mdc-checkbox__background {
+    border-color: rgba(255, 255, 255, 0.7) !important;
+  }
+}
+
+// Source forms' Browse… button and picked-item chips in dark mode: Material's light-theme
+// colors left the button's text and the chips' text unreadable on the dark background
+.dark-theme .browse-button.mat-mdc-outlined-button {
+  &:not(:disabled) {
+    color: #ffffff !important;
+    border-color: rgba(144, 202, 249, 0.7) !important;
+    .mat-icon { color: #90caf9 !important; }
+  }
+  &:disabled {
+    color: rgba(255, 255, 255, 0.38) !important;
+    border-color: rgba(255, 255, 255, 0.12) !important;
+  }
+}
+.dark-theme .picked {
+  .picked-caption { color: rgba(255, 255, 255, 0.8) !important; }
+  .mat-mdc-chip {
+    background-color: #424242 !important;
+    .mdc-evolution-chip__text-label,
+    .mdc-evolution-chip__action,
+    .mat-mdc-chip-action-label { color: #ffffff !important; }
+    .mat-mdc-chip-remove,
+    .mat-mdc-chip-remove .mat-icon { color: rgba(255, 255, 255, 0.8) !important; opacity: 1 !important; }
+  }
+  .mat-mdc-button:not(:disabled) { color: #90caf9 !important; }
+}
+
+// The desktop app's Local Files and Folders form: Clear and the rows' remove buttons
+.dark-theme app-local-folder-form {
+  .local-clear:not(:disabled) { color: #90caf9 !important; }
+  .local-item, .local-icon, .local-remove { color: #ffffff !important; }
+}
+
+// The source browser dialog (an overlay under <body>) in dark mode: its table, breadcrumb,
+// buttons and checkboxes otherwise keep the light theme's colors
+.dark-theme fg-source-browser-dialog {
+  .mat-mdc-table,
+  .mat-mdc-header-row,
+  .mat-mdc-row { background-color: transparent !important; }
+  .mat-mdc-header-cell { color: rgba(255, 255, 255, 0.7) !important; background-color: #1e1e1e !important; }
+  .mat-mdc-cell,
+  .mat-mdc-header-cell { border-bottom-color: rgba(255, 255, 255, 0.12) !important; }
+  .mat-mdc-cell, .fg-name a, .mat-icon { color: #ffffff !important; }
+  .fg-row-selected { background-color: rgba(144, 202, 249, 0.16) !important; }
+  .mat-mdc-button:not(:disabled), .mat-mdc-icon-button:not(:disabled) { color: #90caf9 !important; }
+  .mat-mdc-button:not(:disabled) .mat-icon { color: #90caf9 !important; }
+  .mat-mdc-button:disabled, .mat-mdc-icon-button:disabled,
+  .mat-mdc-button:disabled .mat-icon { color: rgba(255, 255, 255, 0.5) !important; }
+  .mat-mdc-unelevated-button:disabled {
+    background-color: rgba(255, 255, 255, 0.12) !important;
+    color: rgba(255, 255, 255, 0.38) !important;
+  }
+  .mat-mdc-unelevated-button:not(:disabled) { color: #ffffff !important; }
+  .mdc-checkbox__background { border-color: rgba(255, 255, 255, 0.7) !important; }
+  .fg-problem { color: #ffb74d !important; }
+}
+
 // The Alfresco sign-in control in the toolbar: white text in light and dark mode
 mat-toolbar app-source-sign-in {
   color: #ffffff;

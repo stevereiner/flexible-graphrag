@@ -1,12 +1,14 @@
-"""The incremental registry's two stores behave the same: PostgreSQL (``datasource_config`` /
-``document_state``) and the OpenArch tree (openarch/registry.py, INCREMENTAL_STATE_STORE=openarch).
+"""The incremental registry's stores behave the same: PostgreSQL (``datasource_config`` /
+``document_state``), the OpenArch tree (openarch/registry.py, INCREMENTAL_STATE_STORE=openarch)
+and a SQLite file (incremental_updates/sqlite_store.py, INCREMENTAL_STATE_STORE=sqlite).
 
-Each scenario runs against both, on scratch locations:
+Each scenario runs against each, on scratch locations:
 
 - PostgreSQL: database ``fg_state_store_test`` next to POSTGRES_INCREMENTAL_URL (or the server of
   STATE_STORE_TEST_POSTGRES_URL), emptied first;
 - OpenArch: trees ``/fg-test-sources`` and ``/fg-test-datasources`` at OPENARCH_URL (or
-  STATE_STORE_TEST_OPENARCH_URL), removed after.
+  STATE_STORE_TEST_OPENARCH_URL), removed after;
+- SQLite: a new file in the test's tmp_path (always available).
 
 A store that is not reachable is skipped.
 """
@@ -92,13 +94,33 @@ async def _openarch_managers():
     return cm, sm
 
 
-@pytest.fixture(params=["postgres", "openarch"])
+async def _sqlite_managers(path):
+    from incremental_updates.sqlite_store import SqliteConfigManager, SqliteStateManager
+    cm, sm = SqliteConfigManager(str(path)), SqliteStateManager(str(path))
+    await cm.initialize()
+    await sm.initialize()
+    return cm, sm
+
+
+@pytest.fixture(autouse=True)
+def _graph_defaults(monkeypatch):
+    """The scenarios assume both graphs on by default; another test module that imports main has
+    loaded the .env, whose DEFAULT_ENABLED_GRAPH / DEFAULT_ENABLED_RDF may say otherwise."""
+    monkeypatch.setenv("DEFAULT_ENABLED_GRAPH", "true")
+    monkeypatch.setenv("DEFAULT_ENABLED_RDF", "true")
+
+
+@pytest.fixture(params=["postgres", "openarch", "sqlite"])
 def stores(request):
     """(run, config manager, state manager): ``run`` runs a coroutine on the managers' loop."""
     loop = asyncio.new_event_loop()
     try:
-        make = _postgres_managers if request.param == "postgres" else _openarch_managers
-        cm, sm = loop.run_until_complete(make())
+        if request.param == "sqlite":
+            path = request.getfixturevalue("tmp_path") / "registry.db"
+            cm, sm = loop.run_until_complete(_sqlite_managers(path))
+        else:
+            make = _postgres_managers if request.param == "postgres" else _openarch_managers
+            cm, sm = loop.run_until_complete(make())
     except Exception as e:  # store not running
         loop.close()
         pytest.skip(f"{request.param} not available: {e}")

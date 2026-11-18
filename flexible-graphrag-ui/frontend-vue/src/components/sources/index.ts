@@ -7,6 +7,7 @@ export { default as CMISSourceForm } from './CMISSourceForm.vue';
 export { default as FileUploadForm } from './FileUploadForm.vue';
 export { default as GCSSourceForm } from './GCSSourceForm.vue';
 export { default as GoogleDriveSourceForm } from './GoogleDriveSourceForm.vue';
+export { default as LocalFolderForm } from './LocalFolderForm.vue';
 export { default as NuxeoSourceForm } from './NuxeoSourceForm.vue';
 export { default as OneDriveSourceForm } from './OneDriveSourceForm.vue';
 export { default as S3SourceForm } from './S3SourceForm.vue';

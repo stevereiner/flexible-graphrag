@@ -107,6 +107,8 @@ export interface SourceDocument {
   parent_id?: string;
   /** A plain link to the document (Alfresco Share, Nuxeo Web UI); '' when there is none. */
   open_url: string;
+  /** A remote backend's document (REMOTE_FG_*): its name; its path is on that machine. */
+  backend?: string;
 }
 
 export interface SearchResult {

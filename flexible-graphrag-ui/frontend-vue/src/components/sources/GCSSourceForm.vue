@@ -15,17 +15,37 @@
       required
     />
     
-    <v-text-field
-      :model-value="localPrefix"
-      @update:model-value="handlePrefixChange"
-      label="Prefix (Optional)"
-      variant="outlined"
-      class="mb-2"
-      placeholder="sample-docs/"
-      hint="Optional: folder path prefix (e.g., 'sample-docs/' for a specific folder)"
-      persistent-hint
+    <div class="d-flex ga-2 mb-2 align-start">
+      <v-text-field
+        :model-value="localPrefix"
+        @update:model-value="handlePrefixChange"
+        label="Prefix (Optional)"
+        variant="outlined"
+        placeholder="sample-docs/"
+        hint="Optional: folder path prefix (e.g., 'sample-docs/' for a specific folder)"
+        persistent-hint
+      />
+      <v-btn
+        variant="outlined"
+        prepend-icon="mdi-folder-open"
+        height="56"
+        :disabled="!isValid"
+        :title="isValid ? 'Pick a folder in the bucket' : 'Fill in the bucket and the credentials first'"
+        @click="browseOpen = true"
+      >
+        Browse…
+      </v-btn>
+    </div>
+    <SourceBrowser
+      :open="browseOpen"
+      :provider="provider"
+      :title="`Pick a folder: gs://${bucketName}`"
+      :files="false"
+      :multiple="false"
+      @close="browseOpen = false"
+      @select="handleBrowsed"
     />
-    
+
     <v-textarea
       :model-value="credentials"
       @update:model-value="handleCredentialsChange"
@@ -55,11 +75,15 @@
 <script lang="ts">
 import { defineComponent, ref, computed, watch } from 'vue';
 import BaseSourceForm from './BaseSourceForm.vue';
+import SourceBrowser from '../../browser/SourceBrowser.vue';
+import { remoteProvider } from '../../browser/remoteProvider';
+import type { BrowseItem } from '../../browser/types';
 
 export default defineComponent({
   name: 'GCSSourceForm',
   components: {
-    BaseSourceForm
+    BaseSourceForm,
+    SourceBrowser
   },
   props: {
     bucketName: {
@@ -133,7 +157,20 @@ export default defineComponent({
       emit('update:pubsubSubscription', value);
     };
 
+    // Browse the bucket with the credentials below (POST /api/browse)
+    const browseOpen = ref(false);
+    const provider = remoteProvider('gcs', 'GCS bucket', () => config.value);
+
+    // a folder's prefix ("docs/2024/"): the ingest reads a prefix as a folder
+    const handleBrowsed = (items: BrowseItem[]) => {
+      if (items.length) handlePrefixChange(items[0].path || items[0].id);
+    };
+
     return {
+      isValid,
+      browseOpen,
+      provider,
+      handleBrowsed,
       localPrefix,
       localPubsubSubscription,
       handleBucketNameChange,

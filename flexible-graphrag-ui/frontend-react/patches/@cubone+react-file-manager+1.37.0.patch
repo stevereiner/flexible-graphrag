@@ -1,0 +1,13 @@
+diff --git a/node_modules/@cubone/react-file-manager/dist/react-file-manager.es.js b/node_modules/@cubone/react-file-manager/dist/react-file-manager.es.js
+index fec25eb..cdc8a64 100644
+--- a/node_modules/@cubone/react-file-manager/dist/react-file-manager.es.js
++++ b/node_modules/@cubone/react-file-manager/dist/react-file-manager.es.js
+@@ -5244,7 +5244,7 @@ const In = ({
+     if (x.stopPropagation(), e.isEditing) return;
+     pe(x.shiftKey, x.ctrlKey);
+     const q = (/* @__PURE__ */ new Date()).getTime();
+-    if (q - F < 300) {
++    if (q - F < 500) {
+       re();
+       return;
+     }

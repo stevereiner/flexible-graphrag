@@ -25,7 +25,11 @@ import {
   SharePointSourceForm,
   BoxSourceForm,
   GoogleDriveSourceForm,
+  LocalFolderForm,
+  type LocalItem,
 } from './sources';
+import { isTauri } from '../desktop/tauri';
+import { isRemoteBackend } from '../apiConnection';
 
 interface SourcesTabProps {
   currentTheme: Theme;
@@ -65,6 +69,9 @@ interface SourcesTabProps {
   boxUserId: string;
   boxEnterpriseId: string;
   googleDriveCredentials: string;
+  // Local files and folders (desktop app only)
+  localItems: LocalItem[];
+  onLocalItemsChange: (items: LocalItem[]) => void;
   onDataSourceChange: (dataSource: string) => void;
   onSelectedFilesChange: (files: File[]) => void;
   onFolderPathChange: (folderPath: string) => void;
@@ -108,6 +115,7 @@ interface SourcesTabProps {
     webConfig?: any;
     cloudConfig?: any;
     enterpriseConfig?: any;
+    filesystemConfig?: any;
   }) => void;
 }
 
@@ -149,6 +157,8 @@ export const SourcesTab: React.FC<SourcesTabProps> = ({
   boxUserId,
   boxEnterpriseId,
   googleDriveCredentials,
+  localItems,
+  onLocalItemsChange,
   onDataSourceChange,
   onSelectedFilesChange,
   onFolderPathChange,
@@ -163,7 +173,6 @@ export const SourcesTab: React.FC<SourcesTabProps> = ({
   onS3AccessKeyChange,
   onS3SecretKeyChange,
   onGcsBucketNameChange,
-  onGcsProjectIdChange,
   onGcsCredentialsChange,
   onAzureBlobConnectionStringChange,
   onAzureBlobContainerChange,
@@ -226,7 +235,8 @@ export const SourcesTab: React.FC<SourcesTabProps> = ({
       enterpriseConfig: ['onedrive', 'sharepoint', 'box', 'google_drive'].includes(dataSource) ? {
         type: dataSource,
         ...currentConfig
-      } : undefined
+      } : undefined,
+      filesystemConfig: dataSource === 'filesystem' ? currentConfig : undefined,
     };
     
     onSourcesConfigured(configData);
@@ -235,6 +245,17 @@ export const SourcesTab: React.FC<SourcesTabProps> = ({
 
   const renderDataSourceFields = () => {
     switch (dataSource) {
+      case 'filesystem':
+        return (
+          <LocalFolderForm
+            currentTheme={currentTheme}
+            items={localItems}
+            onItemsChange={onLocalItemsChange}
+            onConfigurationChange={handleConfigurationChange}
+            onValidationChange={handleValidationChange}
+          />
+        );
+
       case 'upload':
         return (
           <FileUploadForm
@@ -446,7 +467,10 @@ export const SourcesTab: React.FC<SourcesTabProps> = ({
           onChange={(e) => onDataSourceChange(e.target.value)}
           size="small"
         >
-          <MenuItem value="upload">File Upload</MenuItem>
+          {/* the desktop app reads local files itself; File Upload only with a remote backend, which
+              can't read this computer's files (no Local Files and Folders then) */}
+          {isTauri() && !isRemoteBackend() && <MenuItem value="filesystem">Local Files and Folders</MenuItem>}
+          {(!isTauri() || isRemoteBackend()) && <MenuItem value="upload">File Upload</MenuItem>}
           <MenuItem value="alfresco">Alfresco Repository</MenuItem>
           <MenuItem value="nuxeo">Nuxeo Repository</MenuItem>
           <MenuItem value="cmis">CMIS Repository</MenuItem>

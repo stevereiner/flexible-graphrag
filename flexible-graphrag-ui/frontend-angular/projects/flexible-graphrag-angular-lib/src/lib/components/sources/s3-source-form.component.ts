@@ -1,4 +1,5 @@
-import { Component, Input, Output, EventEmitter, OnInit, OnDestroy } from '@angular/core';
+import { Component, Input, Output, EventEmitter, OnInit, OnDestroy, inject } from '@angular/core';
+import { SourceBrowserService } from '../../browser/remote-browse.provider';
 
 export interface S3SourceConfig {
   bucket_name: string;
@@ -27,15 +28,22 @@ export interface S3SourceConfig {
         <mat-hint>S3 bucket name (required)</mat-hint>
       </mat-form-field>
 
-      <mat-form-field appearance="outline" class="full-width">
-        <mat-label>Prefix/Path (Optional)</mat-label>
-        <input matInput
-               [(ngModel)]="prefix"
-               (ngModelChange)="onPrefixChange()"
-               placeholder="documents/reports/"
-               autocomplete="off" />
-        <mat-hint>Optional: folder path prefix within bucket</mat-hint>
-      </mat-form-field>
+      <div class="form-row">
+        <mat-form-field appearance="outline" class="half-width">
+          <mat-label>Prefix/Path (Optional)</mat-label>
+          <input matInput
+                 [(ngModel)]="prefix"
+                 (ngModelChange)="onPrefixChange()"
+                 placeholder="documents/reports/"
+                 autocomplete="off" />
+          <mat-hint>Optional: a folder prefix within the bucket (ending in /), or one object's key</mat-hint>
+        </mat-form-field>
+        <button mat-stroked-button type="button" class="browse-button" [disabled]="!isValid()"
+                [title]="isValid() ? 'Pick a folder or a file in the bucket' : 'Fill in the bucket, region and keys first'"
+                (click)="browse()">
+          <mat-icon>folder_open</mat-icon> Browse…
+        </button>
+      </div>
 
       <mat-form-field appearance="outline" class="full-width">
         <mat-label>AWS Region</mat-label>
@@ -101,6 +109,12 @@ export interface S3SourceConfig {
     .half-width {
       flex: 1;
     }
+
+    .browse-button {
+      height: 56px;
+      white-space: nowrap;
+      flex: none;
+    }
   `],
   standalone: false
 })
@@ -126,13 +140,16 @@ export class S3SourceFormComponent implements OnInit, OnDestroy {
     // Cleanup if needed
   }
 
-  private updateValidationAndConfig() {
-    const isValid = this.bucketName.trim() !== '' && 
-                   this.accessKey.trim() !== '' && 
-                   this.secretKey.trim() !== '' &&
-                   this.regionName.trim() !== '';
-    
-    const config: S3SourceConfig = {
+  private readonly browser = inject(SourceBrowserService);
+  private readonly provider = this.browser.provider('s3', 'S3 bucket', () => this.config());
+
+  isValid(): boolean {
+    return this.bucketName.trim() !== '' && this.accessKey.trim() !== '' &&
+      this.secretKey.trim() !== '' && this.regionName.trim() !== '';
+  }
+
+  private config(): S3SourceConfig {
+    return {
       bucket_name: this.bucketName,
       prefix: this.prefix || undefined,
       access_key: this.accessKey,
@@ -140,9 +157,21 @@ export class S3SourceFormComponent implements OnInit, OnDestroy {
       region_name: this.regionName,
       sqs_queue_url: this.sqsQueueUrl || undefined
     };
-    
-    this.validationChange.emit(isValid);
-    this.configurationChange.emit(config);
+  }
+
+  /** One folder ("docs/reports/") or one object's key: the prefix takes either. */
+  async browse(): Promise<void> {
+    const [item] = await this.browser.pick({
+      provider: this.provider, title: `Pick a folder or a file: s3://${this.bucketName}`, multiple: false,
+    });
+    if (!item) return;
+    this.prefix = item.path || item.id;
+    this.updateValidationAndConfig();
+  }
+
+  private updateValidationAndConfig() {
+    this.validationChange.emit(this.isValid());
+    this.configurationChange.emit(this.config());
   }
 
   onBucketNameChange(): void {

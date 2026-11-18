@@ -1,6 +1,10 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { TextField } from '@mui/material';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { TextField, Box, Button } from '@mui/material';
+import { FolderOpen as FolderOpenIcon } from '@mui/icons-material';
 import { BaseSourceForm, BaseSourceFormProps } from './BaseSourceForm';
+import { SourceBrowser } from '../../browser/SourceBrowser';
+import { remoteProvider } from '../../browser/RemoteProvider';
+import { BrowseItem } from '../../browser/types';
 
 interface AzureBlobSourceFormProps extends BaseSourceFormProps {
   connectionString: string;
@@ -56,6 +60,25 @@ export const AzureBlobSourceForm: React.FC<AzureBlobSourceFormProps> = ({
     onConfigurationChange(config);
   }, [isValid, config, onValidationChange, onConfigurationChange]);
 
+  // Browse the container with the account key above (POST /api/browse)
+  const [browseOpen, setBrowseOpen] = useState(false);
+  const configRef = useRef(config);
+  configRef.current = config;
+  const provider = useMemo(() => remoteProvider('azure_blob', 'Azure Blob container', () => configRef.current), []);
+
+  // one folder (prefix "docs/reports/") or one blob (its full name): the ingest takes blob over prefix
+  const handleBrowsed = (items: BrowseItem[]) => {
+    if (!items.length) return;
+    const picked = items[0].path || items[0].id;
+    if (items[0].isDirectory) {
+      setPrefix(picked);
+      onBlobNameChange('');
+    } else {
+      onBlobNameChange(picked);
+      setPrefix('');
+    }
+  };
+
   return (
     <BaseSourceForm
       title="Azure Blob Storage"
@@ -93,18 +116,37 @@ export const AzureBlobSourceForm: React.FC<AzureBlobSourceFormProps> = ({
         size="small"
         sx={{ mb: 2 }}
         placeholder="specific-file.pdf"
-        helperText="Optional: specific blob/file name"
+        helperText="Optional: one blob's full name (e.g. docs/a.pdf); used instead of the prefix"
       />
-      <TextField
-        fullWidth
-        label="Prefix (Optional)"
-        variant="outlined"
-        value={prefix}
-        onChange={(e) => setPrefix(e.target.value)}
-        size="small"
-        sx={{ mb: 2 }}
-        placeholder="documents/reports/"
-        helperText="Optional: folder path prefix within container"
+      <Box sx={{ display: 'flex', gap: 1, alignItems: 'flex-start', mb: 2 }}>
+        <TextField
+          fullWidth
+          label="Prefix (Optional)"
+          variant="outlined"
+          value={prefix}
+          onChange={(e) => setPrefix(e.target.value)}
+          size="small"
+          placeholder="documents/reports/"
+          helperText="Optional: folder path prefix within container"
+        />
+        <Button
+          variant="outlined"
+          startIcon={<FolderOpenIcon />}
+          disabled={!isValid}
+          title={isValid ? 'Pick a folder or a blob in the container' : 'Fill in the account URL, container, account name and key first'}
+          onClick={() => setBrowseOpen(true)}
+          sx={{ whiteSpace: 'nowrap', minWidth: 'auto', height: 40 }}
+        >
+          Browse…
+        </Button>
+      </Box>
+      <SourceBrowser
+        open={browseOpen}
+        provider={provider}
+        title={`Pick a folder or a file: ${containerName || 'Azure Blob'}`}
+        multiple={false}
+        onClose={() => setBrowseOpen(false)}
+        onSelect={handleBrowsed}
       />
       <TextField
         fullWidth

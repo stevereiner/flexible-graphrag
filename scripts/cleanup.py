@@ -37,9 +37,17 @@ if platform.system() == "Windows":
 _SCRIPTS_DIR = Path(__file__).parent.resolve()
 _APP_DIR = (_SCRIPTS_DIR / ".." / "flexible-graphrag").resolve()
 
-# Load .env from the app directory (one level up from scripts/)
+# The backend's .env: the one in the current folder (a backend run from its own folder, e.g. a
+# second backend with its own .env and stores), else the app directory's (one level up from
+# scripts/). Then work in that folder, so relative store paths (./lancedb, ./ladybug, the SQLite
+# state file, ...) resolve as they do for the backend started there.
 from dotenv import load_dotenv
-load_dotenv(_APP_DIR / ".env")
+_ENV_FILE = Path.cwd() / ".env"
+if not _ENV_FILE.is_file():
+    _ENV_FILE = _APP_DIR / ".env"
+_ENV_DIR = _ENV_FILE.parent.resolve()
+load_dotenv(_ENV_FILE)
+os.chdir(_ENV_DIR)
 
 # Make app modules importable (factories, config, etc.)
 sys.path.insert(0, str(_APP_DIR))
@@ -57,6 +65,41 @@ def parse_postgres_url(url):
         'password': parsed.password or 'postgres'
     }
 
+def _state_store_kind() -> str:
+    """Where the incremental state is: postgres (default), openarch or sqlite (INCREMENTAL_STATE_STORE)."""
+    return os.getenv('INCREMENTAL_STATE_STORE', 'postgres').strip().lower() or 'postgres'
+
+
+def cleanup_sqlite_state():
+    """Clean the SQLite incremental-state tables (INCREMENTAL_STATE_STORE=sqlite): the
+    SQLITE_INCREMENTAL_PATH file, relative to the backend folder. The tables are emptied, not
+    dropped (the backend creates them only if missing)."""
+    print("\n=== SQLite Incremental State Cleanup ===")
+    if _state_store_kind() != 'sqlite':
+        print(f"  Skipped: INCREMENTAL_STATE_STORE={_state_store_kind()}")
+        return
+    path = Path(os.getenv('SQLITE_INCREMENTAL_PATH', '').strip() or './flexible_graphrag_incremental.db')
+    if not path.is_file():
+        print(f"  No state file (already clean): {path.resolve()}")
+        return
+    import sqlite3
+    try:
+        conn = sqlite3.connect(str(path), timeout=10)
+        try:
+            tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+            for table in ("document_state", "datasource_config", "msgraph_delta_state"):
+                if table in tables:
+                    n = conn.execute(f"DELETE FROM {table}").rowcount
+                    print(f"  Deleted {n} rows from {table}")
+            conn.commit()
+        finally:
+            conn.close()
+        print(f"  SQLite state cleanup: SUCCESS ({path.resolve()})")
+    except sqlite3.OperationalError as e:
+        # "database is locked": the backend is still running
+        print(f"  SQLite state cleanup: FAILED - {e} (stop the backend first)")
+
+
 def cleanup_postgres():
     """Clean PostgreSQL incremental-state tables and CocoIndex monitoring tables."""
     print("\n=== PostgreSQL Cleanup ===")
@@ -64,6 +107,9 @@ def cleanup_postgres():
     postgres_url = os.getenv('POSTGRES_INCREMENTAL_URL')
     if not postgres_url:
         print("  Skipped: POSTGRES_INCREMENTAL_URL not configured")
+        return
+    if _state_store_kind() != 'postgres' and os.getenv('PIPELINE_BACKEND', '').lower() != 'cocoindex':
+        print(f"  Skipped: INCREMENTAL_STATE_STORE={_state_store_kind()} (no state in PostgreSQL)")
         return
 
     try:
@@ -77,19 +123,26 @@ def cleanup_postgres():
 
         incremental_enabled = os.getenv('ENABLE_INCREMENTAL_UPDATES', 'false').lower() in ('true', '1', 'yes')
         cocoindex_enabled = os.getenv('PIPELINE_BACKEND', '').lower() == 'cocoindex'
+        # incremental state lives here only with INCREMENTAL_STATE_STORE=postgres (the default);
+        # with openarch / sqlite these tables may belong to another backend
+        postgres_state = incremental_enabled and _state_store_kind() == 'postgres'
 
         # document_state: incremental updates only.
-        if incremental_enabled:
+        if postgres_state:
             cursor.execute("DELETE FROM document_state;")
             print(f"  Deleted {cursor.rowcount} rows from document_state")
+        elif incremental_enabled:
+            print(f"  Skipped document_state (INCREMENTAL_STATE_STORE={_state_store_kind()})")
         else:
             print("  Skipped document_state (ENABLE_INCREMENTAL_UPDATES is not enabled)")
 
         # datasource_config: written by incremental updates AND by CocoIndex bridge.
-        # Always clean when ENABLE_INCREMENTAL_UPDATES=true or PIPELINE_BACKEND=cocoindex.
-        if incremental_enabled or cocoindex_enabled:
+        # Clean when the incremental state is in PostgreSQL or PIPELINE_BACKEND=cocoindex.
+        if postgres_state or cocoindex_enabled:
             cursor.execute("DELETE FROM datasource_config;")
             print(f"  Deleted {cursor.rowcount} rows from datasource_config")
+        elif incremental_enabled:
+            print(f"  Skipped datasource_config (INCREMENTAL_STATE_STORE={_state_store_kind()})")
         else:
             print("  Skipped datasource_config (ENABLE_INCREMENTAL_UPDATES and PIPELINE_BACKEND=cocoindex both off)")
 
@@ -709,7 +762,19 @@ def cleanup_search_store():
     # Early exit before slow imports
     search_db = os.getenv('SEARCH_DB', 'elasticsearch')
     print(f"  Search DB type: {search_db}")
-    if search_db == 'none' or search_db == 'bm25':
+    if search_db == 'bm25':
+        # The LlamaIndex BM25 index is in memory only (gone when the backend stops); the
+        # LangChain one is saved as BM25_PERSIST_DIR/bm25_docs.json.
+        persist_dir = os.getenv('BM25_PERSIST_DIR', '').strip()
+        docs_file = Path(persist_dir) / "bm25_docs.json" if persist_dir else None
+        if docs_file and docs_file.is_file():
+            docs_file.unlink()
+            print(f"  Deleted {docs_file.resolve()}")
+        else:
+            print("  BM25: nothing saved on disk (the in-memory index goes when the backend stops)")
+        print("  Search store cleanup: SUCCESS")
+        return
+    if search_db == 'none':
         print(f"  Skipped: SEARCH_DB={search_db} (no external search database)")
         return
 
@@ -1748,10 +1813,10 @@ def cleanup_cocoindex():
     print("\n=== CocoIndex Cleanup ===")
     pipeline_backend = os.getenv("PIPELINE_BACKEND", "default").lower()
 
-    # Resolve paths relative to the app directory
-    cocoindex_db = _APP_DIR / os.getenv("COCOINDEX_DB", "cocoindex.db")
+    # Resolve paths relative to the backend folder (the .env's)
+    cocoindex_db = _ENV_DIR / os.getenv("COCOINDEX_DB", "cocoindex.db")
     watch_dir_env = os.getenv("WATCH_DIR", "")
-    source_dir = Path(watch_dir_env) if watch_dir_env else (_APP_DIR / "cocoindex-docs")
+    source_dir = (_ENV_DIR / watch_dir_env).resolve() if watch_dir_env else (_ENV_DIR / "cocoindex-docs")
 
     if pipeline_backend != "cocoindex" and not cocoindex_db.exists() and not source_dir.exists():
         print("  PIPELINE_BACKEND != cocoindex and no CocoIndex artefacts found — skipping.")
@@ -1774,7 +1839,10 @@ def cleanup_cocoindex():
     # 2. Delete files inside the CocoIndex source directory.
     # Deleting the db without clearing the source dir causes a full re-ingest
     # on next startup — usually not what you want during cleanup.
-    if source_dir.exists() and source_dir.is_dir():
+    # Only with PIPELINE_BACKEND=cocoindex: otherwise WATCH_DIR is not CocoIndex's to clear.
+    if pipeline_backend != "cocoindex":
+        print(f"  Source dir left alone (PIPELINE_BACKEND != cocoindex): {source_dir}")
+    elif source_dir.exists() and source_dir.is_dir():
         files = list(source_dir.iterdir())
         if files:
             try:
@@ -1795,11 +1863,11 @@ def cleanup_cocoindex():
 
 
 def cleanup_log_files():
-    """Delete all *.log files in the flexible-graphrag app directory"""
+    """Delete all *.log files in the backend folder (the .env's; normally flexible-graphrag/)"""
     print("\n=== Log File Cleanup ===")
     try:
         log_files = [
-            f for f in _APP_DIR.iterdir()
+            f for f in _ENV_DIR.iterdir()
             if f.suffix == ".log" and f.is_file()
         ]
         if not log_files:
@@ -1832,10 +1900,13 @@ def main():
             "  --rdf       clean RDF stores only\n"
             "  --openarch  clean what was put into OpenArch only (ENABLE_OPENARCH, INCREMENTAL_STATE_STORE=openarch)\n"
             "  --postgres  clean PostgreSQL incremental tables only\n"
+            "  --sqlite    clean SQLite incremental tables only (INCREMENTAL_STATE_STORE=sqlite)\n"
             "  --cocoindex clean CocoIndex LMDB state only\n"
             "  --logs      clean log files only\n\n"
             "With no selective flags the full interactive cleanup runs (all stores).\n"
-            "Selective flags skip the confirmation prompt."
+            "Selective flags skip the confirmation prompt.\n\n"
+            "Uses the .env in the current folder if there is one (a backend run from its own\n"
+            "folder: run this from that folder), else flexible-graphrag/.env."
         ),
     )
     ap.add_argument("--matrix-clean", action="store_true",
@@ -1846,10 +1917,12 @@ def main():
     ap.add_argument("--rdf",       action="store_true", help="Clean RDF stores only.")
     ap.add_argument("--openarch",  action="store_true", help="Clean what was ingested into OpenArch only.")
     ap.add_argument("--postgres",  action="store_true", help="Clean PostgreSQL incremental tables only.")
+    ap.add_argument("--sqlite",    action="store_true", help="Clean SQLite incremental tables only.")
     ap.add_argument("--cocoindex", action="store_true", help="Clean CocoIndex LMDB state only.")
     ap.add_argument("--logs",      action="store_true", help="Clean log files only.")
     ap.add_argument("--yes", "-y", action="store_true", help="Skip confirmation prompt.")
     args = ap.parse_args()
+    print(f"Backend .env: {_ENV_FILE}")
 
     # --- matrix-clean mode (automated test runner) ---
     if args.matrix_clean:
@@ -1865,6 +1938,7 @@ def main():
             ("openarch", cleanup_openarch),
             ("cocoindex", cleanup_cocoindex),
             ("postgres", cleanup_postgres),
+            ("sqlite", cleanup_sqlite_state),
         ]
         _timings: list = []
         for _name, _fn in _steps:
@@ -1882,7 +1956,7 @@ def main():
 
     # --- selective mode (one or more store flags) ---
     _selective = [args.graph, args.vector, args.search, args.rdf, args.openarch,
-                  args.postgres, args.cocoindex, args.logs]
+                  args.postgres, args.sqlite, args.cocoindex, args.logs]
     if any(_selective):
         print("=" * 60)
         print("Flexible GraphRAG - Selective Cleanup")
@@ -1899,6 +1973,8 @@ def main():
             cleanup_openarch()
         if args.postgres:
             cleanup_postgres()
+        if args.sqlite:
+            cleanup_sqlite_state()
         if args.cocoindex:
             cleanup_cocoindex()
         if args.logs:
@@ -1913,7 +1989,8 @@ def main():
     print("Flexible GraphRAG - Database Cleanup Script")
     print("=" * 60)
     print("\nWARNING: This will DELETE ALL DATA from:")
-    print("  - PostgreSQL (document_state, datasource_config)")
+    print(f"  (the backend configured by {_ENV_FILE})")
+    print("  - Incremental state: PostgreSQL or SQLite (document_state, datasource_config)")
     print("  - Vector Store (all embeddings)")
     print("  - Search Store (all fulltext indexes)")
     print("  - Graph Store (all nodes, relationships, constraints, indexes)")
@@ -1921,7 +1998,7 @@ def main():
     print("  - OpenArch (what Flexible GraphRAG ingested under OPENARCH_ROOT_PATH, if ENABLE_OPENARCH;")
     print("    its data sources and document state, if INCREMENTAL_STATE_STORE=openarch)")
     print("  - CocoIndex LMDB state + source files (if PIPELINE_BACKEND=cocoindex)")
-    print("  - Log files (all *.log in flexible-graphrag/)")
+    print(f"  - Log files (all *.log in {_ENV_DIR})")
     print("\nThis action CANNOT be undone!")
 
     if args.yes:
@@ -1935,6 +2012,7 @@ def main():
     print("\nStarting cleanup...")
 
     cleanup_postgres()
+    cleanup_sqlite_state()
     cleanup_vector_store()
     cleanup_search_store()
     cleanup_graph_store()

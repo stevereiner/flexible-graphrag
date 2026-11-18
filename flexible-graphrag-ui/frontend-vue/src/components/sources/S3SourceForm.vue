@@ -15,17 +15,36 @@
       autocomplete="off"
     />
     
-    <v-text-field
-      v-model="prefix"
-      label="Prefix/Path (Optional)"
-      variant="outlined"
-      class="mb-2"
-      placeholder="documents/reports/"
-      hint="Optional: folder path prefix within bucket"
-      persistent-hint
-      autocomplete="off"
+    <div class="d-flex ga-2 mb-2 align-start">
+      <v-text-field
+        v-model="prefix"
+        label="Prefix/Path (Optional)"
+        variant="outlined"
+        placeholder="documents/reports/"
+        hint="Optional: a folder prefix within the bucket (ending in /), or one object's key"
+        persistent-hint
+        autocomplete="off"
+      />
+      <v-btn
+        variant="outlined"
+        prepend-icon="mdi-folder-open"
+        height="56"
+        :disabled="!isValid"
+        :title="isValid ? 'Pick a folder or a file in the bucket' : 'Fill in the bucket, region and keys first'"
+        @click="browseOpen = true"
+      >
+        Browse…
+      </v-btn>
+    </div>
+    <SourceBrowser
+      :open="browseOpen"
+      :provider="provider"
+      :title="`Pick a folder or a file: s3://${bucketName}`"
+      :multiple="false"
+      @close="browseOpen = false"
+      @select="handleBrowsed"
     />
-    
+
     <v-text-field
       v-model="regionName"
       label="AWS Region *"
@@ -84,11 +103,15 @@
 <script lang="ts">
 import { defineComponent, ref, computed, watch } from 'vue';
 import BaseSourceForm from './BaseSourceForm.vue';
+import SourceBrowser from '../../browser/SourceBrowser.vue';
+import { remoteProvider } from '../../browser/remoteProvider';
+import type { BrowseItem } from '../../browser/types';
 
 export default defineComponent({
   name: 'S3SourceForm',
   components: {
-    BaseSourceForm
+    BaseSourceForm,
+    SourceBrowser
   },
   props: {
     accessKey: {
@@ -137,7 +160,20 @@ export default defineComponent({
       emit('update:secretKey', value);
     };
 
+    // Browse the bucket with the keys above (POST /api/browse)
+    const browseOpen = ref(false);
+    const provider = remoteProvider('s3', 'S3 bucket', () => config.value);
+
+    // one folder ("docs/reports/") or one object's key: the prefix takes either
+    const handleBrowsed = (items: BrowseItem[]) => {
+      if (items.length) prefix.value = items[0].path || items[0].id;
+    };
+
     return {
+      isValid,
+      browseOpen,
+      provider,
+      handleBrowsed,
       bucketName,
       prefix,
       regionName,

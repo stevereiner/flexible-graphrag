@@ -1,0 +1,68 @@
+/* Dark mode for react-file-manager, which has fixed light colors (no theme variables): used when
+   the app is in dark mode (SourceBrowser adds .fg-browser-dark). Read-only browser: the upload,
+   rename and delete parts are not covered. */
+
+.fg-browser-dark { color: #e0e0e0; }
+
+.fg-browser-dark .file-explorer,
+.fg-browser-dark .file-explorer .files-container .folders-preview {
+  background-color: #1e1e1e;
+  color: #e0e0e0;
+  border-color: #444;
+}
+
+.fg-browser-dark .toolbar,
+.fg-browser-dark .bread-crumb-container .breadcrumb,
+.fg-browser-dark .file-explorer .files-container .navigation-pane .sidebar-resize {
+  border-color: #444;
+}
+
+.fg-browser-dark .toolbar .item-action,
+.fg-browser-dark .toolbar .fm-toolbar .toggle-view,
+.fg-browser-dark .fm-context-menu,
+.fg-browser-dark .fm-context-menu .file-context-menu-list .sub-menu,
+.fg-browser-dark .fm-upload-menu {
+  background-color: #2a2a2a;
+  color: #e0e0e0;
+  border-color: #555;
+}
+
+.fg-browser-dark .fm-context-menu .file-context-menu-list .divider { border-color: #555; }
+.fg-browser-dark .fm-context-menu .file-context-menu-list .list-expand-icon,
+.fg-browser-dark .fm-context-menu .file-context-menu-list .sub-menu .item-selected { color: #bbb; }
+
+.fg-browser-dark .files.list .files-header {
+  background-color: #262626;
+  border-bottom-color: #444;
+}
+
+/* hovers / selection were translucent black: translucent white on dark */
+.fg-browser-dark .files .file-item:hover,
+.fg-browser-dark .files.list .file-item-container:hover,
+.fg-browser-dark .sb-folders-list .sb-folders-list-item:hover,
+.fg-browser-dark .file-selected,
+.fg-browser-dark .toolbar .fm-toolbar .toggle-view ul li:hover,
+.fg-browser-dark .fm-upload-menu ul li:hover,
+.fg-browser-dark .fm-context-menu .file-context-menu-list ul li:hover,
+.fg-browser-dark .fm-context-menu .file-context-menu-list ul li.active {
+  background-color: #ffffff17;
+}
+.fg-browser-dark .toolbar .item-action:hover,
+.fg-browser-dark .files.list .files-header .file-name:hover,
+.fg-browser-dark .files.list .files-header .file-date:hover,
+.fg-browser-dark .files.list .files-header .file-size:hover {
+  background-color: #ffffff24 !important;
+}
+.fg-browser-dark .bread-crumb-container .breadcrumb .folder-name-btn:hover,
+.fg-browser-dark .bread-crumb-container .breadcrumb .folder-name-btn:focus {
+  background-color: #333;
+}
+
+/* the file / folder rows keep the primary color when selected (white text on it) */
+.fg-browser-dark .files .file-selected,
+.fg-browser-dark .sb-folders-list .active-list-item { color: #fff; }
+
+.fg-browser-dark .fm-modal { background-color: #1e1e1e; color: #e0e0e0; border-color: #555; }
+.fg-browser-dark .fm-modal-header { border-color: #444; }
+.fg-browser-dark .fm-modal-header .fm-modal-heading { color: #e0e0e0; }
+.fg-browser-dark .fm-button-secondary { background-color: #333; color: #e0e0e0; }

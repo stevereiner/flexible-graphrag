@@ -1,5 +1,5 @@
-import { Component, ViewEncapsulation } from '@angular/core';
-import { GraphShowEvent } from '@flexible-graphrag/angular-ui';
+import { Component, ViewEncapsulation, inject } from '@angular/core';
+import { DesktopLocalService, GraphShowEvent, isDesktopApp } from '@flexible-graphrag/angular-ui';
 
 @Component({
   selector: 'app-root',
@@ -26,7 +26,22 @@ export class AppComponent {
   configuredYoutubeConfig: any = null;
   configuredCloudConfig: any = null;
   configuredEnterpriseConfig: any = null;
+  configuredFilesystemConfig: any = null;  // Local Files and Folders (desktop app)
   configurationTimestamp = 0;
+
+  // Desktop app (flexible-graphrag-ui/desktop): the app shows once its backend answers
+  readonly desktop = isDesktopApp();
+  backendReady = !this.desktop;
+  private readonly local = inject(DesktopLocalService);
+
+  /** The backend answers: give it back the local folders added in the app (it keeps them in
+   *  memory only), then show the app. */
+  onBackendReady(): void {
+    this.backendReady = true;
+    this.local.syncLocalRoots().then((r) => {
+      if (!r.ok) console.warn('Local folders not sent to the backend:', r.message);
+    });
+  }
   
   // Dark / light: the library's app-title-bar and FlexibleGraphragThemeService (set up when the
   // title bar is), styled by its styles/fg-theme.scss
@@ -61,7 +76,8 @@ export class AppComponent {
     this.configuredYoutubeConfig = null;
     this.configuredCloudConfig = null;
     this.configuredEnterpriseConfig = null;
-    
+    this.configuredFilesystemConfig = null;
+
     // Set new configuration
     this.hasConfiguredSources = true;
     this.configuredDataSource = data.dataSource;
@@ -77,6 +93,7 @@ export class AppComponent {
     this.configuredYoutubeConfig = data.youtubeConfig || null;
     this.configuredCloudConfig = data.cloudConfig || null;
     this.configuredEnterpriseConfig = data.enterpriseConfig || null;
+    this.configuredFilesystemConfig = data.filesystemConfig || null;
     this.configurationTimestamp = Date.now();
     
     console.log('📁 Angular onSourcesConfigured (cleared previous state):', {
@@ -99,6 +116,15 @@ export class AppComponent {
       // For repository files, hide the items
       this.repositoryItemsHidden = true;
     }
+  }
+
+  /** A local row removed on the Processing tab: out of this run's list and the form's picks. */
+  removeLocalItem(index: number): void {
+    const all = this.configuredFilesystemConfig?.items || [];
+    const removed = all[index];
+    this.configuredFilesystemConfig = DesktopLocalService.configOf(all.filter((_: any, i: number) => i !== index));
+    // the form's own list (empty after an ingest started, or new picks): only that path leaves it
+    if (removed) this.local.setItems(this.local.items.filter((i) => i.path !== removed.path));
   }
 
   removeUploadFile(index: number): void {

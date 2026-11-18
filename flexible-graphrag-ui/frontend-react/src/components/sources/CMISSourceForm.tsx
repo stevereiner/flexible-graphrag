@@ -1,7 +1,11 @@
-import React, { useEffect, useMemo } from 'react';
-import { TextField, Box } from '@mui/material';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { TextField, Box, Button } from '@mui/material';
+import { FolderOpen as FolderOpenIcon } from '@mui/icons-material';
 import { BaseSourceForm, BaseSourceFormProps } from './BaseSourceForm';
 import { SourceSignInSection, useSourceSession } from '../../auth/SourceSignInSection';
+import { SourceBrowser } from '../../browser/SourceBrowser';
+import { remoteProvider } from '../../browser/RemoteProvider';
+import { BrowseItem } from '../../browser/types';
 
 interface CMISSourceFormProps extends BaseSourceFormProps {
   url: string;
@@ -53,6 +57,19 @@ export const CMISSourceForm: React.FC<CMISSourceFormProps> = ({
     onConfigurationChange(config);
   }, [isValid, config, onValidationChange, onConfigurationChange]);
 
+  // Browse the repository as the ingest signs in (POST /api/browse): needs the URL and a sign-in,
+  // not yet a folder path
+  const canBrowse = url.trim() !== '' && (usingSignIn || (username.trim() !== '' && password.trim() !== ''));
+  const [browseOpen, setBrowseOpen] = useState(false);
+  const configRef = useRef(config);
+  configRef.current = config;
+  const provider = useMemo(() => remoteProvider('cmis', 'CMIS repository', () => configRef.current), []);
+
+  // one folder, or one document: folder_path takes either
+  const handleBrowsed = (items: BrowseItem[]) => {
+    if (items.length) onFolderPathChange(items[0].path || `/${items[0].name}`);
+  };
+
   return (
     <BaseSourceForm
       title="CMIS Repository"
@@ -98,16 +115,36 @@ export const CMISSourceForm: React.FC<CMISSourceFormProps> = ({
         />
       </Box>
       )}
-      <TextField
-        fullWidth
-        label="Folder Path"
-        required
-        variant="outlined"
-        value={folderPath}
-        onChange={(e) => onFolderPathChange(e.target.value)}
-        size="small"
-        sx={{ mb: 2 }}
-        placeholder="e.g., /Sites/example/documentLibrary"
+      <Box sx={{ display: 'flex', gap: 1, alignItems: 'flex-start', mb: 2 }}>
+        <TextField
+          fullWidth
+          label="Folder Path"
+          required
+          variant="outlined"
+          value={folderPath}
+          onChange={(e) => onFolderPathChange(e.target.value)}
+          size="small"
+          placeholder="e.g., /Sites/example/documentLibrary"
+          helperText="A folder (all its subfolders are read), or one document's path"
+        />
+        <Button
+          variant="outlined"
+          startIcon={<FolderOpenIcon />}
+          disabled={!canBrowse}
+          title={canBrowse ? 'Pick a folder or a document in the repository' : 'Fill in the URL and sign in (or a username and password) first'}
+          onClick={() => setBrowseOpen(true)}
+          sx={{ whiteSpace: 'nowrap', minWidth: 'auto', height: 40 }}
+        >
+          Browse…
+        </Button>
+      </Box>
+      <SourceBrowser
+        open={browseOpen}
+        provider={provider}
+        title="Pick a folder or a document: CMIS"
+        multiple={false}
+        onClose={() => setBrowseOpen(false)}
+        onSelect={handleBrowsed}
       />
     </BaseSourceForm>
   );

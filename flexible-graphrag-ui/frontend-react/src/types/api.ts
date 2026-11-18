@@ -75,6 +75,7 @@ export interface SourceDocument {
   node_id: string;      // repository node id (Alfresco / Nuxeo)
   parent_id?: string;   // an Alfresco document's folder id ('' when unknown)
   open_url: string;     // link to the document (Alfresco Share, Nuxeo Web UI); '' when none
+  backend?: string;     // a remote backend's document (REMOTE_FG_*): its name; its path is on that machine
 }
 
 export interface ApiResponse {

@@ -1,6 +1,10 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { TextField, Box } from '@mui/material';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { TextField, Box, Button } from '@mui/material';
+import { FolderOpen as FolderOpenIcon } from '@mui/icons-material';
 import { BaseSourceForm, BaseSourceFormProps } from './BaseSourceForm';
+import { SourceBrowser } from '../../browser/SourceBrowser';
+import { remoteProvider } from '../../browser/RemoteProvider';
+import { BrowseItem } from '../../browser/types';
 
 interface SharePointSourceFormProps extends BaseSourceFormProps {
   siteName: string;
@@ -48,6 +52,32 @@ export const SharePointSourceForm: React.FC<SharePointSourceFormProps> = ({
     onValidationChange(isValid);
     onConfigurationChange(config);
   }, [isValid, config, onValidationChange, onConfigurationChange]);
+
+  // Browse the site's document library with the credentials above (POST /api/browse)
+  // (always offered: a backend that can't browse answers in the browser's error line)
+  const [browseOpen, setBrowseOpen] = useState(false);
+  const browsedId = useRef('');
+  const configRef = useRef(config);
+  configRef.current = config;
+  const provider = useMemo(
+    () => remoteProvider('sharepoint', 'SharePoint document library', () => configRef.current), []);
+
+  const handleBrowsed = (items: BrowseItem[]) => {
+    const folder = items[0];
+    if (!folder) return;
+    setFolderPath(folder.path || '');
+    setFolderId(folder.id);
+    browsedId.current = folder.id;
+  };
+
+  const handleFolderPathChange = (value: string) => {
+    setFolderPath(value);
+    // a typed path replaces a browsed folder: its id would win over the path (SharePointReader)
+    if (browsedId.current && folderId === browsedId.current) {
+      setFolderId('');
+      browsedId.current = '';
+    }
+  };
 
   return (
     <BaseSourceForm
@@ -125,17 +155,37 @@ export const SharePointSourceForm: React.FC<SharePointSourceFormProps> = ({
         helperText="Optional: specific folder ID (replaces document library)"
         autoComplete="off"
       />
-      <TextField
-        fullWidth
-        label="Folder Path (Optional)"
-        variant="outlined"
-        value={folderPath}
-        onChange={(e) => setFolderPath(e.target.value)}
-        size="small"
-        sx={{ mb: 2 }}
-        placeholder="/Shared Documents/Reports"
-        helperText="Optional: specific folder path within site"
-        autoComplete="off"
+      <Box sx={{ display: 'flex', gap: 1, alignItems: 'flex-start', mb: 2 }}>
+        <TextField
+          fullWidth
+          label="Folder Path (Optional)"
+          variant="outlined"
+          value={folderPath}
+          onChange={(e) => handleFolderPathChange(e.target.value)}
+          size="small"
+          placeholder="Reports/2024"
+          helperText="Optional: a folder in the site's document library (empty: the whole library)"
+          autoComplete="off"
+        />
+        <Button
+          variant="outlined"
+          startIcon={<FolderOpenIcon />}
+          disabled={!isValid}
+          title={isValid ? "Pick a folder in the site's document library" : 'Fill in the site and the app credentials first'}
+          onClick={() => setBrowseOpen(true)}
+          sx={{ whiteSpace: 'nowrap', minWidth: 'auto', height: 40 }}
+        >
+          Browse…
+        </Button>
+      </Box>
+      <SourceBrowser
+        open={browseOpen}
+        provider={provider}
+        title={`Pick a folder: ${siteName || 'SharePoint'}`}
+        files={false}
+        multiple={false}
+        onClose={() => setBrowseOpen(false)}
+        onSelect={handleBrowsed}
       />
     </BaseSourceForm>
   );

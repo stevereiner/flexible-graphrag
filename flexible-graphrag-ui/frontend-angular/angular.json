@@ -91,6 +91,28 @@
                 }
               ]
             },
+            "desktop": {
+              "outputPath": "dist-desktop",
+              "budgets": [
+                {
+                  "type": "initial",
+                  "maximumWarning": "2mb",
+                  "maximumError": "5mb"
+                },
+                {
+                  "type": "anyComponentStyle",
+                  "maximumWarning": "10kb",
+                  "maximumError": "20kb"
+                }
+              ],
+              "outputHashing": "all",
+              "fileReplacements": [
+                {
+                  "replace": "src/environments/environment.ts",
+                  "with": "src/environments/environment.prod.ts"
+                }
+              ]
+            },
             "development": {
               "buildOptimizer": false,
               "optimization": false,
@@ -105,7 +127,7 @@
         "serve": {
           "builder": "@angular-devkit/build-angular:dev-server",
           "options": {
-            "proxyConfig": "proxy.conf.json"
+            "proxyConfig": "proxy.conf.mjs"
           },
           "configurations": {
             "production": {

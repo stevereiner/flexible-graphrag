@@ -25,7 +25,36 @@ Auto sync is not supported for the file upload UI.
     If you drag & drop new files after selecting via dialog, only the dragged files will be used.
 
 !!! note "Local filesystem access"
-    The UI uploads files to the backend server. To index files already on the server's local filesystem — with auto sync support — use the **MCP server** (`ingest_documents` with `filesystem` source) or the **REST API**.
+    The web UIs upload files to the backend server. To index files and folders on your own disk with auto sync, use the [Desktop App](../GETTING-STARTED/DESKTOP-APP.md) (**Local Files and Folders**, below). To index files already on the server's filesystem, use the **MCP server** (`ingest_documents` with `filesystem` source) or the **REST API**.
+
+## Local Files and Folders (desktop app)
+
+Only in the [Desktop App](../GETTING-STARTED/DESKTOP-APP.md). Supports auto sync: a folder is watched and rescanned with its subfolders.
+
+1. Select **"Local Files and Folders"** from the data source dropdown
+2. Click **Browse...** and pick files and folders on the local disk (Ctrl / Shift for several), or add the folder you are in
+3. The picks are listed in the form; remove one with its delete icon (**Leave out**), or all with **Clear**. Browse again to add more
+4. Click **"CONFIGURE PROCESSING"** to proceed
+
+## Browse...
+
+In the web UIs and the desktop app, the **Alfresco, Nuxeo, CMIS, SharePoint, OneDrive, Box, Amazon S3, Azure Blob, Google Cloud Storage** and **Google Drive** forms have a **Browse...** button next to their path, folder or prefix field. It opens a file/folder browser of that source, so you pick a folder or documents instead of typing a path or an id.
+
+- Fill in the form's connection fields first (URL, credentials or your sign-in, bucket / container / site); the button is enabled once they are complete. The browser uses the same settings the ingest will use, so it shows what the ingest can read.
+- Open a folder to see what is in it (one level at a time), then select, or use the folder you are in.
+- Each source type remembers the last folder you were in (in the browser's local storage).
+- Starting an ingest clears the picks; the run's rows stay on the Processing tab.
+
+What each source can pick:
+
+| Source | Picks |
+| --- | --- |
+| Alfresco, Nuxeo | files and folders, several |
+| Box, Google Drive, OneDrive | one folder, or several files |
+| Amazon S3, Azure Blob, CMIS | one folder or one file |
+| Google Cloud Storage, SharePoint | one folder |
+
+Several picks show as chips under the field. The API behind it: `GET /api/browse` (the sources it supports) and `POST /api/browse` (one folder level, paged); see [REST API](../DEVELOPER/REST-API.md).
 
 ## Alfresco Repository
 
@@ -151,9 +180,9 @@ Supports auto sync — select **"Enable auto change sync"** on the Processing ta
 
 | Category | Sources |
 |---|---|
-| File & Upload | File Upload |
+| File & Upload | File Upload, Local Files and Folders (desktop app) |
 | Cloud Storage | Amazon S3, Google Cloud Storage, Azure Blob Storage, Google Drive, Microsoft OneDrive |
-| Enterprise Repositories | Alfresco, Microsoft SharePoint, Box, CMIS |
+| Enterprise Repositories | Alfresco, Nuxeo, Microsoft SharePoint, Box, CMIS |
 | Web Sources | Web Pages, Wikipedia, YouTube |
 
 See [Data Sources](../DATA-SOURCES/OVERVIEW.md) for full configuration details for each source.

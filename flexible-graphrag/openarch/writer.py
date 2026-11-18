@@ -104,25 +104,14 @@ def place_source_document(client: OpenArchClient, root_path: str, source_type: s
     if current_parent != parent:
         client.ensure_folders(parent)
     target = client.get_by_path(parent)
-    placed = False
-    for candidate in (name, unique):
-        try:
-            doc = client.move(doc["sys_id"], target["sys_id"], None if candidate == current_name else candidate)
-        except OpenArchError as e:
-            if e.status_code != 409:
-                raise
-            continue  # the name is taken there: the unique one
-        current_name = str(doc.get("sys_path") or "").rpartition("/")[2]
-        placed = current_name in (name, unique)  # False: the server ignored the name
-        break
-    if not placed:
+    # Another object of the source has the name there: the unique one. Checked up front, as move
+    # and copy have no enforceSysName -- a taken name is not a 409 but a generated one (name.<n>)
+    taken = client.get_by_path(f"{parent}/{name}")
+    candidate = unique if taken and taken.get("sys_id") != doc.get("sys_id") else name
+    doc = client.move(doc["sys_id"], target["sys_id"], None if candidate == current_name else candidate)
+    if str(doc.get("sys_path") or "").rpartition("/")[2] != candidate:  # the server ignored the name
         old_id = doc["sys_id"]
-        try:
-            copied = client.copy(old_id, target["sys_id"], name)
-        except OpenArchError as e:
-            if e.status_code != 409:
-                raise
-            copied = client.copy(old_id, target["sys_id"], unique)
+        copied = client.copy(old_id, target["sys_id"], candidate)
         delete_with_chunks(client, old_id)
         doc = client.get(copied["sys_id"]) or copied
     logger.info("OpenArch: %s moved to %s (its source object was moved or renamed)", old_path, doc.get("sys_path"))

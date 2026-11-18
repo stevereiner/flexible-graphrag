@@ -7,6 +7,7 @@ export { CMISSourceForm } from './CMISSourceForm';
 export { FileUploadForm } from './FileUploadForm';
 export { GCSSourceForm } from './GCSSourceForm';
 export { GoogleDriveSourceForm } from './GoogleDriveSourceForm';
+export { LocalFolderForm, type LocalItem } from './LocalFolderForm';
 export { NuxeoSourceForm } from './NuxeoSourceForm';
 export { OneDriveSourceForm } from './OneDriveSourceForm';
 export { S3SourceForm } from './S3SourceForm';

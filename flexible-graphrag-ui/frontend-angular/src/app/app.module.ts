@@ -1,7 +1,7 @@
 import { NgModule, APP_INITIALIZER, CUSTOM_ELEMENTS_SCHEMA } from '@angular/core';
 import { BrowserModule } from '@angular/platform-browser';
 import { BrowserAnimationsModule } from '@angular/platform-browser/animations';
-import { HttpClientModule } from '@angular/common/http';
+import { HTTP_INTERCEPTORS, HttpClientModule } from '@angular/common/http';
 import { ReactiveFormsModule, FormsModule } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCardModule } from '@angular/material/card';
@@ -31,6 +31,8 @@ import { QueryFormComponent } from './components/query-form/query-form.component
 import { EnvService } from './services/env.service';
 import { FlexibleGraphragUiModule } from '@flexible-graphrag/angular-ui';
 import { environment } from '../environments/environment';
+import { BackendGateComponent } from './desktop/backend-gate.component';
+import { DesktopConnection, DesktopTokenInterceptor, installDesktopConnection } from './desktop/desktop-connection';
 
 
 // Factory function to initialize environment configuration
@@ -42,7 +44,8 @@ export function initializeEnv(envService: EnvService) {
   declarations: [
     AppComponent,
     ProcessFolderComponent,
-    QueryFormComponent
+    QueryFormComponent,
+    BackendGateComponent
   ],
   imports: [
     BrowserModule,
@@ -88,7 +91,15 @@ export function initializeEnv(envService: EnvService) {
       useFactory: initializeEnv,
       deps: [EnvService],
       multi: true
-    }
+    },
+    // Desktop app (flexible-graphrag-ui/desktop): backend URL + API token; nothing in a browser
+    {
+      provide: APP_INITIALIZER,
+      useFactory: installDesktopConnection,
+      deps: [DesktopConnection],
+      multi: true
+    },
+    { provide: HTTP_INTERCEPTORS, useClass: DesktopTokenInterceptor, multi: true }
   ],
   schemas: [CUSTOM_ELEMENTS_SCHEMA],
   bootstrap: [AppComponent]

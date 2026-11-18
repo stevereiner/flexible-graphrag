@@ -472,6 +472,7 @@
 <script lang="ts">
 import { defineComponent, ref, computed, watch, onBeforeUnmount } from 'vue';
 import axios from 'axios';
+import { markIngestStarted } from '../ingestSignal';
 import { loadUiDefaults } from '../uiDefaults';
 import { storesChanged } from '../auth/sourceAuth';
 
@@ -582,8 +583,13 @@ export default defineComponent({
       type: Number,
       default: 0,
     },
+    // Local files and folders (desktop app): { paths, items: [{ path, isDirectory }] }
+    configuredFilesystemConfig: {
+      type: Object,
+      default: null,
+    },
   },
-  emits: ['go-to-sources', 'files-removed', 'show-graph'],
+  emits: ['go-to-sources', 'files-removed', 'show-graph', 'repo-picks-changed', 'local-items-changed'],
   setup(props, { emit }) {
     // State
     const selectedItems = ref<number[]>([]);
@@ -630,17 +636,47 @@ export default defineComponent({
       { title: 'Status', key: 'status', width: '100px' },
     ] as any[]);
 
+    // Alfresco / Nuxeo documents and folders picked in the browser (nodeDetails, which win over the
+    // path in both ingests): a row each, with its own status; the ingest sends only the checked rows
+    const repoPicks = computed<any[]>(() => {
+      const cfg: any = props.configuredDataSource === 'alfresco' ? props.configuredAlfrescoConfig
+        : props.configuredDataSource === 'nuxeo' ? props.configuredNuxeoConfig : null;
+      return Array.isArray(cfg?.nodeDetails) ? cfg.nodeDetails : [];
+    });
+
+    // Local files and folders picked in the desktop app: a row each (a folder includes everything below it)
+    const localItems = computed<{ path: string; isDirectory: boolean }[]>(() =>
+      props.configuredDataSource === 'filesystem' ? props.configuredFilesystemConfig?.items || [] : []);
+
     // Computed
     const displayFiles = computed(() => {
       if (!props.hasConfiguredSources) return [];
-      
-      if (props.configuredDataSource === 'upload') {
+
+      if (props.configuredDataSource === 'filesystem') {
+        return localItems.value.map((item, index) => ({
+          index,
+          name: item.path,
+          originalFilename: item.path,
+          size: 0,
+          type: item.isDirectory ? 'path' : 'file',
+        }));
+      } else if (props.configuredDataSource === 'upload') {
         return props.configuredFiles.map((file, index) => ({
           index,
           name: file.name,
           originalFilename: file.name, // For upload files, name and originalFilename are the same
           size: file.size,
           type: 'file',
+        }));
+      } else if (repoPicks.value.length) {
+        if (repositoryItemsHidden.value && sourcesReconfiguredFlag.value === 0) return [];
+        // picked Alfresco / Nuxeo documents and folders: a row each
+        return repoPicks.value.map((n: any, index: number) => ({
+          index,
+          name: n.path || n.name,
+          originalFilename: n.path || n.name,
+          size: 0,
+          type: 'repository',
         }));
       } else if (props.configuredDataSource === 'cmis' || props.configuredDataSource === 'alfresco' || props.configuredDataSource === 'nuxeo') {
         // If repository items are explicitly hidden AND sources haven't been freshly reconfigured, show nothing
@@ -688,17 +724,39 @@ export default defineComponent({
               return prefix ? `s3://${bucket}/${prefix}` : `s3://${bucket}`;
             }
             case 'gcs': 
-              return `GCS: ${props.configuredCloudConfig?.bucket_name || 'bucket'}`;
-            case 'azure_blob': 
-              return `Azure: ${props.configuredCloudConfig?.container_name || 'container'}`;
-            case 'onedrive': 
-              return `OneDrive: ${props.configuredEnterpriseConfig?.user_principal_name || 'user'}`;
-            case 'sharepoint': 
-              return `SharePoint: ${props.configuredEnterpriseConfig?.site_name || 'site'}`;
-            case 'box': 
-              return 'Box Storage';
-            case 'google_drive': 
-              return 'Google Drive';
+              return `GCS: ${props.configuredCloudConfig?.bucket_name || 'bucket'}/${props.configuredCloudConfig?.prefix || ''}`;
+            case 'azure_blob': {
+              // one blob (its full name) wins over the folder prefix in the ingest
+              const cfg = props.configuredCloudConfig;
+              return `Azure: ${cfg?.container_name || 'container'}/${cfg?.blob || cfg?.prefix || ''}`;
+            }
+            case 'onedrive': {
+              // picked files (file_ids) are read instead of a folder
+              const cfg = props.configuredEnterpriseConfig;
+              const picked = cfg?.file_ids?.length || 0;
+              return picked ? `OneDrive: ${picked} file${picked === 1 ? '' : 's'}`
+                : `OneDrive: ${cfg?.folder_path || '(whole drive)'}`;
+            }
+            case 'sharepoint':
+            {
+              const cfg = props.configuredEnterpriseConfig;
+              const site = cfg?.site_name || 'site';
+              return cfg?.folder_path ? `SharePoint: ${site}/${cfg.folder_path}` : `SharePoint: ${site}`;
+            }
+            case 'box': {
+              // picked files (box_file_ids) are read instead of a folder
+              const cfg = props.configuredEnterpriseConfig;
+              const picked = cfg?.box_file_ids?.length || 0;
+              return picked ? `Box: ${picked} file${picked === 1 ? '' : 's'}`
+                : `Box: ${cfg?.folder_id || 'All Files'}`;
+            }
+            case 'google_drive': {
+              // a folder id wins over picked files (file_ids) in the ingest
+              const cfg = props.configuredEnterpriseConfig;
+              const picked = cfg?.file_ids?.length || 0;
+              return cfg?.folder_id ? `Google Drive: ${cfg.folder_id}`
+                : picked ? `Google Drive: ${picked} file${picked === 1 ? '' : 's'}` : 'Google Drive';
+            }
             default: 
               return 'Data Source';
           }
@@ -913,7 +971,13 @@ export default defineComponent({
     };
 
     const removeFile = (index: number) => {
-      if (props.configuredDataSource === 'upload') {
+      if (props.configuredDataSource === 'filesystem') {
+        // A local file / folder row: out of the config and the form's list (App holds both)
+        emit('local-items-changed', localItems.value.filter((_, i) => i !== index));
+        selectedItems.value = selectedItems.value
+          .filter(i => i !== index)
+          .map(i => i > index ? i - 1 : i);
+      } else if (props.configuredDataSource === 'upload') {
         // Remove from configured files
         const newFiles = [...props.configuredFiles];
         newFiles.splice(index, 1);
@@ -925,6 +989,18 @@ export default defineComponent({
           .filter(i => i !== index)
           .map(i => i > index ? i - 1 : i);
         selectedItems.value = newSelected;
+      } else if (repoPicks.value.length) {
+        // A picked Alfresco / Nuxeo row (nodeDetails, a row each): out of the config (App holds it),
+        // so the ingest and its status leave it out too. The last one gone: no rows left.
+        const nodeDetails = repoPicks.value.filter((_: any, i: number) => i !== index);
+        emit('repo-picks-changed', { source: props.configuredDataSource, nodeDetails });
+        if (!nodeDetails.length) {
+          repositoryItemsHidden.value = true;
+          sourcesReconfiguredFlag.value = 0;
+        }
+        selectedItems.value = selectedItems.value
+          .filter(i => i !== index)
+          .map(i => i > index ? i - 1 : i);
       } else if (props.configuredDataSource === 'cmis' || props.configuredDataSource === 'alfresco' || props.configuredDataSource === 'nuxeo') {
         // For repository items, remove from display
         if (statusData.value?.individual_files && statusData.value.individual_files.length > 0) {
@@ -1098,15 +1174,27 @@ export default defineComponent({
 
           request.paths = uploadedPaths;
           request.data_source = 'filesystem'; // Use filesystem processing for uploaded files
+        } else if (props.configuredDataSource === 'filesystem') {
+          // Local files and folders: the checked rows (with columns, item_actions narrow them on the backend)
+          const paths: string[] = props.configuredFilesystemConfig?.paths || [];
+          request.paths = planned ? paths : paths.filter((_, i) => selectedItems.value.includes(i));
         } else {
           // Every other source: its config (and CMIS / Alfresco their path) -- the same fields
           // its ingest status sent, so both name the same datasource
           Object.assign(request, sourceFields());
+          if (repoPicks.value.length && !planned) {
+            // Alfresco / Nuxeo picks: only the checked rows (with columns, item_actions narrow them on the backend)
+            const key = props.configuredDataSource === 'alfresco' ? 'alfresco_config' : 'nuxeo_config';
+            request[key] = { ...request[key],
+              nodeDetails: repoPicks.value.filter((_: any, i: number) => selectedItems.value.includes(i)) };
+          }
         }
 
 
         const response = await axios.post('/api/ingest', request);
-        
+        // an ingest started: the Sources tab's lists empty (its rows stay here)
+        if (response.data.status === 'started') markIngestStarted();
+
         // Handle async processing response
         if (response.data.status === 'started' && runInBackground.value) {
           // The job carries on in the backend; this tab is free to start another one
@@ -1292,26 +1380,33 @@ export default defineComponent({
 
     // Every other source is one row: the whole datasource (its config names it)
     const isSingleRowSource = () =>
-      !!props.configuredDataSource && !['upload', 'alfresco', 'nuxeo'].includes(props.configuredDataSource);
+      !!props.configuredDataSource && !['upload', 'filesystem', 'alfresco', 'nuxeo'].includes(props.configuredDataSource);
 
     const refreshIngestStatus = () => {
       const source = props.configuredDataSource;
       const cfg: any = source === 'alfresco' ? props.configuredAlfrescoConfig
         : source === 'nuxeo' ? props.configuredNuxeoConfig : null;
       const isUpload = source === 'upload';
+      const isLocal = source === 'filesystem';
       const single = isSingleRowSource();
       const rowName = single ? displayFiles.value[0]?.name : '';
-      const known = isUpload || single || source === 'alfresco' || source === 'nuxeo';
-      if (!known || isProcessing.value || (isUpload && !displayFiles.value.length) || (single && !rowName)) {
-        if (!known || (isUpload && !displayFiles.value.length) || (single && !rowName)) {
+      const known = isUpload || isLocal || single || source === 'alfresco' || source === 'nuxeo';
+      const noRows = (isUpload || isLocal) && !displayFiles.value.length;
+      if (!known || isProcessing.value || noRows || (single && !rowName)) {
+        if (!known || noRows || (single && !rowName)) {
           ingestStatus.value = []; ingestStatusKey = '';
         }
         return;
       }
       const path = cfg?.path || props.configuredFolderPath || '/';
       // Uploaded files: rows by file name (the backend finds them under its upload directory);
-      // a single-row source: one row, the whole datasource, found by the fields its ingest sends
-      const request: any = single
+      // local files and folders (desktop): rows by path, a folder always with its subfolders (the
+      // ingest, watch and rescan recurse); a single-row source: one row, the whole datasource,
+      // found by the fields its ingest sends
+      const request: any = isLocal
+        ? { data_source: 'filesystem', recursive: true,
+            items: localItems.value.map((i) => ({ path: i.path, is_folder: i.isDirectory })) }
+        : single
         ? { data_source: source, items: [{ path: rowName, is_folder: false }], source: sourceFields() }
         : isUpload
         ? { data_source: 'upload', recursive: false,
@@ -1320,7 +1415,11 @@ export default defineComponent({
             data_source: source,
             url: cfg?.url,
             recursive: !!cfg?.recursive,
-            items: [{ path, is_folder: !looksLikeFile(path) }],
+            // Alfresco / Nuxeo picks (nodeDetails): a status per picked row, in row order
+            items: cfg?.nodeDetails?.length
+              // the id too: a row's per-row action names its pick by it (path alone matched no pick)
+              ? cfg.nodeDetails.map((n: any) => ({ path: n.path, id: n.id, is_folder: !!n.isFolder }))
+              : [{ path, is_folder: !looksLikeFile(path) }],
           };
       const key = JSON.stringify(request);
       if (key === ingestStatusKey) return;
@@ -1681,7 +1780,7 @@ export default defineComponent({
     // Watch for repository configuration changes (CMIS/Alfresco) based on timestamp
     watch(() => props.configurationTimestamp, (newTimestamp, oldTimestamp) => {
       if (newTimestamp > 0 && newTimestamp !== oldTimestamp && 
-          (props.configuredDataSource === 'cmis' || props.configuredDataSource === 'alfresco' || props.configuredDataSource === 'nuxeo')) {
+          ['cmis', 'alfresco', 'nuxeo', 'filesystem'].includes(props.configuredDataSource)) {
         // Clear old processing messages when reconfiguring
         successMessage.value = '';
         error.value = '';
@@ -1746,7 +1845,7 @@ export default defineComponent({
 
     // Auto-select files when they are discovered from processing status or configuration
     watch(() => displayFiles.value, (newFiles, oldFiles) => {
-      if (props.configuredDataSource === 'cmis' || props.configuredDataSource === 'alfresco' || props.configuredDataSource === 'nuxeo') {
+      if (['cmis', 'alfresco', 'nuxeo', 'filesystem'].includes(props.configuredDataSource)) {
         console.log('Repository displayFiles changed:', newFiles.length, 'files');
         // every row except those already in the stores (see refreshIngestStatus)
         selectedItems.value = newFiles

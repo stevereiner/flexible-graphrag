@@ -1,8 +1,13 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { TextField, Box, Typography, FormControl, InputLabel, Select, MenuItem } from '@mui/material';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { TextField, Box, Button, Chip, Typography, FormControl, InputLabel, Select, MenuItem } from '@mui/material';
+import { FolderOpen as FolderOpenIcon } from '@mui/icons-material';
 import { BaseSourceForm, BaseSourceFormProps } from './BaseSourceForm';
 import { DeepCheckbox, deepValue } from './DeepCheckbox';
 import { useUiDefaults } from '../../uiDefaults';
+import { SourceBrowser } from '../../browser/SourceBrowser';
+import { remoteProvider } from '../../browser/RemoteProvider';
+import { BrowseItem } from '../../browser/types';
+import { useOnIngestStarted } from '../../ingestSignal';
 
 type BoxAuthMode = 'developer_token' | 'ccg_user' | 'ccg_enterprise' | 'ccg_both';
 
@@ -35,7 +40,13 @@ export const BoxSourceForm: React.FC<BoxSourceFormProps> = ({
   onValidationChange,
 }) => {
   const [folderId, setFolderId] = useState('');
-  const [authMode, setAuthMode] = useState<BoxAuthMode>('developer_token');
+  // the browsed folder's name path, shown under its id (cleared when the id is typed)
+  const [folderLabel, setFolderLabel] = useState('');
+  // files picked in the browser (box_file_ids: the ingest then reads these instead of a folder)
+  const [files, setFiles] = useState<BrowseItem[]>([]);
+  // an ingest started: the picked files empty (the run's rows stay in Processing)
+  useOnIngestStarted(() => setFiles([]));
+  const [authMode, setAuthMode] = useState<BoxAuthMode>('ccg_user');
   // Deep: include subfolders (recursive). Unset: the backend's DEFAULT_RECURSIVE, else on (Box's
   // own default)
   const [ownDeep, setRecursive] = useState<boolean | undefined>(undefined);
@@ -63,13 +74,34 @@ export const BoxSourceForm: React.FC<BoxSourceFormProps> = ({
     user_id: (authMode === 'ccg_user' || authMode === 'ccg_both') ? userId : undefined,
     enterprise_id: (authMode === 'ccg_enterprise' || authMode === 'ccg_both') ? enterpriseId : undefined,
     folder_id: folderId || undefined,
+    box_file_ids: files.length ? files.map((f) => f.id) : undefined,
     recursive,
-  }), [authMode, clientId, clientSecret, developerToken, userId, enterpriseId, folderId, recursive]);
+  }), [authMode, clientId, clientSecret, developerToken, userId, enterpriseId, folderId, files, recursive]);
 
   useEffect(() => {
     onValidationChange(isValid);
     onConfigurationChange(config);
   }, [isValid, config, onValidationChange, onConfigurationChange]);
+
+  // Browse Box with the credentials above (POST /api/browse)
+  const [browseOpen, setBrowseOpen] = useState(false);
+  const configRef = useRef(config);
+  configRef.current = config;
+  const provider = useMemo(() => remoteProvider('box', 'Box', () => configRef.current), []);
+
+  // one folder (folder_id), or files (box_file_ids): the browser keeps the two apart
+  const handleBrowsed = (items: BrowseItem[]) => {
+    if (!items.length) return;
+    if (items[0].isDirectory) {
+      setFolderId(items[0].id);
+      setFolderLabel(items[0].path || items[0].name);
+      setFiles([]);
+    } else {
+      setFiles(items);
+      setFolderId('');
+      setFolderLabel('');
+    }
+  };
 
   return (
     <BaseSourceForm
@@ -83,10 +115,10 @@ export const BoxSourceForm: React.FC<BoxSourceFormProps> = ({
           onChange={(e) => setAuthMode(e.target.value as BoxAuthMode)}
           label="Authentication Type"
         >
-          <MenuItem value="developer_token">Developer Token</MenuItem>
           <MenuItem value="ccg_user">App Access (User)</MenuItem>
           <MenuItem value="ccg_enterprise">App Access (Enterprise)</MenuItem>
           <MenuItem value="ccg_both">App Access (User + Enterprise)</MenuItem>
+          <MenuItem value="developer_token">Developer Token (expires after 1 hour)</MenuItem>
         </Select>
       </FormControl>
 
@@ -161,20 +193,61 @@ export const BoxSourceForm: React.FC<BoxSourceFormProps> = ({
         </>
       )}
 
-      <Box sx={{ display: 'flex', alignItems: 'flex-start' }}>
+      <Box sx={{ display: 'flex', gap: 1, alignItems: 'flex-start' }}>
         <TextField
           fullWidth
           label="Folder ID (Optional)"
           variant="outlined"
           value={folderId}
-          onChange={(e) => setFolderId(e.target.value)}
+          onChange={(e) => {
+            setFolderId(e.target.value);
+            setFolderLabel('');
+            if (e.target.value) setFiles([]);
+          }}
           size="small"
           sx={{ mb: 2 }}
           placeholder="e.g., 123456789"
-          helperText="Leave empty for the root folder (All Files, ID 0)"
+          helperText={folderLabel ? `Folder: ${folderLabel}` : 'Leave empty for the root folder (All Files, ID 0)'}
+          disabled={files.length > 0}
         />
+        <Button
+          variant="outlined"
+          startIcon={<FolderOpenIcon />}
+          disabled={!isValid}
+          title={isValid ? 'Pick a folder or files in Box' : 'Fill in the credentials first'}
+          onClick={() => setBrowseOpen(true)}
+          sx={{ whiteSpace: 'nowrap', minWidth: 'auto', height: 40 }}
+        >
+          Browse…
+        </Button>
         <DeepCheckbox checked={recursive} onChange={setRecursive} />
       </Box>
+      {files.length > 0 && (
+        <Box sx={{ mb: 2 }}>
+          <Typography variant="caption" sx={{ display: 'block', mb: 0.5, opacity: 0.8 }}>
+            {files.length === 1 ? '1 file picked' : `${files.length} files picked`}: the ingest reads these instead of a folder
+          </Typography>
+          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+            {files.map((f) => (
+              <Chip
+                key={f.id}
+                size="small"
+                label={f.path || f.name}
+                onDelete={() => setFiles((prev) => prev.filter((p) => p.id !== f.id))}
+              />
+            ))}
+            <Button size="small" onClick={() => setFiles([])}>Clear</Button>
+          </Box>
+        </Box>
+      )}
+      <SourceBrowser
+        open={browseOpen}
+        provider={provider}
+        title="Pick a folder or files: Box"
+        mixed={false}
+        onClose={() => setBrowseOpen(false)}
+        onSelect={handleBrowsed}
+      />
     </BaseSourceForm>
   );
 };

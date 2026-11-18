@@ -347,14 +347,17 @@ def test_chroma_factory():
         # Import or other errors are expected without chromadb package
         pass
 
+@patch("pymilvus.MilvusClient")
 @patch("llama_index.vector_stores.milvus.MilvusVectorStore")
-def test_milvus_factory(mock_milvus_cls):
+def test_milvus_factory(mock_milvus_cls, mock_milvus_client):
     """Factory dispatches to Milvus without opening a real gRPC connection (avoids long hangs)."""
     from config import VectorDBType
     from factories import DatabaseFactory
+    from llamaindex.vector.adapters.milvus_adapter import LlamaIndexMilvusAdapter
 
     assert VectorDBType.MILVUS == "milvus"
     mock_milvus_cls.return_value = MagicMock()
+    mock_milvus_client.return_value.has_collection.return_value = False
 
     config = {
         "host": "localhost",
@@ -363,8 +366,12 @@ def test_milvus_factory(mock_milvus_cls):
         "dim": 1536,
     }
     out = DatabaseFactory.create_vector_store(VectorDBType.MILVUS, config)
-    assert out is mock_milvus_cls.return_value
+    # The factory returns an adapter wrapping the LlamaIndex MilvusVectorStore
+    assert isinstance(out, LlamaIndexMilvusAdapter)
+    assert out.get_store() is mock_milvus_cls.return_value
     mock_milvus_cls.assert_called_once()
+    assert mock_milvus_cls.call_args.kwargs["uri"] == "http://localhost:19530"
+    assert mock_milvus_cls.call_args.kwargs["collection_name"] == "test_collection"
 
 def test_weaviate_factory():
     """Test Weaviate vector store factory creation"""

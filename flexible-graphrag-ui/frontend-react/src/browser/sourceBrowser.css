@@ -1,0 +1,10 @@
+/* react-file-manager inside the MUI app (SourceBrowser wraps it in .fg-browser).
+   MUI's CssBaseline makes every element box-sizing: border-box; the component's CSS is written for
+   the browser default (content-box) -- e.g. a list row is height 13px + 15px padding top and bottom,
+   which border-box shrinks to 30px, leaving the row checkboxes (top: 12px) at the bottom. */
+.fg-browser .file-explorer,
+.fg-browser .file-explorer *,
+.fg-browser .file-explorer *::before,
+.fg-browser .file-explorer *::after {
+  box-sizing: content-box;
+}

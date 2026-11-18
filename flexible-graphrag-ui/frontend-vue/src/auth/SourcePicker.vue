@@ -14,14 +14,15 @@
     >All sources</v-chip>
     <v-chip
       v-for="s in sources"
-      :key="sourceKey(s)"
+      :key="pickKey(s)"
       size="small"
       :variant="isOn(s) ? 'flat' : 'outlined'"
       :color="SOURCE_COLORS[s.source] || (isOn(s) ? 'primary' : undefined)"
       :style="{ opacity: locked(s) ? 0.5 : 1 }"
       :title="locked(s)
         ? `Sign in to ${labelOf(signInFor(s).source)} first`
-        : `${s.label} only (${s.documents} document${s.documents === 1 ? '' : 's'})${s.url ? ` — ${s.url}` : ''}`"
+        : `${s.label} only (${s.documents} document${s.documents === 1 ? '' : 's'})${s.url ? ` — ${s.url}` : ''}`
+          + (s.backend ? ` — on the ${s.backend} backend` : '')"
       @click="onChip(s)"
     >{{ chipLabel(s) }}</v-chip>
   </div>
@@ -31,7 +32,7 @@
 import { defineComponent, onMounted, onUnmounted, ref } from 'vue';
 import {
   AvailableSource, Requirements, getAvailableSources, getPickedSources, getRequirements, onAuthChange,
-  labelOf, openSignIn, setPickedSources, signInFor, sourceKey, sourceNeedsSignIn,
+  labelOf, openSignIn, pickKey, setPickedSources, signInFor, sourceNeedsSignIn,
 } from './sourceAuth';
 import { SOURCE_COLORS } from './sourceColors';
 
@@ -48,7 +49,7 @@ export default defineComponent({
       sources.value = list;
       req.value = r;
       // drop picks that are gone from the stores or now need a sign-in (e.g. after signing out)
-      const usable = new Set(list.filter((s) => !sourceNeedsSignIn(s, r)).map(sourceKey));
+      const usable = new Set(list.filter((s) => !sourceNeedsSignIn(s, r)).map(pickKey));
       const kept = getPickedSources().filter((k) => usable.has(k));
       if (kept.length !== getPickedSources().length) setPickedSources(kept);
       picked.value = kept;
@@ -61,10 +62,12 @@ export default defineComponent({
     onUnmounted(() => stop?.());
 
     const locked = (s: AvailableSource) => sourceNeedsSignIn(s, req.value);
-    const isOn = (s: AvailableSource) => picked.value.includes(sourceKey(s));
+    const isOn = (s: AvailableSource) => picked.value.includes(pickKey(s));
     const chipLabel = (s: AvailableSource) => {
-      const several = sources.value.filter((x) => x.source === s.source).length > 1;
-      return several && s.url ? `${s.label} (${s.url.replace(/^https?:\/\//, '')})` : s.label;
+      // several servers of one type on the same backend: tell them apart by server
+      const several = sources.value.filter((x) => x.source === s.source && x.backend === s.backend).length > 1;
+      const base = several && s.url ? `${s.label} (${s.url.replace(/^https?:\/\//, '')})` : s.label;
+      return s.backend ? `${base} · ${s.backend}` : base;
     };
     const pickAll = () => { setPickedSources([]); picked.value = []; };
     const onChip = (s: AvailableSource) => {
@@ -72,13 +75,13 @@ export default defineComponent({
         openSignIn({ ...signInFor(s), methods: ['basic'], documents: s.documents }, 'ask');
         return;
       }
-      const key = sourceKey(s);
+      const key = pickKey(s);
       const next = picked.value.includes(key) ? picked.value.filter((k) => k !== key) : [...picked.value, key];
       setPickedSources(next);
       picked.value = next;
     };
 
-    return { sources, picked, locked, isOn, chipLabel, pickAll, onChip, sourceKey, SOURCE_COLORS, labelOf, signInFor };
+    return { sources, picked, locked, isOn, chipLabel, pickAll, onChip, pickKey, SOURCE_COLORS, labelOf, signInFor };
   },
 });
 </script>

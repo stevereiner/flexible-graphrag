@@ -13,3 +13,5 @@ Environment-based configuration for all system components.
 - [LangChain Configuration](../CONFIGURATION/LANGCHAIN-CONFIGURATION.md) — RDF QA fusion, graph retrievers
 - [CocoIndex Configuration](../CONFIGURATION/CONFIG-COCOINDEX.md) — every `.env` setting for the CocoIndex pipeline
 - [Incremental Auto-Sync Setup](../DATA-SOURCES/INCREMENTAL-UPDATE-AUTO-SYNC/QUICKSTART.md) — auto-sync quickstart
+- [Federated Backends](../CONFIGURATION/FEDERATED-BACKENDS.md) — search and AI answers that fuse results from other Flexible GraphRAG backends (`REMOTE_FG_BACKENDS`)
+- [API Token and CORS](../CONFIGURATION/API-TOKEN-CORS.md) — optional `API_TOKEN` and `CORS_ORIGINS`

@@ -1,9 +1,17 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { TextField, Box, FormControl, InputLabel, Select, MenuItem } from '@mui/material';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { TextField, Box, Button, Chip, Typography, FormControl, InputLabel, Select, MenuItem } from '@mui/material';
+import { FolderOpen as FolderOpenIcon } from '@mui/icons-material';
 import { BaseSourceForm, BaseSourceFormProps } from './BaseSourceForm';
 import { SourceSignInSection, useSourceSession } from '../../auth/SourceSignInSection';
 import { DeepCheckbox, deepValue } from './DeepCheckbox';
 import { useUiDefaults } from '../../uiDefaults';
+import { SourceBrowser } from '../../browser/SourceBrowser';
+import { remoteProvider } from '../../browser/RemoteProvider';
+import { BrowseItem } from '../../browser/types';
+import { useOnIngestStarted } from '../../ingestSignal';
+
+// one picked document / folder, as NuxeoConfig.nodeDetails holds it
+interface NodeDetail { id: string; name: string; path: string; isFile: boolean; isFolder: boolean }
 
 type AuthMethod = 'basic' | 'oauth2' | 'token';
 
@@ -38,6 +46,10 @@ export const NuxeoSourceForm: React.FC<NuxeoSourceFormProps> = ({
   const [url, setUrl] = useState<string>(value?.url ?? defaultUrl);
   const [authMethod, setAuthMethod] = useState<AuthMethod>(value?.auth_method ?? 'basic');
   const [path, setPath] = useState<string>(value?.path ?? defaultPath);
+  // several documents / folders picked in the browser: the ingest reads these instead of the path
+  const [picked, setPicked] = useState<NodeDetail[]>(value?.nodeDetails ?? []);
+  // an ingest started: the picks empty (the run's rows stay in Processing)
+  useOnIngestStarted(() => setPicked([]));
   // Deep: include subfolders (recursive). Unset: the backend's DEFAULT_RECURSIVE, else off
   const [ownDeep, setRecursive] = useState<boolean | undefined>(value?.recursive);
   const recursive = deepValue(ownDeep, useUiDefaults().recursive, false);
@@ -71,8 +83,9 @@ export const NuxeoSourceForm: React.FC<NuxeoSourceFormProps> = ({
   }, [url, usingSignIn, authMethod, username, password, clientId, clientSecret, accessToken]);
 
   const config = useMemo(() => {
-    if (usingSignIn && credential) return { url, path, recursive, ...credential };
-    const base: any = { url, auth_method: authMethod, path, recursive };
+    const nodes = picked.length ? { nodeDetails: picked } : {};
+    if (usingSignIn && credential) return { url, path, recursive, ...nodes, ...credential };
+    const base: any = { url, auth_method: authMethod, path, recursive, ...nodes };
     // token mode sends username/password; the backend fetches the auth token from them.
     if (authMethod === 'basic' || authMethod === 'token') {
       base.username = username;
@@ -87,13 +100,33 @@ export const NuxeoSourceForm: React.FC<NuxeoSourceFormProps> = ({
       };
     }
     return base;
-  }, [url, authMethod, path, recursive, usingSignIn, credential, username, password, clientId, clientSecret, accessToken, refreshToken, tokenEndpoint]);
+  }, [url, authMethod, path, recursive, picked, usingSignIn, credential, username, password, clientId, clientSecret, accessToken, refreshToken, tokenEndpoint]);
 
   useEffect(() => {
     onValidationChange(isValid);
     onConfigurationChange(config);
     onChange?.(config);  // persist live config to App so it survives tab switches
   }, [isValid, config, onValidationChange, onConfigurationChange, onChange]);
+
+  // Browse the repository as the ingest signs in (POST /api/browse). OAuth2 browses only with an
+  // access token (the backend says so otherwise).
+  const [browseOpen, setBrowseOpen] = useState(false);
+  const configRef = useRef(config);
+  configRef.current = config;
+  const provider = useMemo(() => remoteProvider('nuxeo', 'Nuxeo repository', () => configRef.current), []);
+
+  // one folder: the path; anything else (documents, several items): nodeDetails
+  const handleBrowsed = (items: BrowseItem[]) => {
+    if (!items.length) return;
+    if (items.length === 1 && items[0].isDirectory) {
+      setPath(items[0].path || items[0].name);
+      setPicked([]);
+      return;
+    }
+    setPicked(items.map((i) => ({
+      id: i.id, name: i.name, path: i.path || i.name, isFile: !i.isDirectory, isFolder: i.isDirectory,
+    })));
+  };
 
   return (
     <BaseSourceForm
@@ -219,20 +252,57 @@ export const NuxeoSourceForm: React.FC<NuxeoSourceFormProps> = ({
         </Box>
       )}
 
-      <Box sx={{ display: 'flex', alignItems: 'flex-start' }}>
+      <Box sx={{ display: 'flex', gap: 1, alignItems: 'flex-start' }}>
         <TextField
           fullWidth
           label="Path"
           required
           variant="outlined"
           value={path}
-          onChange={(e) => setPath(e.target.value)}
+          onChange={(e) => { setPath(e.target.value); setPicked([]); }}
           size="small"
           sx={{ mb: 2 }}
           placeholder="e.g., /default-domain/workspaces/GraphRAG"
+          disabled={picked.length > 0}
         />
+        <Button
+          variant="outlined"
+          startIcon={<FolderOpenIcon />}
+          disabled={!isValid}
+          title={isValid ? 'Pick a folder, or documents and folders, in the repository' : 'Fill in the URL and sign in (or the credentials) first'}
+          onClick={() => setBrowseOpen(true)}
+          sx={{ whiteSpace: 'nowrap', minWidth: 'auto', height: 40 }}
+        >
+          Browse…
+        </Button>
         <DeepCheckbox checked={recursive} onChange={setRecursive} />
       </Box>
+      {picked.length > 0 && (
+        <Box sx={{ mb: 2 }}>
+          <Typography variant="caption" sx={{ display: 'block', mb: 0.5, opacity: 0.8 }}>
+            {picked.length === 1 ? '1 item picked' : `${picked.length} items picked`}: the ingest reads these instead of the path
+          </Typography>
+          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+            {picked.map((n) => (
+              <Chip
+                key={n.id}
+                size="small"
+                icon={n.isFolder ? <FolderOpenIcon /> : undefined}
+                label={n.path || n.name}
+                onDelete={() => setPicked((prev) => prev.filter((p) => p.id !== n.id))}
+              />
+            ))}
+            <Button size="small" onClick={() => setPicked([])}>Clear</Button>
+          </Box>
+        </Box>
+      )}
+      <SourceBrowser
+        open={browseOpen}
+        provider={provider}
+        title="Pick a folder, or documents and folders: Nuxeo"
+        onClose={() => setBrowseOpen(false)}
+        onSelect={handleBrowsed}
+      />
     </BaseSourceForm>
   );
 };

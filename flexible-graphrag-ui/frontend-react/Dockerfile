@@ -3,6 +3,8 @@ FROM node:24-alpine AS builder
 WORKDIR /app
 
 COPY package*.json ./
+# patches/ before npm ci: its postinstall applies them (patch-package)
+COPY patches ./patches
 RUN npm ci
 
 COPY . .

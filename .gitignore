@@ -34,6 +34,9 @@ env/
 build/
 develop-eggs/
 dist/
+dist-desktop/
+# Tauri's generated capability schemas (as its own template ignores them)
+flexible-graphrag-ui/desktop/src-tauri/gen/schemas/
 downloads/
 eggs/
 .eggs/
@@ -224,6 +227,9 @@ cocoindex-docs/
 # CocoIndex LMDB pipeline state
 flexible-graphrag/cocoindex.db/
 cocoindex.db/
+
+# Auto-sync registry in SQLite (INCREMENTAL_STATE_STORE=sqlite), with its WAL files
+flexible_graphrag_incremental.db*
 
 
 # Cursor  

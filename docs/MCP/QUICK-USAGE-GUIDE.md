@@ -163,6 +163,7 @@ python main.py --http --port 3001
 
 The MCP server automatically uses:
 - `FLEXIBLE_GRAPHRAG_URL` (default: `http://localhost:8000`)
+- `FLEXIBLE_GRAPHRAG_API_TOKEN` (v0.11.0+): only when the backend has an `API_TOKEN`; the same value, sent as `X-API-Token` (see [API Token and CORS](../CONFIGURATION/API-TOKEN-CORS.md))
 - `PYTHONIOENCODING=utf-8` (Windows Unicode support)
 - `PYTHONLEGACYWINDOWSSTDIO=1` (Windows console compatibility)
 

@@ -113,10 +113,10 @@
       />
     </template>
 
-    <div class="d-flex align-start">
+    <div class="d-flex align-start ga-2">
       <v-text-field
         :model-value="path"
-        @update:model-value="(v: string) => path = v"
+        @update:model-value="(v: string) => { path = v; picked = []; }"
         label="Path *"
         variant="outlined"
         class="mb-4"
@@ -124,9 +124,34 @@
         hint="Path to the folder or document to process"
         persistent-hint
         required
+        :disabled="picked.length > 0"
       />
+      <v-btn
+        variant="outlined"
+        prepend-icon="mdi-folder-open"
+        height="56"
+        :disabled="!isValid"
+        :title="isValid ? 'Pick a folder, or documents and folders, in the repository' : 'Fill in the URL and sign in (or the credentials) first'"
+        @click="browseOpen = true"
+      >
+        Browse…
+      </v-btn>
       <DeepCheckbox :checked="recursive" @change="(v: boolean) => ownDeep = v" />
     </div>
+    <PickedChips
+      :items="picked"
+      noun="item"
+      note="the ingest reads these instead of the path"
+      @remove="(id: string) => { picked = picked.filter((p) => p.id !== id); }"
+      @clear="picked = []"
+    />
+    <SourceBrowser
+      :open="browseOpen"
+      :provider="provider"
+      title="Pick a folder, or documents and folders: Nuxeo"
+      @close="browseOpen = false"
+      @select="handleBrowsed"
+    />
   </BaseSourceForm>
 </template>
 
@@ -137,13 +162,20 @@ import SourceSignInSection from '../../auth/SourceSignInSection.vue';
 import { useSourceSession } from '../../auth/useSourceSession';
 import DeepCheckbox from './DeepCheckbox.vue';
 import { loadUiDefaults } from '../../uiDefaults';
+import SourceBrowser from '../../browser/SourceBrowser.vue';
+import PickedChips from '../../browser/PickedChips.vue';
+import { remoteProvider } from '../../browser/remoteProvider';
+import type { BrowseItem, NodeDetail } from '../../browser/types';
+import { ingestStarted } from '../../ingestSignal';
 
 export default defineComponent({
   name: 'NuxeoSourceForm',
   components: {
     BaseSourceForm,
     SourceSignInSection,
-    DeepCheckbox
+    DeepCheckbox,
+    SourceBrowser,
+    PickedChips
   },
   props: {
     // Single-object persistence: seeds the form on mount, emits update:value on every edit,
@@ -158,6 +190,8 @@ export default defineComponent({
     // VITE_NUXEO_PATH is a build-time var: the browser cannot read the
     // backend's .env, so NUXEO_PATH there does not reach this dialog.
     const path = ref(v.path ?? (import.meta.env.VITE_NUXEO_PATH || '/default-domain/workspaces/GraphRAG'));
+    // several documents / folders picked in the browser: the ingest reads these instead of the path
+    const picked = ref<NodeDetail[]>(v.nodeDetails ?? []);
     // Deep: include subfolders (recursive). Unset: the backend's DEFAULT_RECURSIVE, else off
     const ownDeep = ref<boolean | undefined>(v.recursive);
     const uiDefaults = loadUiDefaults();
@@ -195,8 +229,9 @@ export default defineComponent({
     });
 
     const config = computed(() => {
-      if (usingSignIn.value && credential.value) return { url: url.value, path: path.value, recursive: recursive.value, ...credential.value };
-      const base: any = { url: url.value, auth_method: authMethod.value, path: path.value, recursive: recursive.value };
+      const nodes = picked.value.length ? { nodeDetails: picked.value } : {};
+      if (usingSignIn.value && credential.value) return { url: url.value, path: path.value, recursive: recursive.value, ...nodes, ...credential.value };
+      const base: any = { url: url.value, auth_method: authMethod.value, path: path.value, recursive: recursive.value, ...nodes };
       // token mode sends username/password; the backend fetches the auth token from them.
       if (authMethod.value === 'basic' || authMethod.value === 'token') {
         base.username = username.value;
@@ -219,7 +254,32 @@ export default defineComponent({
       emit('update:value', newConfig);  // persist live config to App
     }, { immediate: true, deep: true });
 
+    // Browse the repository as the ingest signs in (POST /api/browse). OAuth2 browses only with an
+    // access token (the backend says so otherwise).
+    const browseOpen = ref(false);
+    const provider = remoteProvider('nuxeo', 'Nuxeo repository', () => config.value);
+
+    // one folder: the path; anything else (documents, several items): nodeDetails
+    const handleBrowsed = (items: BrowseItem[]) => {
+      if (!items.length) return;
+      if (items.length === 1 && items[0].isDirectory) {
+        path.value = items[0].path || items[0].name;
+        picked.value = [];
+        return;
+      }
+      picked.value = items.map((i) => ({
+        id: i.id, name: i.name, path: i.path || i.name, isFile: !i.isDirectory, isFolder: i.isDirectory,
+      }));
+    };
+    // an ingest started: the picks empty (the run's rows stay in Processing)
+    watch(ingestStarted, () => { picked.value = []; });
+
     return {
+      isValid,
+      browseOpen,
+      provider,
+      handleBrowsed,
+      picked,
       ownDeep,
       recursive,
       session,

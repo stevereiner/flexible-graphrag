@@ -2,6 +2,7 @@ import { Component, Input, Output, EventEmitter, OnInit, OnDestroy, inject } fro
 import { FlexibleGraphragConfigService } from '../../config.service';
 import { SourceAuthService } from '../../services/source-auth.service';
 import { FormSignIn } from '../source-sign-in/source-sign-in';
+import { SourceBrowserService } from '../../browser/remote-browse.provider';
 
 export interface CMISSourceConfig {
   url: string;
@@ -54,15 +55,22 @@ export interface CMISSourceConfig {
         </mat-form-field>
       </div>
 
-      <mat-form-field appearance="outline" class="full-width">
-        <mat-label>Folder Path</mat-label>
-        <input matInput
-               [(ngModel)]="folderPath"
-               (ngModelChange)="onFolderPathChange()"
-               placeholder="e.g., /Sites/example/documentLibrary"
-               required />
-        <mat-hint>Path to the folder containing documents to process</mat-hint>
-      </mat-form-field>
+      <div class="form-row">
+        <mat-form-field appearance="outline" class="half-width">
+          <mat-label>Folder Path</mat-label>
+          <input matInput
+                 [(ngModel)]="folderPath"
+                 (ngModelChange)="onFolderPathChange()"
+                 placeholder="e.g., /Sites/example/documentLibrary"
+                 required />
+          <mat-hint>A folder (all its subfolders are read), or one document's path</mat-hint>
+        </mat-form-field>
+        <button mat-stroked-button type="button" class="browse-button" [disabled]="!canBrowse()"
+                [title]="canBrowse() ? 'Pick a folder or a document in the repository' : 'Fill in the URL and sign in (or a username and password) first'"
+                (click)="browse()">
+          <mat-icon>folder_open</mat-icon> Browse…
+        </button>
+      </div>
     </app-base-source-form>
   `,
   styles: [`
@@ -79,6 +87,12 @@ export interface CMISSourceConfig {
     
     .half-width {
       flex: 1;
+    }
+
+    .browse-button {
+      height: 56px;
+      white-space: nowrap;
+      flex: none;
     }
   `],
   standalone: false
@@ -115,17 +129,36 @@ export class CMISSourceFormComponent implements OnInit, OnDestroy {
     this.signin.stop();
   }
 
-  updateValidationAndConfig() {
-    const signedIn = this.signin.credential(this.url);
-    const isValid = this.url.trim() !== '' && this.folderPath.trim() !== '' &&
-                   (!!signedIn || (this.username.trim() !== '' && this.password.trim() !== ''));
+  private readonly browser = inject(SourceBrowserService);
+  private readonly provider = this.browser.provider('cmis', 'CMIS repository', () => this.config());
 
-    const config: CMISSourceConfig = signedIn
+  private config(): CMISSourceConfig {
+    const signedIn = this.signin.credential(this.url);
+    return signedIn
       ? { url: this.url, folder_path: this.folderPath, ...signedIn }
       : { url: this.url, username: this.username, password: this.password, folder_path: this.folderPath };
-    
+  }
+
+  /** Browse needs the URL and a sign-in (or a username and password), not yet a folder path. */
+  canBrowse(): boolean {
+    return this.url.trim() !== '' &&
+      (!!this.signin.credential(this.url) || (this.username.trim() !== '' && this.password.trim() !== ''));
+  }
+
+  /** One folder, or one document: folder_path takes either. */
+  async browse(): Promise<void> {
+    const [item] = await this.browser.pick({
+      provider: this.provider, title: 'Pick a folder or a document: CMIS', multiple: false,
+    });
+    if (!item) return;
+    this.folderPath = item.path || `/${item.name}`;
+    this.onFolderPathChange();
+  }
+
+  updateValidationAndConfig() {
+    const isValid = this.canBrowse() && this.folderPath.trim() !== '';
     this.validationChange.emit(isValid);
-    this.configurationChange.emit(config);
+    this.configurationChange.emit(this.config());
   }
 
   onUrlChange(): void {

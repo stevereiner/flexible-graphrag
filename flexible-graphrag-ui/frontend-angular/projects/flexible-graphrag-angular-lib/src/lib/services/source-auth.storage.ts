@@ -133,9 +133,14 @@ export function setContinuedWithout(value: boolean): void {
 
 // ---- source picker: which sources a question covers -----------------------------------------
 
-export interface SourceSelector { source: string; url?: string | null }
+/** A picked source; `backend`: a remote backend's (REMOTE_FG_*), passed on to it by this backend. */
+export interface SourceSelector { source: string; url?: string | null; backend?: string | null }
 
 export const sourceKey = (s: SourceSelector) => `${s.source}|${serverKey(s.source, s.url)}`;
+
+/** A source picker entry's key: sourceKey plus the remote backend it is on (the same Alfresco can
+ *  be in this backend's stores and a remote's: two chips, one sign-in). */
+export const pickKey = (s: SourceSelector) => `${sourceKey(s)}${s.backend ? `|@${s.backend}` : ''}`;
 
 const PICK_KEY = 'fg.sourcePicker';
 

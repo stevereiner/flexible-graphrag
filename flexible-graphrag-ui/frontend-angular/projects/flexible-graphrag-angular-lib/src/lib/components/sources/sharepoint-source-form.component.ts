@@ -1,4 +1,5 @@
-import { Component, Input, Output, EventEmitter, OnInit, OnDestroy } from '@angular/core';
+import { Component, Input, Output, EventEmitter, OnInit, OnDestroy, inject } from '@angular/core';
+import { SourceBrowserService } from '../../browser/remote-browse.provider';
 
 export interface SharePointSourceConfig {
   client_id: string;
@@ -68,9 +69,14 @@ export interface SharePointSourceConfig {
           <input matInput
                  [(ngModel)]="folderPath"
                  (ngModelChange)="onFolderPathChange()"
-                 placeholder="/Shared Documents/Reports" />
-          <mat-hint>Optional: specific folder path within site</mat-hint>
+                 placeholder="Reports/2024" />
+          <mat-hint>Optional: a folder in the site's document library (empty: the whole library)</mat-hint>
         </mat-form-field>
+        <button mat-stroked-button type="button" class="browse-button" [disabled]="!isValid()"
+                [title]="isValid() ? 'Pick a folder in the site\\'s document library' : 'Fill in the site and the app credentials first'"
+                (click)="browse()">
+          <mat-icon>folder_open</mat-icon> Browse…
+        </button>
 
         <mat-form-field appearance="outline" class="half-width">
           <mat-label>Folder ID (Optional)</mat-label>
@@ -107,6 +113,12 @@ export interface SharePointSourceConfig {
     .half-width {
       flex: 1;
     }
+
+    .browse-button {
+      height: 56px;
+      white-space: nowrap;
+      flex: none;
+    }
   `],
   standalone: false
 })
@@ -132,13 +144,30 @@ export class SharePointSourceFormComponent implements OnInit, OnDestroy {
     // Cleanup if needed
   }
 
-  private updateValidationAndConfig() {
-    const isValid = this.clientId.trim() !== '' && 
-                   this.clientSecret.trim() !== '' && 
-                   this.tenantId.trim() !== '' && 
-                   this.siteName.trim() !== '';
-    
-    const config: SharePointSourceConfig = {
+  private readonly browser = inject(SourceBrowserService);
+  // the id of the folder last browsed to: a typed path replaces it (its id would win, SharePointReader)
+  private browsedId = '';
+  private readonly provider = this.browser.provider('sharepoint', 'SharePoint document library', () => this.config());
+
+  isValid(): boolean {
+    return this.clientId.trim() !== '' && this.clientSecret.trim() !== '' &&
+      this.tenantId.trim() !== '' && this.siteName.trim() !== '';
+  }
+
+  /** Browse the site's document library with the credentials above (POST /api/browse). */
+  async browse(): Promise<void> {
+    const [folder] = await this.browser.pick({
+      provider: this.provider, title: `Pick a folder: ${this.siteName || 'SharePoint'}`, files: false, multiple: false,
+    });
+    if (!folder) return;
+    this.folderPath = folder.path || '';
+    this.folderId = folder.id;
+    this.browsedId = folder.id;
+    this.updateValidationAndConfig();
+  }
+
+  private config(): SharePointSourceConfig {
+    return {
       client_id: this.clientId,
       client_secret: this.clientSecret,
       tenant_id: this.tenantId,
@@ -147,9 +176,11 @@ export class SharePointSourceFormComponent implements OnInit, OnDestroy {
       folder_path: this.folderPath || undefined,
       folder_id: this.folderId || undefined
     };
-    
-    this.validationChange.emit(isValid);
-    this.configurationChange.emit(config);
+  }
+
+  private updateValidationAndConfig() {
+    this.validationChange.emit(this.isValid());
+    this.configurationChange.emit(this.config());
   }
 
   onClientIdChange(): void {
@@ -170,6 +201,10 @@ export class SharePointSourceFormComponent implements OnInit, OnDestroy {
   }
 
   onFolderPathChange(): void {
+    if (this.browsedId && this.folderId === this.browsedId) {
+      this.folderId = '';
+      this.browsedId = '';
+    }
     this.updateValidationAndConfig();
   }
 

@@ -119,8 +119,12 @@ export default defineComponent({
       emit('update:language', value);
     };
 
-    const handleMaxDocsChange = (value: number) => {
-      emit('update:maxDocs', value);
+    // The number field gives a string; maxDocs is a number (an empty or partial entry is skipped)
+    const handleMaxDocsChange = (value: string) => {
+      const maxDocs = parseInt(value, 10);
+      if (!Number.isNaN(maxDocs)) {
+        emit('update:maxDocs', maxDocs);
+      }
     };
 
     return {

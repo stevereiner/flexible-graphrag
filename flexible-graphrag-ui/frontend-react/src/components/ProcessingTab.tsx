@@ -23,6 +23,7 @@ import {
 import CloseIcon from '@mui/icons-material/Close';
 import { Theme } from '@mui/material/styles';
 import axios from 'axios';
+import { markIngestStarted } from '../ingestSignal';
 import { useUiDefaults } from '../uiDefaults';
 import { storesChanged } from '../auth/sourceAuth';
 
@@ -90,6 +91,7 @@ interface ProcessingTabProps {
   youtubeConfig?: any;
   cloudConfig?: any;
   enterpriseConfig?: any;
+  filesystemConfig?: { paths: string[]; items: { path: string; isDirectory: boolean }[] };
   selectedFileIndices: Set<number>;
   repositoryItemsHidden: boolean;
   configurationVersion?: number;  // bumped each time the Sources tab is applied
@@ -134,6 +136,7 @@ export const ProcessingTab: React.FC<ProcessingTabProps> = ({
   youtubeConfig,
   cloudConfig,
   enterpriseConfig,
+  filesystemConfig,
   selectedFileIndices,
   repositoryItemsHidden,
   configurationVersion = 0,
@@ -244,6 +247,11 @@ export const ProcessingTab: React.FC<ProcessingTabProps> = ({
     return phaseNames[phase] || phase;
   };
 
+  // Alfresco / Nuxeo documents and folders picked in the browser (nodeDetails, which win over the
+  // path in both ingests): a row each, with its own status; the ingest sends only the checked rows
+  const repoPicks: any[] = (configuredDataSource === 'alfresco' ? alfrescoConfig
+    : configuredDataSource === 'nuxeo' ? nuxeoConfig : null)?.nodeDetails || [];
+
   // Generate file entries for display based on data source type
   const getDisplayFiles = (): FileDisplayInfo[] => {
     if (!hasConfiguredSources) return [];
@@ -253,6 +261,20 @@ export const ProcessingTab: React.FC<ProcessingTabProps> = ({
         name: file.name,
         size: file.size,
         type: 'file' as const
+      }));
+    } else if (configuredDataSource === 'filesystem') {
+      // Local files and folders (desktop app): one row each, by native path
+      return (filesystemConfig?.items || []).map((item) => ({
+        name: item.path,
+        size: 0,
+        type: item.isDirectory ? 'path' as const : 'file' as const,
+      }));
+    } else if (repoPicks.length && !repositoryItemsHidden) {
+      // picked Alfresco / Nuxeo documents and folders: a row each
+      return repoPicks.map((n: any) => ({
+        name: n.path || n.name,
+        size: 0,
+        type: 'repository' as const
       }));
     } else if (configuredDataSource === 'cmis' || configuredDataSource === 'alfresco' || configuredDataSource === 'nuxeo') {
       // If repository items are explicitly hidden, show nothing
@@ -303,18 +325,26 @@ export const ProcessingTab: React.FC<ProcessingTabProps> = ({
         const prefix = config?.prefix || '';
         displayName = prefix ? `s3://${bucket}/${prefix}` : `s3://${bucket}`;
       } else if (configuredDataSource === 'gcs') {
-        displayName = `GCS: ${config?.bucket || 'Bucket'}/${config?.prefix || ''}`;
+        displayName = `GCS: ${config?.bucket_name || 'Bucket'}/${config?.prefix || ''}`;
       } else if (configuredDataSource === 'azure_blob') {
-        displayName = `Azure: ${config?.container || 'Container'}/${config?.blob_name || ''}`;
+        // one blob (its full name) wins over the folder prefix in the ingest
+        displayName = `Azure: ${config?.container_name || 'Container'}/${config?.blob || config?.prefix || ''}`;
       } else if (configuredDataSource === 'google_drive') {
         const folderId = config?.folder_id;
-        displayName = folderId ? `Google Drive: ${folderId}` : 'Google Drive';
+        const picked = config?.file_ids?.length || 0;
+        displayName = folderId ? `Google Drive: ${folderId}`
+          : picked ? `Google Drive: ${picked === 1 ? '1 file' : `${picked} files`}` : 'Google Drive';
       } else if (configuredDataSource === 'onedrive') {
-        displayName = `OneDrive: ${config?.folder_path || 'Folder'}`;
+        const picked = config?.file_ids?.length || 0;
+        displayName = picked ? `OneDrive: ${picked} file${picked === 1 ? '' : 's'}`
+          : `OneDrive: ${config?.folder_path || '(whole drive)'}`;
       } else if (configuredDataSource === 'sharepoint') {
-        displayName = `SharePoint: ${config?.site_url || 'Site'}`;
+        const site = config?.site_name || 'Site';
+        displayName = config?.folder_path ? `SharePoint: ${site}/${config.folder_path}` : `SharePoint: ${site}`;
       } else if (configuredDataSource === 'box') {
-        displayName = `Box: ${config?.folder_id || 'Folder'}`;
+        const picked = config?.box_file_ids?.length || 0;
+        displayName = picked ? `Box: ${picked} file${picked === 1 ? '' : 's'}`
+          : `Box: ${config?.folder_id || 'All Files'}`;
       }
       
       // Check for individual files from status data (like CMIS/Alfresco)
@@ -406,6 +436,7 @@ export const ProcessingTab: React.FC<ProcessingTabProps> = ({
     const ds = configuredDataSource;
     const strip = (c: any) => { const { type, ...rest } = c || {}; return rest; };
     switch (ds) {
+      case 'filesystem': return { paths: filesystemConfig?.paths || [] };
       case 'cmis': return { paths: [folderPath], cmis_config: cmisConfig };
       case 'alfresco': return { paths: [folderPath], alfresco_config: alfrescoConfig };
       case 'nuxeo': return { nuxeo_config: nuxeoConfig };
@@ -419,7 +450,10 @@ export const ProcessingTab: React.FC<ProcessingTabProps> = ({
   };
 
   // Every other source is one row: the whole datasource (its config names it)
-  const singleRowSource = !!configuredDataSource && !['upload', 'alfresco', 'nuxeo'].includes(configuredDataSource);
+  const singleRowSource = !!configuredDataSource && !['upload', 'filesystem', 'alfresco', 'nuxeo'].includes(configuredDataSource);
+  // Local files and folders: a row per path, answered per item like uploads
+  const localPaths = configuredDataSource === 'filesystem'
+    ? (filesystemConfig?.items || []).map((i) => `${i.isDirectory ? 'd' : 'f'}:${i.path}`).join('\n') : '';
 
   // Uploaded files: rows by file name (the backend finds them under its upload directory)
   const uploadNames = configuredDataSource === 'upload' ? configuredFiles.map((f) => f.name).join('\n') : '';
@@ -428,13 +462,14 @@ export const ProcessingTab: React.FC<ProcessingTabProps> = ({
     const repoConfig = configuredDataSource === 'alfresco' ? alfrescoConfig
       : configuredDataSource === 'nuxeo' ? nuxeoConfig : null;
     const isUpload = configuredDataSource === 'upload';
+    const isLocal = configuredDataSource === 'filesystem';
     const rowName = singleRowSource ? getDisplayFiles()[0]?.name : '';
-    if (singleRowSource && !rowName) {
+    if ((singleRowSource && !rowName) || (isLocal && !localPaths)) {
       setIngestStatus([]);
       ingestStatusKey.current = '';
       return;
     }
-    if (!isUpload && !singleRowSource && configuredDataSource !== 'alfresco' && configuredDataSource !== 'nuxeo') {
+    if (!isUpload && !isLocal && !singleRowSource && configuredDataSource !== 'alfresco' && configuredDataSource !== 'nuxeo') {
       setIngestStatus([]);
       ingestStatusKey.current = '';
       return;
@@ -444,9 +479,13 @@ export const ProcessingTab: React.FC<ProcessingTabProps> = ({
       ingestStatusKey.current = '';
       return;
     }
-    if ((!isUpload && !singleRowSource && repositoryItemsHidden) || isProcessing) return;
+    if ((!isUpload && !isLocal && !singleRowSource && repositoryItemsHidden) || isProcessing) return;
     const path = repoConfig?.path || folderPath || '/';
-    const request: any = singleRowSource
+    const request: any = isLocal
+      // a filesystem folder always includes its subfolders (ingest, watch and rescan recurse)
+      ? { data_source: 'filesystem', recursive: true,
+          items: (filesystemConfig?.items || []).map((i) => ({ path: i.path, is_folder: i.isDirectory })) }
+      : singleRowSource
       // one row, the whole datasource: the backend finds it by the same fields the ingest sends
       ? { data_source: configuredDataSource, items: [{ path: rowName, is_folder: false }], source: sourceFields() }
       : isUpload
@@ -456,7 +495,11 @@ export const ProcessingTab: React.FC<ProcessingTabProps> = ({
           data_source: configuredDataSource,
           url: repoConfig?.url,
           recursive: !!repoConfig?.recursive,
-          items: [{ path, is_folder: !looksLikeFile(path) }],
+          // Alfresco / Nuxeo picks (nodeDetails): a status per picked row, in row order
+          items: repoConfig?.nodeDetails?.length
+            // the id too: a row's per-row action names its pick by it (path alone matched no pick)
+            ? repoConfig.nodeDetails.map((n: any) => ({ path: n.path, id: n.id, is_folder: !!n.isFolder }))
+            : [{ path, is_folder: !looksLikeFile(path) }],
         };
     // configurationVersion in the key: re-applying the same configuration (e.g. after a run
     // that just ingested it) must ask again, or the answer from before that run is reused.
@@ -487,7 +530,7 @@ export const ProcessingTab: React.FC<ProcessingTabProps> = ({
       });
   }, [configuredDataSource, alfrescoConfig, nuxeoConfig, folderPath, repositoryItemsHidden,
       isProcessing, currentProcessingId, configurationVersion, ingestStatusRefresh, uploadNames,
-      cmisConfig, webConfig, wikipediaConfig, youtubeConfig, cloudConfig, enterpriseConfig]);
+      cmisConfig, webConfig, wikipediaConfig, youtubeConfig, cloudConfig, enterpriseConfig, localPaths]);
 
   // Auto Sync only where an auto sync can watch the source (not uploads, CMIS, web pages,
   // Wikipedia or YouTube)
@@ -1024,14 +1067,26 @@ export const ProcessingTab: React.FC<ProcessingTabProps> = ({
 
         request.paths = uploadedPaths;
         request.data_source = 'filesystem';
+      } else if (configuredDataSource === 'filesystem') {
+        // Local files and folders: the checked rows (the backend narrows them to item_actions' rows too)
+        const paths = filesystemConfig?.paths || [];
+        request.paths = planned ? paths : paths.filter((_, i) => selectedFileIndices.has(i));
       } else {
         // Every other source: its config (and CMIS its path) -- the same fields its ingest status sent
         Object.assign(request, sourceFields());
+        if (repoPicks.length && !planned) {
+          // Alfresco / Nuxeo picks: only the checked rows (with columns, item_actions narrow them on the backend)
+          const key = configuredDataSource === 'alfresco' ? 'alfresco_config' : 'nuxeo_config';
+          (request as any)[key] = { ...(request as any)[key],
+            nodeDetails: repoPicks.filter((_: any, i: number) => selectedFileIndices.has(i)) };
+        }
       }
 
 
       const response = await axios.post<AsyncProcessingResponse>('/api/ingest', request);
-      
+      // an ingest started: the Sources tab's lists empty (its rows stay here)
+      if (response.data.status === 'started') markIngestStarted();
+
       if (response.data.status === 'started' && runInBackground) {
         // The job carries on in the backend; this tab is free to start another one
         watchedJobs.current.add(response.data.processing_id);
@@ -1094,6 +1149,7 @@ export const ProcessingTab: React.FC<ProcessingTabProps> = ({
   const autoSelectKey = useRef('');
   useEffect(() => {
     if (configuredDataSource === 'cmis' || configuredDataSource === 'alfresco' || configuredDataSource === 'nuxeo' ||
+        configuredDataSource === 'filesystem' ||
         configuredDataSource === 'web' || configuredDataSource === 'wikipedia' ||
         configuredDataSource === 'youtube' ||
         ['s3', 'gcs', 'azure_blob', 'google_drive', 'onedrive', 'sharepoint', 'box'].includes(configuredDataSource)) {
@@ -1246,11 +1302,14 @@ export const ProcessingTab: React.FC<ProcessingTabProps> = ({
                     onChange={(e) => handleSelectAllFiles(e.target.checked)}
                   />
                 </TableCell>
-                <TableCell sx={{ width: 200 }}>Filename</TableCell>
-                <TableCell sx={{ width: 100 }}>File Size</TableCell>
-                <TableCell sx={{ minWidth: 400 }}>Progress</TableCell>
+                {/* Filename and Progress share the width. Every other column is width 1% + nowrap,
+                    which shrinks it to its content, so the table's spare width isn't spread into
+                    them. Long paths (local folders, repository paths) wrap. */}
+                <TableCell sx={{ width: '60%' }}>Filename</TableCell>
+                <TableCell sx={{ width: '1%', whiteSpace: 'nowrap' }}>File Size</TableCell>
+                <TableCell sx={{ width: '30%', minWidth: 240 }}>Progress</TableCell>
                 {columnsMode && (
-                  <TableCell padding="checkbox" sx={{ whiteSpace: 'nowrap', pr: 2 }} title="Vector and full-text search stores, for every row">
+                  <TableCell padding="checkbox" sx={{ width: '1%', whiteSpace: 'nowrap', pr: 2 }} title="Vector and full-text search stores, for every row">
                     <Box sx={{ display: 'flex', alignItems: 'center' }}>
                       <Checkbox
                         // the cell strips its direct child's padding; this one sits in a Box,
@@ -1266,7 +1325,7 @@ export const ProcessingTab: React.FC<ProcessingTabProps> = ({
                   </TableCell>
                 )}
                 {columnsMode && showGraphColumn && (
-                  <TableCell padding="checkbox" sx={{ whiteSpace: 'nowrap', pr: 2 }}
+                  <TableCell padding="checkbox" sx={{ width: '1%', whiteSpace: 'nowrap', pr: 2 }}
                     title={!canGraphs ? 'No graph store configured in .env' : splitGraphs ? 'Property graph, for every row' : 'Property graph and RDF, for every row'}>
                     <Box sx={{ display: 'flex', alignItems: 'center' }}>
                       <Checkbox
@@ -1283,7 +1342,7 @@ export const ProcessingTab: React.FC<ProcessingTabProps> = ({
                   </TableCell>
                 )}
                 {columnsMode && showRdfColumn && (
-                  <TableCell padding="checkbox" sx={{ whiteSpace: 'nowrap', pr: 2 }} title="RDF graph, for every row">
+                  <TableCell padding="checkbox" sx={{ width: '1%', whiteSpace: 'nowrap', pr: 2 }} title="RDF graph, for every row">
                     <Box sx={{ display: 'flex', alignItems: 'center' }}>
                       <Checkbox
                         sx={{ p: 0, mr: 1 }}
@@ -1297,7 +1356,7 @@ export const ProcessingTab: React.FC<ProcessingTabProps> = ({
                   </TableCell>
                 )}
                 {columnsMode && showAutoSync && (
-                  <TableCell padding="checkbox" sx={{ whiteSpace: 'nowrap', pr: 2 }} title="Keep every row up to date with repository changes">
+                  <TableCell padding="checkbox" sx={{ width: '1%', whiteSpace: 'nowrap', pr: 2 }} title="Keep every row up to date with repository changes">
                     <Box sx={{ display: 'flex', alignItems: 'center' }}>
                       <Checkbox
                         sx={{ p: 0, mr: 1 }}
@@ -1310,8 +1369,8 @@ export const ProcessingTab: React.FC<ProcessingTabProps> = ({
                     </Box>
                   </TableCell>
                 )}
-                <TableCell sx={{ width: 50 }}></TableCell>
-                <TableCell sx={{ width: 100 }}>Status</TableCell>
+                <TableCell sx={{ width: '1%' }}></TableCell>
+                <TableCell sx={{ width: '1%', whiteSpace: 'nowrap' }}>Status</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
@@ -1327,9 +1386,9 @@ export const ProcessingTab: React.FC<ProcessingTabProps> = ({
                         onChange={(e) => handleSelectFile(index, e.target.checked)}
                       />
                     </TableCell>
-                    <TableCell sx={{ width: '30%' }}>
-                      <Typography 
-                        variant="body2" 
+                    <TableCell>
+                      <Typography
+                        variant="body2"
                         title={file.name}
                         sx={{ 
                           wordBreak: 'break-all', 
@@ -1340,7 +1399,7 @@ export const ProcessingTab: React.FC<ProcessingTabProps> = ({
                         {file.name}
                       </Typography>
                     </TableCell>
-                    <TableCell>
+                    <TableCell sx={{ whiteSpace: 'nowrap' }}>
                       <Typography variant="caption">
                         {file.size > 0 ? formatFileSize(file.size) : 
                          file.type === 'path' ? 'Folder' : 

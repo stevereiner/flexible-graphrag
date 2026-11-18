@@ -5,6 +5,7 @@
   <mat-form-field appearance="outline" class="data-source-select">
     <mat-label>Data Source</mat-label>
     <mat-select [(value)]="dataSource" (selectionChange)="onDataSourceChange()" panelClass="compact-dropdown">
+      <mat-option value="filesystem" *ngIf="desktop && isSourceEnabled('filesystem')">Local Files and Folders</mat-option>
       <mat-option value="upload" *ngIf="isSourceEnabled('upload')">File Upload</mat-option>
       <mat-option value="alfresco" *ngIf="isSourceEnabled('alfresco')">Alfresco Repository</mat-option>
       <mat-option value="nuxeo" *ngIf="isSourceEnabled('nuxeo')">Nuxeo Repository</mat-option>
@@ -27,8 +28,15 @@
 
   <!-- Dynamic Source Forms -->
   <div class="source-form-container">
+    <!-- Local Files and Folders (desktop app only) -->
+    <app-local-folder-form
+      *ngIf="dataSource === 'filesystem'"
+      (configurationChange)="onConfigurationChange($event)"
+      (validationChange)="onValidationChange($event)">
+    </app-local-folder-form>
+
     <!-- File Upload Form -->
-    <app-file-upload-form 
+    <app-file-upload-form
       *ngIf="dataSource === 'upload'"
       [(selectedFiles)]="selectedFiles"
       (configurationChange)="onConfigurationChange($event)"

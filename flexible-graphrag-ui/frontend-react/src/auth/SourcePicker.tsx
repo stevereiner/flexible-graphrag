@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { Box, Chip, Tooltip, Typography } from '@mui/material';
 import {
   AvailableSource, Requirements, getAvailableSources, labelOf, getPickedSources, getRequirements, onAuthChange,
-  openSignIn, setPickedSources, signInFor, sourceKey, sourceNeedsSignIn,
+  openSignIn, pickKey, setPickedSources, signInFor, sourceNeedsSignIn,
 } from './sourceAuth';
 import { SOURCE_COLORS } from './SourceSignIn';
 
@@ -24,7 +24,7 @@ export const SourcePicker: React.FC = () => {
     setSources(list);
     setReq(r);
     // drop picks that are gone from the stores or now need a sign-in (e.g. after signing out)
-    const usable = new Set(list.filter((s) => !sourceNeedsSignIn(s, r)).map(sourceKey));
+    const usable = new Set(list.filter((s) => !sourceNeedsSignIn(s, r)).map(pickKey));
     const kept = getPickedSources().filter((k) => usable.has(k));
     if (kept.length !== getPickedSources().length) setPickedSources(kept);
     setPicked(kept);
@@ -50,16 +50,19 @@ export const SourcePicker: React.FC = () => {
         onClick={() => { setPickedSources([]); setPicked([]); }}
       />
       {sources.map((s) => {
-        const key = sourceKey(s);
+        const key = pickKey(s);
         const locked = sourceNeedsSignIn(s, req);
         const on = picked.includes(key);
-        const several = sources.filter((x) => x.source === s.source).length > 1;
-        const label = several && s.url ? `${s.label} (${s.url.replace(/^https?:\/\//, '')})` : s.label;
+        // several servers of one type on the same backend: tell them apart by server
+        const several = sources.filter((x) => x.source === s.source && x.backend === s.backend).length > 1;
+        const base = several && s.url ? `${s.label} (${s.url.replace(/^https?:\/\//, '')})` : s.label;
+        const label = s.backend ? `${base} · ${s.backend}` : base;
         const color = SOURCE_COLORS[s.source];
         return (
           <Tooltip key={key} title={locked
             ? `Sign in to ${labelOf(signInFor(s).source)} first`
-            : `${s.label} only (${s.documents} document${s.documents === 1 ? '' : 's'})${s.url ? ` — ${s.url}` : ''}`}>
+            : `${s.label} only (${s.documents} document${s.documents === 1 ? '' : 's'})${s.url ? ` — ${s.url}` : ''}`
+              + (s.backend ? ` — on the ${s.backend} backend` : '')}>
             <Chip
               size="small" label={label}
               variant={on ? 'filled' : 'outlined'}

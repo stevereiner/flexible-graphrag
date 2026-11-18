@@ -21,27 +21,49 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 
+def merge_env_config(config: Dict[str, Any]) -> List[str]:
+    """Fill the config's missing / empty keys from the BOX_CONFIG environment variable (the given
+    config wins). In place; returns the keys taken from BOX_CONFIG."""
+    import json
+    raw = os.getenv("BOX_CONFIG", "")
+    if not raw:
+        return []
+    try:
+        env_config = json.loads(raw)
+    except json.JSONDecodeError as e:
+        logger.warning(f"Failed to parse BOX_CONFIG environment variable: {e}")
+        return []
+    taken = [k for k, v in env_config.items() if k not in config or not config.get(k)]
+    for key in taken:
+        config[key] = env_config[key]
+    return taken
+
+
+def build_box_client(access_token: str = "", client_id: str = "", client_secret: str = "",
+                     enterprise_id: str = "", user_id: str = ""):
+    """An authenticated BoxClient: developer token if given, else CCG (client credentials grant)."""
+    from box_sdk_gen import BoxClient, BoxDeveloperTokenAuth, BoxCCGAuth, CCGConfig
+    if access_token:
+        return BoxClient(auth=BoxDeveloperTokenAuth(token=access_token))
+    ccg_config = CCGConfig(
+        client_id=client_id,
+        client_secret=client_secret,
+        enterprise_id=enterprise_id or None,
+        user_id=user_id or None,
+    )
+    return BoxClient(auth=BoxCCGAuth(config=ccg_config))
+
+
 class BoxSource(BaseDataSource):
     """Data source for Box using LlamaIndex BoxReader with PassthroughExtractor"""
     
     def __init__(self, config: Dict[str, Any]):
         super().__init__(config)
         
-        # First, check if BOX_CONFIG environment variable exists and merge it
-        import json
-        box_env_config = os.getenv("BOX_CONFIG", "")
-        if box_env_config:
-            try:
-                env_config = json.loads(box_env_config)
-                logger.info("Loading Box configuration from BOX_CONFIG environment variable")
-                # Merge env config with provided config (provided config takes precedence)
-                for key, value in env_config.items():
-                    if key not in config or not config.get(key):
-                        config[key] = value
-                        logger.info(f"Using {key} from BOX_CONFIG environment variable")
-            except json.JSONDecodeError as e:
-                logger.warning(f"Failed to parse BOX_CONFIG environment variable: {e}")
-        
+        # First, fill what the config leaves out from the BOX_CONFIG environment variable
+        for key in merge_env_config(config):
+            logger.info(f"Using {key} from BOX_CONFIG environment variable")
+
         self.box_folder_id = config.get("box_folder_id", "0")  # "0" is root folder
         self.box_file_ids = config.get("box_file_ids", [])  # Optional: specific file IDs
         # Subfolders too, as the Box auto sync follows them (BoxReader's own default is not recursive)
@@ -88,17 +110,8 @@ class BoxSource(BaseDataSource):
     
     def _build_box_client(self):
         """Build an authenticated BoxClient (shared by get_documents + read_file_bytes)."""
-        from box_sdk_gen import BoxClient, BoxDeveloperTokenAuth, BoxCCGAuth, CCGConfig
-        if self.access_token:
-            auth = BoxDeveloperTokenAuth(token=self.access_token)
-            return BoxClient(auth=auth)
-        ccg_config = CCGConfig(
-            client_id=self.client_id,
-            client_secret=self.client_secret,
-            enterprise_id=self.enterprise_id if self.enterprise_id else None,
-            user_id=self.user_id if self.user_id else None,
-        )
-        return BoxClient(auth=BoxCCGAuth(config=ccg_config))
+        return build_box_client(self.access_token, self.client_id, self.client_secret,
+                                self.enterprise_id, self.user_id)
 
     def read_file_bytes(self, file_id: str) -> bytes:
         """

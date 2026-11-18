@@ -219,13 +219,22 @@ class FlexibleGraphRAGBackend:
                 else:
                     return "2-3 minutes"
             
+            elif paths and data_source not in (None, "filesystem", "upload"):
+                # A repository / cloud path ("/" in Alfresco, a CMIS folder...) is not a local
+                # one: walking it here walked the local disk ("/" = C:\) on the event loop,
+                # which hung the server (no Ctrl+C either)
+                return "2-5 minutes"
             elif paths:
                 import os
                 total_size = 0
                 file_count = 0
                 has_complex_files = False
-                
+                # only an estimate, run on the event loop: stop counting a big folder early
+                max_walk = 2000
+
                 for path in paths:
+                    if file_count >= max_walk:
+                        break
                     if os.path.isfile(path):
                         file_count += 1
                         size = os.path.getsize(path)
@@ -238,6 +247,8 @@ class FlexibleGraphRAGBackend:
                     elif os.path.isdir(path):
                         # Estimate directory contents
                         for root, dirs, files in os.walk(path):
+                            if file_count >= max_walk:
+                                break
                             for file in files:
                                 file_path = os.path.join(root, file)
                                 try:
@@ -300,7 +311,10 @@ class FlexibleGraphRAGBackend:
             "updated_at": current_time.isoformat(),
             "started_at": started_at if isinstance(started_at, str) else started_at.isoformat()
         }
-        
+        # The UIs show a failed run's ``error`` (else only "Processing failed"): the reason
+        if status == "failed":
+            status_update["error"] = status_update["message"]
+
         # Add file-level progress information
         if current_file:
             status_update["current_file"] = current_file
@@ -334,11 +348,22 @@ class FlexibleGraphRAGBackend:
         # Add individual file progress tracking
         if file_progress:
             status_update["individual_files"] = file_progress
-        
+
         # Update existing status dict instead of replacing it (preserves documents field)
         existing = PROCESSING_STATUS.get(processing_id, {})
         existing.update(status_update)
         PROCESSING_STATUS[processing_id] = existing
+        if status == "completed":
+            # The source loaders (Alfresco, Nuxeo, the cloud sources...) leave each file at its
+            # loading step; the run finished, so every file still under way finished with it
+            files = existing.get("individual_files")
+            if isinstance(files, list):
+                existing["individual_files"] = [
+                    {**f, "status": "completed", "progress": 100, "phase": "completed"}
+                    if isinstance(f, dict) and f.get("status") not in ("completed", "failed", "error", "skipped")
+                    else f
+                    for f in files
+                ]
         if total_files > 0:
             # Handle both in-progress (0-based) and completion (actual count) scenarios
             if status == "completed" or files_completed >= total_files:
@@ -2009,7 +2034,7 @@ class FlexibleGraphRAGBackend:
             end_time = datetime.now()
             duration = (end_time - start_time).total_seconds()
             answer = str(response)
-            if scope_doc_ids is not None and answer.strip() in ("Empty Response", ""):
+            if scope_doc_ids and answer.strip() in ("Empty Response", ""):
                 answer = "I found nothing about that in the selected document or folder."
             logger.info(f"Q&A query completed in {duration:.3f}s - Answer length: {len(answer)} characters")
             from doc_refs import answer_sources
@@ -2160,7 +2185,7 @@ class FlexibleGraphRAGBackend:
             end_time = datetime.now()
             duration = (end_time - start_time).total_seconds()
             answer = str(response)
-            if scope_doc_ids is not None and answer.strip() in ("Empty Response", ""):
+            if scope_doc_ids and answer.strip() in ("Empty Response", ""):
                 answer = "I found nothing about that in the selected document or folder."
             logger.info(f"Document query completed in {duration:.3f}s - Answer length: {len(answer)} characters")
             from doc_refs import answer_sources

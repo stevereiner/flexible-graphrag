@@ -1,0 +1,22 @@
+{
+  "name": "flexible-graphrag-desktop",
+  "private": true,
+  "version": "0.11.0",
+  "description": "Flexible GraphRAG desktop app (Tauri): the React, Vue or Angular UI plus local file browsing",
+  "license": "Apache-2.0",
+  "scripts": {
+    "dev": "tauri dev",
+    "build": "tauri build",
+    "dev:react": "tauri dev",
+    "build:react": "tauri build",
+    "dev:vue": "tauri dev --config src-tauri/tauri.vue.conf.json",
+    "build:vue": "tauri build --config src-tauri/tauri.vue.conf.json",
+    "dev:angular": "tauri dev --config src-tauri/tauri.angular.conf.json",
+    "build:angular": "tauri build --config src-tauri/tauri.angular.conf.json",
+    "icon": "tauri icon src-tauri/icons/app-icon.png",
+    "tauri": "tauri"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.12.4"
+  }
+}

@@ -68,18 +68,43 @@
       />
     </template>
 
-    <div class="d-flex align-start">
+    <div class="d-flex align-start ga-2">
       <v-text-field
-        v-model="folderId"
+        :model-value="folderId"
+        @update:model-value="(v: string) => { folderId = v; folderLabel = ''; if (v) files = []; }"
         label="Folder ID (Optional)"
         variant="outlined"
         class="mb-2"
         placeholder="e.g., 123456789"
-        hint="Leave empty for the root folder (All Files, ID 0)"
+        :hint="folderLabel ? `Folder: ${folderLabel}` : 'Leave empty for the root folder (All Files, ID 0)'"
         persistent-hint
+        :disabled="files.length > 0"
       />
+      <v-btn
+        variant="outlined"
+        prepend-icon="mdi-folder-open"
+        height="56"
+        :disabled="!isValid"
+        :title="isValid ? 'Pick a folder or files in Box' : 'Fill in the credentials first'"
+        @click="browseOpen = true"
+      >
+        Browse…
+      </v-btn>
       <DeepCheckbox :checked="recursive" @change="(v: boolean) => ownDeep = v" />
     </div>
+    <PickedChips
+      :items="files"
+      @remove="(id: string) => { files = files.filter((f) => f.id !== id); }"
+      @clear="files = []"
+    />
+    <SourceBrowser
+      :open="browseOpen"
+      :provider="provider"
+      title="Pick a folder or files: Box"
+      :mixed="false"
+      @close="browseOpen = false"
+      @select="handleBrowsed"
+    />
   </BaseSourceForm>
 </template>
 
@@ -88,6 +113,11 @@ import { defineComponent, ref, computed, watch } from 'vue';
 import BaseSourceForm from './BaseSourceForm.vue';
 import DeepCheckbox from './DeepCheckbox.vue';
 import { loadUiDefaults } from '../../uiDefaults';
+import SourceBrowser from '../../browser/SourceBrowser.vue';
+import PickedChips from '../../browser/PickedChips.vue';
+import { remoteProvider } from '../../browser/remoteProvider';
+import type { BrowseItem } from '../../browser/types';
+import { ingestStarted } from '../../ingestSignal';
 
 type BoxAuthMode = 'developer_token' | 'ccg_user' | 'ccg_enterprise' | 'ccg_both';
 
@@ -95,7 +125,9 @@ export default defineComponent({
   name: 'BoxSourceForm',
   components: {
     BaseSourceForm,
-    DeepCheckbox
+    DeepCheckbox,
+    SourceBrowser,
+    PickedChips
   },
   props: {
     clientId: {
@@ -126,17 +158,21 @@ export default defineComponent({
   ],
   setup(props, { emit }) {
     const folderId = ref('');
-    const authMode = ref<BoxAuthMode>('developer_token');
+    // the browsed folder's name path, shown under its id (cleared when the id is typed)
+    const folderLabel = ref('');
+    // files picked in the browser (box_file_ids: the ingest then reads these instead of a folder)
+    const files = ref<BrowseItem[]>([]);
+    const authMode = ref<BoxAuthMode>('ccg_user');
     // Deep: include subfolders (recursive). Unset: the backend's DEFAULT_RECURSIVE, else on (Box's own default)
     const ownDeep = ref<boolean | undefined>(undefined);
     const uiDefaults = loadUiDefaults();
     const recursive = computed(() => ownDeep.value ?? uiDefaults.recursive ?? true);
     
     const authModes = [
-      { title: 'Developer Token', value: 'developer_token' },
       { title: 'App Access (User)', value: 'ccg_user' },
       { title: 'App Access (Enterprise)', value: 'ccg_enterprise' },
-      { title: 'App Access (User + Enterprise)', value: 'ccg_both' }
+      { title: 'App Access (User + Enterprise)', value: 'ccg_both' },
+      { title: 'Developer Token (expires after 1 hour)', value: 'developer_token' }
     ];
 
     const isValid = computed(() => {
@@ -162,8 +198,30 @@ export default defineComponent({
       user_id: (authMode.value === 'ccg_user' || authMode.value === 'ccg_both') ? props.userId : undefined,
       enterprise_id: (authMode.value === 'ccg_enterprise' || authMode.value === 'ccg_both') ? props.enterpriseId : undefined,
       folder_id: folderId.value || undefined,
+      box_file_ids: files.value.length ? files.value.map((f) => f.id) : undefined,
       recursive: recursive.value,
     }));
+
+    // Browse Box with the credentials above (POST /api/browse)
+    const browseOpen = ref(false);
+    const provider = remoteProvider('box', 'Box', () => config.value);
+
+    // an ingest started: the picked files empty (the run's rows stay in Processing)
+    watch(ingestStarted, () => { files.value = []; });
+
+    // one folder (folder_id), or files (box_file_ids): the browser keeps the two apart
+    const handleBrowsed = (items: BrowseItem[]) => {
+      if (!items.length) return;
+      if (items[0].isDirectory) {
+        folderId.value = items[0].id;
+        folderLabel.value = items[0].path || items[0].name;
+        files.value = [];
+      } else {
+        files.value = items;
+        folderId.value = '';
+        folderLabel.value = '';
+      }
+    };
 
     // Emit validation and configuration changes
     watch([isValid, config], ([newIsValid, newConfig]) => {
@@ -195,6 +253,12 @@ export default defineComponent({
       ownDeep,
       recursive,
       folderId,
+      folderLabel,
+      files,
+      isValid,
+      browseOpen,
+      provider,
+      handleBrowsed,
       authMode,
       authModes,
       handleClientIdChange,

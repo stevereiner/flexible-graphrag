@@ -346,7 +346,7 @@ SOURCE_BACKEND=flexible
 
 
 # =============================================================================
-# Document Parser Configuration (Docling / LlamaParse)
+# Document Parser Configuration (Docling / LlamaParse / LiteParse)
 # =============================================================================
 
 # Document Parser Configuration
@@ -675,7 +675,7 @@ ARCADEDB_GRAPH_DB_CONFIG={"host": "localhost", "port": 2480, "username": "root",
 # Note: bolt_port 7689 avoids conflict with Neo4j (7687) and MemGraph (7688).  Also need port 2480
 #ARCADEDB_GRAPH_DB_CONFIG={"host": "localhost", "port": 2480, "bolt_port": 7689, "username": "root", "password": "playwithdata", "database": "flexible_graphrag"}
 
-# Embedded mode — no separate server required; install arcadedb-embedded>=26.2.1 first
+# Embedded mode — no separate server required; install arcadedb-embedded>=26.3.2 first
 
 # embedded_server: false (default) - pure in-process, no HTTP endpoint exposed
 # embedded_server: true - also starts an HTTP server on embedded_server_port (default 2482)
@@ -1307,6 +1307,42 @@ SOURCE_PATHS=["../sample-docs/cmispress.txt"]
 # the API has no authentication and would otherwise read any file on the host.
 # INGEST_ALLOWED_PATHS=["../sample-docs", "C:/Users/me/Documents/graphrag"]
 
+# Optional API token, off by default; the usual setup (web UIs, MCP server, Docker) doesn't need it.
+# (The desktop app sets its own on the backend it starts; don't set one here for the app.)
+# When set, every /api request must send it in the X-API-Token header (or Authorization: Bearer):
+# the React and Vue UIs then need VITE_API_TOKEN and the MCP server FLEXIBLE_GRAPHRAG_API_TOKEN with
+# the same value (the Angular UI and KG Spaces send none outside the desktop app). Not checked:
+# /api/health and the sign-in pages the browser opens itself. With it set,
+# PUT /api/ingest-allowed-paths can add filesystem ingest folders at runtime. Keep it secret.
+#API_TOKEN=
+# Origins the browser may call the API from (CORS), comma-separated or a JSON list. Unset = any.
+#CORS_ORIGINS=http://localhost:5174,http://localhost:3000,http://localhost:4200
+
+# Remote Flexible GraphRAG backend (federation), off by default. Search and Q&A on this backend
+# also ask that one (its POST /api/search) and fuse its results with this backend's own: e.g. a
+# personal / desktop backend that keeps its files and indexes local, plus a team or business backend.
+# Only the question goes out (and the asker's own source sign-ins, for the remote's permission
+# checks), never this backend's documents. Its results are labelled "<name>: ..." and carry
+# "backend": "<name>". Its sources show in the UIs' source picker ("Alfresco · <name>") and the
+# sign-ins it needs in the sign-in list. Not asked: a question with a scope, picked sources that
+# include none of its own, and a question that came from another backend (no loops). A remote
+# that fails or takes longer than the timeout is skipped; the response then has "notices".
+# REMOTE_FG_API_TOKEN = the remote's API_TOKEN, if it has one; REMOTE_FG_NAME default = the URL's
+# host name; REMOTE_FG_TIMEOUT in seconds (every remote's default).
+#REMOTE_FG_URL=https://graphrag.example.com
+#REMOTE_FG_API_TOKEN=
+#REMOTE_FG_NAME=team
+#REMOTE_FG_TIMEOUT=60
+# Several remotes: a JSON list (one line), each {name, url, api_token?, timeout?}. Asked in
+# parallel; each weighs the same as this backend's own results. REMOTE_FG_URL, when also set, is
+# one more. Names must differ (they tell results and picked sources apart).
+#REMOTE_FG_BACKENDS=[{"name": "b", "url": "http://localhost:8001"}, {"name": "c", "url": "https://graphrag.example.com", "api_token": ""}]
+# Source system name of filesystem / upload documents in the OpenArch tree
+# (/fg-sources/filesystem/<this>/...). Default: this machine's host name. Set it when that isn't
+# stable or unique, e.g. a backend in a container (host name = container id) or several machines
+# writing one OpenArch. Changing it later puts new documents in another tree.
+#FILESYSTEM_SOURCE_ID=
+
 # CMIS Configuration (if using CMIS)
 CMIS_URL=http://localhost:8080/alfresco/api/-default-/public/cmis/versions/1.1/atom
 CMIS_USERNAME=admin
@@ -1518,7 +1554,7 @@ MAX_PATHS_PER_CHUNK=20
 # Enable incremental updates system (automatic monitoring and sync)
 # Set to "true" to enable auto-sync capabilities on the default LI/LC pipeline
 # Requires PostgreSQL for state management (document_state + datasource_config), or OpenArch
-# with INCREMENTAL_STATE_STORE=openarch (see below)
+# with INCREMENTAL_STATE_STORE=openarch, or a SQLite file with INCREMENTAL_STATE_STORE=sqlite (see below)
 # Default: false (incremental updates disabled)
 # Mutually exclusive with PIPELINE_BACKEND=cocoindex — do not enable both
 # (startup will skip this orchestrator and log a warning if both are set).
@@ -1537,11 +1573,16 @@ ENABLE_INCREMENTAL_UPDATES=false
 #     (per data source) on the source documents at OPENARCH_ROOT_PATH/<source type>/<system id>/<path>.
 #     The schemas (fgdatasource, fgdocstate) are added to the repository model on first start.
 #     The CocoIndex pipeline (PIPELINE_BACKEND=cocoindex) keeps using PostgreSQL.
+#   sqlite: the same tables in a SQLite file, SQLITE_INCREMENTAL_PATH (no database server, nothing
+#     to install: for a laptop or the desktop app). The CocoIndex pipeline keeps using PostgreSQL.
 #INCREMENTAL_STATE_STORE=postgres
+#INCREMENTAL_STATE_STORE=sqlite
 #OPENARCH_DATASOURCES_PATH=/fg-datasources
+# The SQLite file (INCREMENTAL_STATE_STORE=sqlite); relative to the folder the backend runs in
+#SQLITE_INCREMENTAL_PATH=./flexible_graphrag_incremental.db
 
 # PostgreSQL connection for state management (required if ENABLE_INCREMENTAL_UPDATES=true,
-# unless INCREMENTAL_STATE_STORE=openarch)
+# unless INCREMENTAL_STATE_STORE=sqlite or openarch)
 # Recommended: Reuse existing postgres-pgvector service on port 5433
 # Create database: flexible_graphrag_incremental (separate from pgvector database)
 # Setup: See flexible-graphrag/incremental_updates/schema.sql

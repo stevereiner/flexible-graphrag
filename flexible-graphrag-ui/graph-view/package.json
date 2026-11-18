@@ -1,6 +1,6 @@
 {
   "name": "@flexible-graphrag/graph-view",
-  "version": "0.10.0",
+  "version": "0.11.0",
   "description": "Framework-free property-graph view (Cytoscape.js) for the Flexible GraphRAG Graph tab",
   "license": "Apache-2.0",
   "keywords": ["graph", "knowledge-graph", "cytoscape", "graphrag", "flexible-graphrag"],

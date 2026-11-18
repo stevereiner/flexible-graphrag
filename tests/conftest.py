@@ -9,6 +9,30 @@ from pathlib import Path
 # Add the flexible-graphrag directory to the path
 sys.path.insert(0, str(Path(__file__).parent.parent / "flexible-graphrag"))
 
+import pytest
+
+# Importing main.py runs load_dotenv(), which copies this machine's flexible-graphrag/.env into
+# os.environ for the rest of the run: a later test of a default (SEARCH_DB=bm25) then sees that
+# .env's value instead (SEARCH_DB=none), and REMOTE_FG_* adds real remote backends. Each test starts
+# with those keys as they were before the run (unit tests don't depend on this machine's .env).
+try:
+    from dotenv import dotenv_values
+
+    _DOTENV_KEYS = set(dotenv_values(Path(__file__).parent.parent / "flexible-graphrag" / ".env"))
+except Exception:  # no python-dotenv, no .env
+    _DOTENV_KEYS = set()
+_ENV_BEFORE_RUN = {k: os.environ.get(k) for k in _DOTENV_KEYS}
+
+
+@pytest.fixture(autouse=True)
+def _dotenv_keys_as_before_run():
+    for key, value in _ENV_BEFORE_RUN.items():
+        if value is None:
+            os.environ.pop(key, None)
+        else:
+            os.environ[key] = value
+    yield
+
 # Test configuration
 def pytest_addoption(parser):
     parser.addoption(

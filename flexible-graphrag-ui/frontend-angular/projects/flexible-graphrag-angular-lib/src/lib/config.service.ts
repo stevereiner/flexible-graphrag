@@ -21,6 +21,9 @@ export class FlexibleGraphragConfigService {
   }
 
   get apiUrl(): string { return this.cfg.apiUrl; }
+  /** Replace the API URL at startup, before the tabs are shown (the desktop app: a built app has
+   *  no /api proxy, so it calls the backend's own URL). Hosts don't need it. */
+  setApiUrl(url: string): void { this.cfg.apiUrl = url; }
   get defaultFolderPath(): string { return this.cfg.defaultFolderPath!; }
   get cmisBaseUrl(): string { return this.cfg.cmisBaseUrl!; }
   get alfrescoBaseUrl(): string { return this.cfg.alfrescoBaseUrl!; }
@@ -117,7 +120,9 @@ export class FlexibleGraphragConfigService {
     // the source picker's choice (Search / AI Chat), unless the caller chose its own
     const picked = this.sourcePicker ? readPickedSources() : [];
     if (picked.length && !(out as any).sources) {
-      out = { ...out, sources: picked.map((p) => (p.url ? { source: p.source, url: p.url } : { source: p.source })) };
+      // a remote backend's pick keeps its name: this backend passes it on to that remote
+      out = { ...out, sources: picked.map((p) => ({ source: p.source, ...(p.url ? { url: p.url } : {}),
+                                                    ...(p.backend ? { backend: p.backend } : {}) })) };
     }
     return out;
   }

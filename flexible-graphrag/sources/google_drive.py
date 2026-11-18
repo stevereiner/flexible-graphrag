@@ -75,6 +75,24 @@ class GoogleDriveSource(BaseDataSource):
         
         return True
     
+    def _load_kwargs(self) -> Dict[str, Any]:
+        """GoogleDriveReader.load_data's arguments. It reads a folder or a list of file ids, nothing
+        else: with neither it only warns and returns no documents (a service account has no "whole
+        drive", only what is shared with it), which used to end as a "success" with 0 documents.
+        The query only filters a folder / the files (the reader's ``query_string``; ``query`` was
+        a TypeError)."""
+        if not self.folder_id and not self.file_ids:
+            raise ValueError("Google Drive: pick a folder or files (Browse...) -- with neither, nothing is read "
+                             "(a service account sees only what is shared with it)")
+        load_kwargs: Dict[str, Any] = {}
+        if self.folder_id:
+            load_kwargs["folder_id"] = self.folder_id
+        if self.file_ids:
+            load_kwargs["file_ids"] = self.file_ids
+        if self.query:
+            load_kwargs["query_string"] = self.query
+        return load_kwargs
+
     def _create_google_drive_reader(self, progress_callback=None):
         """Create GoogleDriveReader with passthrough extractors"""
         try:
@@ -163,15 +181,8 @@ class GoogleDriveSource(BaseDataSource):
             # Create reader
             reader, _ = self._create_google_drive_reader()
             
-            # Build load_data arguments based on configuration
-            load_kwargs = {}
-            if self.folder_id:
-                load_kwargs["folder_id"] = self.folder_id
-            if self.file_ids:
-                load_kwargs["file_ids"] = self.file_ids
-            if self.query:
-                load_kwargs["query"] = self.query
-            
+            load_kwargs = self._load_kwargs()
+
             # Use GoogleDriveReader to discover and capture files (returns placeholder Documents)
             placeholder_docs = reader.load_data(**load_kwargs)
             
@@ -277,15 +288,8 @@ class GoogleDriveSource(BaseDataSource):
             
             reader = GoogleDriveReader(**reader_kwargs)
             
-            # Build load_data arguments based on configuration
-            load_kwargs = {}
-            if self.folder_id:
-                load_kwargs["folder_id"] = self.folder_id
-            if self.file_ids:
-                load_kwargs["file_ids"] = self.file_ids
-            if self.query:
-                load_kwargs["query"] = self.query
-            
+            load_kwargs = self._load_kwargs()
+
             # Use GoogleDriveReader to load and process documents
             # PassthroughExtractor will process each file immediately and return processed docs
             documents = reader.load_data(**load_kwargs)

@@ -102,7 +102,7 @@ Add to `claude_desktop_config.json` (stdio transport — no HTTP server needed f
           "command": "uvx",
           "args": ["flexible-graphrag-mcp"],
           "env": {
-            "FLEXIBLE_GRAPHRAG_API_BASE": "http://localhost:8000"
+            "FLEXIBLE_GRAPHRAG_URL": "http://localhost:8000"
           }
         }
       }
@@ -121,7 +121,7 @@ Add to `claude_desktop_config.json` (stdio transport — no HTTP server needed f
         "flexible-graphrag": {
           "command": "flexible-graphrag-mcp",
           "env": {
-            "FLEXIBLE_GRAPHRAG_API_BASE": "http://localhost:8000"
+            "FLEXIBLE_GRAPHRAG_URL": "http://localhost:8000"
           }
         }
       }
@@ -155,7 +155,7 @@ In Cursor settings → MCP, add:
       "command": "uvx",
       "args": ["flexible-graphrag-mcp"],
       "env": {
-        "FLEXIBLE_GRAPHRAG_API_BASE": "http://localhost:8000"
+        "FLEXIBLE_GRAPHRAG_URL": "http://localhost:8000"
       }
     }
   }

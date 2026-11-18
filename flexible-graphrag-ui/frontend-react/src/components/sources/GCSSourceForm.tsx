@@ -1,6 +1,10 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { TextField } from '@mui/material';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { TextField, Box, Button } from '@mui/material';
+import { FolderOpen as FolderOpenIcon } from '@mui/icons-material';
 import { BaseSourceForm, BaseSourceFormProps } from './BaseSourceForm';
+import { SourceBrowser } from '../../browser/SourceBrowser';
+import { remoteProvider } from '../../browser/RemoteProvider';
+import { BrowseItem } from '../../browser/types';
 
 interface GCSSourceFormProps extends BaseSourceFormProps {
   bucketName: string;
@@ -68,6 +72,17 @@ export const GCSSourceForm: React.FC<GCSSourceFormProps> = ({
     onConfigurationChange(config);
   }, [isValid, config, onValidationChange, onConfigurationChange]);
 
+  // Browse the bucket with the credentials below (POST /api/browse)
+  const [browseOpen, setBrowseOpen] = useState(false);
+  const configRef = useRef(config);
+  configRef.current = config;
+  const provider = useMemo(() => remoteProvider('gcs', 'GCS bucket', () => configRef.current), []);
+
+  // a folder's prefix ("docs/2024/"): the ingest reads a prefix as a folder
+  const handleBrowsed = (items: BrowseItem[]) => {
+    if (items.length) handlePrefixChange(items[0].path || items[0].id);
+  };
+
   return (
     <BaseSourceForm
       title="Google Cloud Storage"
@@ -84,16 +99,36 @@ export const GCSSourceForm: React.FC<GCSSourceFormProps> = ({
         sx={{ mb: 2 }}
         placeholder="my-gcs-bucket"
       />
-      <TextField
-        fullWidth
-        label="Prefix/Path (Optional)"
-        variant="outlined"
-        value={prefix}
-        onChange={(e) => handlePrefixChange(e.target.value)}
-        size="small"
-        sx={{ mb: 2 }}
-        placeholder="sample-docs/"
-        helperText="Optional: folder path prefix (e.g., 'sample-docs/' for a specific folder)"
+      <Box sx={{ display: 'flex', gap: 1, alignItems: 'flex-start', mb: 2 }}>
+        <TextField
+          fullWidth
+          label="Prefix/Path (Optional)"
+          variant="outlined"
+          value={prefix}
+          onChange={(e) => handlePrefixChange(e.target.value)}
+          size="small"
+          placeholder="sample-docs/"
+          helperText="Optional: folder path prefix (e.g., 'sample-docs/' for a specific folder)"
+        />
+        <Button
+          variant="outlined"
+          startIcon={<FolderOpenIcon />}
+          disabled={!isValid}
+          title={isValid ? 'Pick a folder in the bucket' : 'Fill in the bucket and the credentials first'}
+          onClick={() => setBrowseOpen(true)}
+          sx={{ whiteSpace: 'nowrap', minWidth: 'auto', height: 40 }}
+        >
+          Browse…
+        </Button>
+      </Box>
+      <SourceBrowser
+        open={browseOpen}
+        provider={provider}
+        title={`Pick a folder: gs://${bucketName}`}
+        files={false}
+        multiple={false}
+        onClose={() => setBrowseOpen(false)}
+        onSelect={handleBrowsed}
       />
       <TextField
         fullWidth

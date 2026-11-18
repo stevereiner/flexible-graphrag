@@ -1,4 +1,5 @@
-import { Component, Input, Output, EventEmitter, OnInit, OnDestroy } from '@angular/core';
+import { Component, Input, Output, EventEmitter, OnInit, OnDestroy, inject } from '@angular/core';
+import { SourceBrowserService } from '../../browser/remote-browse.provider';
 
 export interface GCSSourceConfig {
   bucket_name: string;
@@ -24,14 +25,21 @@ export interface GCSSourceConfig {
         <mat-hint>GCS bucket name (required)</mat-hint>
       </mat-form-field>
 
-      <mat-form-field appearance="outline" class="full-width">
-        <mat-label>Prefix (Optional)</mat-label>
-        <input matInput
-               [(ngModel)]="prefix"
-               (ngModelChange)="onPrefixChange()"
-               placeholder="sample-docs/" />
-        <mat-hint>Optional: folder path prefix (e.g., 'sample-docs/' for a specific folder)</mat-hint>
-      </mat-form-field>
+      <div class="form-row">
+        <mat-form-field appearance="outline" class="half-width">
+          <mat-label>Prefix (Optional)</mat-label>
+          <input matInput
+                 [(ngModel)]="prefix"
+                 (ngModelChange)="onPrefixChange()"
+                 placeholder="sample-docs/" />
+          <mat-hint>Optional: folder path prefix (e.g., 'sample-docs/' for a specific folder)</mat-hint>
+        </mat-form-field>
+        <button mat-stroked-button type="button" class="browse-button" [disabled]="!isValid()"
+                [title]="isValid() ? 'Pick a folder in the bucket' : 'Fill in the bucket and the credentials first'"
+                (click)="browse()">
+          <mat-icon>folder_open</mat-icon> Browse…
+        </button>
+      </div>
 
       <mat-form-field appearance="outline" class="full-width">
         <mat-label>Service Account Credentials (JSON)</mat-label>
@@ -59,6 +67,22 @@ export interface GCSSourceConfig {
       width: 100%;
       margin-bottom: 16px;
     }
+
+    .form-row {
+      display: flex;
+      gap: 16px;
+      margin-bottom: 16px;
+    }
+
+    .half-width {
+      flex: 1;
+    }
+
+    .browse-button {
+      height: 56px;
+      white-space: nowrap;
+      flex: none;
+    }
   `],
   standalone: false
 })
@@ -83,19 +107,36 @@ export class GCSSourceFormComponent implements OnInit, OnDestroy {
     // Cleanup if needed
   }
 
-  private updateValidationAndConfig() {
-    const isValid = this.bucketName.trim() !== '' && 
-                   this.credentials.trim() !== '';
-    
-    const config: GCSSourceConfig = {
+  private readonly browser = inject(SourceBrowserService);
+  private readonly provider = this.browser.provider('gcs', 'GCS bucket', () => this.config());
+
+  isValid(): boolean {
+    return this.bucketName.trim() !== '' && this.credentials.trim() !== '';
+  }
+
+  private config(): GCSSourceConfig {
+    return {
       bucket_name: this.bucketName,
       credentials: this.credentials,
       prefix: this.prefix || undefined,
       pubsub_subscription: this.pubsubSubscription || undefined
     };
-    
-    this.validationChange.emit(isValid);
-    this.configurationChange.emit(config);
+  }
+
+  /** A folder's prefix ("docs/2024/"): the ingest reads a prefix as a folder (one object would
+   *  need GCSConfig `key`, not taken from the UI yet). */
+  async browse(): Promise<void> {
+    const [folder] = await this.browser.pick({
+      provider: this.provider, title: `Pick a folder: gs://${this.bucketName}`, files: false, multiple: false,
+    });
+    if (!folder) return;
+    this.prefix = folder.path || folder.id;
+    this.onPrefixChange();
+  }
+
+  private updateValidationAndConfig() {
+    this.validationChange.emit(this.isValid());
+    this.configurationChange.emit(this.config());
   }
 
   onBucketNameChange(): void {

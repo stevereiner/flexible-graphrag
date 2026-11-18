@@ -2,6 +2,85 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2026-11-16] — v0.11.0: desktop app, data source file/folder browsers, optional SQLite state store, federated: results fused from other backends
+
+### Added
+
+- **Desktop app (early version)** (`flexible-graphrag-ui/desktop`, Tauri 2) around the React, Vue or
+  Angular UI: a **Local Files and Folders** source (browse the local disk, ingest files and folders
+  by path, kept in sync with Auto Sync); opens the local files that results and answers name; web
+  links (a result's Alfresco / Nuxeo / SharePoint / Box ... page) open in the default browser; a
+  tray icon with the backend's state, its log and `.env`, the app's `desktop.json`, and Restart
+  backend. Backend: its own (from a checkout or a PyPI install folder, with a per-install API token
+  and CORS limited to the app), one already on port 8000, or one set in `desktop.json` /
+  `FLEXIBLE_GRAPHRAG_URL`. See `flexible-graphrag-ui/desktop/README.md`.
+- **Source browsers** (React, Vue, Angular, `@flexible-graphrag/angular-ui`): **Browse...** in the
+  Alfresco, CMIS, Nuxeo, S3, GCS, Azure Blob, Box, Google Drive, OneDrive and SharePoint forms
+  picks folders and documents, one level at a time; picks show as chips; each source type
+  remembers its last folder. API: `GET` / `POST /api/browse`.
+- **SQLite auto-sync state store** (`INCREMENTAL_STATE_STORE=sqlite`, `SQLITE_INCREMENTAL_PATH`):
+  the same tables, no database server. CocoIndex keeps using PostgreSQL.
+- **Federation** (off by default): search, AI query and chat also ask other Flexible GraphRAG
+  backends and fuse their results: `REMOTE_FG_URL` (`_NAME`, `_API_TOKEN`, `_TIMEOUT`) or
+  `REMOTE_FG_BACKENDS` (JSON list). Only the question and the asker's sign-ins go out; a remote's
+  results, sources ("Alfresco · b") and needed sign-ins carry its name (`backend`); picked sources
+  go only to their backend; a failed or slow remote is skipped with a notice; forwarded questions
+  aren't passed on (no loops).
+- **Optional `API_TOKEN`**: every `/api` request then sends `X-API-Token` (React / Vue:
+  `VITE_API_TOKEN`; MCP server: `FLEXIBLE_GRAPHRAG_API_TOKEN`). **`CORS_ORIGINS`** limits the
+  browser origins.
+- **Ingest folders API:** `GET /api/ingest-allowed-paths` (as set and resolved); `PUT` adds folders
+  at runtime (needs an API token); `POST .../check` gives the `INGEST_ALLOWED_PATHS=[...]` `.env`
+  line for picks outside them.
+- **`FILESYSTEM_SOURCE_ID`**: source system name of filesystem / upload documents in the OpenArch
+  tree (default: the host name, not stable in a container).
+- `GET /api/backend-files`: the `.env` and log paths (same-machine callers only), for the tray menu.
+
+### Changed
+
+- **Version 0.11.0:** backend, MCP server, Langflow components and flows, React / Vue / Angular
+  apps, `@flexible-graphrag/angular-ui`, `@flexible-graphrag/graph-view` (version only), desktop
+  app (was 0.9.1).
+- Starting an ingest clears the Sources tab's lists; the run's rows stay in the Processing tab.
+- Filesystem folders are always ingested, watched and rescanned with their subfolders.
+- All three UI dev servers proxy `/api` to `VITE_API_PROXY_TARGET` (default
+  `http://localhost:8000`); Angular's proxy is now `proxy.conf.mjs`.
+- The MCP server sends `FLEXIBLE_GRAPHRAG_API_TOKEN` when set.
+- `scripts/cleanup.py` also clears the SQLite state file and the BM25 index, and reads the `.env`
+  in the current folder.
+- **Docs:** new pages Desktop App, Docker-Free Setup, Federated Backends, API Token and CORS, and
+  Tab 5 — Graph (missing since 0.10.0); Browse... and Local Files and Folders on the Sources tab
+  page; the new endpoints on the REST API page.
+
+### Fixed
+
+- **Windows Ctrl+C** stops the backend (hung in interpreter teardown).
+- **LanceDB:** a second source with different metadata keys failed (`field 'alfresco_id' does not
+  exist in table schema`).
+- **Hang on a repository / cloud ingest:** the time estimate walked the local disk (`/` = `C:\`) on
+  the event loop; it also stops counting a big folder early now.
+- **Processing status:** a failed run shows its reason; a completed run marks every file
+  completed; every file is tracked when a source first reports "connecting".
+- **Google Drive:** nothing picked is an error, not "success" with 0 documents; the query filter
+  works (`query_string`, was `query`).
+- **SharePoint** skips and names files it can't download; fails only when nothing could be read.
+- **Box:** settings missing from the form come from `BOX_CONFIG`.
+- **OneDrive auto sync** of picked files follows exactly those files; the drive-wide delta is
+  limited to the sync's folder or files.
+- **CMIS:** documents without a file extension (Share wiki pages, blog posts, links) get one from
+  their content type.
+- **TLS on Windows:** requests / urllib3 clients (Box SDK, Google clients) get the certificate-store
+  fix too.
+- **OpenArch:** a name already taken in the target folder gets its unique name (move / copy made
+  `name.<n>` instead of failing).
+- **Vue:** the Wikipedia form sent Max Documents as text; in the desktop app, Windows local files in
+  results showed as plain names, not links.
+- **Packaging:** the sdist left out `browse/`.
+- **Docs:** MCP client configs set `FLEXIBLE_GRAPHRAG_API_BASE` (not read), now
+  `FLEXIBLE_GRAPHRAG_URL`; `env-sample.txt`'s `CORS_ORIGINS` example had React on 5173, it is 5174.
+- **Tests:** unit tests no longer read this machine's `.env`; the Milvus factory and BM25 tests
+  match the store adapters.
+
 ## [2026-11-10] — v0.10.0: new Graph tab for showing graphs of ingested, search sources and KG Spaces doc/folder, added Google Spanner LangChain in addition to LlamaIndex
 
 ### Added

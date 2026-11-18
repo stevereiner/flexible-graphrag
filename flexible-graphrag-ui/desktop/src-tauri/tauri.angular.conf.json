@@ -1,0 +1,22 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "build": {
+    "devUrl": "http://localhost:4200",
+    "beforeDevCommand": "npm --prefix ../frontend-angular run start",
+    "beforeBuildCommand": "npm --prefix ../frontend-angular run build:desktop",
+    "frontendDist": "../../frontend-angular/dist-desktop"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "create": false,
+        "title": "Flexible GraphRAG (Angular)",
+        "width": 1400,
+        "height": 900,
+        "minWidth": 900,
+        "minHeight": 600
+      }
+    ]
+  }
+}

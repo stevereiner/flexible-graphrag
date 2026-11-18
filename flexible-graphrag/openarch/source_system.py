@@ -147,8 +147,17 @@ def source_system_for(data_source: Optional[str], kwargs: Dict[str, Any]) -> Tup
     if ds == "wikipedia":
         return ds, _conf(kwargs, "wikipedia_config").get("language") or "en"
     if ds == "filesystem":
-        return ds, socket.gethostname().lower()
+        return ds, filesystem_source_id()
     return ds, "default"  # youtube, box, google_drive: one account-wide namespace
+
+
+def filesystem_source_id() -> str:
+    """The source system of filesystem (and upload) documents: FILESYSTEM_SOURCE_ID when set, else
+    this machine's host name. Set it where the host name isn't stable or unique: a backend in a
+    container (the host name is the container id, new on every re-create, which starts a new
+    ``filesystem/<id>/`` tree), several machines writing one OpenArch, or a renamed PC. The desktop
+    app sets its machine id. Changing it later moves new documents to another tree."""
+    return (os.getenv("FILESYSTEM_SOURCE_ID") or "").strip() or socket.gethostname().lower()
 
 
 def set_current_source_system(data_source: Optional[str], kwargs: Dict[str, Any]) -> contextvars.Token:

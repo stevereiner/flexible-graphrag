@@ -1,4 +1,7 @@
-<div class="app-container">
+<!-- Desktop app: a startup screen until its backend answers -->
+<app-backend-gate *ngIf="!backendReady" (ready)="onBackendReady()"></app-backend-gate>
+
+<div class="app-container" *ngIf="backendReady">
   <app-title-bar [title]="title"></app-title-bar>
 
   <main class="main-content">
@@ -28,11 +31,13 @@
               [configuredYoutubeConfig]="configuredYoutubeConfig"
               [configuredCloudConfig]="configuredCloudConfig"
               [configuredEnterpriseConfig]="configuredEnterpriseConfig"
+              [configuredFilesystemConfig]="configuredFilesystemConfig"
               [configurationTimestamp]="configurationTimestamp"
               (goToSources)="selectedTabIndex = 0"
               (removeRepositoryFile)="removeRepositoryFile($event)"
               (removeUploadFile)="removeUploadFile($event)"
-              (showGraph)="onShowGraph($event)">
+              (showGraph)="onShowGraph($event)"
+              (removeLocalItem)="removeLocalItem($event)">
             </app-processing-tab>
           </mat-tab>
           

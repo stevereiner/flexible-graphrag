@@ -1,11 +1,29 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { TextField, Box, FormControl, InputLabel, Select, MenuItem } from '@mui/material';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { TextField, Box, Button, Chip, Typography, FormControl, InputLabel, Select, MenuItem } from '@mui/material';
+import { FolderOpen as FolderOpenIcon } from '@mui/icons-material';
 import { BaseSourceForm, BaseSourceFormProps } from './BaseSourceForm';
 import { SourceSignInSection, useSourceSession } from '../../auth/SourceSignInSection';
 import { DeepCheckbox, deepValue } from './DeepCheckbox';
 import { useUiDefaults } from '../../uiDefaults';
+import { SourceBrowser } from '../../browser/SourceBrowser';
+import { remoteProvider } from '../../browser/RemoteProvider';
+import { BrowseItem } from '../../browser/types';
+import { useOnIngestStarted } from '../../ingestSignal';
 
 type AuthMethod = 'basic' | 'ticket' | 'oauth2';
+
+// A node picked in the browser, as the backend's NodeDetail (what ACA / ADF multi-select sends)
+interface NodeDetail { id: string; name: string; path: string; isFile: boolean; isFolder: boolean }
+
+const parentOf = (p: string) => p.slice(0, Math.max(p.lastIndexOf('/'), 0)) || '/';
+
+// The deepest folder holding all of them: the ingest's `path` for a multi-select
+const commonParent = (paths: string[]) => {
+  const split = paths.map((p) => parentOf(p).split('/').filter(Boolean));
+  const common: string[] = [];
+  for (let i = 0; split.every((s) => i < s.length && s[i] === split[0][i]); i++) common.push(split[0][i]);
+  return '/' + common.join('/');
+};
 
 interface AlfrescoSourceFormProps extends BaseSourceFormProps {
   // Single-object persistence (see NuxeoSourceForm): seeds on mount, emits full config on edit,
@@ -38,6 +56,10 @@ export const AlfrescoSourceForm: React.FC<AlfrescoSourceFormProps> = ({
   const [url, setUrl] = useState<string>(value?.url ?? defaultUrl);
   const [authMethod, setAuthMethod] = useState<AuthMethod>(value?.auth_method ?? 'basic');
   const [path, setPath] = useState<string>(value?.path ?? defaultPath);
+  // files / several items picked in the browser (nodeDetails: the ingest then reads these, by id)
+  const [nodes, setNodes] = useState<NodeDetail[]>(value?.nodeDetails ?? []);
+  // an ingest started: the picks empty (the run's rows stay in Processing)
+  useOnIngestStarted(() => setNodes([]));
   // Deep: include subfolders (recursive). Unset: the backend's DEFAULT_RECURSIVE, else off
   const [ownDeep, setRecursive] = useState<boolean | undefined>(value?.recursive);
   const recursive = deepValue(ownDeep, useUiDefaults().recursive, false);
@@ -72,10 +94,11 @@ export const AlfrescoSourceForm: React.FC<AlfrescoSourceFormProps> = ({
   }, [url, path, usingSignIn, authMethod, username, password, clientId, clientSecret, accessToken]);
 
   const config = useMemo(() => {
+    const nodeDetails = nodes.length ? nodes : undefined;
     if (usingSignIn && session) {
-      return { url, path, recursive, auth_method: 'ticket', ticket: session.ticket! };
+      return { url, path, nodeDetails, recursive, auth_method: 'ticket', ticket: session.ticket! };
     }
-    const base: any = { url, auth_method: authMethod, path, recursive };
+    const base: any = { url, auth_method: authMethod, path, nodeDetails, recursive };
     if (authMethod === 'oauth2') {
       base.oauth2 = {
         client_id: clientId,
@@ -90,13 +113,45 @@ export const AlfrescoSourceForm: React.FC<AlfrescoSourceFormProps> = ({
       base.password = password;
     }
     return base;
-  }, [url, authMethod, path, recursive, usingSignIn, session, username, password, clientId, clientSecret, tokenEndpoint, scope, accessToken, refreshToken]);
+  }, [url, authMethod, path, nodes, recursive, usingSignIn, session, username, password, clientId, clientSecret, tokenEndpoint, scope, accessToken, refreshToken]);
 
   useEffect(() => {
     onValidationChange(isValid);
     onConfigurationChange(config);
     onChange?.(config);  // persist live config to App so it survives tab switches
   }, [isValid, config, onValidationChange, onConfigurationChange, onChange]);
+
+  // Browse the repository as the ingest signs in (POST /api/browse): needs the URL and a sign-in
+  const canBrowse = url.trim() !== '' && (usingSignIn
+    || (authMethod === 'oauth2'
+      ? clientId.trim() !== '' && (accessToken.trim() !== '' || clientSecret.trim() !== '')
+      : username.trim() !== '' && password.trim() !== ''));
+  const [browseOpen, setBrowseOpen] = useState(false);
+  const configRef = useRef(config);
+  configRef.current = config;
+  const provider = useMemo(() => remoteProvider('alfresco', 'Alfresco repository', () => configRef.current), []);
+
+  // One folder: the path (as typed). Files, or several items: nodeDetails by id, with the path
+  // their common parent folder (as ACA's multi-select sends it).
+  const handleBrowsed = (items: BrowseItem[]) => {
+    if (!items.length) return;
+    const itemPath = (i: BrowseItem) => i.path || `/${i.name}`;
+    if (items.length === 1 && items[0].isDirectory) {
+      setPath(itemPath(items[0]));
+      setNodes([]);
+      return;
+    }
+    const picked = items.map((i) => ({
+      id: i.id, name: i.name, path: itemPath(i), isFile: !i.isDirectory, isFolder: i.isDirectory,
+    }));
+    setNodes(picked);
+    setPath(commonParent(picked.map((n) => n.path)));
+  };
+  const removeNode = (id: string) => {
+    const left = nodes.filter((n) => n.id !== id);
+    setNodes(left);
+    if (left.length) setPath(commonParent(left.map((n) => n.path)));
+  };
 
   return (
     <BaseSourceForm
@@ -234,20 +289,58 @@ export const AlfrescoSourceForm: React.FC<AlfrescoSourceFormProps> = ({
         </Box>
       )}
 
-      <Box sx={{ display: 'flex', alignItems: 'flex-start' }}>
+      <Box sx={{ display: 'flex', gap: 1, alignItems: 'flex-start' }}>
         <TextField
           fullWidth
           label="Path"
           required
           variant="outlined"
           value={path}
-          onChange={(e) => setPath(e.target.value)}
+          onChange={(e) => { setPath(e.target.value); setNodes([]); }}
           size="small"
           sx={{ mb: 2 }}
           placeholder="e.g., /Shared/GraphRAG"
+          helperText={nodes.length ? 'The folder holding the picked items' : 'A folder, or one document'}
+          disabled={nodes.length > 0}
         />
+        <Button
+          variant="outlined"
+          startIcon={<FolderOpenIcon />}
+          disabled={!canBrowse}
+          title={canBrowse ? 'Pick folders and documents in the repository' : 'Fill in the URL and sign in (or credentials) first'}
+          onClick={() => setBrowseOpen(true)}
+          sx={{ whiteSpace: 'nowrap', minWidth: 'auto', height: 40 }}
+        >
+          Browse…
+        </Button>
         <DeepCheckbox checked={recursive} onChange={setRecursive} />
       </Box>
+      {nodes.length > 0 && (
+        <Box sx={{ mb: 2 }}>
+          <Typography variant="caption" sx={{ display: 'block', mb: 0.5, opacity: 0.8 }}>
+            {nodes.length === 1 ? '1 item picked' : `${nodes.length} items picked`}: the ingest reads these instead of the path
+          </Typography>
+          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+            {nodes.map((n) => (
+              <Chip
+                key={n.id}
+                size="small"
+                icon={n.isFolder ? <FolderOpenIcon /> : undefined}
+                label={n.path}
+                onDelete={() => removeNode(n.id)}
+              />
+            ))}
+            <Button size="small" onClick={() => setNodes([])}>Clear</Button>
+          </Box>
+        </Box>
+      )}
+      <SourceBrowser
+        open={browseOpen}
+        provider={provider}
+        title="Pick folders and documents: Alfresco"
+        onClose={() => setBrowseOpen(false)}
+        onSelect={handleBrowsed}
+      />
     </BaseSourceForm>
   );
 };

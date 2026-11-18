@@ -324,7 +324,31 @@ async def describe(doc_ids: Iterable[str], known: Optional[Dict[str, Dict[str, s
 
 
 async def answer_sources(source_nodes: Iterable[Any], limit: int = 10) -> List[Dict[str, Any]]:
-    """The documents an answer was built from, best first, one entry per document."""
+    """The documents an answer was built from, best first, one entry per document. Documents from
+    a remote backend (remote_backends.py) come as that backend described them, with ``backend``."""
+    from remote_backends import remote_result
+    local_nodes: List[Any] = []
+    remote: List[tuple] = []  # (score, ref)
+    for n in source_nodes or []:
+        r = remote_result(getattr(getattr(n, "node", n), "metadata", None) or {})
+        if r is None:
+            local_nodes.append(n)
+        else:
+            remote += [(float(getattr(n, "score", 0.0) or 0.0), d) for d in r["documents"]]
+    scored = await _local_answer_sources(local_nodes, limit)
+    if not remote:
+        return [ref for _, ref in scored]
+    seen = set()
+    for score, ref in sorted(remote, key=lambda x: x[0], reverse=True):
+        key = (ref.get("backend"), ref.get("doc_id") or ref.get("open_url") or ref.get("name"))
+        if key not in seen:
+            seen.add(key)
+            scored.append((score, ref))
+    return [ref for _, ref in sorted(scored, key=lambda x: x[0], reverse=True)][:limit]
+
+
+async def _local_answer_sources(source_nodes: Iterable[Any], limit: int) -> List[tuple]:
+    """This backend's documents an answer was built from, best first, as (best node score, ref)."""
     nodes = list(source_nodes or [])
     order: Dict[str, float] = {}
     for n in nodes:
@@ -332,18 +356,19 @@ async def answer_sources(source_nodes: Iterable[Any], limit: int = 10) -> List[D
             order[d] = max(order.get(d, float("-inf")), float(getattr(n, "score", 0.0) or 0.0))
     if not order:
         # nodes without doc ids (e.g. a plain ingest's chunks): what their metadata says
-        refs: Dict[str, Dict[str, Any]] = {}
+        refs: Dict[str, tuple] = {}
         for n in nodes:
             ref = _chunk_ref(getattr(getattr(n, "node", n), "metadata", None) or {})
             if ref.get("name"):
-                refs.setdefault(ref["name"], {"doc_id": "", "path": "", "source_type": "", "node_id": "",
-                                              "parent_id": "", "open_url": "", **ref})
+                refs.setdefault(ref["name"], (float(getattr(n, "score", 0.0) or 0.0),
+                                              {"doc_id": "", "path": "", "source_type": "", "node_id": "",
+                                               "parent_id": "", "open_url": "", **ref}))
         return list(refs.values())[:limit]
     ranked = sorted(order, key=order.get, reverse=True)[:limit]
     refs = await describe(ranked, chunk_refs(nodes))
     # One entry per source object: a repository document two data sources hold (two copies, two doc
     # ids) is listed once, at its best rank, named by whichever copy knows its name
-    out: List[Dict[str, Any]] = []
+    out: List[tuple] = []
     seen: Dict[tuple, Dict[str, Any]] = {}
     for d in ranked:
         ref = refs[d]
@@ -352,7 +377,7 @@ async def answer_sources(source_nodes: Iterable[Any], limit: int = 10) -> List[D
         if first is None:
             if key:
                 seen[key] = ref
-            out.append(ref)
+            out.append((order[d], ref))
         elif first["name"] in (first["node_id"], first["doc_id"]) and ref["name"] not in (ref["node_id"], ref["doc_id"]):
             first["name"], first["path"] = ref["name"], ref["path"] or first["path"]
     return out
