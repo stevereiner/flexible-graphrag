@@ -166,6 +166,12 @@ class WeaviateVectorAdapter(LangChainVectorAdapter):
             client = _build_weaviate_client_sync(config)
             logger.info("Weaviate: using sync client (langchain_weaviate)")
 
+            from adapters.vector.weaviate_collection import ensure_weaviate_collection
+
+            ensure_weaviate_collection(
+                client, index_name, [{"name": text_key, "dataType": ["text"]}]
+            )
+
             store = WeaviateVectorStore(
                 client=client,
                 index_name=index_name,

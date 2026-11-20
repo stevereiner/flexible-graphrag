@@ -69,6 +69,11 @@ class LlamaIndexWeaviateAdapter(LlamaIndexVectorAdapter):
         self._sync_client = weaviate.connect_to_custom(**connect_kwargs)
         logger.info("LlamaIndexWeaviateAdapter: sync client connected")
 
+        from llama_index.vector_stores.weaviate.utils import NODE_SCHEMA
+        from adapters.vector.weaviate_collection import ensure_weaviate_collection
+
+        ensure_weaviate_collection(self._sync_client, self._index_name, NODE_SCHEMA)
+
         store = WeaviateVectorStore(
             weaviate_client=self._sync_client,
             index_name=self._index_name,

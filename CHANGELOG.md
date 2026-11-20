@@ -2,6 +2,25 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2026-11-20] — v0.11.0: Weaviate 1.40+ fix, newer grpcio install note
+
+### Changed
+
+- **pyproject.toml:** a note on installing newer grpcio. weaviate-client caps it below 1.80, which
+  makes the Google Cloud packages warn (grpcio 1.83+ required from April 2027). After the base
+  install and any extras, run `uv pip install "grpcio>=1.85.3"`; tested with Weaviate on
+  LlamaIndex and LangChain.
+
+### Fixed
+
+- **Weaviate 1.40+: no vectors stored, searches failed with `index for target vector "" not found`:**
+  a collection created without vector settings gets no vector index there. The Weaviate collection
+  is now created with one (LlamaIndex and LangChain); an empty one made before without it is made
+  again.
+- **LangChain RDF search: `MALFORMED QUERY` from GraphDB** when the LLM (seen with Ollama
+  gpt-oss:20b) ended SPARQL `PREFIX` lines with a Turtle-style ` .` or wrote `@prefix`. Those
+  lines are now rewritten as SPARQL before the query runs.
+
 ## [2026-11-20] — v0.11.0: Linux fixes (NLTK data, first search after ingest), Linux / macOS build docs
 
 ### Changed

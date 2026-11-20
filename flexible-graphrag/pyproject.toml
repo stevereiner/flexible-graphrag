@@ -185,6 +185,14 @@ dependencies = [
     "qdrant-client>=1.16",
     "chromadb",
     "pymilvus",
+    # weaviate-client (4.24.1, Nov 2026) caps grpcio below 1.80, so installs resolve to grpcio 1.78.
+    # The Google Cloud packages (GCS, Pub/Sub, Spanner) then print FutureWarnings at import:
+    # grpcio < 1.83 has no Post-Quantum Cryptography support, and they will require 1.83+ from
+    # April 2027. Newer grpcio works (Weaviate ingest + search tested with LlamaIndex and
+    # LangChain on grpcio 1.85.3). After the base install, and after any extras such as
+    # [langchain] (re-running an install puts grpcio back to 1.78), upgrade it on its own:
+    #   uv pip install "grpcio>=1.85.3"
+    # `uv pip check` then reports the weaviate-client grpcio cap; that is expected.
     "weaviate-client",
     "psycopg2-binary",
     "lancedb",
@@ -287,6 +295,7 @@ rdf-full = [
 
 # LangChain integration — LLM providers, KG extraction, BM25, vector stores.
 # Install: uv pip install -e ".[langchain]"
+#   then:  uv pip install "grpcio>=1.85.3"   (see the weaviate-client note in dependencies)
 # Zero downgrades on top of a clean base install.
 langchain = [
     # Core — pin to 1.x (langchain 0.3.x would downgrade everything)

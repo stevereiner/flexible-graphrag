@@ -2,6 +2,7 @@
 
 import os
 import logging
+import re as _re
 from typing import Any
 
 _logger = logging.getLogger(__name__)
@@ -141,8 +142,21 @@ SELECT DISTINCT ?entityLabel ?predName ?relatedLabel ?direction ?entity ?related
 """
 
 
+_TURTLE_STYLE_DECL = _re.compile(r"(?im)^([ \t]*)@?(prefix|base)\b([^\n]*?>)[ \t]*\.?[ \t]*$")
+
+
+def _fix_turtle_prefixes(sparql: str) -> str:
+    """Rewrite Turtle-style declarations (``@prefix x: <iri> .``, ``PREFIX x: <iri> .``) as SPARQL.
+
+    Some models (seen with Ollama ones) end PREFIX lines with a dot, which SPARQL rejects
+    (GraphDB: 'MALFORMED QUERY: Encountered "."').
+    """
+    return _TURTLE_STYLE_DECL.sub(lambda m: f"{m.group(1)}{m.group(2).upper()}{m.group(3)}", sparql)
+
+
 def _ensure_sparql_prefixes(sparql: str) -> str:
     """Inject any standard PREFIX declarations used but not declared in the query."""
+    sparql = _fix_turtle_prefixes(sparql)
     missing = []
     for prefix, decl in _KNOWN_SPARQL_PREFIXES.items():
         used = prefix in sparql
