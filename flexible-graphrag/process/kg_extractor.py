@@ -154,6 +154,29 @@ def count_extracted_entities_and_relations(nodes: List[BaseNode]) -> tuple:
     return entity_count, relation_count
 
 
+# (cached async client attribute, what recreates it on first use) for LLMs that build it lazily:
+# OpenAI and its subclasses (Azure, OpenAILike, Fireworks...) and Ollama
+_LAZY_ASYNC_CLIENTS = (("_aclient", "_get_aclient"), ("_async_client", "async_client"))
+
+
+def _drop_loop_bound_clients(llm) -> None:
+    """Drop the LLM's cached async client after extraction ran it in a worker thread.
+
+    The extractor's sync __call__ runs its async path on a temporary event loop in that thread, so
+    the async client (and its pooled connections) belong to a loop that is closed afterwards. The
+    next caller on the server's loop -- the first search after an ingest -- then failed with
+    "Event loop is closed". The LLM builds a fresh client on its next call.
+    """
+    if llm is None:
+        return
+    for attr, recreates in _LAZY_ASYNC_CLIENTS:
+        if hasattr(type(llm), recreates) and getattr(llm, attr, None) is not None:
+            try:
+                setattr(llm, attr, None)
+            except Exception as e:
+                logger.debug(f"Could not reset {type(llm).__name__}.{attr}: {e}")
+
+
 async def run_kg_extractors_on_nodes(
     nodes: List,
     kg_extractors: List,
@@ -221,6 +244,7 @@ async def run_kg_extractors_on_nodes(
             nodes = await _loop.run_in_executor(None, extractor_with_progress, nodes)
         finally:
             sys.stdout = _orig_stdout
+            _drop_loop_bound_clients(getattr(extractor, "llm", None))
             captured = _stdout_capture.getvalue().strip()
             if captured:
                 logger.warning(f"Extractor stdout output (hidden errors): {captured}")

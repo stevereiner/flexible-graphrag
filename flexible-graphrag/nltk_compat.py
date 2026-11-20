@@ -5,6 +5,10 @@ so the NLTK data inside llama-index-core fails the first ingest after a uv insta
 multiply-linked file"). Unless NLTK_DATA is set, use_plain_nltk_data() copies that data once into
 the user cache folder and points NLTK_DATA at the copy (LlamaIndex reads NLTK_DATA the first time
 it needs NLTK). One copy per llama-index-core version (nltk_data/<version>).
+
+nltk 3.10.4+ also refuses to read a data folder that another account can write to, and a umask of
+0002 (Ubuntu's default for many users) makes the copy group-writable, so the copy is made private
+(go-w), and an older copy that is not private is replaced.
 """
 import importlib.metadata
 import importlib.util
@@ -14,6 +18,17 @@ import shutil
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
+
+
+def _writable_by_others(path: Path) -> bool:
+    return any(p.lstat().st_mode & 0o022 for p in (path, *path.rglob("*")))
+
+
+def _make_private(path: Path) -> None:
+    """Remove group and world write from path and everything under it (links are left alone)."""
+    for p in (path, *path.rglob("*")):
+        if not p.is_symlink():
+            p.chmod(p.stat().st_mode & ~0o022)
 
 
 def use_plain_nltk_data() -> None:
@@ -30,11 +45,19 @@ def use_plain_nltk_data() -> None:
         # one copy per llama-index-core version, so venvs with different versions don't replace each other's
         version = importlib.metadata.version("llama-index-core")
         target = Path(platformdirs.user_cache_dir("flexible-graphrag", appauthor=False)) / "nltk_data" / version
+        if target.is_dir() and os.name == "posix" and _writable_by_others(target):
+            # nltk would refuse it, and a file changed while it was writable keeps the change
+            shutil.rmtree(target, ignore_errors=True)
+            logger.info(f"Replacing NLTK data copy that other accounts could write to: {target}")
         if not target.is_dir():
             # Copied next to it, then renamed: the backend and Langflow may start at the same time
             tmp = target.with_name(f"{target.name}.{os.getpid()}.tmp")
             shutil.rmtree(tmp, ignore_errors=True)
             shutil.copytree(bundled, tmp)
+            if os.name == "posix":
+                _make_private(tmp)
+                for parent in (target.parent, target.parent.parent):  # nltk_data/, flexible-graphrag/
+                    parent.chmod(parent.stat().st_mode & ~0o022)
             try:
                 tmp.rename(target)
             except OSError:

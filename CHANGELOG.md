@@ -2,6 +2,23 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2026-11-20] — v0.11.0: Linux fixes (NLTK data, first search after ingest), Linux / macOS build docs
+
+### Changed
+
+- **Docs:** Python Backend page has platform notes for building packages from source: Windows C++
+  Build Tools, Linux compiler and Python headers (`python3.x-dev`), macOS Xcode Command Line Tools
+  and Install Certificates.
+- UI lock files updated for `@flexible-graphrag/graph-view` 0.11.0.
+
+### Fixed
+
+- **Linux: ingest failed with `Resource 'stopwords' not found`:** with a umask of 0002 the NLTK
+  data copy was group-writable, and nltk 3.10.4+ won't read it. The copy is now private.
+- **First search after an ingest failed with `Event loop is closed`** (later searches worked): the
+  LLM kept an async client from KG extraction's temporary event loop. Fixed for OpenAI-based LLMs
+  and Ollama.
+
 ## [2026-11-16] — v0.11.0: desktop app, data source file/folder browsers, optional SQLite state store, federated: results fused from other backends
 
 ### Added
