@@ -378,7 +378,7 @@ KG_EXTRACTION_WORKERS=4      # Default: 4
 KG extraction makes one LLM call per chunk and is usually most of an ingest's time. Nearly all of that is waiting on the LLM, so running more calls at once shortens it a lot.
 
 **Guidelines:**
-- **Cloud LLMs (OpenAI, Azure OpenAI, Gemini, Vertex AI, Anthropic, Bedrock, Groq, Fireworks, OpenRouter):** `8-16` makes KG extraction much faster. Lower it if you start getting rate-limit (HTTP 429) errors or retries, which depend on your provider account's limits.
+- **Cloud LLMs (OpenAI, Azure OpenAI, Gemini, Vertex AI, Anthropic, Bedrock, Groq, Fireworks, OpenRouter, Requesty):** `8-16` makes KG extraction much faster. Lower it if you start getting rate-limit (HTTP 429) errors or retries, which depend on your provider account's limits.
 - **Local LLMs (Ollama, vLLM, LM Studio and other `openai_like` servers):** keep the default `4`. A local server only runs as many requests at once as it is configured for (for Ollama, `OLLAMA_NUM_PARALLEL`, see [Ollama Configuration](../../LLM/OLLAMA-CONFIGURATION.md)); more workers just queue up there and can run into request timeouts.
 
 It doesn't change what gets extracted, only how many chunks are being worked on at once. Restart the backend after changing it.
